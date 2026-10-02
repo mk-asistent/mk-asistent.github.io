@@ -447,18 +447,20 @@ function posledniCizi(d) {
 
 function bezPredpony(s) { return String(s || '').replace(/^\s*((re|fw|fwd|odp|vs|tr)\s*:\s*)+/i, ''); }
 
-/** rezim: odpoved | vsem | preposlat | novy; predvyplnit (nový e-mail z návrhu): { komu, predmet, text, ucet, poOdeslani } */
+/** rezim: odpoved | vsem | preposlat | novy; predvyplnit (nový e-mail z návrhu): { id, prepsat, komu, predmet, text, ucet, poOdeslani } */
 export function otevriPsani(rezim, predvyplnit) {
   const id = stav.otevreneVlakno;
   const d = id && stav.vlakna[id] && stav.vlakna[id].data;
   if (rezim !== 'novy' && !d) { toast(id ? 'Počkej, až se zpráva načte.' : 'Nejdřív otevři konverzaci.'); return; }
   const cil = d && rezim !== 'novy' ? posledniCizi(d) : null;
   const info = (stav.info && stav.info.posta) || {};
-  const ucet = predvyplnit && predvyplnit.ucet === 'pracovni' && info.pracovniAdresa ? 'pracovni' : predvyplnit ? 'osobni'
+  // návrh od Clauda říká účet; rychlý zápis ho nechá na aktivním účtu (jako nový e-mail)
+  const ucet = predvyplnit && predvyplnit.ucet ? (predvyplnit.ucet === 'pracovni' && info.pracovniAdresa ? 'pracovni' : 'osobni')
     : cil ? (d.ucet || 'osobni') : (aktivniUcet() === 'pracovni' && info.pracovniAdresa ? 'pracovni' : 'osobni');
-  const klic = KONCEPT + rezim + '.' + (cil ? cil.id : predvyplnit ? 'navrh' : 'novy');
+  // koncept z návrhu má vlastní klíč (každý návrh zvlášť); „prepsat“ = rychlý zápis – vždy čerstvě z poznámky
+  const klic = KONCEPT + rezim + '.' + (cil ? cil.id : predvyplnit ? 'navrh.' + (predvyplnit.id || 'rychle') : 'novy');
   let koncept = uloziste.cti(klic) || {};
-  if (predvyplnit && !koncept.text) {
+  if (predvyplnit && (!koncept.text || predvyplnit.prepsat)) {
     const podpis = podpisPro(ucet);
     koncept = { komu: predvyplnit.komu || '', predmet: predvyplnit.predmet || '', text: (predvyplnit.text || '') + (podpis ? '\n\n' + podpis : '') };
   }

@@ -10,6 +10,7 @@ import { IKONY } from './ikony.js';
 import { otevriFormular } from './udalost.js';
 import { otevriPsani } from './posta.js';
 import { najdiKontakt, nactiKontakty } from './adresy.js';
+import { rozborTextu } from './rozbor.js';
 
 const ULOZISTE = 'asistent.data.schranka';
 
@@ -190,6 +191,7 @@ export function polozkaHtml(p, kompaktni) {
 /** Pole pro zápis poznámky – vytváří se jednou, překreslování ho nemaže. */
 export function zapisHtml(bezKarty) {
   return '<div class="' + (bezKarty ? '' : 'card ') + 'zapis"><textarea data-zapis rows="1" placeholder="Poznámka nebo úkol pro Clauda…" enterkeyhint="send" aria-label="Poznámka pro Clauda"></textarea>' +
+    '<div class="zapis-navrh" hidden aria-live="polite"></div>' +
     '<div class="zapis-paticka"><span class="znaku"></span><button type="button" class="btn btn--primary" data-ulozit disabled>Uložit</button></div></div>';
 }
 
@@ -275,15 +277,14 @@ export function klikSchranka(el) {
   if (el.dataset.temaSchranky !== undefined && el.closest('#p-schranka')) { stav.temaSchranky = el.dataset.temaSchranky; zmeneno(); return true; }
   if (el.dataset.polozkaAkce) { upravPolozku(el.dataset.polozkaAkce, el.dataset.id); return true; }
   if (el.dataset.navrh) { pouzijNavrh(el.dataset.navrh); return true; }
+  if (el.hasAttribute('data-zapis-navrh')) { pouzijRychlyNavrh(el.closest('.zapis')); return true; }
   if (el.hasAttribute('data-ulozit')) {
     const pole = el.closest('.zapis').querySelector('[data-zapis]');
     const text = pole.value.trim();
     if (!text) return true;
     el.disabled = true;
     volej('poznamka', { text }).then((p) => {
-      pole.value = '';
-      prizpusobVysku(pole);
-      el.closest('.zapis').querySelector('.znaku').textContent = '';
+      vycistiZapis(el.closest('.zapis'));
       if (stav.schranka) stav.schranka.nove.unshift(p);
       zmeneno();
       toast('Uloženo do schránky');
@@ -322,7 +323,58 @@ export function vstupSchranka(e) {
   zapis.querySelector('[data-ulozit]').disabled = !t.value.trim();
   const n = t.value.length;
   zapis.querySelector('.znaku').textContent = n > 200 ? n + ' znaků' : '';
+  navrhZapisu(zapis, t.value);
   return true;
+}
+
+// ---------------------------------------------------------------- Rychlý zápis: poznámka → událost / e-mail hned (bez čekání na Clauda)
+
+/** Pod polem nabídne „Do kalendáře“ / „Napsat e-mail“, když text zní jako schůzka nebo zpráva. Uložit do schránky jde pořád. */
+function navrhZapisu(zapis, text) {
+  const misto = zapis.querySelector('.zapis-navrh');
+  if (!misto) return;
+  const r = rozborTextu(text);
+  if (!r) { misto.hidden = true; misto.innerHTML = ''; return; }
+  nactiKontakty(); // jména → adresy, až Michal klepne
+  let popis, tlacitko;
+  if (r.typ === 'udalost') {
+    const kdy = DNY_KR[new Date(r.zacatek).getDay()] + ' ' + dm(r.zacatek) + (r.celodenni ? ' · celý den' : ' · ' + hhmm(r.zacatek) + '–' + hhmm(r.konec));
+    popis = '<b>' + esc(r.nazev || 'Událost') + '</b><span>' + esc(kdy) + (r.pozvat && r.lide.length ? ' · pozvat ' + esc(r.lide.join(', ')) : '') + '</span>';
+    tlacitko = IKONY.kalendar + 'Do kalendáře';
+  } else {
+    popis = '<b>' + (r.lide.length ? 'Komu: ' + esc(r.lide.join(', ')) : 'Nový e-mail') + '</b>' + (r.text ? '<span>„' + esc(prvniRadek(r.text, 80)) + '“</span>' : '');
+    tlacitko = IKONY.psat + 'Napsat e-mail';
+  }
+  misto.innerHTML = '<span class="zapis-navrh__text">' + popis + '</span><button type="button" class="btn btn--sm" data-zapis-navrh>' + tlacitko + '</button>';
+  misto.hidden = false;
+}
+
+function vycistiZapis(zapis) {
+  const pole = zapis && zapis.querySelector('[data-zapis]');
+  if (!pole) return;
+  pole.value = '';
+  vstupSchranka({ target: pole });
+}
+
+/** Otevře formulář události / psaní předvyplněné z poznámky; po uložení / odeslání se poznámka smaže (do schránky nejde). */
+function pouzijRychlyNavrh(zapis) {
+  const pole = zapis && zapis.querySelector('[data-zapis]');
+  const r = pole && rozborTextu(pole.value);
+  if (!r) return;
+  nactiKontakty();
+  if (r.typ === 'udalost') {
+    const l = r.pozvat ? lide(r.lide) : { adresy: [], jmena: [] };
+    otevriFormular({
+      navrh: { nazev: r.nazev, zacatek: r.zacatek, konec: r.konec, celodenni: r.celodenni, misto: '',
+        popis: [r.popis, l.jmena.length ? 'Pozvat (doplnit adresu): ' + l.jmena.join(', ') : ''].filter(Boolean).join('\n'),
+        hoste: l.adresy.map((a) => (/<([^>]+)>/.exec(a) || [0, a])[1]), pozvat: r.pozvat },
+      poUlozeni: () => vycistiZapis(zapis)
+    });
+  } else {
+    const l = lide(r.lide);
+    otevriPsani('novy', { prepsat: true, komu: l.adresy.concat(l.jmena).join(', '), predmet: r.predmet || '', text: r.text || '',
+      poOdeslani: () => vycistiZapis(zapis) });
+  }
 }
 
 // ---------------------------------------------------------------- Dopsat, nadpis, téma, smazat
@@ -434,6 +486,7 @@ function pouzijNavrh(id) {
   } else {
     const l = lide(n.komu);
     otevriPsani('novy', {
+      id,
       komu: l.adresy.concat(l.jmena).join(', '), predmet: n.predmet || '', text: n.text || '', ucet: n.ucet === 'pracovni' ? 'pracovni' : 'osobni',
       poOdeslani: () => hotovo('E-mail odeslán: ' + (n.predmet || '(bez předmětu)'))
     });

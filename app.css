@@ -60,7 +60,7 @@
         --tmava: #1d3828; --tmava-text: #e6f0e8;
         --oranz: #f07a4e; --oranz-hover: #f48d66; --oranz-tint: rgba(240, 122, 78, .16);
         --zluta: #e6ad45; --zluta-tint: rgba(230, 173, 69, .15); --ok: #5cc185; --ok-tint: rgba(92, 193, 133, .14);
-        --danger: #ff7a5c; --danger-tint: rgba(255, 122, 92, .15); --fialova: #a990f0; --fialova-tint: rgba(169, 144, 240, .16);
+        --danger: #ff7a5c; --danger-tint: rgba(255, 122, 92, .15); --fialova: #a990f0; --fialova-tint: rgba(169, 144, 240, .16); --limetka-tint: rgba(213, 238, 94, .12);
         --sklo: rgba(23, 29, 26, .9); --shadow: none; --shadow-pop: 0 26px 56px -14px rgba(0, 0, 0, .75);
         --avatar-s: 28%; --avatar-l: 24%; --avatar-ts: 50%; --avatar-tl: 74%;
         color-scheme: dark;
@@ -73,7 +73,7 @@
     --tmava: #1d3828; --tmava-text: #e6f0e8;
     --oranz: #f07a4e; --oranz-hover: #f48d66; --oranz-tint: rgba(240, 122, 78, .16);
     --zluta: #e6ad45; --zluta-tint: rgba(230, 173, 69, .15); --ok: #5cc185; --ok-tint: rgba(92, 193, 133, .14);
-    --danger: #ff7a5c; --danger-tint: rgba(255, 122, 92, .15); --fialova: #a990f0; --fialova-tint: rgba(169, 144, 240, .16);
+    --danger: #ff7a5c; --danger-tint: rgba(255, 122, 92, .15); --fialova: #a990f0; --fialova-tint: rgba(169, 144, 240, .16); --limetka-tint: rgba(213, 238, 94, .12);
     --sklo: rgba(23, 29, 26, .9); --shadow: none; --shadow-pop: 0 26px 56px -14px rgba(0, 0, 0, .75);
     --avatar-s: 28%; --avatar-l: 24%; --avatar-ts: 50%; --avatar-tl: 74%;
     color-scheme: dark;
@@ -573,6 +573,15 @@ li.aktivni > .radek { background: var(--sand); box-shadow: inset 3px 0 0 var(--a
 .zapis textarea::placeholder { color: var(--dim); }
 .zapis-paticka { display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
 .zapis-paticka .znaku { margin-right: auto; font-size: 12px; color: var(--dim); }
+/* rychlý zápis: „Schůzka s Petrem ve čtvrtek v 10“ → Do kalendáře (návrh hned pod polem) */
+.zapis-navrh { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 5px 5px 5px 12px; border-radius: 14px; background: var(--limetka-tint); font-size: 12.5px; color: var(--text-soft); animation: vyjed .16s ease-out; }
+.zapis-navrh[hidden] { display: none; }
+.zapis-navrh__text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
+.zapis-navrh__text > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zapis-navrh__text b { color: var(--text); font-weight: 650; }
+.zapis-navrh .btn { flex: none; background: var(--limetka); color: var(--na-limetce); border-radius: 999px; }
+.zapis-navrh .btn:hover { filter: brightness(.96); }
+@keyframes vyjed { from { opacity: 0; transform: translateY(-3px); } }
 .detail { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 10px; }
 .bublina { max-width: 92%; border-radius: 14px; padding: 10px 13px; font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--line-soft); }
 .bublina .kdo { display: block; font-size: 11px; font-weight: 650; color: var(--muted); margin-bottom: 2px; }

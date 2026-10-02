@@ -534,6 +534,52 @@ async function novaStranka(prohlizec, v, motiv) {
     await ctx.close();
   });
 
+  // ---------- rychlý zápis: poznámka „schůzka zítra v 10“ → Do kalendáře, „napiš X, že…“ → e-mail (bez Clauda)
+  for (const v of [VELIKOSTI[3], VELIKOSTI[0]]) {
+    await test(v.nazev + ': rychlý zápis – poznámka jako událost a e-mail', async () => {
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, v);
+      await page.goto(WEB);
+      await page.click(v.sirka >= 760 ? '#rail [data-cil="schranka"]' : '.lista__btn[data-cil="schranka"]');
+      const pole = '#p-schranka [data-zapis]';
+      await page.waitForSelector(pole);
+      await page.fill(pole, 'Schůzka s Trenérem zítra v 10 na 2 hodiny. Vzít dresy.');
+      await page.waitForSelector('#p-schranka .zapis-navrh:not([hidden]) [data-zapis-navrh]');
+      const navrh = await page.textContent('#p-schranka .zapis-navrh');
+      jistota(/Schůzka s Trenérem/.test(navrh) && /10:00–12:00/.test(navrh), 'návrh pod polem: ' + navrh);
+      jistota(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, 'návrh přetéká');
+      await page.waitForTimeout(250); // dojede animace lišty
+      await page.screenshot({ path: path.join(VYSTUP, v.nazev + '_rychly_zapis.png') });
+      await page.click('#p-schranka [data-zapis-navrh]');
+      const f = '[data-panel="udalost-formular"] ';
+      await page.waitForSelector(f + '[data-uf="nazev"]');
+      jistota(await page.inputValue(f + '[data-uf="nazev"]') === 'Schůzka s Trenérem', 'název v formuláři');
+      jistota(await page.inputValue(f + '[data-uf="od"]') === '10:00' && await page.inputValue(f + '[data-uf="do"]') === '12:00', 'čas ve formuláři');
+      jistota(await page.inputValue(f + '[data-uf="popis"]') === 'Vzít dresy.', 'poznámka k události');
+      const pred = volano.length;
+      await page.click(f + '[data-ulozit-udalost]');
+      await page.waitForSelector('[data-panel="udalost-formular"]', { state: 'detached' });
+      const ulozena = volano.slice(pred).find((d) => d.akce === 'udalostUlozit');
+      jistota(ulozena && ulozena.nazev === 'Schůzka s Trenérem' && ulozena.zacatek === den(1, 10) && ulozena.konec === den(1, 12), 'uložená událost: ' + JSON.stringify(ulozena));
+      jistota(!volano.slice(pred).some((d) => d.akce === 'poznamka'), 'poznámka nemá jít do schránky');
+      await page.waitForFunction(() => { const p = document.querySelector('#p-schranka [data-zapis]'); return p && !p.value && document.querySelector('#p-schranka .zapis-navrh').hidden; });
+      // e-mail: jméno ve 3. pádě se přeloží na kontakt, text za „že“ do těla nad podpis
+      await page.fill(pole, 'Napiš Trenérovi, že v úterý nepřijdu');
+      await page.waitForFunction(() => /Napsat e-mail/.test((document.querySelector('#p-schranka .zapis-navrh:not([hidden])') || {}).textContent || ''));
+      await page.click('#p-schranka [data-zapis-navrh]');
+      await page.waitForSelector('[data-panel="psani"] [data-psani-komu]');
+      const komu = await page.inputValue('[data-panel="psani"] [data-psani-komu]');
+      jistota(komu === 'Trenér <trener@klub.test>', 'komu z poznámky: ' + komu);
+      jistota(await page.inputValue('[data-panel="psani"] [data-psani-text]') === 'V úterý nepřijdu.\n\nMichal', 'text e-mailu: ' + await page.inputValue('[data-panel="psani"] [data-psani-text]'));
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-panel="psani"]', { state: 'detached' });
+      // obyčejná poznámka nic nenabízí
+      await page.fill(pole, 'Koupit nové kopačky a míče');
+      jistota(await page.locator('#p-schranka .zapis-navrh[hidden]').count() === 1, 'obyčejná poznámka nemá nabízet událost');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    });
+  }
+
   // ---------- zdraví: stránka, karta na Dnes, trénink spárovaný s událostí, klíč pro zkratku v Nastavení
   for (const v of [VELIKOSTI[3], VELIKOSTI[0]]) {
     await test(v.nazev + ': Zdraví – připravenost, spánek, trénink u události, Nastavení', async () => {
