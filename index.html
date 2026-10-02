@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Asistent</title>
+<meta name="description" content="Osobní přehled na jednom místě: schránka pro Clauda, pošta a kalendář.">
+<meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0f13" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Asistent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self' https://script.google.com https://script.googleusercontent.com; img-src 'self' data: https: http:; style-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; base-uri 'self'; form-action 'none'; object-src 'none'">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="ikony/ikona-192.png" type="image/png">
+<link rel="apple-touch-icon" href="ikony/apple-touch-icon.png">
+<link rel="stylesheet" href="app.css">
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+
+<div id="aplikace" class="aplikace" hidden>
+  <!-- pruh ikon (iPad a PC) -->
+  <nav class="rail" id="rail" aria-label="Sekce"></nav>
+  <!-- postranní panel podle sekce (široké okno) -->
+  <aside class="bocni" id="bocni" aria-label="Rychlá volba"></aside>
+
+  <div class="hlavni">
+    <header class="hlava" id="hlava"></header>
+    <div class="pruhy" id="pruhy"></div>
+    <main>
+      <section class="pohled" data-pohled="dnes" id="p-dnes"></section>
+      <section class="pohled pohled-uzky" data-pohled="schranka" id="p-schranka" hidden></section>
+      <section class="pohled pohled-posta" data-pohled="posta" id="p-posta" hidden></section>
+      <section class="pohled pohled-kalendar" data-pohled="kalendar" id="p-kalendar" hidden></section>
+    </main>
+  </div>
+
+  <!-- spodní lišta (telefon) -->
+  <nav class="lista" id="lista" aria-label="Sekce"></nav>
+</div>
+
+<div id="uvod" class="uvod" hidden></div>
+
+<div id="panely"><div class="panel-pozadi"></div></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<noscript><p style="padding:24px;font-family:sans-serif">Asistent potřebuje zapnutý JavaScript.</p></noscript>
+</body>
+</html>

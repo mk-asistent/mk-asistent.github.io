@@ -1,0 +1,12 @@
+{
+  "name": "asistent-testy",
+  "private": true,
+  "description": "Test aplikace Asistent v prohlížeči (Playwright). Aplikace sama žádné balíčky nepotřebuje.",
+  "scripts": {
+    "test": "node test_aplikace.js",
+    "prohlizec": "playwright install chromium"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}
