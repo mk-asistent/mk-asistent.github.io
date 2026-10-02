@@ -31,8 +31,10 @@ const vlaknoSouhrn = {
   v1: { id: 'v1', ucet: 'osobni', stav: 'otazka', od: 'Trenér', predmet: 'Sraz v sobotu', ukazka: 'Ahoj, sraz v 8:30. Stihneš to?', kdy: ted - H, neprectena: true, pocet: 1, odkaz: '#', stitky: ['Fotbal'] },
   v2: { id: 'v2', ucet: 'pracovni', stav: 'cekas', od: 'Investor', predmet: 'Protokol', ukazka: 'Posílám protokol.', kdy: ted - 2 * H, neprectena: false, pocet: 2, odkaz: '#' }
 };
-const KALENDARE = [{ id: 'g1', nazev: 'Osobní', barva: '#2f6bff', zdroj: 'google', skryty: false, zapis: true },
-  { id: 'ics-1', nazev: 'Rodina', barva: '#e2860a', zdroj: 'icloud', skryty: false }];
+const KALENDARE = [{ id: 'g1', nazev: 'Osobní', barva: '#2f6bff', zdroj: 'google', skryty: false, zapis: true, druh: 'osobni' },
+  { id: 'ics-1', nazev: 'Rodina', barva: '#e2860a', zdroj: 'icloud', skryty: false, druh: 'rodina' }];
+const zapasFotbal = (tym, dni, h, domaci, hoste, vysledek) => ({ id: tym + dni, tym, zacatek: new Date(den(dni, h)).toISOString(), domaci, hoste,
+  doma: /Vnorovy/.test(domaci), misto: '', vysledek, stav: vysledek ? 'odehrano' : 'naplanovano', url: '#' });
 const motor = {
   info: () => ({ verze: 'test', akce: Object.keys(motor).concat(['polozkaUpravy']), ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false, podpisy: { osobni: 'Michal', pracovni: '' } },
     kalendare: KALENDARE, skupinyHostu: [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@x.test', 'rodic2@x.test'] }] }),
@@ -49,7 +51,9 @@ const motor = {
   kalendar: (d) => ({ udalosti: [
     { id: 'u1|' + den(0, 9), nazev: 'Porada', zacatek: den(0, 9), konec: den(0, 10), celodenni: false, misto: 'kancelář', popis: '', kalendar: 'Osobní', kalendarId: 'g1', barva: '#2f6bff', zdroj: 'google', opakovana: true },
     { id: 'u3|' + den(0, 23), nazev: 'Pozdní hovor', zacatek: den(0, 23), konec: den(0, 23.5), celodenni: false, misto: '', popis: '', kalendar: 'Osobní', kalendarId: 'g1', barva: '#2f6bff', zdroj: 'google', opakovana: false },
-    { id: 'u2|' + den(1), nazev: 'Narozeniny', zacatek: den(1), konec: den(2), celodenni: true, misto: '', popis: '', kalendar: 'Rodina', kalendarId: 'ics-1', barva: '#e2860a', zdroj: 'icloud' }
+    { id: 'u2|' + den(1), nazev: 'Narozeniny', zacatek: den(1), konec: den(2), celodenni: true, misto: '', popis: '', kalendar: 'Rodina', kalendarId: 'ics-1', barva: '#e2860a', zdroj: 'icloud' },
+    // osobní událost vždy v budoucnu (testy výpisu týdne nesmí záviset na tom, kolik je hodin)
+    { id: 'u4|' + den(2, 10), nazev: 'Schůzka', zacatek: den(2, 10), konec: den(2, 11), celodenni: false, misto: '', popis: '', kalendar: 'Osobní', kalendarId: 'g1', barva: '#2f6bff', zdroj: 'google', opakovana: false }
   ].filter((u) => u.zacatek < d.do && u.konec > d.od), chyby: [], od: d.od, do: d.do, ted }),
   kalendare: () => KALENDARE,
   kalendarZalozit: (d) => ({ id: 'zapasy@group.test', kalendare: KALENDARE.concat({ id: 'zapasy@group.test', nazev: d.nazev, barva: d.barva, zdroj: 'google', skryty: false, zapis: true }) }),
@@ -72,6 +76,12 @@ const motor = {
     treninky: [{ id: 'w1', den: iso(ted), start: den(0, 9), konec: den(0, 10), sport: 'soccer', zatez: 11.5, tepPrumer: 140, tepMax: 180, kcal: 700, zony: [1, 5, 20, 20, 10, 4] }],
     whoop: { nastaveno: true, propojeno: true, sync: { kdy: ted, chyba: '' } }, apple: { kdy: ted } }),
   zdraviKlic: () => ({ klic: 'testovaci-klic-zdravi' }),
+  fotbal: () => ({ vKalendari: [], kalendar: null, data: { verze: 1, aktualizovano: new Date(ted).toISOString(), klub: 'FK Agro Vnorovy',
+    tymy: [{ klic: 'A', nazev: 'A-tým', barva: '#2e7a4d' }, { klic: 'B', nazev: 'B-tým', barva: '#0f7c8c' }, { klic: 'dorost', nazev: 'Dorost', barva: '#a8620c' }],
+    zapasy: [zapasFotbal('A', -6, 16, 'FK Agro Vnorovy', 'TJ Lysovice', '1:3'), zapasFotbal('A', 2, 15, 'FK Šardice', 'FK Agro Vnorovy', ''),
+      zapasFotbal('B', -5, 15, 'Vnorovy B', 'Nová Lhota', '8:0'), zapasFotbal('dorost', -5, 10, 'FC Kyjov 1919', 'FK Agro Vnorovy', '4:1'),
+      zapasFotbal('dorost', 3, 12, 'FK Agro Vnorovy', 'TJ Sokol Těšany', '')] } }),
+  fotbalKalendar: (d) => ({ pridano: 2, upraveno: 0, beze_zmeny: 0, kalendare: {}, kalendareSeznam: KALENDARE }),
   stitky: () => [{ nazev: 'Fotbal', neprectenych: 1 }, { nazev: 'Účty', neprectenych: 0 }],
   postaStitek: (d) => ({ nazev: d.nazev, vlakna: d.nazev === 'Fotbal' ? [vlaknoSouhrn.v1, { id: 'v8', ucet: 'osobni', stav: 'resi', od: 'Rozhodčí', predmet: 'Zápis o utkání', ukazka: 'Zápis v příloze.', kdy: ted - 200 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Fotbal'] }] : [], ted }),
   kontakty: () => [{ j: 'Trenér', a: 'trener@klub.test', n: 5 }, { j: 'Investor', a: 'info@stavba.test', n: 2 }],
@@ -98,8 +108,10 @@ async function pripravMotor(page) {
 // ---------------------------------------------------------------- pomůcky
 let ok = 0, chyb = 0;
 async function test(nazev, fn) {
+  // JEN=část názvu → spustí jen odpovídající testy (ladění)
+  if (process.env.JEN && nazev.indexOf(process.env.JEN) < 0) return;
   try { await fn(); ok++; console.log('  ✓ ' + nazev); }
-  catch (e) { chyb++; console.log('  ✗ ' + nazev + '\n    ' + String(e.message || e).split('\n').filter(Boolean).slice(0, 4).join('\n    ')); }
+  catch (e) { chyb++; console.log('  ✗ ' + nazev + '\n    ' + String(e.message || e).split('\n').filter(Boolean).slice(0, 12).join('\n    ')); }
 }
 function jistota(podminka, zprava) { if (!podminka) throw new Error(zprava); }
 
@@ -114,6 +126,12 @@ async function novaStranka(prohlizec, v, motiv) {
   const ctx = await prohlizec.newContext({ viewport: { width: v.sirka, height: v.vyska }, colorScheme: motiv || 'light', hasTouch: v.dotyk, isMobile: v.nazev === 'telefon' });
   await ctx.addInitScript(([url, klic]) => {
     if (!localStorage.getItem('asistent.pripojeni')) localStorage.setItem('asistent.pripojeni', JSON.stringify({ url, klic }));
+    // záznam historie (ladění zavírání panelů tlačítkem Zpět)
+    window.__hist = [];
+    const zpet = history.back.bind(history), pridej = history.pushState.bind(history);
+    history.back = () => { window.__hist.push('back ' + (performance.now() | 0) + ' ' + String(new Error().stack).split('\n').slice(2, 4).join(' < ').replace(/https?:\/\/[^/]+\//g, '')); zpet(); };
+    history.pushState = (s, t, u) => { window.__hist.push('push ' + JSON.stringify(s) + ' ' + (performance.now() | 0)); pridej(s, t, u); };
+    addEventListener('popstate', (e) => window.__hist.push('pop ' + JSON.stringify(e.state) + ' ' + (performance.now() | 0)));
   }, [MOTOR, KLIC]);
   const page = await ctx.newPage();
   const chybyStranky = [];
@@ -186,7 +204,8 @@ async function novaStranka(prohlizec, v, motiv) {
         jistota(await vidim('#horni') === v.sirka >= 760, 'horní lišta s hledáním');
         jistota(await vidim('.rail__btn > span:not(.pocet)') === v.sirka >= 1180, 'popisky v postranním panelu');
         // týden jako krátký výpis, výstraha ČHMÚ nahoře, karta počasí; nic z Dnes se neopakuje (žádný půlkruh ani sloupce)
-        jistota(await page.locator('#dl-tyden .agenda__u').count() >= 2 && !(await page.locator('.ukazatel, .tyden-graf').count()), 'týden jako výpis');
+        // (dnešní události, které už skončily, výpis neukazuje – zítřejší narozeniny jsou tam vždy)
+        jistota(await page.locator('#dl-tyden .agenda__u').count() >= 1 && !(await page.locator('.ukazatel, .tyden-graf').count()), 'týden jako výpis');
         jistota(/Silné bouřky/.test(await page.textContent('.vystraha')), 'výstraha ČHMÚ');
         jistota(await vidim(v.sirka < 760 ? '.mini-kpi[data-pocasi]' : '#dnes-kpi [data-pocasi]'), 'karta počasí');
         if (v.sirka >= 760) jistota(await page.locator('#dl-pozornost [data-vlakno="v1"]').count() === 1 && await page.locator('#dl-pozornost [data-polozka-id="c1"]').count() === 1, 'pozornost: úkol i pošta v jednom seznamu');
@@ -262,7 +281,9 @@ async function novaStranka(prohlizec, v, motiv) {
         await page.waitForSelector('[data-panel="pripomenout"]', { state: 'detached' });
         jistota(volano.some((d) => d.akce === 'pripomenout' && d.id === 'v2' && d.termin === pondeli && d.poznamka === 'Zavolat zpátky'), 'připomínka nedorazila do motoru');
         jistota(new Date(pondeli + 'T12:00').getDay() === 1, 'V pondělí není pondělí: ' + pondeli);
-        if (v.sirka < 1000) { await page.click('[data-panel="vlakno"] [data-zavrit-panel]'); await page.waitForSelector('[data-panel="vlakno"]', { state: 'detached' }); }
+        // po odložení se detail e-mailu zavře sám (až po okně připomínky) – nic dalšího se zavřít nesmí
+        if (v.sirka < 1000) await page.waitForSelector('[data-panel="vlakno"]', { state: 'detached' });
+        jistota(!(await page.locator('.panel.otevreny').count()), 'po odložení zůstal otevřený panel');
 
         await klikNaSekci('kalendar');
         await page.click('[data-kal-pohled="mesic"]');
@@ -277,8 +298,25 @@ async function novaStranka(prohlizec, v, motiv) {
         await page.screenshot({ path: path.join(VYSTUP, jmeno + '_kalendar_tyden.png') });
         // formulář nové události (telefon: plus v hlavičce, jinak tlačítko nahoře) – vejde se a nepřetéká
         if (v.sirka < 760) { // telefon: „+“ v liště → list Přidat → Událost
+          await page.evaluate(() => { window.__log = []; addEventListener('popstate', (e) => window.__log.push('popstate ' + JSON.stringify(e.state) + ' ' + (performance.now() | 0))); });
           await page.click('#lista [data-rychle]');
-          await page.click('[data-panel="rychle"] [data-rychle-akce="udalost"]');
+          await page.evaluate(() => window.__log.push('po kliknuti ' + (performance.now() | 0) + ' panel=' + !!document.querySelector('[data-panel="rychle"]')));
+          try {
+            await page.click('[data-panel="rychle"] [data-rychle-akce="udalost"]', { timeout: 8000 });
+          } catch (e) {
+            // ladění kolísavého pádu: co je na místě tlačítka a v jakém stavu je list
+            const diag = await page.evaluate(() => {
+              const b = document.querySelector('[data-panel="rychle"] [data-rychle-akce="udalost"]');
+              const p = document.querySelector('[data-panel="rychle"]');
+              const r = b && b.getBoundingClientRect();
+              const naMiste = r ? document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) : null;
+              return { panel: p && p.className, inert: p && p.inert, rect: r && [r.x, r.y, r.width, r.height].map(Math.round), vyska: innerHeight,
+                naMiste: naMiste && (naMiste.outerHTML || '').slice(0, 160), okno: !!document.querySelector('.okno-pozadi'), historie: history.length,
+                stav: history.state, log: window.__log, hist: (window.__hist || []).slice(-14), panely: Array.from(document.querySelectorAll('.panel')).map((x) => x.className + '|' + (x.dataset.panel || '')) };
+            });
+            await page.screenshot({ path: path.join(VYSTUP, 'chyba_rychle_' + jmeno + '.png') });
+            throw new Error('Událost z listu Přidat nejde klepnout: ' + JSON.stringify(diag));
+          }
         } else await page.click('#horni [data-nova-udalost]');
         await page.waitForSelector('[data-panel="udalost-formular"] [data-uf="nazev"]');
         await page.click('[data-panel="udalost-formular"] [data-uf-typ="zapas"]');
@@ -366,11 +404,8 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.keyboard.press('Escape');
     await page.waitForSelector('[data-panel="udalost"]', { state: 'detached' });
 
-    // rozpis dorostu z webu
-    await page.click('.kal-boc [data-import-rozpisu="dorost"]');
-    await page.waitForFunction(() => /3 nových/.test(document.getElementById('toast').textContent));
-    const imp = nove().find((d) => d.akce === 'zapasyImport');
-    jistota(imp && /rozpis-dorost\.js$/.test(imp.odkaz) && imp.domaci === 'Vnorovy' && imp.tym === 'dorost', 'import: ' + JSON.stringify(imp));
+    // zápasy klubu: místo rozpisu z webu dorostu týmy z fotbal.cz (pilulky v pravém panelu; rozpis zůstal pro starý motor)
+    jistota(await page.locator('.kal-boc [data-fotbal-tym]').count() === 3 && !(await page.locator('.kal-boc [data-import-rozpisu]').count()), 'týmy klubu v panelu');
 
     // klepnutí do volné hodiny v týdnu → formulář s tou hodinou
     await page.click('[data-kal-pohled="tyden"]');
@@ -531,6 +566,37 @@ async function novaStranka(prohlizec, v, motiv) {
       await ctx.close();
     });
   }
+
+  // ---------- fotbal na Dnes, tým do kalendáře, filtr druhů kalendářů
+  await test('fotbal: výsledky a další zápasy týmů na Dnes, tým do kalendáře, filtr druhů v Kalendáři', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.waitForSelector('#dl-fotbal:not([hidden]) .fotbal-tymy li');
+    const text = await page.textContent('#dl-fotbal');
+    jistota(/A-tým/.test(text) && /1:3 Lysovice/.test(text) && /Šardice/.test(text) && /8:0/.test(text), 'karta fotbalu: ' + text);
+    jistota(await page.locator('#dl-fotbal .fotbal-vysledek--P').count() === 2 && await page.locator('#dl-fotbal .fotbal-vysledek--V').count() === 1, 'V/P podle pohledu klubu');
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_dnes_fotbal.png') });
+    await page.click('#rail [data-cil="kalendar"]');
+    await page.waitForSelector('.kal-boc [data-fotbal-tym="A"]');
+    await page.click('.kal-boc [data-fotbal-tym="A"]');
+    await page.waitForFunction(() => /2 nových/.test(document.getElementById('toast').textContent));
+    jistota(volano.some((d) => d.akce === 'fotbalKalendar' && JSON.stringify(d.tymy) === '["A"]'), 'tým do kalendáře');
+    // filtr druhu: Rodina → jen narozeniny
+    await page.click('[data-kal-pohled="seznam"]');
+    await page.waitForSelector('#p-kalendar [data-udalost^="u1|"]');
+    await page.click('#p-kalendar [data-kal-druh="rodina"]');
+    await page.waitForFunction(() => !document.querySelector('#p-kalendar .kal-hlavni [data-udalost^="u1|"]') && document.querySelector('#p-kalendar .kal-hlavni [data-udalost^="u2|"]'));
+    // Dnes filtr nemá (týden ukazuje vše)
+    await page.click('#rail [data-cil="dnes"]');
+    await page.waitForSelector('#dl-tyden [data-udalost^="u2|"]');
+    jistota(await page.locator('#dl-tyden [data-udalost^="u4|"]').count() === 1, 'Dnes ukazuje i osobní');
+    await page.click('#rail [data-cil="kalendar"]');
+    await page.click('#p-kalendar [data-kal-druh=""]');
+    await page.waitForSelector('#p-kalendar .kal-hlavni [data-udalost^="u3|"]');
+    await page.click('[data-kal-pohled="tyden"]');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
 
   // ---------- Co je nového: po návratu ukáže, co přibylo (tady nová pošta, která čeká), Ukázat vede do Pošty
   await test('okno Co je nového po návratu do aplikace', async () => {

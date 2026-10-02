@@ -319,14 +319,14 @@ main { padding: 4px var(--mezera) calc(var(--lista-h) + env(safe-area-inset-bott
 
 /* karty přehledu (každá věc jen jednou): vlevo „Vyžaduje pozornost“, vpravo týden a poznámka pro Clauda */
 .dnes-mrizka { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start;
-    grid-template-areas: "pozornost" "tyden" "zapis"; }
-.dl-pozornost { grid-area: pozornost; } .dl-tyden { grid-area: tyden; } .dl-zapis { grid-area: zapis; }
+    grid-template-areas: "pozornost" "vpravo"; }
+.dl-pozornost { grid-area: pozornost; } .dnes-vpravo { grid-area: vpravo; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .dlazdice { display: flex; flex-direction: column; min-width: 0; }
 .dlazdice__paty { display: flex; align-items: stretch; gap: 8px; margin: 4px 12px 12px; }
 .dlazdice__paty .dlazdice__pata { margin: 0; width: auto; flex: 1; min-height: 38px; }
 .dl-pozornost .dlazdice__telo { max-height: 640px; }
 @media (min-width: 760px) {
-    .dnes-mrizka { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); grid-template-areas: "pozornost tyden" "pozornost zapis"; }
+    .dnes-mrizka { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); grid-template-areas: "pozornost vpravo"; }
     .dl-pozornost { align-self: stretch; }
 }
 @media (min-width: 1180px) {
@@ -502,6 +502,28 @@ button.legenda-radek { width: 100%; background: none; border: 0; text-align: lef
     .zdravi-kpi .kpi__hodnota { font-size: 24px; }
     .zdravi-kpi .kpi__hlava span { display: none; }
 }
+
+/* ================================================================ Fotbal (zápasy klubu) a druhy kalendářů */
+.fotbal-tymy { list-style: none; margin: 0; padding: 2px 0 10px; }
+.fotbal-tymy li { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 2px 10px; padding: 7px 16px; align-items: baseline; }
+.fotbal-tymy li + li { border-top: 1px solid var(--line-soft); }
+.fotbal-tym { grid-row: span 2; display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 650; }
+.fotbal-tym::before { content: ""; width: 8px; height: 8px; border-radius: 3px; background: var(--b); flex: none; }
+.fotbal-vysledek { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fotbal-vysledek i { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; font-style: normal; font-size: 11px; font-weight: 700; background: var(--sand); color: var(--text-soft); flex: none; }
+.fotbal-vysledek--V i { background: var(--ok-tint); color: var(--ok); }
+.fotbal-vysledek--P i { background: var(--danger-tint); color: var(--danger); }
+.fotbal-vysledek--R i { background: var(--zluta-tint); color: var(--zluta); }
+.fotbal-dalsi { font-size: 12.5px; color: var(--text-soft); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fotbal-dalsi small { color: var(--dim); }
+.fotbal-panel { padding: 0 16px 4px; }
+.fotbal-panel .karta-text, .nast-sekce .karta-text { margin: 2px 0 6px; }
+.fotbal-volby { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.fotbal-volby .chip svg { width: 14px; height: 14px; }
+.kal-druhy { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.kal-druhy::-webkit-scrollbar { display: none; }
+.kal-skupina { padding: 8px 16px 0; font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+select.field--sm { width: auto; min-height: 32px; padding: 4px 26px 4px 8px; font-size: 12.5px; }
 
 /* ================================================================ seznamy */
 .seznam { list-style: none; margin: 0; padding: 0; }
@@ -1031,7 +1053,7 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
     /* Dnes: zelená hlavní karta, řada malých čísel, Vyžaduje pozornost – místo čtyř čísel a dvou seznamů */
     .dnes-mobil { display: flex; flex-direction: column; gap: 14px; }
     #p-dnes .kpi-mrizka, #p-dnes .dl-pozornost { display: none; }
-    .dnes-mrizka { grid-template-areas: "tyden" "zapis"; }
+    .dnes-mrizka { grid-template-areas: "vpravo"; }
 
     .hero { border-radius: 26px; background: #3d7a56; padding: 8px; color: #fff; }
     .hero__hlava { display: flex; align-items: center; justify-content: space-between; padding: 6px 4px 10px 6px; }

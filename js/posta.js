@@ -9,7 +9,7 @@ import {
   esc, kdyKratce, kdyDlouze, prvniRadek, iniciala, odstin, sOdkazy, velikost, jmenaAdres, rozdelAdresy, uloziste,
   pulnoc, pridejDny, isoDatum, terminDatum, dm, rozdilDni
 } from './pomocne.js';
-import { otevriPanel, obnovPanel, zavriPanel, jeOtevreny, elementPanelu, horniPanel } from './panely.js';
+import { otevriPanel, obnovPanel, zavriPanel, zavriAPak, jeOtevreny, elementPanelu, horniPanel } from './panely.js';
 import { toast, toastAkce, kostra, chybaHtml, segment, prizpusobVysku, potvrd } from './ui.js';
 import { IKONY } from './ikony.js';
 import { nactiKontakty } from './adresy.js';
@@ -693,8 +693,9 @@ async function ulozPripominku(tlacitko) {
     // motor konverzaci odložil (archivoval) – v den termínu se sama vrátí do Doručené; tady ji jen schovat
     upravVSeznamech(p.id, (m, i, seznam) => seznam.splice(i, 1));
     if (stav.otevreneVlakno === p.id) stav.otevreneVlakno = null;
-    zavriPanel();
-    if (jeOtevreny('vlakno')) setTimeout(zavriPanel, 300);
+    // nejdřív okno připomínky, PAK detail e-mailu – ale jen když je pořád nahoře (Michal ho mohl zavřít sám
+    // nebo otevřít jiný panel; slepý časovač by zavřel ten nový)
+    zavriAPak(() => { const horni = horniPanel(); if (horni && horni.id === 'vlakno') zavriPanel(); });
     toast('Odloženo do ' + dm(terminDatum(termin)) + ' – pak se vrátí do Doručené, úkol je ve Schránce');
     zmeneno();
   } catch (e) {

@@ -15,6 +15,7 @@ import * as hledat from './hledat.js';
 import * as udalost from './udalost.js';
 import * as pocasi from './pocasi.js';
 import * as zdravi from './zdravi.js';
+import * as fotbal from './fotbal.js';
 import { vstupAdresy, klavesaAdresy } from './adresy.js';
 
 const SEKCE = [['dnes', 'Dnes'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář'], ['zdravi', 'Zdraví']];
@@ -33,6 +34,7 @@ function start() {
   kal.nactiZUloziste();
   pocasi.nactiZUloziste();
   zdravi.nactiZUloziste();
+  fotbal.nactiZUloziste();
   if (!SEKCE.some((s) => s[0] === stav.pohled)) stav.pohled = 'dnes';
   kal.pripravGesta($('p-kalendar'));
   priZmene(vykresli);
@@ -48,6 +50,7 @@ function obnovVse(znovu) {
   nast.nactiInfo();
   pocasi.nactiPocasi(znovu);
   zdravi.nactiZdravi(znovu);
+  fotbal.nactiFotbal();
 }
 
 // ---------------------------------------------------------------- počty
@@ -72,6 +75,7 @@ function nacitaSe() { return Object.keys(stav.nacita).some((k) => stav.nacita[k]
 function vykresli() {
   pocasi.dotahni();
   zdravi.dotahni();
+  fotbal.dotahni();
   const p = pocty();
   document.querySelectorAll('[data-pohled]').forEach((el) => { el.hidden = el.dataset.pohled !== stav.pohled; });
   vykresliRail(p);
@@ -313,9 +317,11 @@ function kartyKpi(p, dnes) {
   }
   // další zápas
   const z = kal.dalsiZapas(14);
+  const zk = z ? null : fotbal.dalsiZapasKlubu(14);
   karty.push(z
     ? kpi('data-udalost="' + esc(z.id) + '"', IKONY.zapas, 'Další zápas', esc(kdyKratky(z.zacatek, z.celodenni)), '',
       '<span class="orez-1">' + esc(z.nazev.replace(/^⚽\s*/, '')) + '</span>')
+    : zk ? kpi('data-cil="kalendar"', IKONY.zapas, 'Další zápas', esc(kdyKratky(zk.zacatek)), '', '<span class="orez-1">' + esc(zk.nazev) + '</span>')
     : kpi('data-cil="kalendar"', IKONY.zapas, 'Další zápas', '–', '', '<span>' + (kal.mameData(dnes) ? '14 dní žádný' : 'načítám…') + '</span>'));
   // nepřečtená pošta
   karty.push(kpi('data-cil="posta" data-filtr-posty="neprectene"', IKONY.posta, 'Nepřečtené', stav.posta ? p.nep.length : '–', '',
@@ -369,9 +375,10 @@ function vykresliDnes(el, p) {
     el.innerHTML = '<div id="dnes-vystrahy"></div><div class="dnes-mobil" id="dnes-mobil"></div><div class="kpi-mrizka" id="dnes-kpi"></div>' +
       '<div class="dnes-mrizka" id="dnes-obsah">' +
       '<section class="card dlazdice dl-pozornost" id="dl-pozornost"></section>' +
-      '<section class="card dlazdice dl-tyden" id="dl-tyden"></section>' +
+      '<div class="dnes-vpravo"><section class="card dlazdice dl-tyden" id="dl-tyden"></section>' +
+      '<section class="card dlazdice dl-fotbal" id="dl-fotbal" hidden></section>' +
       '<section class="card dlazdice dl-zapis">' + hlavickaKarty(IKONY.claude, 'Poznámka pro Clauda') +
-        schranka.zapisHtml(true) + '<div id="dl-schranka-mini"></div><div class="dlazdice__telo" id="dl-zapis-seznam"></div></section>' +
+        schranka.zapisHtml(true) + '<div id="dl-schranka-mini"></div><div class="dlazdice__telo" id="dl-zapis-seznam"></div></section></div>' +
     '</div>';
   }
   const dnes = pulnoc(Date.now());
@@ -382,6 +389,9 @@ function vykresliDnes(el, p) {
     el.querySelector('#dl-pozornost').innerHTML = kartaPozornosti(p);
   }
   el.querySelector('#dl-tyden').innerHTML = kartaTydne();
+  const fotbalHtml = fotbal.maData() ? fotbal.kartaDnesHtml() : '';
+  el.querySelector('#dl-fotbal').hidden = !fotbalHtml;
+  el.querySelector('#dl-fotbal').innerHTML = fotbalHtml;
   el.querySelector('#dl-schranka-mini').innerHTML = miniSchrankaHtml();
   // pod polem: co Claude odpověděl za poslední týden (celá odpověď je v rozbalené položce)
   const odpovedi = schranka.odpovedi(7);
@@ -447,8 +457,8 @@ function dnesMobilHtml(p, dnes) {
     const z = zdravi.kartaZdravi();
     male.push(mala('data-cil="zdravi"', IKONY.srdce, 'zelena', z.hodnota + (z.jednotka === '%' ? '%' : ''), z.nazev, ''));
   }
-  const zapas = kal.dalsiZapas(14);
-  male.push(mala(zapas ? 'data-udalost="' + esc(zapas.id) + '"' : 'data-cil="kalendar"', IKONY.zapas, 'limetka',
+  const zapas = kal.dalsiZapas(14) || fotbal.dalsiZapasKlubu(14);
+  male.push(mala(zapas && zapas.id ? 'data-udalost="' + esc(zapas.id) + '"' : 'data-cil="kalendar"', IKONY.zapas, 'limetka',
     zapas ? esc(kdyKratky(zapas.zacatek, zapas.celodenni).split(' ')[0]) : '–', zapas ? esc(hhmm(zapas.zacatek) + ' zápas') : 'Žádný zápas', ''));
   if (male.length < 3) {
     male.push(mala('data-cil="posta" data-filtr-posty="neprectene"', IKONY.posta, p.hori ? 'oranz' : 'fialova', stav.posta ? p.nep.length : '–',
@@ -503,6 +513,7 @@ document.addEventListener('click', (e) => {
   if (schranka.klikSchranka(el)) return;
   if (posta.klikPosta(el)) return;
   if (zdravi.klikZdravi(el)) return;
+  if (fotbal.klikFotbal(el)) return;
   if (udalost.klikUdalost(el)) return;
   if (kal.klikKalendar(el)) return;
   nast.klikNastaveni(el);

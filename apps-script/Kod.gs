@@ -20,6 +20,7 @@
  *   Kalendář  – zobrazené kalendáře Google (vlastní i zápis: nová událost, úprava, smazání, opakování, připomenutí,
  *               import zápasů z rozpisu) + kalendáře z iPhonu (iCloud, soukromý odkaz webcal://…, jen čtení)
  *   Počasí    – ČHMÚ (otevřená data): výstrahy pro ORP, vodní stav řeky, krátká předpověď kraje; místo ve vlastnosti POCASI
+ *   Fotbal    – zápasy klubu z CLAUDE_SCHRANKA/FOTBAL.json (zapisuje nástroj fotbal přes Chrome) → kalendáře „⚽ tým“
  *   Zdraví    – WHOOP (API v2, OAuth – návrat přes doGet) + Apple Zdraví ze zkratky v iPhonu (akce zdraviApple, klíč
  *               ZDRAVI_KLIC); data po měsících v CLAUDE_SCHRANKA/ZDRAVI; upozornění přes ntfy (NTFY_TEMA, kazdouHodinu)
  *
@@ -123,7 +124,9 @@ const AKCE = {
   zdravi: function (d) { return zdravi_(!!d.znovu); },
   whoopPropojit: function () { return whoopPropojit_(); },
   whoopOdpojit: function () { return whoopOdpojit_(); },
-  zdraviKlic: function (d) { return zdraviKlic_(!!d.novy); }
+  zdraviKlic: function (d) { return zdraviKlic_(!!d.novy); },
+  fotbal: function () { return fotbal_(); },
+  fotbalKalendar: function (d) { return fotbalDoKalendare_(d.tymy); }
 };
 
 // ---------------------------------------------------------------- nastavení (spouští se ručně v editoru)
@@ -1358,15 +1361,16 @@ function cistyPopis_(s) {
 
 function seznamKalendaru_() {
   const skryte = skryteKalendare_();
+  const druhy = druhyKalendaru_();
   const google = CalendarApp.getAllCalendars()
     .filter(function (k) { return !k.isHidden() && k.isSelected(); })
     .map(function (k) {
       return { id: k.getId(), nazev: k.getName(), barva: k.getColor(), zdroj: 'google', skryty: skryte.indexOf(k.getId()) >= 0,
-        zapis: vlastniKalendar_(k) };
+        zapis: vlastniKalendar_(k), druh: druhy[k.getId()] || odhadDruhu_(k.getName()) };
     });
   const ics = icsKalendare_().map(function (k) {
     // odkaz se do aplikace nevrací – je to tajemství jako klíč
-    return { id: k.id, nazev: k.nazev, barva: k.barva, zdroj: 'icloud', skryty: skryte.indexOf(k.id) >= 0 };
+    return { id: k.id, nazev: k.nazev, barva: k.barva, zdroj: 'icloud', skryty: skryte.indexOf(k.id) >= 0, druh: druhy[k.id] || odhadDruhu_(k.nazev) };
   });
   return google.concat(ics);
 }
@@ -1390,6 +1394,12 @@ function pridejKalendar_(nazev, odkaz, barva) {
 
 function upravKalendar_(id, d) {
   id = String(id || '');
+  if (d.druh !== undefined) {
+    if (DRUHY_KALENDARU.indexOf(d.druh) < 0) throw new Error('Neznámý druh kalendáře.');
+    const druhy = druhyKalendaru_();
+    druhy[id] = d.druh;
+    ulozDruhy_(druhy);
+  }
   if (d.skryty !== undefined) {
     const skryte = skryteKalendare_().filter(function (x) { return x !== id; });
     if (d.skryty) skryte.push(id);
@@ -1709,6 +1719,149 @@ function stahniIcs_(odkaz, znovu) {
   if (text.indexOf('BEGIN:VCALENDAR') < 0) throw new Error('Na odkazu není kalendář.');
   ulozText_(klic, text, 600);
   return text;
+}
+
+// ---------------------------------------------------------------- Fotbal: zápasy klubu z fotbal.cz
+//
+// Web fotbal.cz je za ochranou Cloudflare – servery Googlu ho nestáhnou. Data proto zapisuje naplánovaná úloha Clauda
+// (Michalův Chrome, nástroj NASTROJE\fotbal) do CLAUDE_SCHRANKA/FOTBAL.json; motor je jen čte a na přání převede
+// zápasy vybraných týmů do vlastních kalendářů Google („⚽ A-tým“…) – štítek s id zápasu, nic se nezdvojí, změna
+// termínu nebo výsledek se v kalendáři přepíše. Týmy a soutěže jsou v souboru (klub se mění v nástroji, ne tady).
+
+const BARVY_TYMU = ['#2e7a4d', '#0f7c8c', '#a8620c', '#8e5bd3', '#c0392b'];
+
+function fotbalNastaveni_() {
+  let n = {};
+  try { n = JSON.parse(PropertiesService.getScriptProperties().getProperty('FOTBAL') || '{}') || {}; } catch (chyba) { n = {}; }
+  return { tymy: Array.isArray(n.tymy) ? n.tymy : [], kalendare: n.kalendare || {}, otisk: n.otisk || '' };
+}
+
+function ulozFotbalNastaveni_(n) {
+  PropertiesService.getScriptProperties().setProperty('FOTBAL', JSON.stringify(n));
+}
+
+/** FOTBAL.json ze schránky (zapisuje nástroj fotbal), nebo null. */
+function fotbalData_() {
+  const it = koren_().getFilesByName('FOTBAL.json');
+  if (!it.hasNext()) return null;
+  const soubor = it.next();
+  let data;
+  try { data = JSON.parse(soubor.getBlob().getDataAsString('UTF-8')); } catch (chyba) { throw new Error('FOTBAL.json ve schránce není platný JSON.'); }
+  if (!data || !Array.isArray(data.zapasy)) throw new Error('FOTBAL.json nemá seznam zápasů.');
+  return data;
+}
+
+/** Akce fotbal: zápasy a týmy pro aplikaci; když se data od posledního převodu změnila, rovnou obnoví kalendáře. */
+function fotbal_() {
+  const data = fotbalData_();
+  const n = fotbalNastaveni_();
+  let kalendar = null;
+  if (data && n.tymy.length && otiskFotbalu_(data, n.tymy) !== n.otisk) {
+    try { kalendar = fotbalDoKalendare_(n.tymy); } catch (chyba) { kalendar = { chyba: String(chyba.message || chyba) }; }
+  }
+  return { data: data, vKalendari: n.tymy, kalendar: kalendar };
+}
+
+function otiskFotbalu_(data, tymy) {
+  return md5_(tymy.join(',') + '|' + JSON.stringify(data.zapasy.map(function (z) { return [z.id, z.zacatek, z.misto, z.vysledek, z.domaci, z.hoste]; })));
+}
+
+/** „FK Agro Vnorovy“ → „Vnorovy“, „TJ Sokol Těšany“ → „Těšany“, „FK Hodonín "B"“ → „Hodonín B“ */
+function kratkyKlub_(n) {
+  let s = String(n || '').replace(/["„“”]/g, '').replace(/,?\s*z\.\s*s\.?$/i, '').replace(/\s+/g, ' ').trim();
+  for (let i = 0; i < 3; i++) s = s.replace(/^(FK|TJ|SK|FC|SFK|MFK|AFC|FKM|SC|1\.\s*FC|1\.\s*SK|Sokol|Agro|Slavoj|Spartak|Baník|Slovan)\s+/i, '');
+  return s || String(n || '');
+}
+
+/**
+ * Zápasy vybraných týmů (klíče z FOTBAL.json, např. „A“, „B“, „dorost“) do kalendářů „⚽ <tým>“. Jen zápasy od 30 dní
+ * zpět; odehrané dostanou do názvu výsledek. tymy = [] → nic se nepřevádí (kalendáře zůstanou, jak jsou).
+ */
+function fotbalDoKalendare_(tymy) {
+  const data = fotbalData_();
+  if (!data) throw new Error('Zápasy z fotbal.cz ještě nejsou ve schránce (FOTBAL.json).');
+  const n = fotbalNastaveni_();
+  const platne = (data.tymy || []).map(function (t) { return t.klic; });
+  tymy = (tymy || []).filter(function (t) { return platne.indexOf(t) >= 0; });
+  const vysledek = { pridano: 0, upraveno: 0, beze_zmeny: 0, kalendare: {} };
+  const od = Date.now() - 30 * 864e5;
+  const klub = kratkyKlub_(data.klub || '');
+  tymy.forEach(function (klic, i) {
+    const tym = (data.tymy || []).filter(function (t) { return t.klic === klic; })[0];
+    const info = zalozKalendar_('⚽ ' + tym.nazev, tym.barva || BARVY_TYMU[i % BARVY_TYMU.length]);
+    const kal = CalendarApp.getCalendarById(info.id);
+    vysledek.kalendare[klic] = info.id;
+    const zapasy = data.zapasy.filter(function (z) { return z.tym === klic && Date.parse(z.zacatek) >= od; });
+    if (!zapasy.length) return;
+    const existujici = {};
+    const zacatky = zapasy.map(function (z) { return Date.parse(z.zacatek); });
+    kal.getEvents(new Date(Math.min.apply(null, zacatky) - 40 * 864e5), new Date(Math.max.apply(null, zacatky) + 40 * 864e5)).forEach(function (u) {
+      const stitek = u.getTag('asistent');
+      if (stitek && stitek.indexOf('fotbal:') === 0) existujici[stitek] = u;
+    });
+    zapasy.forEach(function (z) {
+      const zacatek = Date.parse(z.zacatek);
+      if (isNaN(zacatek)) return;
+      const konec = zacatek + (Number(tym.delka) || 120) * 6e4;
+      const souper = kratkyKlub_(z.doma ? z.hoste : z.domaci);
+      const nazev = '⚽ ' + (z.doma ? klub + ' – ' + souper : souper + ' – ' + klub) + ' (' + tym.nazev + ')' + (z.vysledek ? ' ' + z.vysledek : '');
+      const misto = String(z.misto || '');
+      const popis = [tym.soutez || '', z.kolo ? z.kolo + '. kolo' : '', z.doma ? 'Doma' : 'Venku', z.puvodniTermin ? 'Přeloženo z ' + z.puvodniTermin : '',
+        z.poznamka || '', z.url ? 'fotbal.cz: ' + z.url : ''].filter(Boolean).join('\n');
+      const stitek = 'fotbal:' + z.id;
+      const u = existujici[stitek];
+      if (u) {
+        if (u.getTitle() !== nazev || u.getStartTime().getTime() !== zacatek || u.getLocation() !== misto) {
+          u.setTitle(nazev);
+          u.setTime(new Date(zacatek), new Date(konec));
+          u.setLocation(misto);
+          u.setDescription(popis);
+          vysledek.upraveno++;
+        } else {
+          vysledek.beze_zmeny++;
+        }
+        return;
+      }
+      if (zacatek < Date.now() - 864e5 && !z.vysledek) return; // starý zápas bez výsledku nezakládat
+      const nova = kal.createEvent(nazev, new Date(zacatek), new Date(konec), { location: misto, description: popis });
+      nova.setTag('asistent', stitek);
+      if (zacatek > Date.now()) nastavPripomenuti_(nova, [24 * 60, 120]);
+      vysledek.pridano++;
+    });
+  });
+  // druh „fotbal“ pro týmové kalendáře
+  const druhy = druhyKalendaru_();
+  Object.keys(vysledek.kalendare).forEach(function (k) { druhy[vysledek.kalendare[k]] = 'fotbal'; });
+  ulozDruhy_(druhy);
+  n.tymy = tymy;
+  n.kalendare = Object.assign({}, n.kalendare, vysledek.kalendare);
+  n.otisk = otiskFotbalu_(data, tymy);
+  ulozFotbalNastaveni_(n);
+  zvysVerziKalendaru_();
+  vysledek.kalendareSeznam = seznamKalendaru_();
+  return vysledek;
+}
+
+// ---------------------------------------------------------------- druhy kalendářů (osobní, práce, fotbal, rodina…)
+
+const DRUHY_KALENDARU = ['osobni', 'prace', 'fotbal', 'rodina', 'ostatni'];
+
+function druhyKalendaru_() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('DRUHY_KALENDARU') || '{}') || {}; } catch (chyba) { return {}; }
+}
+
+function ulozDruhy_(druhy) {
+  PropertiesService.getScriptProperties().setProperty('DRUHY_KALENDARU', JSON.stringify(druhy).slice(0, 8000));
+}
+
+/** Druh podle názvu, dokud ho Michal nenastaví sám. */
+function odhadDruhu_(nazev) {
+  const n = String(nazev || '').toLowerCase();
+  if (/⚽|fotbal|zápas|zapas|trénink|trenink|dorost|klub|liga/.test(n)) return 'fotbal';
+  if (/práce|prace|pracovn|work|firma|kancel|projekt/.test(n)) return 'prace';
+  if (/rodin|family|děti|deti|domácnost/.test(n)) return 'rodina';
+  if (/svátk|svatk|narozen|holiday/.test(n)) return 'ostatni';
+  return 'osobni';
 }
 
 // ---------------------------------------------------------------- iCalendar (.ics): čtení a opakované události

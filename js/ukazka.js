@@ -157,6 +157,31 @@ function udalostiVRozsahu(od, doDne) {
 
 const smazanePolozky = {}; // „Vrátit“ po smazání
 
+/** Fotbal v ukázce: tři týmy klubu, poslední výsledky a nejbližší zápasy kolem dneška (jako FOTBAL.json z nástroje). */
+const fotbalZapas = (tym, posunDni, hod, domaci, hoste, vysledek, misto) => {
+  const t = new Date(pridejDny(dnes, posunDni) + hod * H);
+  const z = t.getTimezoneOffset();
+  const iso = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0') + 'T' +
+    String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0') + ':00' + (z <= 0 ? '+' : '-') +
+    String(Math.floor(Math.abs(z) / 60)).padStart(2, '0') + ':' + String(Math.abs(z) % 60).padStart(2, '0');
+  return { id: tym + posunDni, tym, zacatek: iso, domaci, hoste, doma: /Vnorovy/.test(domaci), misto, vysledek, stav: vysledek ? 'odehrano' : 'naplanovano', url: '#' };
+};
+const doSoboty = ((6 - new Date(dnes).getDay() + 7) % 7) || 7;
+const fotbalUkazka = {
+  verze: 1, aktualizovano: new Date(ted - 3 * H).toISOString(), zdroj: 'fotbal.cz', klub: 'FK Agro Vnorovy',
+  tymy: [{ klic: 'A', nazev: 'A-tým', soutez: '6. liga dospělí', barva: '#2e7a4d' }, { klic: 'B', nazev: 'B-tým', soutez: '9. liga dospělí', barva: '#0f7c8c' },
+    { klic: 'dorost', nazev: 'Dorost', soutez: '5. liga starší dorost', barva: '#a8620c' }],
+  zapasy: [
+    fotbalZapas('A', doSoboty - 7, 16.5, 'FK Agro Vnorovy', 'TJ Lysovice', '1:3', 'Vnorovy'),
+    fotbalZapas('A', doSoboty, 15, 'FK Šardice', 'FK Agro Vnorovy', '', 'Šardice'),
+    fotbalZapas('B', doSoboty - 6, 15, 'Vnorovy B', 'Nová Lhota', '8:0', 'Vnorovy'),
+    fotbalZapas('B', doSoboty + 1, 15, 'Vnorovy B', 'Veselí n. Moravou B', '', 'Vnorovy'),
+    fotbalZapas('dorost', doSoboty - 6, 10.25, 'FC Kyjov 1919', 'FK Agro Vnorovy', '4:1', 'Kyjov'),
+    fotbalZapas('dorost', doSoboty + 1, 12.25, 'FK Agro Vnorovy', 'TJ Sokol Těšany', '', 'Vnorovy')
+  ]
+};
+let fotbalVKalendari = ['dorost'];
+
 /** Zdraví v ukázce: 30 dní připravenosti, spánku a zátěže; zápas v sobotu, trénink út a čt (sedí s kalendářem), posilovna v pondělí. */
 function zdraviUkazka() {
   const nahoda = (i, k) => { const x = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453; return x - Math.floor(x); };
@@ -341,6 +366,11 @@ const akce = {
   },
   kontakty: () => kopie(kontakty),
   podpisyUlozit: (d) => { Object.assign(podpisy, { osobni: String((d.podpisy || {}).osobni || ''), pracovni: String((d.podpisy || {}).pracovni || '') }); return akce.info().posta; },
+  fotbal: () => kopie({ data: fotbalUkazka, vKalendari: fotbalVKalendari, kalendar: null }),
+  fotbalKalendar: (d) => {
+    fotbalVKalendari = (d.tymy || []).filter((t) => fotbalUkazka.tymy.some((x) => x.klic === t));
+    return { pridano: fotbalVKalendari.length * 3, upraveno: 0, beze_zmeny: 0, kalendare: {}, kalendareSeznam: kopie(kalendare) };
+  },
   zdravi: () => zdraviUkazka(),
   whoopPropojit: () => { throw new Error('V ukázce se WHOOP nepropojuje – po připojení motoru to půjde.'); },
   whoopOdpojit: () => zdraviUkazka().whoop,

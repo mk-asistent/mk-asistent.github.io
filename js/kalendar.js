@@ -13,12 +13,21 @@ import { otevriPanel } from './panely.js';
 import { chybaHtml, segment, hlavickaKarty } from './ui.js';
 import { IKONY } from './ikony.js';
 import { otevriFormular, akceUdalostiHtml, zapasyHtml, zapisovatelneKalendare } from './udalost.js';
+import { tymyHtml as fotbalTymyHtml } from './fotbal.js';
 
 const k = stav.kal;
 const HODINA = 48;                                   // px na hodinu v časové ose
 const SIROKY = window.matchMedia('(min-width: 760px)');
 const ULOZISTE = 'asistent.data.kal.';
 let posunOsy = null;                                 // zapamatovaná pozice časové osy mezi překresleními
+let jenDruh = null;                                  // filtr druhu platí jen při vykreslení sekce Kalendář (Dnes ukazuje vše)
+export const DRUHY = [['osobni', 'Osobní'], ['prace', 'Práce'], ['fotbal', 'Fotbal'], ['rodina', 'Rodina'], ['ostatni', 'Ostatní']];
+/** id kalendáře → druh (z motoru; starý motor druh neposílá → osobní) */
+function druhyKalendaru() {
+  const m = {};
+  ((stav.info && stav.info.kalendare) || []).forEach((kal) => { m[kal.id] = kal.druh || 'osobni'; });
+  return m;
+}
 
 // ---------------------------------------------------------------- data
 
@@ -86,7 +95,9 @@ export function udalostiVRozsahu(od, doDne) {
       if (u.zacatek < doDne && (u.konec > od || (u.konec === u.zacatek && u.zacatek >= od)) && !mapa.has(u.id)) mapa.set(u.id, u);
     });
   });
-  return Array.from(mapa.values()).sort((a, b) => (b.celodenni - a.celodenni) || (a.zacatek - b.zacatek) || (b.konec - a.konec));
+  let seznam = Array.from(mapa.values());
+  if (jenDruh) { const druhy = druhyKalendaru(); seznam = seznam.filter((u) => (druhy[u.kalendarId] || 'osobni') === jenDruh); }
+  return seznam.sort((a, b) => (b.celodenni - a.celodenni) || (a.zacatek - b.zacatek) || (b.konec - a.konec));
 }
 
 export function udalostiDne(t) { const d = pulnoc(t); return udalostiVRozsahu(d, pridejDny(d, 1)); }
@@ -208,6 +219,11 @@ function seznamDneHtml(t, prazdnyText) {
 // ---------------------------------------------------------------- vykreslení
 
 export function vykresliKalendar(el) {
+  jenDruh = k.druh || null;
+  try { vykresliKalendarFiltr(el); } finally { jenDruh = null; }
+}
+
+function vykresliKalendarFiltr(el) {
   const osa = el.querySelector('#cas-svitek');
   if (osa) posunOsy = osa.scrollTop;
   let telo;
@@ -254,8 +270,12 @@ function listaHtml() {
       '<button type="button" class="btn btn--ghost btn--sm" data-kal="dnes">Dnes</button>' +
       '<button type="button" class="btn btn--ikona" data-kal="dalsi" aria-label="Další">' + IKONY.vpravo + '</button>'
     : '';
+  // druhy kalendářů jako filtr (jen když jsou aspoň dva)
+  const pritomne = Array.from(new Set(((stav.info && stav.info.kalendare) || []).filter((kal) => !kal.skryty).map((kal) => kal.druh || 'osobni')));
+  const filtr = pritomne.length > 1 ? segment([['', 'Vše']].concat(DRUHY.filter((d) => pritomne.indexOf(d[0]) >= 0)), k.druh, 'data-kal-druh', 'Druh kalendářů') : '';
   return '<div class="kal-lista">' +
     segment([['mesic', 'Měsíc'], ['tyden', 'Týden'], ['seznam', 'Seznam']], k.pohled, 'data-kal-pohled', 'Zobrazení kalendáře') +
+    (filtr ? '<div class="kal-druhy">' + filtr + '</div>' : '') +
     '<div class="kal-ovladani">' + sipky + '</div></div>';
 }
 
@@ -291,13 +311,18 @@ export function miniMesicHtml() {
 function bocniPanelHtml() {
   const kalendare = (stav.info && stav.info.kalendare) || [];
   let h = '<section class="card">' + miniMesicHtml() + '</section>';
+  // kalendáře po druzích (Osobní, Práce, Fotbal…)
+  const radek = (kal) => '<li><i style="--b:' + esc(kal.barva) + '"></i><span class="orez-1">' + esc(kal.nazev) + '</span>' +
+    '<input type="checkbox" data-nast-kal-zobrazit="' + esc(kal.id) + '"' + (kal.skryty ? '' : ' checked') + ' aria-label="Ukazovat ' + esc(kal.nazev) + '"></li>';
+  const skupiny = DRUHY.map((d) => [d, kalendare.filter((kal) => (kal.druh || 'osobni') === d[0])]).filter((x) => x[1].length);
   h += '<section class="card">' + hlavickaKarty(IKONY.kalendar, 'Kalendáře') +
     (kalendare.length
-      ? '<ul class="kal-seznam">' + kalendare.map((kal) => '<li><i style="--b:' + esc(kal.barva) + '"></i><span class="orez-1">' + esc(kal.nazev) + '</span>' +
-          '<input type="checkbox" data-nast-kal-zobrazit="' + esc(kal.id) + '"' + (kal.skryty ? '' : ' checked') + ' aria-label="Ukazovat ' + esc(kal.nazev) + '"></li>').join('') + '</ul>'
+      ? skupiny.map((x) => (skupiny.length > 1 ? '<div class="kal-skupina">' + esc(x[0][1]) + '</div>' : '') + '<ul class="kal-seznam">' + x[1].map(radek).join('') + '</ul>').join('')
       : '<div class="prazdne">Zatím žádný kalendář.</div>') +
     '<button type="button" class="dlazdice__pata" data-otevri-nastaveni="kalendare">Přidat kalendář z iPhonu</button></section>';
-  h += '<section class="card">' + hlavickaKarty(IKONY.zapas, 'Zápasy') + zapasyHtml(true) + '</section>';
+  const tymy = fotbalTymyHtml();
+  h += '<section class="card">' + hlavickaKarty(IKONY.zapas, 'Zápasy') + (tymy ? '<div class="fotbal-panel">' + tymy + '</div>' +
+    '<button type="button" class="dlazdice__pata" data-novy-zapas>' + IKONY.plus + 'Zápas ručně</button>' : zapasyHtml(true)) + '</section>';
   const dalsi = nejblizsi(6);
   h += '<section class="card">' + hlavickaKarty(IKONY.cas, 'Nejbližší') +
     (dalsi.length
@@ -512,7 +537,15 @@ function posun(smer) {
 }
 
 /** Kliknutí v kalendáři; vrací true, když ho obsloužil. */
+hooky.obnovKalendar = () => obnovPoZmene(null);
+
 export function klikKalendar(el) {
+  if (el.dataset.kalDruh !== undefined) {
+    k.druh = el.dataset.kalDruh;
+    uloziste.pis('asistent.kal.druh', k.druh);
+    zmeneno();
+    return true;
+  }
   if (el.dataset.udalost) { otevriUdalost(el.dataset.udalost); return true; }
   if (el.dataset.kal) {
     if (el.dataset.kal === 'dnes') { k.vybrany = pulnoc(Date.now()); posunOsy = null; nactiKalendar(); zmeneno(); }

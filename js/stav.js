@@ -14,6 +14,7 @@ export const stav = {
   pocasi: null,             // přehled ČHMÚ z motoru (výstrahy, řeky, předpovědi)
   kontakty: null,           // komu jsem psal (našeptávač adres)
   zdravi: null,             // přehled WHOOP + Apple Zdraví z motoru
+  fotbal: null,             // zápasy klubu (FOTBAL.json přes motor) + týmy v kalendáři
   stitkyGmailu: null,       // štítky Gmailu [{ nazev, neprectenych }]
   stitekPosty: '',          // vybraný štítek ('' = Doručená pošta)
   postaStitku: {},          // název štítku → { vlakna, nacita, chyba, kdy }
@@ -38,6 +39,7 @@ export const stav = {
     // výchozí: na telefonu měsíc s tečkami, na iPadu a PC týden („týden je to, co lidi opravdu čtou“)
     pohled: uloziste.cti('asistent.kal.pohled') || (window.matchMedia('(min-width: 760px)').matches ? 'tyden' : 'mesic'),
     vybrany: pulnoc(Date.now()),
+    druh: uloziste.cti('asistent.kal.druh') || '',   // filtr druhu kalendářů ('' = vše)
     mesice: {},             // 'RRRR-MM' → { udalosti, kdy, zUloziste }
     nacita: {},
     chyby: {}

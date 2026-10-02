@@ -9,6 +9,8 @@ import { IKONY } from './ikony.js';
 import { smazUlozene as smazKalendar, nactiKalendar } from './kalendar.js';
 import { nactiPostu } from './posta.js';
 import { zapasyHtml } from './udalost.js';
+import { tymyHtml as fotbalTymyHtml } from './fotbal.js';
+import { DRUHY } from './kalendar.js';
 
 export const VERZE_APLIKACE = '2026-10-03';
 
@@ -215,6 +217,8 @@ function sekceKalendaru() {
   if (kalendare.length) {
     h += '<ul class="kal-polozky">' + kalendare.map((k) => '<li class="kal-polozka" style="--b:' + esc(k.barva) + '"><i class="tecka-kal"></i>' +
       '<span class="grow"><b>' + esc(k.nazev) + '</b><small>' + (k.zdroj === 'icloud' ? 'z iPhonu (iCloud) · jen čtení' : 'Google' + (k.zapis ? ' · zápis' : ' · jen čtení')) + '</small></span>' +
+      (staryMotor() ? '' : '<select class="field field--sm" data-nast-kal-druh="' + esc(k.id) + '" aria-label="Druh kalendáře ' + esc(k.nazev) + '">' +
+        DRUHY.map((d) => '<option value="' + d[0] + '"' + ((k.druh || 'osobni') === d[0] ? ' selected' : '') + '>' + d[1] + '</option>').join('') + '</select>') +
       (k.zdroj === 'icloud' ? '<button type="button" class="btn btn--ghost btn--sm" data-nast-kal-odebrat="' + esc(k.id) + '">Odebrat</button>' : '') +
       '<label class="prepinac" title="Ukazovat v aplikaci"><input type="checkbox" data-nast-kal-zobrazit="' + esc(k.id) + '"' + (k.skryty ? '' : ' checked') +
       ' aria-label="Ukazovat ' + esc(k.nazev) + '"><span></span></label></li>').join('') + '</ul>';
@@ -234,7 +238,7 @@ function sekceKalendaru() {
   h += '<h3>Zápis a zápasy</h3>' +
     '<p class="napoveda">Nové události a zápasy se zapisují do kalendářů Google (iCloud jde jen číst). V iPhonu je uvidíš vedle iCloudu, když si ' +
     'jednou přidáš účet Google: Nastavení → Aplikace → Kalendář → Účty kalendářů → Přidat účet → Google (stejný účet jako Gmail).</p>' +
-    zapasyHtml(false);
+    (fotbalTymyHtml() || zapasyHtml(false));
   return h + '</section>';
 }
 
@@ -483,6 +487,10 @@ export function zmenaNastaveni(e) {
     const klic = t.dataset.nastJmeno !== undefined ? 'asistent.jmeno' : 'asistent.osloveni';
     if (t.value.trim()) uloziste.pis(klic, t.value.trim().slice(0, 40)); else uloziste.smaz(klic);
     zmeneno();
+    return true;
+  }
+  if (t.dataset && t.dataset.nastKalDruh) {
+    volej('kalendarUpravit', { id: t.dataset.nastKalDruh, druh: t.value }).then(poZmeneKalendaru).catch((chyba) => toast(chyba.message, true));
     return true;
   }
   if (!t.dataset || !t.dataset.nastKalZobrazit) return false;

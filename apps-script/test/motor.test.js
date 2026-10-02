@@ -1012,6 +1012,66 @@ test('kontakty ze odeslané pošty (jméno, adresa, počet) a podpisy osobní / 
   assert.strictEqual(p.volej('podpisyUlozit', { podpisy: { osobni: 'x'.repeat(2001) } }).ok, false);
 });
 
+// ---------------------------------------------------------------- fotbal a druhy kalendářů
+
+const FOTBAL = fs.readFileSync(path.join(__dirname, 'fotbal', 'FOTBAL.json'), 'utf8');
+
+test('fotbal: zápasy ze schránky, převod vybraných týmů do kalendářů „⚽ tým“, výsledek v názvu, bez duplicit', () => {
+  const p = prostredi();
+  p.nastavCas(Date.parse('2026-10-02T20:00:00+02:00'));
+  let o = p.volej('fotbal');
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(o.data.data, null); // soubor ještě není
+  assert.ok(/FOTBAL\.json/.test(p.volej('fotbalKalendar', { tymy: ['A'] }).chyba));
+  p.schranka.createFile('FOTBAL.json', FOTBAL);
+  o = p.volej('fotbal');
+  assert.deepStrictEqual([o.data.data.zapasy.length, o.data.vKalendari.length, o.data.data.tymy.map((t) => t.klic).join()], [34, 0, 'A,B,dorost']);
+  o = p.volej('fotbalKalendar', { tymy: ['A', 'dorost', 'neexistuje'] });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.ok(o.data.pridano > 0 && o.data.upraveno === 0, JSON.stringify(o.data));
+  const kalA = p.kalendare.find((k) => k.getName() === '⚽ A-tým');
+  const kalD = p.kalendare.find((k) => k.getName() === '⚽ Dorost');
+  assert.ok(kalA && kalD && !p.kalendare.some((k) => k.getName() === '⚽ B-tým'));
+  const nazvy = kalA.udalosti.map((u) => u._.nazev);
+  assert.ok(nazvy.indexOf('⚽ Šardice – Vnorovy (A-tým)') >= 0, nazvy.join(' | '));
+  assert.ok(nazvy.some((n) => /^⚽ Vnorovy – Lysovice \(A-tým\) 1:3$/.test(n)), 'odehraný zápas s výsledkem');
+  const sardice = kalA.udalosti.find((u) => /Šardice/.test(u._.nazev));
+  assert.deepStrictEqual([sardice._.z, sardice._.k - sardice._.z, sardice._.misto], [Date.parse('2026-10-03T15:00:00+02:00'), 120 * 6e4, 'Šardice']);
+  assert.ok(/6\. liga/.test(sardice._.popis) && /10\. kolo/.test(sardice._.popis) && /fotbal\.cz/.test(sardice._.popis));
+  assert.strictEqual(sardice._.stitky.asistent.indexOf('fotbal:'), 0);
+  assert.deepStrictEqual(json(sardice._.pripomenuti), [1440, 120]);
+  // druh fotbal pro týmové kalendáře, nastavení zapamatované
+  const seznam = p.volej('kalendare').data;
+  assert.strictEqual(seznam.find((k) => k.nazev === '⚽ A-tým').druh, 'fotbal');
+  assert.deepStrictEqual(json(p.volej('fotbal').data.vKalendari), ['A', 'dorost']);
+  // podruhé nic nového
+  o = p.volej('fotbalKalendar', { tymy: ['A', 'dorost'] });
+  assert.deepStrictEqual([o.data.pridano, o.data.upraveno], [0, 0]);
+  // nová data ve schránce (přeložený zápas + výsledek) → fotbal sám kalendář obnoví
+  const data = JSON.parse(FOTBAL);
+  const z = data.zapasy.find((x) => x.id === sardice._.stitky.asistent.slice(7));
+  z.zacatek = '2026-10-03T16:30:00+02:00';
+  p.schranka.soubory.find((x) => x.getName() === 'FOTBAL.json').setContent(JSON.stringify(data));
+  o = p.volej('fotbal');
+  assert.strictEqual(o.data.kalendar.upraveno, 1, JSON.stringify(o.data.kalendar));
+  assert.strictEqual(sardice._.z, Date.parse('2026-10-03T16:30:00+02:00'));
+  assert.strictEqual(p.ctx.kratkyKlub_('FK Hodonín "B"'), 'Hodonín B');
+  assert.strictEqual(p.ctx.kratkyKlub_('TJ Sokol Těšany'), 'Těšany');
+  assert.strictEqual(p.ctx.kratkyKlub_('FK Agro Vnorovy,z.s.'), 'Vnorovy');
+});
+
+test('druhy kalendářů: odhad podle názvu, uložení vlastního, neplatný odmítnut', () => {
+  const p = prostredi();
+  let o = p.volej('kalendare');
+  assert.strictEqual(o.data[0].druh, 'osobni');
+  assert.strictEqual(p.ctx.odhadDruhu_('Práce – projekty'), 'prace');
+  assert.strictEqual(p.ctx.odhadDruhu_('Trénink dorostu'), 'fotbal');
+  o = p.volej('kalendarUpravit', { id: 'osobni@gmail.test', druh: 'rodina' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(o.data.find((k) => k.id === 'osobni@gmail.test').druh, 'rodina');
+  assert.strictEqual(p.volej('kalendarUpravit', { id: 'osobni@gmail.test', druh: 'nesmysl' }).ok, false);
+});
+
 // ---------------------------------------------------------------- zdraví: WHOOP + Apple Zdraví
 
 const WHOOP_VZOR = {
