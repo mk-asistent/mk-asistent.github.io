@@ -80,6 +80,20 @@ export function uClauda() {
   return stav.schranka ? stav.schranka.nove.slice().sort((a, b) => b.kdy - a.kdy) : [];
 }
 
+/** Čas poslední odpovědi Clauda z hlavičky sekce „## Claude – RRRR-MM-DD HH:MM“ (ms, nebo 0). */
+function casOdpovedi(p) {
+  const v = p.vlakno.filter((x) => x.kdo === 'Claude').pop();
+  const m = v && /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/.exec(v.kdy || '');
+  return m ? new Date(+m[1], m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)).getTime() : 0;
+}
+
+/** Vyřízené poznámky, na které Claude odpověděl za posledních n dní – nejnovější nahoře (přehled Dnes). */
+export function odpovedi(dni) {
+  const hranice = Date.now() - (dni || 7) * 864e5;
+  return (stav.schranka ? stav.schranka.hotovo : []).map((p) => ({ p, t: casOdpovedi(p) }))
+    .filter((x) => x.t >= hranice).sort((a, b) => b.t - a.t).map((x) => x.p);
+}
+
 /** Počty pro přehled: kolik je po termínu a kolik na dnes. */
 export function terminy() {
   const r = { poTerminu: 0, dnes: 0 };

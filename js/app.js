@@ -267,9 +267,13 @@ function vykresliDnes(el, p) {
     '<div class="dlazdice__telo">' + s + '</div>';
 
   // ---- poznámka pro Clauda: pod polem to, co u Clauda leží
-  el.querySelector('#dl-zapis-seznam').innerHTML = p.uClauda.length
-    ? '<div class="dlazdice__mezinadpis">U Clauda · ' + p.uClauda.length + '</div><ul class="seznam">' + p.uClauda.slice(0, 4).map((x) => schranka.polozkaHtml(x, false)).join('') + '</ul>'
-    : '<p class="poznamka-pod dlazdice__napoveda">Co sem napíšeš, zpracuju při další schránce. Z iPhonu jde totéž hlasem přes zkratku „Pro Clauda“.</p>';
+  // pod polem: co u Clauda leží a co už odpověděl (odpověď je v rozbalené položce celá)
+  const odpovedi = schranka.odpovedi(7);
+  let z = '';
+  if (p.uClauda.length) z += '<div class="dlazdice__mezinadpis">U Clauda · ' + p.uClauda.length + '</div><ul class="seznam">' + p.uClauda.slice(0, 4).map((x) => schranka.polozkaHtml(x, false)).join('') + '</ul>';
+  if (odpovedi.length) z += '<div class="dlazdice__mezinadpis">Odpověděl jsem · ' + odpovedi.length + '</div><ul class="seznam">' + odpovedi.slice(0, 4).map((x) => schranka.polozkaHtml(x, false)).join('') + '</ul>';
+  el.querySelector('#dl-zapis-seznam').innerHTML = z ||
+    '<p class="poznamka-pod dlazdice__napoveda">Co sem napíšeš, zpracuju při další schránce a odpověď uvidíš tady. Z iPhonu jde totéž hlasem přes zkratku „Pro Clauda“.</p>';
 }
 
 // ---------------------------------------------------------------- ovládání
