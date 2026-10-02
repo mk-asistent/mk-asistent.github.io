@@ -38,8 +38,8 @@ const motor = {
     kalendare: KALENDARE, skupinyHostu: [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@x.test', 'rodic2@x.test'] }] }),
   schranka: () => ({ nove: [{ id: 'n1', slozka: 'NOVE', kdy: ted - H, odkud: 'iPhone', typ: '', stav: '', shrnuti: '', termin: '', text: 'Zkušební poznámka z iPhonu', vlakno: [] }],
     ceka: [{ id: 'c1', slozka: 'CEKA', kdy: ted - 5 * H, odkud: 'iPhone', typ: 'ukol-michal', stav: 'tvuj-ukol', shrnuti: 'Zavolat kvůli lešení', termin: '', text: 'Připomeň mi zavolat.', vlakno: [] }],
-    hotovo: [], ted }),
-  posta: () => ({ osobni: [vlaknoSouhrn.v1], pracovni: [vlaknoSouhrn.v2], pracovniAdresa: 'prace@firma.test', firemni: null, ted }),
+    hotovo: [], ted: Date.now() }),
+  posta: () => ({ osobni: [vlaknoSouhrn.v1], pracovni: [vlaknoSouhrn.v2], pracovniAdresa: 'prace@firma.test', firemni: null, ted: Date.now() }),
   vlakno: (d) => ({ id: d.id, predmet: d.id === 'v1' ? 'Sraz v sobotu' : 'Protokol', odkaz: '#', vDorucenych: true, skryto: 0, ucet: d.id === 'v1' ? 'osobni' : 'pracovni',
     zpravy: [{ id: 'm-' + d.id, od: 'Trenér', odAdresa: 'trener@klub.test', odeMe: false, komu: 'tester@example.com', kopie: '', kdy: ted - H, predmet: 'Sraz',
       text: 'Ahoj, sraz v 8:30.', html: d.id === 'v2' ? '<p>Protokol <img src="https://sledovani.example/pixel.gif" width="1" height="1"></p>' : '', prilohy: [] }] }),
@@ -302,6 +302,10 @@ async function novaStranka(prohlizec, v, motiv) {
     // smazání jednorázové
     await page.click('.cas-udalost[data-udalost^="u3|"]');
     await page.click('[data-panel="udalost"] [data-smazat-udalost]');
+    // potvrzení v okně ve stylu aplikace (ne systémové)
+    await page.waitForSelector('.okno-pozadi.videt [data-okno="ano"]');
+    jistota(/Smazat/.test(await page.textContent('.okno h2')), 'okno se ptá na smazání');
+    await page.click('.okno-pozadi [data-okno="ano"]');
     await page.waitForSelector('[data-panel="udalost"]', { state: 'detached' });
     jistota(nove().some((d) => d.akce === 'udalostSmazat' && d.udalost === 'u3|' + den(0, 23) && !d.cela), 'smazání nedorazilo');
 
@@ -369,6 +373,22 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.waitForFunction(() => document.querySelector('#posta-seznam li.aktivni [data-vlakno="v2"]'));
     await page.keyboard.press('e');
     jistota(volano.some((d) => d.akce === 'oznacit' && d.id === 'v2' && d.jak === 'archivovat'), 'e nearchivovalo');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  // ---------- Co je nového: po návratu ukáže, co přibylo (tady nová pošta, která čeká), Ukázat vede do Pošty
+  await test('okno Co je nového po návratu do aplikace', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
+    await ctx.addInitScript(() => { if (!sessionStorage.getItem('test-videno')) { localStorage.setItem('asistent.videno', JSON.stringify(Date.now() - 3 * 3600e3)); sessionStorage.setItem('test-videno', '1'); } });
+    await page.goto(WEB);
+    await page.waitForSelector('.okno-pozadi.videt .okno__radky li');
+    jistota(/Co je nového/.test(await page.textContent('.okno h2')), 'nadpis okna');
+    jistota(/Nová pošta/.test(await page.textContent('.okno__radky')), 'v okně chybí nová pošta');
+    await page.waitForTimeout(400); // dojet animaci okna
+    await page.screenshot({ path: path.join(VYSTUP, 'telefon_co_je_noveho.png') });
+    await page.click('.okno-pozadi [data-okno="ano"]');
+    await page.waitForSelector('#posta-seznam [data-vlakno="v1"]');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
   });

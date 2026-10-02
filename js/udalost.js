@@ -6,7 +6,7 @@ import { stav } from './stav.js';
 import { volej } from './api.js';
 import { esc, pulnoc, pridejDny, isoDatum, terminDatum, uloziste } from './pomocne.js';
 import { otevriPanel, zavriPanel, obnovPanel, elementPanelu, zavriAPak } from './panely.js';
-import { toast, segment, potvrd } from './ui.js';
+import { toast, segment, potvrd, okno } from './ui.js';
 import { IKONY } from './ikony.js';
 import { obnovPoZmene, najdiUdalost } from './kalendar.js';
 
@@ -165,7 +165,8 @@ async function ulozSkupinu(tlacitko) {
   ctiFormular();
   const adresy = adresyZTextu(f.hoste);
   if (!adresy.length) { toast('Nejdřív napiš adresy do pole Pozvat lidi.', true); return; }
-  const nazev = (window.prompt('Název skupiny (třeba „Dorost – rodiče“):') || '').trim();
+  const nazev = await okno({ ikona: IKONY.lide, nadpis: 'Uložit adresy jako skupinu', text: adresy.length + ' ' + (adresy.length === 1 ? 'adresa' : adresy.length < 5 ? 'adresy' : 'adres') +
+    ' – příště je přidáš jedním klepnutím.', pole: { popisek: 'Název skupiny', placeholder: 'třeba Dorost – rodiče' }, ano: 'Uložit' });
   if (!nazev) return;
   tlacitko.disabled = true;
   try {
@@ -257,7 +258,8 @@ async function smaz(id, cela) {
   const u = najdiUdalost(id);
   if (!u) return;
   const otazka = cela ? 'Smazat celou opakovanou řadu „' + u.nazev + '“?' : 'Smazat „' + u.nazev + '“' + (u.opakovana ? ' (jen tento výskyt)' : '') + '?';
-  if (!potvrd(otazka)) return;
+  if (!(await potvrd(otazka, { ton: 'nebezpeci', ikona: IKONY.smazat, ano: 'Smazat',
+    text: (u.hoste && u.hoste.length ? 'Událost má hosty – v jejich kalendářích může zůstat, dej jim vědět. ' : '') + 'Smazání nejde vrátit.' }))) return;
   try {
     await volej('udalostSmazat', { kalendarId: u.kalendarId, udalost: u.id, cela: !!cela });
     zavriPanel();

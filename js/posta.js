@@ -527,7 +527,7 @@ async function odeslatHned(p, tlacitko, data) {
 async function oznac(jak) {
   const id = stav.otevreneVlakno;
   if (!id) return;
-  if (jak === 'spam' && !potvrd('Označit jako spam? Konverzace se v Gmailu přesune do Spamu.')) return;
+  if (jak === 'spam' && !(await potvrd('Označit jako spam?', { ikona: IKONY.spam, text: 'Konverzace se v Gmailu přesune do Spamu. Jde vrátit.', ano: 'Spam' }))) return;
   const pryc = jak === 'archivovat' || jak === 'spam';
   const dalsi = pryc ? (sousedni(id, 1) || sousedni(id, -1)) : null;
   // hned ze seznamu (jako v poštovních klientech), motor se volá na pozadí; při chybě se konverzace vrátí

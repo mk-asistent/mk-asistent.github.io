@@ -279,11 +279,13 @@ export function klikNastaveni(el) {
     return true;
   }
   if (akce === 'odpojit') {
-    if (potvrd('Odpojit toto zařízení? Smaže se adresa, klíč i uložená data v tomhle zařízení.')) {
+    potvrd('Odpojit toto zařízení?', { text: 'Smaže se adresa motoru, klíč i uložená data v tomhle zařízení. Na ostatních zařízeních se nic nemění.',
+      ton: 'nebezpeci', ano: 'Odpojit' }).then((ano) => {
+      if (!ano) return;
       uloziste.klice('asistent.').forEach((k) => uloziste.smaz(k));
       zapomenPripojeni();
       location.reload();
-    }
+    });
     return true;
   }
   if (akce === 'smazat-data') {
@@ -318,8 +320,10 @@ export function klikNastaveni(el) {
     return true;
   }
   if (el.dataset.nastKalOdebrat) {
-    if (!potvrd('Odebrat kalendář z aplikace? V iPhonu zůstane, jen ho tu přestaneš vidět.')) return true;
-    volej('kalendarOdebrat', { id: el.dataset.nastKalOdebrat }).then(poZmeneKalendaru).catch((e) => toast(e.message, true));
+    const id = el.dataset.nastKalOdebrat;
+    potvrd('Odebrat kalendář z aplikace?', { text: 'V iPhonu zůstane, jen ho tu přestaneš vidět.', ano: 'Odebrat' }).then((ano) => {
+      if (ano) volej('kalendarOdebrat', { id }).then(poZmeneKalendaru).catch((e) => toast(e.message, true));
+    });
     return true;
   }
   if (el.dataset.nastKalBarva) { n.novaBarva = el.dataset.nastKalBarva; obnovPanelPoli(); return true; }

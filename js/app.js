@@ -4,7 +4,7 @@
 import { stav, priZmene, zmeneno, prejdi } from './stav.js';
 import { jePripojeno, jeDemo } from './api.js';
 import { esc, pridejDny, pulnoc, datumDlouhe, hhmm, iniciala, odstin, tvar, velkePrvni, rozdilDni, uloziste, terminDatum, dm, kdyKratce, prvniRadek } from './pomocne.js';
-import { kostra, chybaHtml, hlavickaKarty } from './ui.js';
+import { kostra, chybaHtml, hlavickaKarty, okno } from './ui.js';
 import { IKONY } from './ikony.js';
 import { zavriPanel, horniPanel, otevriPanel, zavriAPak } from './panely.js';
 import { pulkruh, tydenGraf } from './grafy.js';
@@ -76,6 +76,36 @@ function vykresli() {
   else if (stav.pohled === 'schranka') schranka.vykresliSchranku(el);
   else if (stav.pohled === 'posta') posta.vykresliPostu(el);
   else kal.vykresliKalendar(el);
+  zkontrolujNovinky(p);
+}
+
+// ---------------------------------------------------------------- Co je nového (okno při otevření, vzor CaseDraft)
+
+let novinkyUkazany = false;
+/** Po čerstvém načtení ukáže, co přibylo od posledního otevření: hoří, nová pošta pro tebe, odpovědi Clauda, úkoly na dnes.
+ *  Při prvním spuštění jen zapamatuje čas (nic neukazuje). */
+function zkontrolujNovinky(p) {
+  const cerstve = (data) => data && data.ted >= stav.naposledy - 60000;
+  if (novinkyUkazany || jeDemo() || !cerstve(stav.posta) || !cerstve(stav.schranka) || horniPanel()) return;
+  novinkyUkazany = true;
+  const videno = uloziste.cti('asistent.videno');
+  uloziste.pis('asistent.videno', Date.now());
+  if (!videno) return;
+  const zpravy = posta.vsechnyZpravy();
+  const hori = zpravy.filter((m) => posta.stavZpravy(m) === 'hori' && m.kdy > videno).length;
+  const nove = zpravy.filter((m) => m.neprectena && m.kdy > videno && ['ceka', 'otazka'].indexOf(posta.stavZpravy(m)) >= 0).length;
+  const odpovedi = schranka.odpovedi(7, videno).length;
+  const prvniDnes = videno < pulnoc(Date.now());
+  const radky = [];
+  if (hori) radky.push([IKONY.ohen, 'Hoří v poště', hori]);
+  if (nove) radky.push([IKONY.posta, 'Nová pošta, která na tebe čeká', nove]);
+  if (odpovedi) radky.push([IKONY.claude, 'Claude odpověděl', odpovedi]);
+  if (prvniDnes && p.terminy.poTerminu) radky.push([IKONY.pozor, 'Úkoly po termínu', p.terminy.poTerminu]);
+  if (prvniDnes && p.terminy.dnes) radky.push([IKONY.schranka, 'Úkoly na dnes', p.terminy.dnes]);
+  if (!radky.length) return;
+  okno({ ikona: hori ? IKONY.ohen : IKONY.fajfka, ton: hori ? 'pozor' : 'ok', nadpis: 'Co je nového',
+    text: 'Od posledního otevření (' + kdyKratce(videno) + ')', radky: radky.map((r) => [r[0], r[1], String(r[2])]), ano: 'Ukázat', ne: 'Zavřít' })
+    .then((ano) => { if (ano) { if (hori || nove) { stav.filtrPosty = hori ? 'hori' : 'vse'; prejdi('posta'); } else prejdi('dnes'); zmeneno(); } });
 }
 
 function odznakSekce(sekce, p) {
@@ -465,7 +495,11 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && jePripojeno() && Date.now() - stav.naposledy > 60000) obnovVse(false);
+  if (document.visibilityState === 'visible' && jePripojeno() && Date.now() - stav.naposledy > 60000) {
+    // po delší pauze (aplikace v pozadí) zase ukázat, co je nového
+    if (Date.now() - stav.naposledy > 30 * 60000) novinkyUkazany = false;
+    obnovVse(false);
+  }
 });
 window.addEventListener('online', () => { zmeneno(); if (jePripojeno()) obnovVse(false); });
 window.addEventListener('offline', zmeneno);

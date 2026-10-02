@@ -1,6 +1,7 @@
 // Drobné společné kousky rozhraní: oznámení, kostra při načítání, chybová karta, přepínač (segment).
 
 import { esc } from './pomocne.js';
+import { IKONY } from './ikony.js';
 
 let casovac;
 /** Krátké oznámení dole (tmavě zelené s fajfkou; chyba korálová s vykřičníkem a déle). */
@@ -61,5 +62,56 @@ export function prizpusobVysku(t) {
   t.style.height = t.scrollHeight + 'px';
 }
 
-/** Potvrzení před nevratnou akcí (systémové okno). */
-export function potvrd(text) { return window.confirm(text); }
+let otevreneOkno = null;
+/**
+ * Okno uprostřed (vzor CaseDraft): kroužek s ikonou, nadpis, text, šedé řádky, pole, dvě tlačítka.
+ * o = { ikona, ton: 'ok'|'pozor'|'nebezpeci', nadpis, text, radky: [[ikona, text, vpravo]], pole: { popisek, hodnota, placeholder },
+ *       ano: 'Smazat', ne: 'Zrušit' (null = bez druhého tlačítka) }
+ * Vrací Promise: true / false, s polem napsaný text / null.
+ */
+export function okno(o) {
+  return new Promise((hotovo) => {
+    if (otevreneOkno) otevreneOkno(null);
+    const pozadi = document.createElement('div');
+    pozadi.className = 'okno-pozadi';
+    pozadi.innerHTML = '<div class="okno" role="dialog" aria-modal="true" aria-labelledby="okno-nadpis">' +
+      (o.ikona ? '<span class="okno__kruh okno__kruh--' + (o.ton || 'ok') + '">' + o.ikona + '</span>' : '') +
+      '<h2 id="okno-nadpis">' + esc(o.nadpis) + '</h2>' + (o.text ? '<p>' + esc(o.text) + '</p>' : '') +
+      (o.radky && o.radky.length ? '<ul class="okno__radky">' + o.radky.map((r) => '<li>' + (r[0] || '') + '<span>' + esc(r[1]) + '</span>' +
+        (r[2] != null && r[2] !== '' ? '<em>' + esc(r[2]) + '</em>' : '') + '</li>').join('') + '</ul>' : '') +
+      (o.pole ? '<label class="okno__pole"><span class="label">' + esc(o.pole.popisek) + '</span><input class="field" value="' + esc(o.pole.hodnota || '') +
+        '" placeholder="' + esc(o.pole.placeholder || '') + '" autocomplete="off"></label>' : '') +
+      '<div class="okno__akce">' + (o.ne === null ? '' : '<button type="button" class="btn btn--ghost" data-okno="ne">' + esc(o.ne || 'Zrušit') + '</button>') +
+      '<button type="button" class="btn btn--cerne' + (o.ton === 'nebezpeci' ? ' btn--cervene' : '') + '" data-okno="ano">' + esc(o.ano || 'OK') + '</button></div></div>';
+    document.body.appendChild(pozadi);
+    requestAnimationFrame(() => pozadi.classList.add('videt'));
+    const pole = pozadi.querySelector('.okno__pole input');
+    const zrus = pole ? null : false;
+    const zavri = (vysledek) => {
+      document.removeEventListener('keydown', klavesa, true);
+      pozadi.classList.remove('videt');
+      setTimeout(() => pozadi.remove(), 200);
+      otevreneOkno = null;
+      hotovo(vysledek);
+    };
+    const potvrzeno = () => zavri(pole ? (pole.value.trim() || null) : true);
+    const klavesa = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); zavri(zrus); }
+      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); potvrzeno(); }
+    };
+    document.addEventListener('keydown', klavesa, true);
+    pozadi.addEventListener('click', (e) => {
+      e.stopPropagation(); // klepnutí v okně nemají jít do ovládání aplikace pod ním
+      const tlacitko = e.target.closest('[data-okno]');
+      if (tlacitko) { if (tlacitko.dataset.okno === 'ano') potvrzeno(); else zavri(zrus); }
+      else if (e.target === pozadi) zavri(zrus);
+    });
+    otevreneOkno = zavri;
+    (pole || pozadi.querySelector('[data-okno="ano"]')).focus();
+  });
+}
+
+/** Potvrzení před nevratnou akcí – v okně ve stylu aplikace (vrací Promise s true/false). */
+export function potvrd(text, moznosti) {
+  return okno(Object.assign({ ikona: IKONY.pozor, ton: 'pozor', nadpis: text, ano: 'Ano', ne: 'Zrušit' }, moznosti || {}));
+}

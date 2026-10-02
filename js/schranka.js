@@ -87,9 +87,9 @@ function casOdpovedi(p) {
   return m ? new Date(+m[1], m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)).getTime() : 0;
 }
 
-/** Vyřízené poznámky, na které Claude odpověděl za posledních n dní – nejnovější nahoře (přehled Dnes). */
-export function odpovedi(dni) {
-  const hranice = Date.now() - (dni || 7) * 864e5;
+/** Vyřízené poznámky, na které Claude odpověděl za posledních n dní (nebo od času „od“) – nejnovější nahoře. */
+export function odpovedi(dni, od) {
+  const hranice = Math.max(Date.now() - (dni || 7) * 864e5, od || 0);
   return (stav.schranka ? stav.schranka.hotovo : []).map((p) => ({ p, t: casOdpovedi(p) }))
     .filter((x) => x.t >= hranice).sort((a, b) => b.t - a.t).map((x) => x.p);
 }

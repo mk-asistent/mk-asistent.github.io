@@ -39,6 +39,7 @@ export const IKONY = {
   info: s('<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5v.01"/>'),
   klavesnice: s('<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>'),
   zapas: s('<circle cx="12" cy="12" r="9"/><path d="M12 7.6l3.3 2.4-1.3 3.9H10L8.7 10z"/><path d="M12 3v4.6M15.3 10l4.2-1.4M14 13.9l2.6 3.7M10 13.9l-2.6 3.7M8.7 10L4.5 8.6"/>'),
+  pozor: s('<path d="M12 4.5l9 15.5H3z"/><path d="M12 10v4.5M12 17.5v.01"/>'),
   lide: s('<circle cx="9" cy="8" r="3.2"/><path d="M3 19.5a6 6 0 0 1 12 0"/><circle cx="17" cy="9" r="2.6"/><path d="M15.5 14.2a5 5 0 0 1 5.5 5.3"/>'),
   smazat: s('<path d="M4 7h16M10 11v6M14 11v6"/><path d="M5.5 7l1 12a2 2 0 0 0 2 1.8h7a2 2 0 0 0 2-1.8l1-12M9 7V4.5h6V7"/>')
 };
