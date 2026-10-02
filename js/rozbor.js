@@ -128,24 +128,28 @@ function lide(text) {
 function nazevUdalosti(text) {
   // konec věty = !, ?, nový řádek, nebo tečka před velkým písmenem / na konci (tečky v datu „8. 10.“ větu nekončí)
   let veta = String(text || '').split(/[!?\n]|\.(?=\s+[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ]|\s*$)/)[0].trim();
+  // „na schůzku“ → „schůzka“, „večeři“ → „večeře“ (předmět pokynu je ve 4. pádě)
+  const prvni1Pad = (x) => x.replace(/^(\S{3,}?)eři(?=\s|$)/, '$1eře').replace(/^(\S{3,}?)u(?=\s|$)/, '$1a');
   const pozvanka = /^(?:pozvi|pozvat|pozvěte)\s+.+?\s+na\s+([^\d\s].*)$/i.exec(veta);
-  if (pozvanka) veta = pozvanka[1].replace(/^(\S{3,}?)eři(?=\s|$)/, '$1eře').replace(/^(\S{3,}?)u(?=\s|$)/, '$1a'); // „na schůzku“ → „schůzka“
+  if (pozvanka) veta = prvni1Pad(pozvanka[1]);
+  const pokyn = /^(zapiš|zapis|naplánuj|naplanuj|přidej|pridej)\s/i.test(veta);
   let s = ' ' + veta.replace(/,/g, ' , ') + ' ';
   const konec = '(?=\\s)';
   [
     '\\s(zapiš|zapis|naplánuj|naplanuj|přidej|pridej)(\\s+(mi|si))?(\\s+do\\s+kalendáře|\\s+do\\s+kalendare)?' + konec,
-    '\\s(připomeň|pripomen|nezapomeň|nezapomen)(\\s+(mi|si))?' + konec,
+    '\\s((mi|si)\\s+)?(připomeň|pripomen|nezapomeň|nezapomen)(\\s+(mi|si))?' + konec,
     '\\s(dnes|dneska|zítra|zitra|pozítří|pozitri)' + konec,
     '\\sza\\s+(týden|tyden|\\d{1,2}\\s+(dny|dní|dni))' + konec,
-    '\\s((příští|pristi|v|ve)\\s+)?(pondělí|úterý|středu|středa|čtvrtek|pátek|sobotu|sobota|neděli|neděle)' + konec,
+    '\\s((na|do|od|v|ve)\\s+)?((příští|pristi)\\s+)?(pondělí|úterý|středu|středa|čtvrtek|pátek|sobotu|sobota|neděli|neděle)' + konec,
     '\\sna\\s+(půl\\s+hodiny|hodinu(\\s+a\\s+půl)?|\\d{1,3}([,.]\\d)?\\s+(hodin[a-zy]*|minut[a-z]*)|(dvě|tři|čtyři|pět)\\s+hodin[a-zy]*)' + konec,
-    '\\s(v|ve|od|do|na|kolem|o)\\s+\\d{1,2}([:.]\\d{2})?(\\s*(h|hod|hodin))?' + konec,
-    '\\s\\d{1,2}\\.\\s*\\d{1,2}\\.(\\s*\\d{4})?' + konec,
+    '\\s(v|ve|od|do|na|kolem|o)\\s+\\d{1,2}([:.]\\d{2})?(\\s*(h|hod|hodin|hodiny|hodinu))?' + konec,
+    '\\s\\d{1,2}\\.\\s*\\d{1,2}\\.?(\\s*\\d{4})?' + konec, // tečka za měsícem mohla odejít s koncem věty
     '\\s\\d{1,2}\\.\\s*(ledna|února|března|dubna|května|června|července|srpna|září|října|listopadu|prosince)(\\s*\\d{4})?' + konec,
     '\\s(ráno|dopoledne|v\\s+poledne|odpoledne|večer)' + konec,
     '\\s(v|ve|o)\\s+(půl\\s+)?(jednu|jedné|dvě|druhé|tři|třetí|čtyři|čtvrté|pět|páté|šest|šesté|sedm|sedmé|osm|osmé|devět|deváté|deset|desáté|jedenáct|jedenácté|dvanáct|dvanácté)' + konec
   ].forEach((vzor) => { s = s.replace(new RegExp(vzor, 'gi'), ' '); });
   s = s.replace(/\s+,/g, ',').replace(/\s{2,}/g, ' ').replace(/^[\s,–-]+|[\s,–-]+$/g, '').trim();
+  if (pokyn) s = prvni1Pad(s.replace(/^na\s+/i, ''));
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
 }
 
@@ -160,7 +164,15 @@ export function rozborTextu(text, ted) {
   const t = bez(s);
   if (EMAIL.test(t)) {
     const telo = (/(?:^|[\s,])(že|ze)\s+(.+)$/i.exec(s) || [])[2] || '';
-    return { typ: 'email', lide: lide(s), predmet: '', text: telo ? telo.charAt(0).toUpperCase() + telo.slice(1).replace(/[.!]?$/, '.') : '' };
+    let kdo = lide(s);
+    if (!kdo.length) {
+      // „odpověz trenérovi“ – adresát malým písmenem hned za slovesem (3. pád); kontakt dohledá aplikace
+      const m = /(?:^|\s)(?:napiš|napis|pošli|posli|odepiš|odepis|odpověz|odpovez)\s+(?:panu\s+|paní\s+|pani\s+)?([a-záčďéěíňóřšťúůýž]{2,}(?:ovi|ce|ici|e|ě))(?=[\s,.]|$)/i.exec(s);
+      if (m) kdo = [m[1]];
+    }
+    const ohledne = /(?:^|\s)ohledně\s+([^,.!?]+)/i.exec(s); // „… ohledně předávacího protokolu“ → předmět
+    return { typ: 'email', lide: kdo, predmet: ohledne ? 'Ohledně ' + ohledne[1].trim() : '',
+      text: telo ? telo.charAt(0).toUpperCase() + telo.slice(1).replace(/[.!]?$/, '.') : '' };
   }
   const d = den(s, ted);
   const c = cas(s);

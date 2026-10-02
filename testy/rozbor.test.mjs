@@ -63,6 +63,23 @@ test('pozvánka víc lidí, „v půl deváté“, délka, „večer v 8“, př
   assert.strictEqual(_test.den('za týden', TED), d(9));
 });
 
+test('názvy z běžné řeči: „mi připomeň“, „na čtvrtek“, „ve 2 hodiny“, datum na konci, „Naplánuj … schůzku“', () => {
+  const nazev = (v) => rozborTextu(v, TED).nazev;
+  assert.strictEqual(nazev('Zítra v 10 mi připomeň zavolat Petrovi'), 'Zavolat Petrovi');
+  assert.strictEqual(nazev('Trénink se přesouvá na čtvrtek od 17 do 18:30'), 'Trénink se přesouvá');
+  assert.strictEqual(nazev('Ve 2 hodiny mám zubaře'), 'Mám zubaře');
+  assert.strictEqual(nazev('Narozeniny Jany 15. 11.'), 'Narozeniny Jany');
+  assert.strictEqual(nazev('Naplánuj na příští úterý v 9 schůzku s Kubou'), 'Schůzka s Kubou');
+  assert.strictEqual(rozborTextu('Zítra zkontroluj GDB BPH a pošli mi výsledek', TED), null); // úkol pro Clauda, ne e-mail
+});
+
+test('e-mail: adresát malým písmenem, předmět z „ohledně“', () => {
+  let r = rozborTextu('Odpověz trenérovi, že v sobotu jedeme autobusem', TED);
+  assert.deepStrictEqual([r.typ, r.lide, r.text], ['email', ['trenérovi'], 'V sobotu jedeme autobusem.']);
+  r = rozborTextu('Napiš e-mail panu Novákovi ohledně předávacího protokolu', TED);
+  assert.deepStrictEqual([r.lide, r.predmet], [['Novákovi'], 'Ohledně předávacího protokolu']);
+});
+
 test('dny: v pátek řečeno v pátek = za týden, dnes, datum v minulosti = příští rok', () => {
   assert.strictEqual(_test.den('v pátek', TED), d(9));
   assert.strictEqual(_test.den('dnes večer', TED), d(2));
