@@ -13,6 +13,7 @@ import * as posta from './posta.js';
 import * as kal from './kalendar.js';
 import * as nast from './nastaveni.js';
 import * as hledat from './hledat.js';
+import * as udalost from './udalost.js';
 
 const SEKCE = [['dnes', 'Dnes'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář']];
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
@@ -102,7 +103,7 @@ function vykresliRail(p) {
 /** Hlavní akce sekce (vpravo nahoře): poznámka, nový e-mail, přidat kalendář. */
 function hlavniAkce() {
   if (stav.pohled === 'posta') return '<button type="button" class="btn btn--primary" data-psat="novy">' + IKONY.psat + '<span>Nový e-mail</span></button>';
-  if (stav.pohled === 'kalendar') return '<button type="button" class="btn btn--primary" data-otevri-nastaveni="kalendare">' + IKONY.plus + '<span>Přidat kalendář</span></button>';
+  if (stav.pohled === 'kalendar') return '<button type="button" class="btn btn--primary" data-nova-udalost>' + IKONY.plus + '<span>Nová událost</span></button>';
   return '<button type="button" class="btn btn--primary" data-nova-poznamka>' + IKONY.plus + '<span>Poznámka pro Clauda</span></button>';
 }
 
@@ -136,6 +137,7 @@ function vykresliHlavu(p) {
       '<button type="button" class="btn btn--ikona" data-hledat aria-label="Hledat">' + IKONY.hledat + '</button>' +
       '<button type="button" class="btn btn--ikona' + (nacitaSe() ? ' toci' : '') + '" data-obnovit aria-label="Obnovit">' + IKONY.obnovit + '</button>' +
       (stav.pohled === 'posta' ? '<button type="button" class="btn btn--ikona btn--plna" data-psat="novy" aria-label="Nový e-mail">' + IKONY.psat + '</button>' : '') +
+      (stav.pohled === 'kalendar' ? '<button type="button" class="btn btn--ikona btn--plna" data-nova-udalost aria-label="Nová událost">' + IKONY.plus + '</button>' : '') +
       '<button type="button" class="btn btn--ikona" data-otevri-nastaveni aria-label="Nastavení">' + IKONY.nastaveni + '</button>' +
     '</div></div>';
 }
@@ -294,17 +296,19 @@ document.addEventListener('click', (e) => {
   if (el.dataset.vlakno && stav.pohled !== 'posta' && window.matchMedia('(min-width: 1000px)').matches) prejdi('posta');
   if (schranka.klikSchranka(el)) return;
   if (posta.klikPosta(el)) return;
+  if (udalost.klikUdalost(el)) return;
   if (kal.klikKalendar(el)) return;
   nast.klikNastaveni(el);
 });
 
 document.addEventListener('input', (e) => {
   if (hledat.vstupHledat(e)) return;
+  if (udalost.vstupUdalost(e)) return;
   if (schranka.vstupSchranka(e)) return;
   posta.vstupPosta(e);
 });
 
-document.addEventListener('change', (e) => { nast.zmenaNastaveni(e); });
+document.addEventListener('change', (e) => { if (!udalost.zmenaUdalost(e)) nast.zmenaNastaveni(e); });
 
 function pise(e) {
   const t = e.target;
@@ -327,6 +331,7 @@ document.addEventListener('keydown', (e) => {
   // jednoduché klávesy (PC, iPad s klávesnicí)
   if (e.key === '/') { e.preventDefault(); hledat.otevriHledani(); return; }
   if (!horniPanel() && /^[1-4]$/.test(e.key)) { prejdi(SEKCE[Number(e.key) - 1][0]); return; }
+  if (!horniPanel() && stav.pohled === 'kalendar' && e.key.toLowerCase() === 'n') { udalost.otevriFormular({ den: stav.kal.vybrany }); return; }
   if (posta.klavesaPosta(e)) e.preventDefault();
 });
 

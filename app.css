@@ -305,7 +305,9 @@ main { padding: 4px var(--mezera) calc(var(--lista-h) + env(safe-area-inset-bott
 .dlazdice { display: flex; flex-direction: column; min-width: 0; }
 .dlazdice__telo { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
 .dlazdice__mezinadpis { padding: 10px 16px 2px; font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
-.dlazdice__pata { display: block; width: calc(100% - 24px); margin: 4px 12px 12px; padding: 9px; border-radius: var(--radius); border: 0; background: var(--sand); color: var(--text-soft); font-size: 13px; font-weight: 600; text-align: center; flex: none; }
+.dlazdice__pata { display: flex; align-items: center; justify-content: center; gap: 7px; width: calc(100% - 24px); margin: 4px 12px 12px; padding: 9px; border-radius: var(--radius); border: 0; background: var(--sand); color: var(--text-soft); font-size: 13px; font-weight: 600; text-align: center; flex: none; }
+.dlazdice__pata svg { width: 15px; height: 15px; }
+.dlazdice__pata + .dlazdice__pata { margin-top: -4px; }
 .dlazdice__pata:hover { background: var(--sand-2); color: var(--text); }
 .dlazdice__cislo { display: flex; align-items: baseline; gap: 7px; padding: 2px 16px 10px; }
 .dlazdice__cislo b { font-size: 28px; line-height: 1; font-weight: 700; letter-spacing: -.02em; }
@@ -583,6 +585,28 @@ li.aktivni > .radek { background: var(--sand); box-shadow: inset 3px 0 0 var(--a
 .kal-seznam i { width: 10px; height: 10px; border-radius: 3px; background: var(--b); flex: none; }
 .kal-seznam span { flex: 1; min-width: 0; }
 .kal-seznam input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
+
+.kal-den__hlava { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px 2px 0; }
+.kal-den__hlava .den-nadpis { padding-top: 6px; }
+.cas-mrizka.lze-zapisovat .cas-sloupec { cursor: pointer; }
+.cas-mrizka.lze-zapisovat .cas-sloupec:hover { background-color: color-mix(in srgb, var(--sand) 35%, transparent); }
+.karta-text { margin: 2px 16px 8px; font-size: 12.5px; color: var(--muted); }
+
+/* formulář události / zápasu */
+.formular { display: flex; flex-direction: column; gap: 14px; padding-top: 6px; }
+.formular label { display: block; }
+.formular__radek { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; }
+.nahled-nazvu { margin: 0; font-size: 13.5px; font-weight: 650; color: var(--text-soft); overflow-wrap: anywhere; }
+.fmr.fmr--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.fmr.fmr--3 { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); }
+.prepinac-radek { display: flex !important; align-items: center; justify-content: space-between; gap: 12px; padding: 2px 0; font-size: 14px; font-weight: 550; }
+select.field { appearance: auto; }
+input.field[type="date"], input.field[type="time"] { min-width: 0; }
+.btn--nebezpeci { color: var(--danger); }
+.btn--nebezpeci:hover { background: var(--danger-tint); color: var(--danger); border-color: transparent; }
+.panel-paticka .akce { flex-wrap: wrap; }
+.panel-paticka .akce > .btn--nebezpeci:first-child { margin-right: auto; }
+.kod-pripojeni { font: 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
 
 .udalost-detail { display: flex; flex-direction: column; gap: 10px; padding: 4px 2px; }
 .udalost-titul { margin: 0; padding-left: 12px; border-left: 4px solid var(--b); font-size: 19px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }

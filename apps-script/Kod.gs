@@ -773,7 +773,8 @@ function nactiKalendar_(od, doDne, znovu) {
           kalendar: nazev,
           kalendarId: kalId,
           barva: BARVY_UDALOSTI_GOOGLE[u.getColor()] || barva,
-          zdroj: 'google'
+          zdroj: 'google',
+          opakovana: u.isRecurringEvent()
         });
       });
     } catch (chyba) {

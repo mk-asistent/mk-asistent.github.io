@@ -90,30 +90,38 @@ const zpravyVlaken = {
 };
 
 const kalendare = [
-  { id: 'g-osobni', nazev: 'Osobní', barva: '#2f5bd3', zdroj: 'google', skryty: false },
+  { id: 'g-osobni', nazev: 'Osobní', barva: '#2f5bd3', zdroj: 'google', skryty: false, zapis: true },
   { id: 'ics-prace', nazev: 'Práce', barva: '#0f7c8c', zdroj: 'icloud', skryty: false },
   { id: 'ics-fotbal', nazev: 'Fotbal', barva: '#2e7a4d', zdroj: 'icloud', skryty: false },
   { id: 'ics-rodina', nazev: 'Rodina', barva: '#a8620c', zdroj: 'icloud', skryty: false }
 ];
+const vlastni = [];         // události zapsané v ukázce
+const smazane = new Set();  // smazané nebo přepsané ukázkové události
+let citac = 0;
 
-/** Ukázkové události pro libovolný rozsah – opakované po týdnech, pár jednorázových kolem dneška. */
+/** Ukázkové události pro libovolný rozsah – opakované po týdnech, pár jednorázových kolem dneška, plus zapsané. */
 function udalostiVRozsahu(od, doDne) {
   const kal = (id) => kalendare.find((k) => k.id === id);
   const vysledek = [];
-  const pridej = (id, nazev, zacatek, konec, celodenni, misto, popis) => {
+  const pridej = (id, nazev, zacatek, konec, celodenni, misto, popis, opakovana) => {
     const k = kal(id);
-    if (k.skryty || !(zacatek < doDne && konec > od)) return;
-    vysledek.push({ id: id + '|' + nazev + '|' + zacatek, nazev, zacatek, konec, celodenni: !!celodenni, misto: misto || '', popis: popis || '',
-      kalendar: k.nazev, kalendarId: k.id, barva: k.barva, zdroj: k.zdroj });
+    const idUdalosti = id + '-' + nazev + '|' + zacatek;
+    if (!k || k.skryty || smazane.has(idUdalosti) || !(zacatek < doDne && konec > od)) return;
+    vysledek.push({ id: idUdalosti, nazev, zacatek, konec, celodenni: !!celodenni, misto: misto || '', popis: popis || '',
+      kalendar: k.nazev, kalendarId: k.id, barva: k.barva, zdroj: k.zdroj, opakovana: !!opakovana });
   };
   for (let t = pulnoc(od); t < doDne; t = pridejDny(t, 1)) {
     const d = new Date(t).getDay();
     const v = (h, m) => t + (h * 60 + m) * 6e4;
-    if (d === 1) pridej('ics-prace', 'Porada týmu', v(8, 30), v(9, 15), false, 'kancelář', 'Program: stav zakázek, plán týdne.');
-    if (d === 2 || d === 4) pridej('ics-fotbal', 'Trénink dorostu', v(17, 0), v(18, 30), false, 'hřiště');
-    if (d === 6) pridej('ics-fotbal', 'Zápas dorostu', v(10, 15), v(12, 0), false, 'venku');
-    if (d === 3) pridej('ics-prace', 'Pasportizace – obchůzka', v(13, 0), v(16, 0), false, 'stavba');
+    if (d === 1) pridej('ics-prace', 'Porada týmu', v(8, 30), v(9, 15), false, 'kancelář', 'Program: stav zakázek, plán týdne.', true);
+    if (d === 2 || d === 4) pridej('ics-fotbal', 'Trénink dorostu', v(17, 0), v(18, 30), false, 'hřiště', '', true);
+    if (d === 6) pridej('ics-fotbal', 'Zápas dorostu', v(10, 15), v(12, 0), false, 'venku', '', true);
+    if (d === 3) pridej('ics-prace', 'Pasportizace – obchůzka', v(13, 0), v(16, 0), false, 'stavba', '', true);
   }
+  vlastni.forEach((u) => {
+    const k = kal(u.kalendarId);
+    if (k && !k.skryty && u.zacatek < doDne && u.konec > od) vysledek.push(Object.assign({}, u, { kalendar: k.nazev, barva: k.barva, zdroj: k.zdroj }));
+  });
   pridej('g-osobni', 'Zubař', den(2, 14, 0), den(2, 14, 45), false, 'Poliklinika');
   pridej('ics-rodina', 'Narozeniny – babička', den(3), den(4), true);
   pridej('g-osobni', 'Servis auta', den(6, 7, 30), den(6, 8, 30), false, 'autoservis');
@@ -205,7 +213,55 @@ const akce = {
     if (k) { if (d.skryty !== undefined) k.skryty = !!d.skryty; if (d.nazev) k.nazev = d.nazev; if (d.barva) k.barva = d.barva; }
     return kopie(kalendare);
   },
-  kalendarOdebrat: (d) => { const i = kalendare.findIndex((x) => x.id === d.id); if (i >= 0) kalendare.splice(i, 1); return kopie(kalendare); }
+  kalendarOdebrat: (d) => { const i = kalendare.findIndex((x) => x.id === d.id); if (i >= 0) kalendare.splice(i, 1); return kopie(kalendare); },
+  kalendarZalozit: (d) => {
+    const nazev = String(d.nazev || '').trim();
+    if (!nazev) throw new Error('Doplň název kalendáře.');
+    let k = kalendare.find((x) => x.nazev === nazev && x.zapis);
+    if (!k) { k = { id: 'g-' + Date.now(), nazev, barva: d.barva || '#2e7a4d', zdroj: 'google', skryty: false, zapis: true }; kalendare.push(k); }
+    return { id: k.id, kalendare: kopie(kalendare) };
+  },
+  udalostUlozit: (d) => {
+    const k = kalendare.find((x) => x.id === d.kalendarId);
+    if (!k || !k.zapis) throw new Error('Do tohoto kalendáře zapisovat nejde.');
+    if (!String(d.nazev || '').trim()) throw new Error('Doplň název události.');
+    if (!(d.konec > d.zacatek)) throw new Error('Konec musí být po začátku.');
+    if (d.udalost) { // úprava: zapsanou přepsat, ukázkovou schovat a nahradit
+      const i = vlastni.findIndex((u) => u.id === d.udalost);
+      if (i >= 0) vlastni.splice(i, 1); else smazane.add(d.udalost);
+    }
+    const rada = d.tydne ? 'rada-' + (++citac) : '';
+    const konecRady = d.tydneDo ? new Date(d.tydneDo + 'T23:59').getTime() : d.zacatek + 12 * 7 * 864e5;
+    for (let n = 0, z = d.zacatek; n < (d.tydne ? 60 : 1) && z <= (d.tydne ? konecRady : z); n++, z = pridejDny(z, 7)) {
+      vlastni.push({ id: 'v' + (++citac) + '|' + z, rada, nazev: d.nazev, zacatek: z, konec: z + (d.konec - d.zacatek), celodenni: !!d.celodenni,
+        misto: d.misto || '', popis: d.popis || '', kalendarId: k.id, opakovana: !!d.tydne });
+    }
+    return { id: 'v' + citac, kalendarId: k.id };
+  },
+  udalostSmazat: (d) => {
+    const u = vlastni.find((x) => x.id === d.udalost);
+    if (!u) { smazane.add(d.udalost); return true; }
+    for (let i = vlastni.length - 1; i >= 0; i--) {
+      if (vlastni[i].id === d.udalost || (d.cela && u.rada && vlastni[i].rada === u.rada)) vlastni.splice(i, 1);
+    }
+    return true;
+  },
+  zapasyImport: (d) => {
+    // ukázkový rozpis: tři sobotní zápasy od příští soboty, opakovaný import nic nezdvojí
+    const k = akce.kalendarZalozit({ nazev: 'Zápasy', barva: '#2e7a4d' });
+    const sobota = pridejDny(pulnoc(ted), ((6 - new Date(ted).getDay() + 7) % 7) || 7);
+    const zapasy = [['Kyjov', true], ['Hodonín B', false], ['Rohatec', true]];
+    let pridano = 0, beze_zmeny = 0;
+    zapasy.forEach((z, i) => {
+      const zacatek = pridejDny(sobota, i * 7) + (10 * 60 + 15) * 6e4;
+      const nazev = '⚽ ' + (z[1] ? d.domaci + ' – ' + z[0] : z[0] + ' – ' + d.domaci) + ' (' + d.tym + ')';
+      if (vlastni.some((u) => u.nazev === nazev && u.zacatek === zacatek)) { beze_zmeny++; return; }
+      vlastni.push({ id: 'z' + (++citac) + '|' + zacatek, nazev, zacatek, konec: zacatek + 2 * 36e5, celodenni: false,
+        misto: z[1] ? d.domaci + ', hřiště' : z[0], popis: (z[1] ? 'Doma' : 'Venku') + '\n' + (d.soutez || ''), kalendarId: k.id, opakovana: false });
+      pridano++;
+    });
+    return { pridano, upraveno: 0, beze_zmeny, kalendar: 'Zápasy', kalendarId: k.id };
+  }
 };
 
 /** Napodobí motor včetně krátkého zpoždění sítě. */

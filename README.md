@@ -51,15 +51,27 @@ Po každé úpravě motoru znovu krok 4 (Nová verze) – adresa zůstane stejn�
 
 ## Instalace aplikace
 
+Adresa aplikace: <https://mk-asistent.github.io> (organizace `mk-asistent`, vlastní adresa kvůli oddělení dat).
+
 - **iPhone / iPad:** Safari → adresa aplikace → Sdílet → **Přidat na plochu** (nechat zapnuté *Otevřít jako webovou
-  aplikaci*) → v aplikaci vložit adresu motoru a klíč.
+  aplikaci*) → v aplikaci vložit adresu motoru a klíč. Jednodušeji: na PC v Nastavení → Připojení → **Připojit další
+  zařízení** zkopírovat „kód pro připojení“ (adresa i klíč v jednom) a v telefonu ho vložit do pole Adresa.
 - **PC:** Chrome nebo Edge → v adresním řádku **Nainstalovat aplikaci**.
 - Bez motoru jde aplikaci vyzkoušet s ukázkovými daty („Jen vyzkoušet“ na úvodní obrazovce).
 
-## Kalendář z iPhonu
-V iPhonu: Kalendář → Kalendáře → ⓘ u kalendáře → **Veřejný kalendář** → Sdílet odkaz → Kopírovat.
-Odkaz vložit v aplikaci (Nastavení → Kalendáře). Kdo odkaz zná, kalendář přečte – zůstává jen v motoru,
-do aplikace se nevrací. Motor rozbaluje i opakované události (týdně, poslední pátek v měsíci, výjimky, přesuny).
+## Kalendář
+- **Čtení:** všechny zobrazené kalendáře Google + kalendáře z iPhonu (iCloud) přes soukromý odkaz:
+  v iPhonu Kalendář → Kalendáře → ⓘ u kalendáře → **Veřejný kalendář** → Sdílet odkaz → Kopírovat → vložit v aplikaci
+  (Nastavení → Kalendáře). Kdo odkaz zná, kalendář přečte – zůstává jen v motoru, do aplikace se nevrací.
+  Motor rozbaluje i opakované události (týdně, poslední pátek v měsíci, výjimky, přesuny).
+- **Zápis:** nová událost (tlačítko, „+ Přidat“ u dne, klepnutí do volné hodiny v týdnu, klávesa `n`), úprava, smazání,
+  opakování každý týden, připomenutí. Zapisuje se jen do **vlastních kalendářů Google** – do iCloudu z Apps Scriptu
+  zapisovat nejde. V iPhonu se kalendáře Google ukážou vedle iCloudu po přidání účtu Google
+  (Nastavení → Aplikace → Kalendář → Účty kalendářů → Přidat účet → Google).
+- **Zápasy:** šablona Zápas (tým, soupeř, doma/venku, výkop, sraz → „⚽ Vnorovy – Kyjov (dorost)“, připomenutí den
+  a 2 h předem) do kalendáře „Zápasy“, který se založí sám. **Načíst rozpis** stáhne rozpis dorostu z webu dorostu
+  (`rozpis-dorost.js`) a zápasy přidá; opakovaný import jen upraví přeložené, nic nezdvojí ani nesmaže
+  (id zápasu je ve štítku události). Další rozpisy: pole `ROZPISY` v `js/udalost.js`.
 
 ## Pracovní pošta
 Motor čte jen Gmail. Pracovní schránka se do něj dostane **přeposíláním kopií** od poskytovatele; odpovídá se z ní

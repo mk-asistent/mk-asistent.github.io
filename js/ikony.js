@@ -37,5 +37,7 @@ export const IKONY = {
   otazka: s('<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6M12 17v.01"/>'),
   cekas: s('<path d="M7 3h10M7 21h10M8 3v3.5a4 4 0 0 0 1.6 3.2L12 12l2.4-2.3A4 4 0 0 0 16 6.5V3M8 21v-3.5a4 4 0 0 1 1.6-3.2L12 12l2.4 2.3a4 4 0 0 1 1.6 3.2V21"/>'),
   info: s('<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5v.01"/>'),
-  klavesnice: s('<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>')
+  klavesnice: s('<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>'),
+  zapas: s('<circle cx="12" cy="12" r="9"/><path d="M12 7.6l3.3 2.4-1.3 3.9H10L8.7 10z"/><path d="M12 3v4.6M15.3 10l4.2-1.4M14 13.9l2.6 3.7M10 13.9l-2.6 3.7M8.7 10L4.5 8.6"/>'),
+  smazat: s('<path d="M4 7h16M10 11v6M14 11v6"/><path d="M5.5 7l1 12a2 2 0 0 0 2 1.8h7a2 2 0 0 0 2-1.8l1-12M9 7V4.5h6V7"/>')
 };

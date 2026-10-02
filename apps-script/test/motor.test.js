@@ -61,7 +61,7 @@ function prostredi() {
   };
 
   const udalostG = (nazev, z, k, celodenni) => ({
-    getId: () => 'g-' + nazev, getTitle: () => nazev, isAllDayEvent: () => !!celodenni,
+    getId: () => 'g-' + nazev, getTitle: () => nazev, isAllDayEvent: () => !!celodenni, isRecurringEvent: () => false,
     getStartTime: () => new Date(z), getEndTime: () => new Date(k), getAllDayStartDate: () => new Date(z), getAllDayEndDate: () => new Date(k),
     getLocation: () => '', getDescription: () => 'Popis <b>tučně</b><br>řádek', getColor: () => ''
   });

@@ -31,9 +31,11 @@ const vlaknoSouhrn = {
   v1: { id: 'v1', ucet: 'osobni', stav: 'otazka', od: 'Trenér', predmet: 'Sraz v sobotu', ukazka: 'Ahoj, sraz v 8:30. Stihneš to?', kdy: ted - H, neprectena: true, pocet: 1, odkaz: '#' },
   v2: { id: 'v2', ucet: 'pracovni', stav: 'cekas', od: 'Investor', predmet: 'Protokol', ukazka: 'Posílám protokol.', kdy: ted - 2 * H, neprectena: false, pocet: 2, odkaz: '#' }
 };
+const KALENDARE = [{ id: 'g1', nazev: 'Osobní', barva: '#2f6bff', zdroj: 'google', skryty: false, zapis: true },
+  { id: 'ics-1', nazev: 'Rodina', barva: '#e2860a', zdroj: 'icloud', skryty: false }];
 const motor = {
   info: () => ({ verze: 'test', ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false },
-    kalendare: [{ id: 'g1', nazev: 'Osobní', barva: '#2f6bff', zdroj: 'google', skryty: false }, { id: 'ics-1', nazev: 'Rodina', barva: '#e2860a', zdroj: 'icloud', skryty: false }] }),
+    kalendare: KALENDARE }),
   schranka: () => ({ nove: [{ id: 'n1', slozka: 'NOVE', kdy: ted - H, odkud: 'iPhone', typ: '', stav: '', shrnuti: '', termin: '', text: 'Zkušební poznámka z iPhonu', vlakno: [] }],
     ceka: [{ id: 'c1', slozka: 'CEKA', kdy: ted - 5 * H, odkud: 'iPhone', typ: 'ukol-michal', stav: 'tvuj-ukol', shrnuti: 'Zavolat kvůli lešení', termin: '', text: 'Připomeň mi zavolat.', vlakno: [] }],
     hotovo: [], ted }),
@@ -42,10 +44,15 @@ const motor = {
     zpravy: [{ id: 'm-' + d.id, od: 'Trenér', odAdresa: 'trener@klub.test', odeMe: false, komu: 'tester@example.com', kopie: '', kdy: ted - H, predmet: 'Sraz',
       text: 'Ahoj, sraz v 8:30.', html: d.id === 'v2' ? '<p>Protokol <img src="https://sledovani.example/pixel.gif" width="1" height="1"></p>' : '', prilohy: [] }] }),
   kalendar: (d) => ({ udalosti: [
-    { id: 'u1|' + den(0, 9), nazev: 'Porada', zacatek: den(0, 9), konec: den(0, 10), celodenni: false, misto: 'kancelář', popis: '', kalendar: 'Osobní', barva: '#2f6bff', zdroj: 'google' },
-    { id: 'u3|' + den(0, 23), nazev: 'Pozdní hovor', zacatek: den(0, 23), konec: den(0, 23.5), celodenni: false, misto: '', popis: '', kalendar: 'Osobní', barva: '#2f6bff', zdroj: 'google' },
-    { id: 'u2|' + den(1), nazev: 'Narozeniny', zacatek: den(1), konec: den(2), celodenni: true, misto: '', popis: '', kalendar: 'Rodina', barva: '#e2860a', zdroj: 'icloud' }
+    { id: 'u1|' + den(0, 9), nazev: 'Porada', zacatek: den(0, 9), konec: den(0, 10), celodenni: false, misto: 'kancelář', popis: '', kalendar: 'Osobní', kalendarId: 'g1', barva: '#2f6bff', zdroj: 'google', opakovana: true },
+    { id: 'u3|' + den(0, 23), nazev: 'Pozdní hovor', zacatek: den(0, 23), konec: den(0, 23.5), celodenni: false, misto: '', popis: '', kalendar: 'Osobní', kalendarId: 'g1', barva: '#2f6bff', zdroj: 'google', opakovana: false },
+    { id: 'u2|' + den(1), nazev: 'Narozeniny', zacatek: den(1), konec: den(2), celodenni: true, misto: '', popis: '', kalendar: 'Rodina', kalendarId: 'ics-1', barva: '#e2860a', zdroj: 'icloud' }
   ].filter((u) => u.zacatek < d.do && u.konec > d.od), chyby: [], od: d.od, do: d.do, ted }),
+  kalendare: () => KALENDARE,
+  kalendarZalozit: (d) => ({ id: 'zapasy@group.test', kalendare: KALENDARE.concat({ id: 'zapasy@group.test', nazev: d.nazev, barva: d.barva, zdroj: 'google', skryty: false, zapis: true }) }),
+  udalostUlozit: (d) => ({ id: 'nova@google.com', kalendarId: d.kalendarId }),
+  udalostSmazat: () => true,
+  zapasyImport: () => ({ pridano: 3, upraveno: 0, beze_zmeny: 0, kalendar: 'Zápasy', kalendarId: 'zapasy@group.test' }),
   odeslat: () => true,
   oznacit: () => true,
   hledat: (d) => ({ dotaz: d.dotaz, vlakna: [Object.assign({}, vlaknoSouhrn.v2, { id: 'v9', predmet: 'Starý protokol', kdy: ted - 90 * 24 * H })] }),
@@ -206,12 +213,108 @@ async function novaStranka(prohlizec, v, motiv) {
         jistota(await page.locator('.cas-udalost').count() >= (v.sirka >= 760 ? 1 : 0), 'v týdnu chybí porada');
         jistota(await pretika() <= 0, 'Kalendář (týden) přetéká');
         await page.screenshot({ path: path.join(VYSTUP, jmeno + '_kalendar_tyden.png') });
+        // formulář nové události (telefon: plus v hlavičce, jinak tlačítko nahoře) – vejde se a nepřetéká
+        await page.click(v.sirka < 760 ? '#hlava [data-nova-udalost]' : '#horni [data-nova-udalost]');
+        await page.waitForSelector('[data-panel="udalost-formular"] [data-uf="nazev"]');
+        await page.click('[data-panel="udalost-formular"] [data-uf-typ="zapas"]');
+        await page.waitForSelector('[data-panel="udalost-formular"] [data-uf="souper"]');
+        jistota(await page.evaluate(() => { const t = document.querySelector('[data-panel="udalost-formular"] .panel-telo'); return t.scrollWidth <= t.clientWidth + 1; }), 'formulář přetéká');
+        await page.screenshot({ path: path.join(VYSTUP, jmeno + '_kalendar_zapas.png') });
+        await page.keyboard.press('Escape');
+        await page.waitForSelector('[data-panel="udalost-formular"]', { state: 'detached' });
 
         jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
         await ctx.close();
       });
     }
   }
+
+  // ---------- kalendář: nový zápas (i s novým kalendářem Zápasy), úprava, smazání, iCloud jen čtení, rozpis, klepnutí do týdne
+  await test('kalendář: zápas, úprava, smazání, rozpis dorostu, nová událost z týdne', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    page.on('dialog', (d) => d.accept());
+    await page.goto(WEB);
+    await page.click('#rail [data-cil="kalendar"]');
+    await page.click('[data-kal-pohled="tyden"]');
+    await page.waitForSelector('.cas-udalost[data-udalost^="u1|"]');
+    const pred = volano.length;
+    const nove = () => volano.slice(pred);
+
+    // zápas venku: název, místo, sraz, 2 h, připomenutí den a 2 h předem, kalendář Zápasy se založí
+    await page.click('#horni [data-nova-udalost]');
+    await page.click('[data-panel="udalost-formular"] [data-uf-typ="zapas"]');
+    await page.fill('[data-panel="udalost-formular"] [data-uf="souper"]', 'Kyjov');
+    await page.click('[data-panel="udalost-formular"] [data-uf-doma="venku"]');
+    const za3 = new Date(); za3.setHours(0, 0, 0, 0); za3.setDate(za3.getDate() + 3);
+    const iso3 = za3.getFullYear() + '-' + String(za3.getMonth() + 1).padStart(2, '0') + '-' + String(za3.getDate()).padStart(2, '0');
+    await page.fill('[data-panel="udalost-formular"] [data-uf="datum"]', iso3);
+    await page.fill('[data-panel="udalost-formular"] [data-uf="od"]', '10:15');
+    jistota(await page.inputValue('[data-panel="udalost-formular"] [data-uf="do"]') === '12:15', 'konec se neposunul s výkopem');
+    await page.fill('[data-panel="udalost-formular"] [data-uf="sraz"]', '09:00');
+    jistota(/Kyjov – Vnorovy \(dorost\)/.test(await page.textContent('[data-uf-nahled]')), 'náhled názvu zápasu');
+    await page.click('[data-panel="udalost-formular"] [data-ulozit-udalost]');
+    await page.waitForSelector('[data-panel="udalost-formular"]', { state: 'detached' });
+    const zalozeni = nove().find((d) => d.akce === 'kalendarZalozit');
+    const zapas = nove().find((d) => d.akce === 'udalostUlozit');
+    jistota(zalozeni && zalozeni.nazev === 'Zápasy', 'kalendář Zápasy se nezaložil');
+    jistota(zapas && zapas.kalendarId === 'zapasy@group.test' && zapas.nazev === '⚽ Kyjov – Vnorovy (dorost)', 'zápas: ' + JSON.stringify(zapas));
+    jistota(zapas.misto === 'Kyjov' && /Venku/.test(zapas.popis) && /Sraz: 09:00/.test(zapas.popis), 'místo nebo popis zápasu');
+    const vykop = new Date(za3); vykop.setHours(10, 15);
+    jistota(zapas.zacatek === vykop.getTime() && zapas.konec - zapas.zacatek === 2 * H, 'čas zápasu');
+    jistota(JSON.stringify(zapas.pripomenuti) === '[1440,120]', 'připomenutí zápasu');
+    // po uložení kalendář ukáže den zápasu
+    jistota(await page.evaluate((t) => !!document.querySelector('.cas-den-nadpis.vybrany[data-den="' + t + '"]'), za3.getTime()), 'kalendář neukázal den zápasu');
+    await page.click('[data-kal="dnes"]');
+
+    // úprava opakované události z Google: Upravit → nový název, jen tento výskyt
+    await page.click('.cas-udalost[data-udalost^="u1|"]');
+    await page.waitForSelector('[data-panel="udalost"] [data-upravit-udalost]');
+    jistota(await page.isVisible('[data-panel="udalost"] [data-smazat-udalost][data-cela="1"]'), 'u opakované chybí Smazat řadu');
+    await page.click('[data-panel="udalost"] [data-upravit-udalost]');
+    await page.waitForSelector('[data-panel="udalost-formular"] [data-uf="nazev"]');
+    jistota(await page.inputValue('[data-panel="udalost-formular"] [data-uf="nazev"]') === 'Porada', 'úprava nemá předvyplněný název');
+    await page.fill('[data-panel="udalost-formular"] [data-uf="nazev"]', 'Porada týmu');
+    await page.click('[data-panel="udalost-formular"] [data-ulozit-udalost]');
+    await page.waitForSelector('[data-panel="udalost-formular"]', { state: 'detached' });
+    const uprava = nove().filter((d) => d.akce === 'udalostUlozit').pop();
+    jistota(uprava.udalost === 'u1|' + den(0, 9) && uprava.nazev === 'Porada týmu' && uprava.kalendarId === 'g1', 'úprava: ' + JSON.stringify(uprava));
+
+    // smazání jednorázové
+    await page.click('.cas-udalost[data-udalost^="u3|"]');
+    await page.click('[data-panel="udalost"] [data-smazat-udalost]');
+    await page.waitForSelector('[data-panel="udalost"]', { state: 'detached' });
+    jistota(nove().some((d) => d.akce === 'udalostSmazat' && d.udalost === 'u3|' + den(0, 23) && !d.cela), 'smazání nedorazilo');
+
+    // kalendář z iPhonu jen ke čtení
+    await page.click('[data-kal-pohled="mesic"]');
+    await page.click('.cip-udalost[data-udalost^="u2|"]');
+    await page.waitForSelector('[data-panel="udalost"]');
+    jistota(!(await page.isVisible('[data-panel="udalost"] [data-upravit-udalost]')) && /jen ke čtení/.test(await page.textContent('[data-panel="udalost"]')), 'iCloud nemá jít upravit');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-panel="udalost"]', { state: 'detached' });
+
+    // rozpis dorostu z webu
+    await page.click('.kal-boc [data-import-rozpisu="dorost"]');
+    await page.waitForFunction(() => /3 nových/.test(document.getElementById('toast').textContent));
+    const imp = nove().find((d) => d.akce === 'zapasyImport');
+    jistota(imp && /rozpis-dorost\.js$/.test(imp.odkaz) && imp.domaci === 'Vnorovy' && imp.tym === 'dorost', 'import: ' + JSON.stringify(imp));
+
+    // klepnutí do volné hodiny v týdnu → formulář s tou hodinou
+    await page.click('[data-kal-pohled="tyden"]');
+    await page.waitForSelector('.cas-sloupec');
+    // osa se sama posouvá k aktuální hodině – pro test ji dát napevno tak, aby 15:00 bylo vidět
+    await page.evaluate(() => { document.getElementById('cas-svitek').scrollIntoView(); document.getElementById('cas-svitek').scrollTop = 13 * 48; });
+    const sloupec = page.locator('.cas-sloupec').nth(2);
+    const box = await sloupec.boundingBox();
+    const svitek = await page.evaluate(() => document.getElementById('cas-svitek').scrollTop);
+    const hodina = 15;
+    await page.mouse.click(box.x + box.width / 2, box.y + hodina * 48 + 10);
+    await page.waitForSelector('[data-panel="udalost-formular"] [data-uf="od"]');
+    jistota(await page.inputValue('[data-panel="udalost-formular"] [data-uf="od"]') === '15:00', 'klepnutí do 15 h dalo ' + await page.inputValue('[data-panel="udalost-formular"] [data-uf="od"]') + ' (svitek ' + svitek + ')');
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_kalendar_nova_udalost.png') });
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
 
   // ---------- hledání (Ctrl K): načtená pošta hned, celá pošta přes motor, české filtry
   await test('hledání: Ctrl K, místní výsledky, celá pošta, české filtry, klávesy v Poště', async () => {

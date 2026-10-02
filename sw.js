@@ -3,11 +3,11 @@
 // nejde nebo trvá déle než 3 s, použije se poslední uložená kopie. Data z motoru (script.google.com)
 // jdou mimo – ty se sem nikdy neukládají.
 
-const VERZE = 'asistent-2026-10-02-fixtrack';
+const VERZE = 'asistent-2026-10-02-kalendar';
 const SOUBORY = [
   './', 'index.html', 'app.css', 'manifest.webmanifest',
   'js/app.js', 'js/api.js', 'js/pomocne.js', 'js/stav.js', 'js/ui.js', 'js/ikony.js', 'js/panely.js',
-  'js/schranka.js', 'js/posta.js', 'js/kalendar.js', 'js/nastaveni.js', 'js/ukazka.js', 'js/grafy.js', 'js/hledat.js',
+  'js/schranka.js', 'js/posta.js', 'js/kalendar.js', 'js/nastaveni.js', 'js/ukazka.js', 'js/grafy.js', 'js/hledat.js', 'js/udalost.js',
   'ikony/ikona-192.png', 'ikony/apple-touch-icon.png'
 ];
 

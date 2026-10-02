@@ -8,13 +8,14 @@ import { toast, potvrd, segment } from './ui.js';
 import { IKONY } from './ikony.js';
 import { smazUlozene as smazKalendar, nactiKalendar } from './kalendar.js';
 import { nactiPostu } from './posta.js';
+import { zapasyHtml } from './udalost.js';
 
 export const VERZE_APLIKACE = '2026-10-02';
 
 // předvolby hlavní barvy – tlumené tmavé odstíny jako ve stylu Fixtrack (lesní zelená je výchozí)
 const AKCENTY = [['#1f3d2c', 'Lesní zelená'], ['#1d4250', 'Ocelová'], ['#2a3f8f', 'Modrá'], ['#4b2d63', 'Švestková'], ['#7a3a1d', 'Cihlová'], ['#2b2f33', 'Grafitová']];
 const BARVY_KALENDARE = ['#2f5bd3', '#0f7c8c', '#2e7a4d', '#a8620c', '#8e5bd3', '#c0392b', '#b5407a', '#37474f'];
-const n = { upravaPripojeni: false, novaBarva: BARVY_KALENDARE[1], pracuje: false };
+const n = { upravaPripojeni: false, ukazKod: false, novaBarva: BARVY_KALENDARE[1], pracuje: false };
 
 // ---------------------------------------------------------------- vzhled
 
@@ -63,12 +64,22 @@ function formularPripojeniHtml(predvyplnit) {
       'autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="64 znaků z Apps Scriptu"></label></div>';
 }
 
+const ADRESA_MOTORU = /^https:\/\/script\.google\.com\/macros\/(u\/\d+\/)?s\/[\w-]+\/exec$/;
+
+/** „Kód pro připojení“ = adresa motoru#klíč v jednom – na telefonu stačí vložit jednu věc do pole Adresa. */
+function rozdelKod(text) {
+  const m = /^(\S+?\/exec)[\s#]+(\S{32,})$/.exec(String(text || '').trim());
+  return m && ADRESA_MOTORU.test(m[1]) ? { url: m[1], klic: m[2] } : null;
+}
+
 async function zkusPripojit(koren, tlacitko) {
-  const url = koren.querySelector('[data-pripojeni-url]').value.trim();
-  const klic = koren.querySelector('[data-pripojeni-klic]').value.trim();
+  let url = koren.querySelector('[data-pripojeni-url]').value.trim();
+  let klic = koren.querySelector('[data-pripojeni-klic]').value.trim();
+  const kod = rozdelKod(url);
+  if (kod) { url = kod.url; if (!klic) klic = kod.klic; }
   const chyba = koren.querySelector('[data-pripojeni-chyba]');
   const ukaz = (t) => { chyba.textContent = t; chyba.hidden = !t; };
-  if (!/^https:\/\/script\.google\.com\/macros\/(u\/\d+\/)?s\/[\w-]+\/exec$/.test(url)) { ukaz('Adresa má tvar https://script.google.com/macros/s/…/exec'); return false; }
+  if (!ADRESA_MOTORU.test(url)) { ukaz('Adresa má tvar https://script.google.com/macros/s/…/exec'); return false; }
   if (klic.length < 32) { ukaz('Klíč je krátký – zkopíruj ho celý.'); return false; }
   tlacitko.disabled = true;
   ukaz('');
@@ -94,7 +105,9 @@ export function vykresliUvod(poPripojeni) {
     '<div class="uvod-logo"><span>' + IKONY.dnes + '</span><b>Asistent</b></div>' +
     '<p>Schránka pro Clauda, pošta a kalendář na jednom místě. Na tomhle zařízení ještě není připojený motor.</p>' +
     formularPripojeniHtml(false) +
-    '<p class="napoveda">Adresu a klíč máš v konceptu e-mailu v Gmailu. Klíč zůstane jen v tomhle zařízení – je to jako heslo k poště.</p>' +
+    '<p class="napoveda">Adresu (končí /exec) najdeš v Apps Scriptu v Nasadit → Spravovat nasazení, klíč v protokolu po spuštění ' +
+      'nastavApi. Na dalším zařízení stačí do Adresy vložit <b>kód pro připojení</b> z Nastavení (obsahuje obojí). ' +
+      'Klíč zůstane jen v tomhle zařízení – je to jako heslo k poště.</p>' +
     '<p class="pruh pruh-varovani" data-pripojeni-chyba hidden></p>' +
     '<div class="akce"><button type="button" class="odkaz" data-uvod-ukazka>Jen vyzkoušet s ukázkovými daty</button>' +
     '<button type="button" class="btn btn--primary" data-uvod-pripojit>Připojit</button></div></div>';
@@ -122,6 +135,7 @@ export function nactiInfo() {
 
 export function otevriNastaveni(sekce) {
   n.upravaPripojeni = false;
+  n.ukazKod = false;
   otevriPanel({
     id: 'nastaveni', trida: 'panel-bocni', titul: 'Nastavení', vykresli: nastaveniHtml,
     poOtevreni: (el) => {
@@ -146,7 +160,17 @@ function sekcePripojeni() {
     h += formularPripojeniHtml(!jeDemo()) + '<p class="pruh pruh-varovani" data-pripojeni-chyba hidden></p>' +
       '<div class="akce"><button type="button" class="btn btn--primary" data-nast="ulozit-pripojeni">Uložit a vyzkoušet</button></div>';
   } else {
-    h += '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="zmenit-pripojeni">Změnit adresu nebo klíč</button>' +
+    if (n.ukazKod) {
+      const p = pripojeni() || {};
+      h += '<label><span class="label">Kód pro připojení dalšího zařízení</span><input class="field kod-pripojeni" data-kod-pripojeni readonly value="' +
+        esc(p.url + '#' + p.klic) + '"></label>' +
+        '<p class="napoveda">Je v něm adresa i klíč (heslo k poště). Pošli si ho bezpečně – třeba e-mailem sám sobě –, v telefonu ho vlož ' +
+        'do pole Adresa a e-mail pak smaž.</p>';
+    }
+    h += '<div class="akce">' +
+      (n.ukazKod ? '<button type="button" class="btn btn--primary btn--sm" data-nast="kopirovat-kod">Kopírovat kód</button>'
+        : '<button type="button" class="btn btn--ghost btn--sm" data-nast="kod-zarizeni">Připojit další zařízení</button>') +
+      '<button type="button" class="btn btn--ghost btn--sm" data-nast="zmenit-pripojeni">Změnit adresu nebo klíč</button>' +
       '<button type="button" class="btn btn--ghost btn--sm" data-nast="odpojit">Odpojit toto zařízení</button></div>';
   }
   return h + '</section>';
@@ -164,8 +188,10 @@ function sekcePosty() {
       (p.lzeOdesilatZPracovni ? 'Odpovědi na pracovní poštu půjdou z pracovní adresy.' : 'Z pracovní adresy zatím odesílat nejde.') + '</p>';
   }
   h += '<details class="napoveda"><summary>Jak dostat pracovní poštu do aplikace</summary><ol>' +
-    '<li>U poskytovatele pracovní schránky (WEDOS) zapni přeposílání <b>kopií</b> do osobního Gmailu – originály zůstanou na serveru.</li>' +
-    '<li>V Gmailu: Nastavení → Účty a import → <b>Odesílat poštu jako</b> → přidat pracovní adresu přes SMTP serveru WEDOS (heslo zadáš jen ty).</li>' +
+    '<li>WEDOS WebMail → Nastavení → Filtry → Vytvořit: Všechny zprávy, akce <b>Přeposlat zprávu na</b> tvůj Gmail a tlačítkem + druhá akce ' +
+    '<b>Zkopírovat zprávu do → Příchozí pošta</b> (jinak WEDOS přeposlané maže). Gmail sám poštu z jiných serverů od 2026 nestahuje.</li>' +
+    '<li>V Gmailu: Nastavení → Účty a import → <b>Přidat další e-mailovou adresu</b> (Odesílat poštu jako) → SMTP serveru WEDOS ' +
+    '(wes1-smtp.wedos.net, login celá adresa, heslo zadáš jen ty).</li>' +
     '<li>Sem napiš pracovní adresu a ulož. Aplikace pak pracovní poštu oddělí a odpovídá z ní.</li></ol>' +
     '<p>Přeposíláním se firemní e-maily ukládají i v osobním účtu Google – je to rozhodnutí firmy, ne aplikace.</p></details>';
   return h + '</section>';
@@ -176,7 +202,7 @@ function sekceKalendaru() {
   let h = '<section class="card nast-sekce" data-sekce="kalendare"><h3>Kalendáře</h3>';
   if (kalendare.length) {
     h += '<ul class="kal-polozky">' + kalendare.map((k) => '<li class="kal-polozka" style="--b:' + esc(k.barva) + '"><i class="tecka-kal"></i>' +
-      '<span class="grow"><b>' + esc(k.nazev) + '</b><small>' + (k.zdroj === 'icloud' ? 'z iPhonu (iCloud)' : 'Google') + '</small></span>' +
+      '<span class="grow"><b>' + esc(k.nazev) + '</b><small>' + (k.zdroj === 'icloud' ? 'z iPhonu (iCloud) · jen čtení' : 'Google' + (k.zapis ? ' · zápis' : ' · jen čtení')) + '</small></span>' +
       (k.zdroj === 'icloud' ? '<button type="button" class="btn btn--ghost btn--sm" data-nast-kal-odebrat="' + esc(k.id) + '">Odebrat</button>' : '') +
       '<label class="prepinac" title="Ukazovat v aplikaci"><input type="checkbox" data-nast-kal-zobrazit="' + esc(k.id) + '"' + (k.skryty ? '' : ' checked') +
       ' aria-label="Ukazovat ' + esc(k.nazev) + '"><span></span></label></li>').join('') + '</ul>';
@@ -193,6 +219,10 @@ function sekceKalendaru() {
     '<div class="spread"><div class="barvy" role="group" aria-label="Barva kalendáře">' + BARVY_KALENDARE.map((b) => '<button type="button" class="barva" style="--b:' + b +
       '" data-nast-kal-barva="' + b + '" aria-pressed="' + (b === n.novaBarva) + '" aria-label="Barva ' + b + '"></button>').join('') + '</div>' +
     '<button type="button" class="btn btn--primary" data-nast="pridat-kalendar">Přidat</button></div>';
+  h += '<h3>Zápis a zápasy</h3>' +
+    '<p class="napoveda">Nové události a zápasy se zapisují do kalendářů Google (iCloud jde jen číst). V iPhonu je uvidíš vedle iCloudu, když si ' +
+    'jednou přidáš účet Google: Nastavení → Aplikace → Kalendář → Účty kalendářů → Přidat účet → Google (stejný účet jako Gmail).</p>' +
+    zapasyHtml(false);
   return h + '</section>';
 }
 
@@ -229,6 +259,14 @@ export function klikNastaveni(el) {
   const panel = elementPanelu('nastaveni');
   const akce = el.dataset.nast;
   if (akce === 'zmenit-pripojeni') { n.upravaPripojeni = true; obnovPanel('nastaveni'); return true; }
+  if (akce === 'kod-zarizeni') { n.ukazKod = true; obnovPanel('nastaveni'); return true; }
+  if (akce === 'kopirovat-kod') {
+    const pole = panel.querySelector('[data-kod-pripojeni]');
+    const hotovo = () => toast('Kód zkopírovaný – po vložení v telefonu ho smaž, kam sis ho poslal');
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(pole.value).then(hotovo, () => { pole.select(); toast('Označeno – zkopíruj Ctrl+C'); });
+    else { pole.select(); toast('Označeno – zkopíruj Ctrl+C'); }
+    return true;
+  }
   if (akce === 'ulozit-pripojeni') {
     zkusPripojit(panel, el).then((ok) => { if (ok) { toast('Připojeno ✓'); location.reload(); } });
     return true;

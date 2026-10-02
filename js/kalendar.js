@@ -1,5 +1,6 @@
 // Kalendář: Měsíc (mřížka + seznam vybraného dne), Týden (časová osa; na telefonu pruh dnů + jeden den),
-// Seznam (30 dní). Na PC vpravo panel: malý měsíc, kalendáře, nejbližší události.
+// Seznam (30 dní). Na PC vpravo panel: malý měsíc, kalendáře, nejbližší události, zápasy z rozpisu.
+// Nová událost: tlačítko, „+ Přidat“ u dne, klepnutí do volné hodiny v týdnu (formulář v udalost.js).
 // Data z motoru po měsících (mřížka 6 týdnů), uložená i v zařízení pro okamžitý start.
 
 import { stav, zmeneno } from './stav.js';
@@ -11,6 +12,7 @@ import {
 import { otevriPanel } from './panely.js';
 import { chybaHtml, segment, hlavickaKarty } from './ui.js';
 import { IKONY } from './ikony.js';
+import { otevriFormular, akceUdalostiHtml, zapasyHtml, zapisovatelneKalendare } from './udalost.js';
 
 const k = stav.kal;
 const HODINA = 48;                                   // px na hodinu v časové ose
@@ -117,12 +119,24 @@ export function vsechnyUdalosti() {
 }
 function chybaMesice(t) { return k.chyby[klicMesice(t)]; }
 
-function najdiUdalost(id) {
+export function najdiUdalost(id) {
   for (const kl of Object.keys(k.mesice)) {
     const u = k.mesice[kl].udalosti.find((x) => x.id === id);
     if (u) return u;
   }
   return null;
+}
+
+/** Po zápisu do kalendáře: smazanou hned schovat, všechny měsíce načíst znovu, ukázat den změny. */
+export function obnovPoZmene(t, smazaneId) {
+  Object.keys(k.mesice).forEach((kl) => {
+    const m = k.mesice[kl];
+    if (smazaneId) m.udalosti = m.udalosti.filter((u) => u.id !== smazaneId);
+    m.zUloziste = true; // nactiMesic je pak stáhne znovu
+  });
+  if (t) { k.vybrany = pulnoc(t); posunOsy = null; }
+  nactiKalendar(true);
+  zmeneno();
 }
 
 // ---------------------------------------------------------------- společné kousky
@@ -242,6 +256,7 @@ function bocniPanelHtml() {
           '<input type="checkbox" data-nast-kal-zobrazit="' + esc(kal.id) + '"' + (kal.skryty ? '' : ' checked') + ' aria-label="Ukazovat ' + esc(kal.nazev) + '"></li>').join('') + '</ul>'
       : '<div class="prazdne">Zatím žádný kalendář.</div>') +
     '<button type="button" class="dlazdice__pata" data-otevri-nastaveni="kalendare">Přidat kalendář z iPhonu</button></section>';
+  h += '<section class="card">' + hlavickaKarty(IKONY.zapas, 'Zápasy') + zapasyHtml(true) + '</section>';
   const dalsi = nejblizsi(6);
   h += '<section class="card">' + hlavickaKarty(IKONY.cas, 'Nejbližší') +
     (dalsi.length
@@ -285,8 +300,10 @@ function mesicHtml() {
       '<span class="mesic-cipy">' + cipy + '</span></button>';
   }
   h += '</div></div>';
-  h += '<div class="card kal-den"><div class="den-nadpis' + (rozdilDni(vybrany) === 0 ? ' dnes' : '') + '">' + esc(velkePrvni(denNadpis(vybrany))) + '</div>' +
-    seznamDneHtml(vybrany) + '</div>';
+  h += '<div class="card kal-den"><div class="kal-den__hlava"><span class="den-nadpis' + (rozdilDni(vybrany) === 0 ? ' dnes' : '') + '">' +
+    esc(velkePrvni(denNadpis(vybrany))) + '</span>' +
+    (zapisovatelneKalendare().length ? '<button type="button" class="btn btn--ghost btn--sm" data-nova-udalost="' + vybrany + '">' + IKONY.plus + '<span>Přidat</span></button>' : '') +
+    '</div>' + seznamDneHtml(vybrany) + '</div>';
   return h;
 }
 
@@ -322,7 +339,8 @@ function casovaOsaHtml(dny) {
       a.map((u) => '<button type="button" class="cip-udalost celodenni" data-udalost="' + esc(u.id) + '" style="--b:' + esc(u.barva) + '">' + esc(u.nazev) + '</button>').join('') +
       '</div>').join('') + '</div>';
   }
-  h += '<div class="cas-mrizka" style="--dnu:' + dny.length + ';--hodina:' + HODINA + 'px">';
+  h += '<div class="cas-mrizka' + (zapisovatelneKalendare().length ? ' lze-zapisovat' : '') + '" style="--dnu:' + dny.length + ';--hodina:' + HODINA + 'px"' +
+    (zapisovatelneKalendare().length ? ' title="Klepni do volného místa pro novou událost"' : '') + '>';
   h += '<div class="cas-hodiny">' + Array.from({ length: 24 }, (_, i) => '<span style="top:' + (i * HODINA) + 'px">' + (i ? i + ':00' : '') + '</span>').join('') + '</div>';
   dny.forEach((d) => {
     const konecDne = pridejDny(d, 1);
@@ -401,7 +419,9 @@ function seznamHtml() {
 export function otevriUdalost(id) {
   const u = najdiUdalost(id);
   if (!u) return;
-  otevriPanel({ id: 'udalost', trida: 'panel-okno', titul: u.kalendar || 'Událost', vykresli: () => detailHtml(u) });
+  const akce = akceUdalostiHtml(u);
+  otevriPanel({ id: 'udalost', trida: 'panel-okno', titul: u.kalendar || 'Událost', vykresli: () => detailHtml(u),
+    paticka: akce ? () => akce : null });
 }
 
 function kdyUdalosti(u) {
@@ -425,7 +445,8 @@ function detailHtml(u) {
   if (u.misto) {
     h += '<p class="udalost-radek">' + IKONY.misto + '<a href="https://maps.apple.com/?q=' + encodeURIComponent(u.misto) + '" target="_blank" rel="noopener">' + esc(u.misto) + '</a></p>';
   }
-  h += '<p class="udalost-radek"><i class="tecka-kal"></i><span>' + esc(u.kalendar || '') + (u.zdroj === 'icloud' ? ' · iPhone' : u.zdroj === 'google' ? ' · Google' : '') + '</span></p>';
+  h += '<p class="udalost-radek"><i class="tecka-kal"></i><span>' + esc(u.kalendar || '') + (u.zdroj === 'icloud' ? ' · iPhone' : u.zdroj === 'google' ? ' · Google' : '') +
+    (u.opakovana ? ' · opakuje se' : '') + '</span></p>';
   if (u.popis) h += '<div class="udalost-popis">' + sOdkazy(u.popis) + '</div>';
   return h + '</div>';
 }
@@ -493,5 +514,12 @@ export function pripravGesta(el) {
     x0 = null;
     if (Math.abs(dx) > 60 && Math.abs(dy) < 45) posun(dx < 0 ? 1 : -1);
   }, { passive: true });
+  // klepnutí do volného místa v týdnu = nová událost v tu půlhodinu
+  el.addEventListener('click', (e) => {
+    const sloupec = e.target.closest('.cas-sloupec');
+    if (!sloupec || e.target.closest('.cas-udalost') || !zapisovatelneKalendare().length) return;
+    const y = e.clientY - sloupec.getBoundingClientRect().top;
+    otevriFormular({ den: Number(sloupec.dataset.denOsa), hodina: Math.max(0, Math.min(23, Math.floor((y / HODINA) * 2) / 2)) });
+  });
   SIROKY.addEventListener('change', () => { posunOsy = null; zmeneno(); });
 }
