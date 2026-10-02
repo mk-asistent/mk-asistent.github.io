@@ -196,21 +196,58 @@ function prostredi() {
       createCalendar: (n) => { const k = vytvorKalendar(n); kalendare.push(k); log.zalozeno = (log.zalozeno || []).concat(n); return k; },
       newRecurrence: () => ({ addWeeklyRule: () => { const p = { typ: 'tydne', do: null, until: (d) => { p.do = +d; return p; } }; return p; } })
     },
-    UrlFetchApp: { fetch: (url) => {
+    UrlFetchApp: { fetch: (url, moznosti) => {
       log.stazeno++;
+      if (url.indexOf('chmi.cz') >= 0) return odpovedChmu(url, moznosti);
       return { getResponseCode: () => (url.indexOf('chyba') >= 0 ? 404 : 200), getContentText: () => (url.indexOf('rozpis') >= 0 ? rozpis : ICS) };
     } },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     Logger: { log() {} },
     Intl
   };
+  // ČHMÚ: skutečné (zkrácené) soubory z apps-script/test/chmu, ETag → 304 jako na serveru ČHMÚ
+  const chmu = { cap: 'cap_cerven.xml', chyby: {}, dotazy: [], neukazano: 0 };
+  const souborChmu = (url) => {
+    if (url === 'https://vystrahy-cr.chmi.cz/data2/XOCZ50_OKPR.xml') return chmu.cap;
+    if (/\/alerts\/cap\/$/.test(url)) return { text: '<a href="alert_cap_50_021119.xml">alert_cap_50_021119.xml</a>   02-Oct-2026 11:19   1550502\n' +
+      '<a href="alert_cap_50_011119.xml">alert_cap_50_011119.xml</a>   01-Oct-2026 11:19   1550502\n' };
+    if (/\/alerts\/cap\/alert_cap_50_021119\.xml$/.test(url)) return 'cap_rijen.xml';
+    if (/\/metadata\/meta1\.json$/.test(url)) return 'meta1.json';
+    let m = /\/hydrology\/now\/data\/([^/]+)$/.exec(url);
+    if (m) return decodeURIComponent(m[1]);
+    if (/\/forecast\/now\/$/.test(url)) return 'predpovedi.html';
+    m = /\/forecast\/now\/(web_[^/]+)$/.exec(url);
+    return m ? m[1] : null;
+  };
+  const odpovedChmu = (url, moznosti) => {
+    const hlavicky = (moznosti && moznosti.headers) || {};
+    chmu.dotazy.push({ url, podminene: !!hlavicky['If-None-Match'] });
+    const chyba = Object.keys(chmu.chyby).find((k) => url.indexOf(k) >= 0);
+    const zdroj = chyba ? null : souborChmu(url);
+    const cesta = typeof zdroj === 'string' ? path.join(__dirname, 'chmu', zdroj) : null;
+    if (chyba || !zdroj || (cesta && !fs.existsSync(cesta))) {
+      const kod = chyba ? chmu.chyby[chyba] : 404;
+      return { getResponseCode: () => kod, getAllHeaders: () => ({}), getContentText: () => 'chyba' };
+    }
+    const text = cesta ? fs.readFileSync(cesta, 'utf8') : zdroj.text;
+    const etag = '"' + crypto.createHash('md5').update(text).digest('hex').slice(0, 12) + '"';
+    if (hlavicky['If-None-Match'] === etag) {
+      chmu.neukazano++;
+      return { getResponseCode: () => 304, getAllHeaders: () => ({ ETag: etag }), getContentText: () => '' };
+    }
+    return { getResponseCode: () => 200, getAllHeaders: () => ({ ETag: etag, 'Last-Modified': 'Fri, 02 Oct 2026 09:19:00 GMT' }),
+      getContentText: (znaky) => { assert.strictEqual(znaky, 'UTF-8'); return text; } };
+  };
+
   const ctx = vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'Kod.gs'), 'utf8'), ctx);
+  // „teď“ v motoru (Date.now) – ČHMÚ testy potřebují čas vzorku
+  const nastavCas = (ms) => vm.runInContext('Date.now = function () { return ' + Number(ms) + '; };', ctx);
   const surovy = (contents) => JSON.parse(ctx.doPost({ postData: { contents } }).text);
   const volej = (akce, data = {}, klic = KLIC) => surovy(JSON.stringify({ klic, akce, ...data }));
   // záznamy z izolovaného prostředí převést na běžné objekty (jinak je deepStrictEqual odmítne)
   const posledniOdeslano = () => JSON.parse(JSON.stringify(log.odeslano.pop()));
-  return { volej, surovy, vlastnosti, cache, ttl, log, posledniOdeslano, ctx, zprava, vlakno, vlakna, kalendare,
+  return { volej, surovy, vlastnosti, cache, ttl, log, posledniOdeslano, ctx, zprava, vlakno, vlakna, kalendare, chmu, nastavCas,
     nastavAliasy: (a) => { aliasy = a; }, nastavAktualizace: (a) => { aktualizace = a; }, nastavRozpis: (t) => { rozpis = t; },
     nastavOdeslana: (a) => { odeslana = a; }, nastavStarsi: (osobni, pracovni) => { starsi = { osobni, pracovni: pracovni || [] }; } };
 }
@@ -833,6 +870,120 @@ test('vlákno: dlouhý text a HTML se zkrátí („…“), jiná adresa pro odp
   assert.strictEqual(z1.odpovedNa, 'Podpora <podpora@firma.test>');
   assert.deepStrictEqual([z2.text, z2.html], ['Krátká', '<p>Krátká</p>']);
   assert.ok(!('odpovedNa' in z2)); // Reply-To = odesílatel
+});
+
+// ---------------------------------------------------------------- počasí (ČHMÚ)
+
+const json = (x) => JSON.parse(JSON.stringify(x));
+
+test('počasí: výstrahy pro ORP ze skutečného CAP (28. 6. 2026), řeka a předpovědi; přehled se drží v mezipaměti', () => {
+  const p = prostredi();
+  p.nastavCas(Date.parse('2026-06-28T09:20:00Z'));
+  let o = p.volej('pocasi');
+  assert.strictEqual(o.ok, true, o.chyba);
+  const d = o.data;
+  assert.strictEqual(d.misto, 'Veselí nad Moravou');
+  assert.deepStrictEqual(d.vystrahy.map((v) => v.nazev + '/' + v.uroven),
+    ['Extrémně vysoké teploty/cervena', 'Nebezpečí požárů/zluta', 'Silné bouřky/zluta', 'Výhled nebezpečných jevů/vyhled']);
+  assert.strictEqual(d.souhrn, 'Extrémně vysoké teploty, Nebezpečí požárů, Silné bouřky');
+  const bourky = d.vystrahy[2];
+  assert.strictEqual(bourky.od, Date.parse('2026-06-29T15:00:00+02:00'));
+  assert.ok(bourky.celyKraj && !/http|tinyurl/i.test(bourky.text), bourky.text);
+  assert.deepStrictEqual(d.reky.map((r) => [r.nazev, r.hladina, r.typ]), [['Morava – Strážnice', 82, 'hladina'], ['Morava – Spytihněv', 37, 'hladina']]);
+  assert.deepStrictEqual(d.predpovedi.map((x) => x.den), ['2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05']);
+  assert.deepStrictEqual([d.predpovedi[1].ikona, d.predpovedi[1].tMax, d.predpovedi[1].uvod], ['slunce', [21, 24], 'Opět slunečné počasí']);
+  assert.ok(!p.chmu.dotazy.some((x) => x.podminene), 'poprvé se stahuje celé');
+  // podruhé z mezipaměti – žádné stahování
+  const pocet = p.chmu.dotazy.length;
+  assert.strictEqual(p.volej('pocasi').ok, true);
+  assert.strictEqual(p.chmu.dotazy.length, pocet);
+  // „Obnovit“: výstrahy a vodní stavy podmíněně (304, nic se nestahuje), předpovědi hodinu z mezipaměti
+  o = p.volej('pocasi', { znovu: true });
+  assert.deepStrictEqual(json(o.data.vystrahy), json(d.vystrahy));
+  const nove = p.chmu.dotazy.slice(pocet);
+  assert.strictEqual(nove.length, 4);
+  assert.ok(nove.every((x) => x.podminene));
+  assert.strictEqual(p.chmu.neukazano, 4);
+});
+
+test('počasí: bez výstrah „Žádné výstrahy ČHMÚ“, výpadek → záloha z archivu, chyba jednoho zdroje nesmaže zbytek', () => {
+  let p = prostredi();
+  p.chmu.cap = 'cap_rijen.xml';
+  p.nastavCas(Date.parse('2026-10-02T19:30:00Z'));
+  let o = p.volej('pocasi');
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual([o.data.souhrn, o.data.vystrahy.length], ['Žádné výstrahy ČHMÚ', 0]);
+  assert.deepStrictEqual(o.data.predpovedi.map((x) => x.nazev), ['Předpověď na pátek', 'Předpověď na sobotu', 'Předpověď na neděli', 'Předpověď na pondělí']);
+  assert.strictEqual(o.data.reky[0].maxPredpoved, 82); // modelová předpověď dorovnaná na měření
+  // hlavní adresa výstrah nejde → nejnovější soubor z archivu opendata
+  p = prostredi();
+  p.chmu.chyby['XOCZ50'] = 503;
+  p.nastavCas(Date.parse('2026-10-02T19:30:00Z'));
+  o = p.volej('pocasi');
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.ok(!o.data.chyby, JSON.stringify(o.data.chyby));
+  assert.ok(p.chmu.dotazy.some((x) => /alert_cap_50_021119\.xml$/.test(x.url)));
+  // nejdou ani výstrahy, ani archiv → ostatní zůstane, přehled jen na 5 minut
+  p = prostredi();
+  p.chmu.chyby['XOCZ50'] = 503;
+  p.chmu.chyby['/alerts/cap/'] = 500;
+  p.nastavCas(Date.parse('2026-10-02T19:30:00Z'));
+  o = p.volej('pocasi');
+  assert.deepStrictEqual(json(o.data.chyby), ['výstrahy (HTTP 503)']);
+  assert.strictEqual(o.data.predpovedi.length, 4);
+  assert.strictEqual(p.ttl.get('pocasi:prehled'), 300);
+});
+
+test('počasí: vlastní místo ve vlastnosti POCASI, chybný JSON nezastaví info', () => {
+  const p = prostredi();
+  p.vlastnosti.set('POCASI', JSON.stringify({ misto: 'Hodonín', orp: { '6206': 'Hodonín' }, stanice: [] }));
+  p.nastavCas(Date.parse('2026-10-02T19:30:00Z'));
+  let o = p.volej('pocasi');
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual([o.data.misto, o.data.reky.length], ['Hodonín', 0]);
+  assert.strictEqual(p.volej('info').data.pocasi.misto, 'Hodonín');
+  assert.ok(p.volej('info').data.akce.includes('pocasi'));
+  p.vlastnosti.set('POCASI', '{nejson');
+  o = p.volej('pocasi', { znovu: true });
+  assert.deepStrictEqual(o, { ok: false, chyba: 'Vlastnost POCASI není platný JSON.' });
+  o = p.volej('info');
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(o.data.pocasi.misto, '');
+});
+
+test('počasí: povodeň z CAP (profil, vývoj) a hladina nad 2. SPA z měření', () => {
+  const p = prostredi();
+  p.chmu.cap = { text: `<?xml version="1.0" encoding="UTF-8"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2"><identifier>TEST</identifier><sent>2026-10-02T10:00:00+02:00</sent><status>Actual</status><msgType>Update</msgType>
+<info><language>cs</language><category>Met</category><event>Povodňová pohotovost</event><responseType>Prepare</responseType>
+<urgency>Immediate</urgency><severity>Severe</severity><certainty>Observed</certainty>
+<eventCode><valueName>HPPS</valueName><value>XI.2</value></eventCode><onset>2026-10-02T09:00:00+02:00</onset>
+<description>Na dolní Moravě je dosaženo 2. SPA.</description>
+<instruction>Lokálně se mohou vyskytnout rozlivy do níže položených míst. Nevstupovat do koryt toků a řídit se pokyny povodňových orgánů.</instruction>
+<parameter><valueName>floodWarning</valueName><value>Morava, Strážnice, 610 cm, 360 m3s-1, rising</value></parameter>
+<parameter><valueName>hydroOutlook</valueName><value>Kulminaci ve Strážnici očekáváme v noci na sobotu.</value></parameter>
+<parameter><valueName>awareness_level</valueName><value>3; orange; Severe</value></parameter>
+<area><areaDesc>Jihomoravský kraj (Hodonín, Veselí nad Moravou)</areaDesc><geocode><valueName>CISORP</valueName><value>6218</value></geocode></area></info>
+<info><language>cs</language><category>Met</category><event>Silný vítr</event><responseType>AllClear</responseType><urgency>Past</urgency>
+<severity>Moderate</severity><certainty>Likely</certainty><area><areaDesc>Jihomoravský kraj</areaDesc><geocode><valueName>CISORP</valueName><value>6218</value></geocode></area></info>
+</alert>` };
+  p.nastavCas(Date.parse('2026-10-02T10:00:00Z'));
+  const o = p.volej('pocasi');
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(o.data.vystrahy.length, 1); // odvolaný vítr vynechán
+  const v = o.data.vystrahy[0];
+  assert.deepStrictEqual([v.typ, v.uroven, v.do, v.profily[0].stanice, v.profily[0].spa], ['povoden', 'oranzova', null, 'Strážnice', 2]);
+  assert.strictEqual(v.text, 'Nevstupovat do koryt toků a řídit se pokyny povodňových orgánů.');
+  assert.strictEqual(v.vyvoj, 'Kulminaci ve Strážnici očekáváme v noci na sobotu.');
+  assert.strictEqual(o.data.souhrn, 'Povodňová pohotovost');
+  // vodní stav nad 2. SPA (Strážnice 600 cm)
+  const C = vm.runInContext('CHMU_', p.ctx);
+  const meta = C.hydroMeta(fs.readFileSync(path.join(__dirname, 'chmu', 'meta1.json'), 'utf8'), ['0-203-1-421500']);
+  const stanice = JSON.parse(fs.readFileSync(path.join(__dirname, 'chmu', '0-203-1-421500.json'), 'utf8'));
+  stanice.objList[0].tsList.find((x) => x.tsConID === 'H').tsData.slice(-1)[0].value = 610;
+  const r = json(C.reka(stanice, meta, Date.parse('2026-10-02T19:20:00Z')));
+  assert.deepStrictEqual([r.typ, r.uroven, r.spa, r.stav], ['povoden', 'oranzova', 2, '2. SPA – pohotovost']);
+  assert.deepStrictEqual(json(C.teploty('Nejnižší teploty −2 až −6 °C')), [-6, -2]);
 });
 
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

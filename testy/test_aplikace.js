@@ -34,7 +34,7 @@ const vlaknoSouhrn = {
 const KALENDARE = [{ id: 'g1', nazev: 'Osobní', barva: '#2f6bff', zdroj: 'google', skryty: false, zapis: true },
   { id: 'ics-1', nazev: 'Rodina', barva: '#e2860a', zdroj: 'icloud', skryty: false }];
 const motor = {
-  info: () => ({ verze: 'test', ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false },
+  info: () => ({ verze: 'test', akce: Object.keys(motor), ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false },
     kalendare: KALENDARE, skupinyHostu: [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@x.test', 'rodic2@x.test'] }] }),
   schranka: () => ({ nove: [{ id: 'n1', slozka: 'NOVE', kdy: ted - H, odkud: 'iPhone', typ: '', stav: '', shrnuti: '', termin: '', text: 'Zkušební poznámka z iPhonu', vlakno: [] }],
     ceka: [{ id: 'c1', slozka: 'CEKA', kdy: ted - 5 * H, odkud: 'iPhone', typ: 'ukol-michal', stav: 'tvuj-ukol', shrnuti: 'Zavolat kvůli lešení', termin: '', text: 'Připomeň mi zavolat.', vlakno: [] }],
@@ -58,7 +58,12 @@ const motor = {
   hledat: (d) => ({ dotaz: d.dotaz, vlakna: [Object.assign({}, vlaknoSouhrn.v2, { id: 'v9', predmet: 'Starý protokol', kdy: ted - 90 * 24 * H })] }),
   pripomenout: (d) => ({ id: 'c9', slozka: 'CEKA', kdy: Date.now(), odkud: 'aplikace (pošta)', typ: 'ukol-michal', stav: 'tvuj-ukol', shrnuti: 'Odpovědět: Sraz v sobotu (Trenér)',
     termin: d.termin, text: 'Připomenutí e-mailu.', vlakno: [] }),
-  poznamka: (d) => ({ id: 'n' + Date.now(), slozka: 'NOVE', kdy: Date.now(), odkud: 'aplikace', typ: '', stav: '', shrnuti: '', termin: '', text: d.text, vlakno: [] })
+  poznamka: (d) => ({ id: 'n' + Date.now(), slozka: 'NOVE', kdy: Date.now(), odkud: 'aplikace', typ: '', stav: '', shrnuti: '', termin: '', text: d.text, vlakno: [] }),
+  pocasi: () => ({ vytvoreno: Date.now(), misto: 'Veselí nad Moravou', souhrn: 'Silné bouřky', zdroj: 'ČHMÚ',
+    vystrahy: [{ typ: 'vystraha', uroven: 'zluta', nazev: 'Silné bouřky', od: den(1, 14), do: den(1, 22), celyKraj: true, text: 'Je třeba dbát na bezpečnost.', popis: '' }],
+    reky: [{ typ: 'hladina', uroven: 'zelena', nazev: 'Morava – Strážnice', stav: 'bez povodně', kdy: ted - H, hladina: 82, trend: 'ustálená', spa: 0, spaPredpoved: 0, maxPredpoved: 82, kdyMax: ted, spa1: 530, text: 'Hladina 82 cm, ustálená.' }],
+    predpovedi: [0, 1, 2, 3].map((i) => ({ nazev: 'Předpověď', od: den(i, 0), do: den(i + 1, 0), den: iso(den(i, 12)), oblast: 'Jihomoravský kraj', uvod: ['Jasno', 'Bouřky', 'Polojasno', 'Déšť'][i],
+      tMax: [20 + i, 24 + i], tMin: i ? [8, 11] : null, srazky: '', vitr: '', jevy: [], ikona: ['slunce', 'bourka', 'polojasno', 'dest'][i], uroven: 'info', vydano: ted })) })
 };
 const volano = [];
 
@@ -140,7 +145,7 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.click('[data-uvod-pripojit]');
     await page.waitForSelector('#aplikace:not([hidden]) .hero'); // telefon: zelená hlavní karta místo čtyř čísel
     // na Dnes je jen pošta, která na tebe čeká (otázka), ne ta, kde čekáš ty
-    await page.waitForFunction(() => document.querySelectorAll('#dl-posta .radek-posta').length === 1);
+    await page.waitForFunction(() => document.querySelectorAll('.pozornost [data-vlakno]').length === 1);
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await page.screenshot({ path: path.join(VYSTUP, 'pripojeno_telefon.png') });
     await ctx.close();
@@ -152,7 +157,8 @@ async function novaStranka(prohlizec, v, motiv) {
       await test(jmeno + ': Dnes, Schránka, Pošta, Kalendář bez chyb a bez přetékání', async () => {
         const { ctx, page, chybyStranky } = await novaStranka(prohlizec, v, motiv);
         await page.goto(WEB);
-        await page.waitForFunction(() => document.querySelectorAll('#dnes-obsah .seznam').length >= 2 && document.querySelector('.ukazatel svg'));
+        await page.waitForFunction(() => document.querySelector('#dl-tyden .agenda__u') && document.querySelector('.vystraha') &&
+          (window.innerWidth < 760 ? document.querySelector('.pozornost .pozor') : document.querySelector('#dl-pozornost .seznam')));
         const pretika = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
         jistota(await pretika() <= 0, 'Dnes přetéká do strany');
         // navigace: telefon = spodní lišta, iPad = panel s ikonami, PC = panel s popisky; horní lišta s hledáním od iPadu
@@ -162,12 +168,38 @@ async function novaStranka(prohlizec, v, motiv) {
         jistota(await vidim('#rail') === v.sirka >= 760, 'postranní panel');
         jistota(await vidim('#horni') === v.sirka >= 760, 'horní lišta s hledáním');
         jistota(await vidim('.rail__btn > span:not(.pocet)') === v.sirka >= 1180, 'popisky v postranním panelu');
-        jistota(await page.locator('.tyden-graf button').count() === 7, 'týden ve sloupcích');
+        // týden jako krátký výpis, výstraha ČHMÚ nahoře, karta počasí; nic z Dnes se neopakuje (žádný půlkruh ani sloupce)
+        jistota(await page.locator('#dl-tyden .agenda__u').count() >= 2 && !(await page.locator('.ukazatel, .tyden-graf').count()), 'týden jako výpis');
+        jistota(/Silné bouřky/.test(await page.textContent('.vystraha')), 'výstraha ČHMÚ');
+        jistota(await vidim(v.sirka < 760 ? '.mini-kpi[data-pocasi]' : '#dnes-kpi [data-pocasi]'), 'karta počasí');
+        if (v.sirka >= 760) jistota(await page.locator('#dl-pozornost [data-vlakno="v1"]').count() === 1 && await page.locator('#dl-pozornost [data-polozka-id="c1"]').count() === 1, 'pozornost: úkol i pošta v jednom seznamu');
         if (v.sirka < 760) {
           jistota(await vidim('.hero') && await vidim('.lista__plus') && !(await vidim('#dnes-kpi')), 'telefon: hlavní karta a + v liště');
           jistota(await page.locator('.pozornost .pozor').count() >= 2, 'telefon: Vyžaduje pozornost');
         }
         await page.screenshot({ path: path.join(VYSTUP, jmeno + '_dnes.png'), fullPage: v.nazev !== 'pc' });
+        // detail počasí v okně uprostřed
+        await page.click(v.sirka < 760 ? '.mini-kpi[data-pocasi]' : '#dnes-kpi [data-pocasi]');
+        await page.waitForSelector('.okno-pozadi.videt .pocasi-dny li');
+        jistota(await page.locator('.okno .pocasi-dny li').count() === 4 && /Silné bouřky/.test(await page.textContent('.okno')), 'detail počasí');
+        jistota(await page.evaluate(() => { const o = document.querySelector('.okno'); return o.scrollWidth <= o.clientWidth + 1; }), 'okno počasí přetéká');
+        await page.waitForTimeout(250);
+        await page.screenshot({ path: path.join(VYSTUP, jmeno + '_pocasi.png') });
+        await page.click('.okno-pozadi [data-okno="ano"]');
+        await page.waitForSelector('.okno-pozadi', { state: 'detached' });
+        // Nastavení: okno uprostřed se záložkami
+        await page.click(v.sirka < 760 ? '.hlava-ja [data-otevri-nastaveni]' : '#rail [data-otevri-nastaveni]');
+        await page.waitForSelector('[data-panel="nastaveni"].otevreny .nast-zalozky');
+        await page.click('[data-panel="nastaveni"] [data-nast-sekce="pocasi"]');
+        await page.waitForFunction(() => /Veselí nad Moravou|Místo/.test(document.querySelector('[data-panel="nastaveni"] [data-sekce="pocasi"]').textContent));
+        if (v.sirka >= 760) {
+          const r = await page.evaluate(() => { const b = document.querySelector('[data-panel="nastaveni"]').getBoundingClientRect(); return [b.left + b.width / 2, window.innerWidth / 2 + (document.querySelector('#rail') ? 0 : 0)]; });
+          jistota(Math.abs(r[0] - r[1]) < 2, 'Nastavení není uprostřed: ' + r.join(' / '));
+        }
+        await page.waitForTimeout(250);
+        await page.screenshot({ path: path.join(VYSTUP, jmeno + '_nastaveni.png') });
+        await page.keyboard.press('Escape');
+        await page.waitForSelector('[data-panel="nastaveni"]', { state: 'detached' });
 
         const klikNaSekci = async (s) => page.click((v.sirka < 760 ? '#lista' : '#rail') + ' [data-cil="' + s + '"]');
         await klikNaSekci('schranka');
@@ -344,7 +376,7 @@ async function novaStranka(prohlizec, v, motiv) {
   await test('hledání: Ctrl K, místní výsledky, celá pošta, české filtry, klávesy v Poště', async () => {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
     await page.goto(WEB);
-    await page.waitForFunction(() => document.querySelectorAll('#dl-posta .radek-posta').length === 1);
+    await page.waitForFunction(() => document.querySelectorAll('#dl-pozornost .radek-posta').length === 1);
     await page.keyboard.press('Control+K');
     await page.waitForSelector('[data-panel="hledat"] [data-hledat-pole]');
     await page.keyboard.type('sraz');

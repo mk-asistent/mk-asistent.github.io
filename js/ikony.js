@@ -41,5 +41,23 @@ export const IKONY = {
   zapas: s('<circle cx="12" cy="12" r="9"/><path d="M12 7.6l3.3 2.4-1.3 3.9H10L8.7 10z"/><path d="M12 3v4.6M15.3 10l4.2-1.4M14 13.9l2.6 3.7M10 13.9l-2.6 3.7M8.7 10L4.5 8.6"/>'),
   pozor: s('<path d="M12 4.5l9 15.5H3z"/><path d="M12 10v4.5M12 17.5v.01"/>'),
   lide: s('<circle cx="9" cy="8" r="3.2"/><path d="M3 19.5a6 6 0 0 1 12 0"/><circle cx="17" cy="9" r="2.6"/><path d="M15.5 14.2a5 5 0 0 1 5.5 5.3"/>'),
-  smazat: s('<path d="M4 7h16M10 11v6M14 11v6"/><path d="M5.5 7l1 12a2 2 0 0 0 2 1.8h7a2 2 0 0 0 2-1.8l1-12M9 7V4.5h6V7"/>')
+  smazat: s('<path d="M4 7h16M10 11v6M14 11v6"/><path d="M5.5 7l1 12a2 2 0 0 0 2 1.8h7a2 2 0 0 0 2-1.8l1-12M9 7V4.5h6V7"/>'),
+  stitek: s('<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><path d="M7.5 7.5h.01"/>'),
+  slozka: s('<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.5h7.5A2.5 2.5 0 0 1 21 10v7.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/>'),
+  pozvat: s('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M19 8v6M16 11h6"/>'),
+  srdce: s('<path d="M12 20.5s-8-4.7-8-10.6A4.4 4.4 0 0 1 12 7.3a4.4 4.4 0 0 1 8 2.6c0 5.9-8 10.6-8 10.6z"/>'),
+  aktivita: s('<path d="M3 12h4l3-8 4 16 3-8h4"/>'),
+  spanek: s('<path d="M20.5 14.5A8.5 8.5 0 1 1 9.5 3.5a7 7 0 0 0 11 11z"/>'),
+  zatez: s('<path d="M13 2.5L4.5 13.5H12l-1 8 8.5-11H12z"/>'),
+  kapka: s('<path d="M12 3.2l5.3 5.6a7.4 7.4 0 1 1-10.6 0z"/>'),
+  // počasí (ČHMÚ): ikona podle úvodní věty předpovědi
+  slunce: s('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>'),
+  polojasno: s('<path d="M9 2.8v1.6M3.2 8.6h1.6M4.9 4.5l1.1 1.1M13.1 4.5L12 5.6"/><path d="M5.6 11.4A3.8 3.8 0 0 1 12.2 7"/><path d="M17.5 20H8.2a3.7 3.7 0 1 1 .8-7.3 5 5 0 0 1 9.6 1.4A3 3 0 0 1 17.5 20z"/>'),
+  oblacno: s('<path d="M17.5 19.5H7.5a4.5 4.5 0 1 1 1-8.9 6 6 0 0 1 11.3 2.4 3.3 3.3 0 0 1-2.3 6.5z"/>'),
+  dest: s('<path d="M17.5 15.5H7.5a4.5 4.5 0 1 1 1-8.9 6 6 0 0 1 11.3 2.4 3.3 3.3 0 0 1-2.3 6.5z"/><path d="M8 18.5l-1 2.5M12.5 18.5l-1 2.5M17 18.5l-1 2.5"/>'),
+  bourka: s('<path d="M17.5 15.5h-1M8 15.5h-.5a4.5 4.5 0 1 1 1-8.9 6 6 0 0 1 11.3 2.4 3.3 3.3 0 0 1-1.6 6.2"/><path d="M13 12.5l-3 4.5h4l-2.5 4.5"/>'),
+  snih: s('<path d="M17.5 15.5H7.5a4.5 4.5 0 1 1 1-8.9 6 6 0 0 1 11.3 2.4 3.3 3.3 0 0 1-2.3 6.5z"/><path d="M8 19h.01M12 21h.01M16 19h.01M10 23h.01M14 23h.01"/>'),
+  mlha: s('<path d="M7.5 11.5a4.5 4.5 0 0 1 9 0"/><path d="M3 14.5h18M5 18h14M8 21.5h8"/>')
 };
+// ikona počasí podle klíče z motoru (slunce, polojasno, oblacno, dest, bourka, snih, mlha)
+export function ikonaPocasi(klic) { return IKONY[klic] || IKONY.polojasno; }

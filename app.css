@@ -311,16 +311,64 @@ main { padding: 4px var(--mezera) calc(var(--lista-h) + env(safe-area-inset-bott
 .kpi__hodnota { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; font-size: 30px; line-height: 1.05; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .kpi__hodnota small { font-size: 13px; font-weight: 500; letter-spacing: 0; color: var(--muted); }
 .kpi__pod { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); min-height: 22px; }
-@media (min-width: 1000px) { .kpi-mrizka { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 760px) { .kpi-mrizka { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); } }
 
 .kpi__pod > span { min-width: 0; }
 
-/* karty přehledu: telefon pod sebou (nejdřív co čeká), iPad dva sloupce, PC tři sloupce jako ve vzoru */
-.dnes-mrizka { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: stretch;
-    grid-template-areas: "ceka" "posta" "tyden" "zapis" "schranka"; }
-.dl-ceka { grid-area: ceka; } .dl-posta { grid-area: posta; } .dl-tyden { grid-area: tyden; }
-.dl-schranka { grid-area: schranka; } .dl-zapis { grid-area: zapis; }
+/* karty přehledu (každá věc jen jednou): vlevo „Vyžaduje pozornost“, vpravo týden a poznámka pro Clauda */
+.dnes-mrizka { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start;
+    grid-template-areas: "pozornost" "tyden" "zapis"; }
+.dl-pozornost { grid-area: pozornost; } .dl-tyden { grid-area: tyden; } .dl-zapis { grid-area: zapis; }
 .dlazdice { display: flex; flex-direction: column; min-width: 0; }
+.dlazdice__paty { display: flex; align-items: stretch; gap: 8px; margin: 4px 12px 12px; }
+.dlazdice__paty .dlazdice__pata { margin: 0; width: auto; flex: 1; min-height: 38px; }
+.dl-pozornost .dlazdice__telo { max-height: 640px; }
+@media (min-width: 760px) {
+    .dnes-mrizka { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); grid-template-areas: "pozornost tyden" "pozornost zapis"; }
+    .dl-pozornost { align-self: stretch; }
+}
+@media (min-width: 1180px) {
+    .dnes-mrizka { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+}
+
+/* výstrahy ČHMÚ nahoře na Dnes – jen když nějaká platí */
+#dnes-vystrahy:empty { display: none; }
+.vystrahy { display: flex; flex-direction: column; gap: 8px; }
+.vystraha { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 14px; border: 1px solid transparent; border-radius: var(--radius-lg);
+    background: var(--zluta-tint); color: var(--text); text-align: left; }
+.vystraha__znak { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none; background: #f6d24a; color: #3a2c00; }
+.vystraha__znak svg { width: 17px; height: 17px; }
+.vystraha__text { flex: 1; min-width: 0; }
+.vystraha__text b { display: block; font-size: 14px; font-weight: 650; }
+.vystraha__text small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12.5px; color: var(--text-soft); line-height: 1.4; }
+.vystraha em { font-style: normal; font-size: 11px; font-weight: 650; color: var(--muted); }
+.vystraha--oranzova { background: var(--oranz-tint); }
+.vystraha--oranzova .vystraha__znak { background: #f39a2e; color: #fff; }
+.vystraha--cervena, .vystraha--fialova { background: var(--danger-tint); border-color: var(--danger); }
+.vystraha--cervena .vystraha__znak { background: var(--danger); color: #fff; }
+.vystraha--fialova .vystraha__znak { background: #7a2fa8; color: #fff; }
+.vystraha--info .vystraha__znak { background: var(--sand-2); color: var(--text-soft); }
+.vystrahy__dalsi { align-self: flex-start; border: 0; background: none; padding: 0 4px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+
+/* týden jako krátký výpis (místo sloupců) */
+.agenda { list-style: none; margin: 0; padding: 2px 0 8px; }
+.agenda__den { display: flex; align-items: baseline; gap: 7px; padding: 10px 16px 3px; }
+.agenda__den b { font-size: 12px; font-weight: 650; letter-spacing: .02em; }
+.agenda__den small { font-size: 11.5px; color: var(--dim); }
+.agenda li:first-child { padding-top: 4px; }
+.agenda__u { display: flex; align-items: center; gap: 9px; width: 100%; padding: 5px 16px; border: 0; background: none; color: inherit; text-align: left; font-size: 13.5px; }
+.agenda__u:hover { background: var(--bg-soft); }
+.agenda__cas { flex: none; width: 58px; font-size: 12.5px; font-weight: 600; color: var(--text-soft); }
+.agenda__u i { width: 8px; height: 8px; border-radius: 3px; background: var(--b); flex: none; }
+.agenda__nazev { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agenda__nazev small { margin-left: 7px; font-size: 12px; color: var(--dim); }
+.agenda__u--zapas .agenda__nazev { font-weight: 650; }
+.agenda__vic { display: block; margin: 0 16px 12px; padding: 0; border: 0; background: none; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.agenda__vic:hover { color: var(--accent); }
+
+/* malý přehled schránky pod polem pro poznámku (jen počty) */
+.mini-schranka { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 6px; }
+.mini-schranka .chip { padding: 4px 10px; font-size: 12.5px; }
 .dlazdice__telo { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
 .dlazdice__mezinadpis { padding: 10px 16px 2px; font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
 .dlazdice__pata { display: flex; align-items: center; justify-content: center; gap: 7px; width: calc(100% - 24px); margin: 4px 12px 12px; padding: 9px; border-radius: var(--radius); border: 0; background: var(--sand); color: var(--text-soft); font-size: 13px; font-weight: 600; text-align: center; flex: none; }
@@ -333,16 +381,6 @@ main { padding: 4px var(--mezera) calc(var(--lista-h) + env(safe-area-inset-bott
 .dlazdice__napoveda { padding: 4px 16px 14px; }
 .dl-zapis .zapis { margin: 6px 12px 8px; padding: 10px 10px 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-soft); }
 .dl-zapis .zapis:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); background: var(--surface); }
-.dl-ceka .dlazdice__telo, .dl-posta .dlazdice__telo { max-height: 470px; }
-@media (min-width: 760px) {
-    .dnes-mrizka { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "ceka ceka" "posta tyden" "schranka zapis"; }
-    .dl-posta, .dl-tyden, .dl-schranka { height: 430px; }
-    .dl-ceka .dlazdice__telo { max-height: 360px; }
-}
-@media (min-width: 1180px) {
-    .dnes-mrizka { grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) minmax(0, 1fr); grid-template-areas: "schranka posta tyden" "ceka ceka zapis"; }
-    .dl-ceka .dlazdice__telo { max-height: 420px; }
-}
 
 /* půlkruhový ukazatel (schránka) */
 .ukazatel { display: grid; place-items: center; padding: 6px 16px 0; }
@@ -694,6 +732,20 @@ input.field[type="date"], input.field[type="time"] { min-width: 0; }
 }
 
 /* ================================================================ Nastavení a úvod */
+/* Nastavení: okno uprostřed se záložkami (na telefonu přes celou obrazovku) */
+.nast-zalozky { position: sticky; top: -14px; z-index: 2; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line-soft); }
+.nast-zalozky::-webkit-scrollbar { display: none; }
+.nast-zalozky .chip { flex: none; }
+.nast-zalozky .tecka { display: inline-block; margin-left: 4px; }
+.panel-nastaveni .panel-telo { background: var(--surface); }
+.panel-nastaveni .nast-sekce { border: 0; box-shadow: none; padding: 4px 0 8px; }
+.kroky { margin: 0; padding-left: 20px; }
+.kroky li + li { margin-top: 3px; }
+code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; padding: 1px 5px; border-radius: 5px; background: var(--sand); word-break: break-all; }
+@media (min-width: 760px) {
+    .panel.panel-okno.panel-nastaveni { width: min(720px, 94vw); height: min(84vh, 760px); }
+    .panel-nastaveni .nast-zalozky { top: -14px; margin: 0 -20px; padding: 12px 20px; }
+}
 .nast { display: flex; flex-direction: column; gap: 14px; padding-top: 12px; }
 .nast-sekce { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .nast-sekce > h3 { margin: 0; font-size: 11px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
@@ -775,6 +827,36 @@ input.field[type="date"], input.field[type="time"] { min-width: 0; }
 .okno__akce { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; margin-top: 10px; }
 .okno__akce > :only-child { grid-column: 1 / -1; }
 .okno__akce .btn { border-radius: 999px; min-height: 44px; }
+.okno { max-height: calc(100vh - 40px); overflow-y: auto; overscroll-behavior: contain; }
+.okno--siroke { width: min(560px, 100%); }
+.okno__obsah { width: 100%; text-align: left; }
+.okno__mezinadpis { margin: 14px 0 6px; font-size: 11px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.okno__obsah > .okno__mezinadpis:first-child { margin-top: 4px; }
+.okno__pole textarea.field { resize: vertical; min-height: 96px; line-height: 1.45; }
+/* počasí v okně: výstrahy s barvou úrovně, předpověď po dnech, řeka, zdroj */
+.pocasi-seznam { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.pocasi-seznam li { padding: 10px 12px; border-radius: 14px; background: var(--bg-soft); border-left: 4px solid var(--line); }
+.pocasi-seznam b { display: block; font-size: 14px; font-weight: 650; }
+.pocasi-seznam small { display: block; font-size: 12px; color: var(--muted); }
+.pocasi-seznam p { margin: 4px 0 0; font-size: 13px; color: var(--text-soft); }
+.pocasi-vystraha--zluta { border-left-color: #e3b505 !important; }
+.pocasi-vystraha--oranzova { border-left-color: #f39a2e !important; }
+.pocasi-vystraha--cervena { border-left-color: var(--danger) !important; }
+.pocasi-vystraha--fialova { border-left-color: #7a2fa8 !important; }
+.pocasi-klid { display: flex; align-items: center; gap: 10px; margin: 4px 0 0; padding: 10px 12px; border-radius: 14px; background: var(--ok-tint); color: var(--ok); font-size: 13.5px; font-weight: 600; }
+.pocasi-klid svg { width: 18px; height: 18px; }
+.pocasi-dny { list-style: none; margin: 0; padding: 0; }
+.pocasi-dny li { display: flex; align-items: center; gap: 12px; padding: 9px 2px; }
+.pocasi-dny li + li { border-top: 1px solid var(--line-soft); }
+.pocasi-dny i { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--sand); color: var(--text-soft); }
+.pocasi-dny i svg { width: 20px; height: 20px; }
+.pocasi-dny span { flex: 1; min-width: 0; }
+.pocasi-dny span b { display: block; font-size: 13.5px; font-weight: 650; }
+.pocasi-dny span small { display: block; font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+.pocasi-dny em { font-style: normal; font-size: 14px; font-weight: 650; text-align: right; white-space: nowrap; }
+.pocasi-dny em small { display: block; font-size: 11.5px; font-weight: 500; color: var(--muted); }
+.pocasi-chyba { margin: 10px 0 0; font-size: 12.5px; color: var(--danger); }
+.pocasi-zdroj { margin: 12px 0 0 !important; font-size: 12px !important; color: var(--dim) !important; }
 .btn--cerne { background: #121614; color: #fff; }
 .btn--cerne:hover { background: #26302a; }
 .btn--cerne.btn--cervene { background: var(--danger); }
@@ -826,8 +908,8 @@ input.field[type="date"], input.field[type="time"] { min-width: 0; }
 
     /* Dnes: zelená hlavní karta, řada malých čísel, Vyžaduje pozornost – místo čtyř čísel a dvou seznamů */
     .dnes-mobil { display: flex; flex-direction: column; gap: 14px; }
-    #p-dnes .kpi-mrizka, #p-dnes .dl-ceka, #p-dnes .dl-posta { display: none; }
-    .dnes-mrizka { grid-template-areas: "tyden" "zapis" "schranka"; }
+    #p-dnes .kpi-mrizka, #p-dnes .dl-pozornost { display: none; }
+    .dnes-mrizka { grid-template-areas: "tyden" "zapis"; }
 
     .hero { border-radius: 26px; background: #3d7a56; padding: 8px; color: #fff; }
     .hero__hlava { display: flex; align-items: center; justify-content: space-between; padding: 6px 4px 10px 6px; }

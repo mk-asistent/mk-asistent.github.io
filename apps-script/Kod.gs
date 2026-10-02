@@ -19,6 +19,7 @@
  *               Náhradní zdroj bez přeposílání: CLAUDE_SCHRANKA/POSTA_FIREMNI.json (souhrny, zapisuje skript na PC).
  *   Kalendář  – zobrazené kalendáře Google (vlastní i zápis: nová událost, úprava, smazání, opakování, připomenutí,
  *               import zápasů z rozpisu) + kalendáře z iPhonu (iCloud, soukromý odkaz webcal://…, jen čtení)
+ *   Počasí    – ČHMÚ (otevřená data): výstrahy pro ORP, vodní stav řeky, krátká předpověď kraje; místo ve vlastnosti POCASI
  *
  * Postup nasazení: README.md v kořeni repozitáře.
  */
@@ -76,7 +77,8 @@ function doPost(e) {
 
 const AKCE = {
   info: function () {
-    return { verze: VERZE, ucet: mojeAdresa_(), posta: nastaveniPosty_(), kalendare: seznamKalendaru_(), skupinyHostu: skupinyHostu_() };
+    return { verze: VERZE, akce: Object.keys(AKCE), ucet: mojeAdresa_(), posta: nastaveniPosty_(), kalendare: seznamKalendaru_(),
+      skupinyHostu: skupinyHostu_(), pocasi: { misto: mistoPocasi_() } };
   },
   skupinyHostuUlozit: function (d) { return ulozSkupinyHostu_(d.skupiny); },
   nastavPostu: function (d) { return nastavPostu_(d.pracovniAdresa); },
@@ -97,7 +99,8 @@ const AKCE = {
   kalendarZalozit: function (d) { return zalozKalendar_(d.nazev, d.barva); },
   udalostUlozit: function (d) { return ulozUdalost_(d); },
   udalostSmazat: function (d) { return smazUdalost_(d.kalendarId, d.udalost, !!d.cela); },
-  zapasyImport: function (d) { return importujZapasy_(d); }
+  zapasyImport: function (d) { return importujZapasy_(d); },
+  pocasi: function (d) { return pocasi_(!!d.znovu); }
 };
 
 // ---------------------------------------------------------------- nastavení (spouští se ručně v editoru)
@@ -2005,6 +2008,532 @@ function zCislaDne_(n) {
 function denTydne_(n) { return (((n % 7) + 7) + 4) % 7; } // 0 = neděle; den 0 byl čtvrtek
 function dniMesice_(y, mo) { return new Date(Date.UTC(y, mo, 0)).getUTCDate(); }
 function cisloDneZMs_(ms) { return Math.floor((ms + posunZony_(ms, CASOVE_PASMO)) / 864e5); }
+
+// ---------------------------------------------------------------- Počasí: ČHMÚ (otevřená data, licence CC BY 4.0 → „Zdroj: ČHMÚ“)
+//
+// Jen to důležité pro jedno místo: výstrahy ČHMÚ (počasí, povodně, smog) pro ORP, vodní stav řeky s povodňovými
+// stupni (SPA) a krátká předpověď kraje na dnes až tři dny dopředu. Místo je ve vlastnosti skriptu POCASI
+// (JSON se stejnými klíči jako POCASI_VYCHOZI – stačí ty, které se mění).
+// Šetrně k serverům ČHMÚ: výstrahy (~2 MB) a vodní stavy se stahují podmíněně (ETag → 304 bez dat), výpis
+// předpovědí nejvýš jednou za hodinu a soubor jen při změně názvu; hotový přehled drží mezipaměť 15 minut.
+
+const POCASI_VYCHOZI = {
+  misto: 'Veselí nad Moravou',
+  orp: { '6218': 'Veselí nad Moravou' },           // ORP (kód CISORP z výstrah ČHMÚ) → název
+  stanice: ['0-203-1-421500', '0-203-1-413000'],    // vodoměrné stanice (objID z hydro.chmi.cz): Morava – Strážnice, Spytihněv
+  kraj: 'RPJM',                                     // textové předpovědi: RPJM = Jihomoravský kraj
+  dny: ['0', '1', '2', '3']                         // pCK0 dnes … pCK3 za tři dny
+};
+const POCASI_URL = {
+  cap: 'https://vystrahy-cr.chmi.cz/data2/XOCZ50_OKPR.xml',
+  capArchiv: 'https://opendata.chmi.cz/meteorology/weather/alerts/cap/',
+  hydroMeta: 'https://opendata.chmi.cz/hydrology/now/metadata/meta1.json',
+  hydroData: 'https://opendata.chmi.cz/hydrology/now/data/',
+  predpovedi: 'https://opendata.chmi.cz/meteorology/weather/forecast/now/'
+};
+const POCASI_SEKUND = 900;       // hotový přehled
+const POCASI_HORIZONT_H = 48;    // výstrahy, které začnou do 48 hodin
+
+function nastaveniPocasi_() {
+  const n = JSON.parse(JSON.stringify(POCASI_VYCHOZI));
+  const vlastni = PropertiesService.getScriptProperties().getProperty('POCASI');
+  if (vlastni) {
+    let v = null;
+    try { v = JSON.parse(vlastni); } catch (chyba) { throw new Error('Vlastnost POCASI není platný JSON.'); }
+    Object.keys(n).forEach(function (k) { if (v && v[k] != null) n[k] = v[k]; });
+  }
+  return n;
+}
+
+/** Název místa pro aplikaci (chybná vlastnost POCASI nesmí shodit info). */
+function mistoPocasi_() {
+  try { return nastaveniPocasi_().misto; } catch (chyba) { return ''; }
+}
+
+/** Přehled pro aplikaci; znovu = obejít hotový přehled (stahuje se dál podmíněně). */
+function pocasi_(znovu) {
+  if (!znovu) {
+    const hotovo = nactiZCache_('pocasi:prehled');
+    if (hotovo) return hotovo;
+  }
+  const n = nastaveniPocasi_();
+  const ted = Date.now();
+  const chyby = [];
+  let cap = [], reky = [], predpovedi = [];
+  try { cap = vystrahyChmu_(n); } catch (chyba) { chyby.push('výstrahy (' + chyba.message + ')'); }
+  try { reky = rekyChmu_(n, ted); } catch (chyba) { chyby.push('vodní stavy (' + chyba.message + ')'); }
+  try { predpovedi = predpovediChmu_(n); } catch (chyba) { chyby.push('předpověď (' + chyba.message + ')'); }
+  const prehled = CHMU_.prehled({ cap: cap, reky: reky, predpovedi: predpovedi }, ted, n);
+  if (chyby.length) prehled.chyby = chyby;
+  ulozDoCache_('pocasi:prehled', prehled, chyby.length ? 300 : POCASI_SEKUND);
+  return prehled;
+}
+
+function hlavickaOdpovedi_(hlavicky, jmeno) {
+  for (const k in hlavicky) if (k.toLowerCase() === jmeno) return String(hlavicky[k]);
+  return '';
+}
+
+/**
+ * Podmíněné stažení: v mezipaměti drží {etag, zmena, data}, kde data je UŽ ZPRACOVANÝ (malý) výsledek.
+ * Odpověď 304 → vrátí uložená data bez stahování a bez zpracování.
+ */
+function stahniPodminene_(url, klic, zpracuj, sekund) {
+  const ulozeno = nactiZCache_(klic);
+  const hlavicky = {};
+  if (ulozeno && ulozeno.etag) hlavicky['If-None-Match'] = ulozeno.etag;
+  if (ulozeno && ulozeno.zmena) hlavicky['If-Modified-Since'] = ulozeno.zmena;
+  const odpoved = UrlFetchApp.fetch(url, { headers: hlavicky, muteHttpExceptions: true, followRedirects: true });
+  const kod = odpoved.getResponseCode();
+  if (kod === 304 && ulozeno) return ulozeno.data;
+  if (kod !== 200) throw new Error('HTTP ' + kod);
+  const h = odpoved.getAllHeaders();
+  const data = zpracuj(odpoved.getContentText('UTF-8')); // ČHMÚ znakovou sadu neposílá – vždy UTF-8
+  ulozDoCache_(klic, { etag: hlavickaOdpovedi_(h, 'etag'), zmena: hlavickaOdpovedi_(h, 'last-modified'), data: data }, sekund || 21600);
+  return data;
+}
+
+function vystrahyChmu_(n) {
+  const zpracuj = function (xml) { return CHMU_.vystrahy(xml, n.orp).polozky; };
+  try {
+    return stahniPodminene_(POCASI_URL.cap, 'pocasi:cap', zpracuj);
+  } catch (chyba) {
+    // záloha: archiv na opendata – názvy souborů mají jen DDHHMM, nejnovější určí čas ve výpisu
+    const vypis = UrlFetchApp.fetch(POCASI_URL.capArchiv, { muteHttpExceptions: true });
+    if (vypis.getResponseCode() !== 200) throw chyba;
+    const soubor = CHMU_.nejnovejsi(vypis.getContentText('UTF-8'), /^alert_cap_50_\d{6}\.xml$/);
+    if (!soubor) throw chyba;
+    return stahniPodminene_(POCASI_URL.capArchiv + soubor.nazev, 'pocasi:cap2', zpracuj);
+  }
+}
+
+function rekyChmu_(n, ted) {
+  if (!n.stanice || !n.stanice.length) return [];
+  const meta = stahniPodminene_(POCASI_URL.hydroMeta, 'pocasi:hmeta', function (t) { return CHMU_.hydroMeta(t, n.stanice); });
+  return n.stanice.map(function (id) {
+    // soubor stanice (~20 kB) se drží celý – vyhodnocuje se pokaždé s aktuálním časem
+    const text = stahniPodminene_(POCASI_URL.hydroData + encodeURIComponent(id) + '.json', 'pocasi:h:' + id, function (t) { return t; }, 7200);
+    return CHMU_.reka(text, meta, ted);
+  }).filter(function (r) { return r; });
+}
+
+function predpovediChmu_(n) {
+  const hotovo = nactiZCache_('pocasi:predpovedi');
+  if (hotovo) return hotovo;
+  const vypis = UrlFetchApp.fetch(POCASI_URL.predpovedi, { muteHttpExceptions: true });
+  if (vypis.getResponseCode() !== 200) throw new Error('HTTP ' + vypis.getResponseCode());
+  const html = vypis.getContentText('UTF-8');
+  const drive = nactiZCache_('pocasi:psoubory') || {}; // název souboru → zpracovaná předpověď
+  const nove = {};
+  const vysledek = [];
+  n.dny.forEach(function (d) {
+    const soubor = CHMU_.nejnovejsi(html, new RegExp('^web_pCK' + d + 'tx_' + n.kraj + '_\\d{6}(_CC[A-Z])?\\.json$'));
+    if (!soubor) return;
+    let p = drive[soubor.nazev];
+    if (!p) {
+      const r = UrlFetchApp.fetch(POCASI_URL.predpovedi + soubor.nazev, { muteHttpExceptions: true });
+      if (r.getResponseCode() !== 200) return;
+      p = CHMU_.predpoved(r.getContentText('UTF-8'));
+    }
+    nove[soubor.nazev] = p;
+    vysledek.push(p);
+  });
+  ulozDoCache_('pocasi:psoubory', nove, 21600);
+  ulozDoCache_('pocasi:predpovedi', vysledek, 3600); // výpis znovu nejdřív za hodinu
+  return vysledek;
+}
+
+/** Ruční zkouška v editoru Apps Scriptu (▶ Spustit): vypíše přehled do protokolu. */
+function zkusPocasi() {
+  ['pocasi:prehled', 'pocasi:predpovedi'].forEach(smazCache_);
+  const p = pocasi_(true);
+  Logger.log(p.souhrn);
+  p.vystrahy.forEach(function (v) { Logger.log('[' + v.uroven + '] ' + v.nazev + ' · ' + v.text); });
+  p.reky.forEach(function (r) { Logger.log(r.nazev + ': ' + r.text); });
+  p.predpovedi.forEach(function (x) { Logger.log(x.nazev + ': ' + x.uvod + ' · ' + JSON.stringify(x.tMax)); });
+  if (p.chyby) Logger.log('CHYBY: ' + p.chyby.join(' | '));
+}
+
+/**
+ * Zpracování souborů ČHMÚ – čisté funkce bez stahování (testuje apps-script/test/motor.test.js na skutečných
+ * vzorcích). Výstrahy: CAP 1.2 (SIVS + HPPS + SVRS), vodní stavy: hydrology/now, předpovědi: forecast/now.
+ */
+const CHMU_ = (function () {
+  const PORADI = { fialova: 6, cervena: 5, oranzova: 4, zluta: 3, vyhled: 2, info: 1, zelena: 0 };
+  const HODINA = 36e5;
+
+  function dekoduj(s) {
+    if (s == null) return '';
+    s = String(s).replace(/^<!\[CDATA\[([\s\S]*)\]\]>$/, '$1');
+    return s.replace(/&#x([0-9a-f]+);/gi, function (_, h) { return String.fromCharCode(parseInt(h, 16)); })
+      .replace(/&#(\d+);/g, function (_, d) { return String.fromCharCode(parseInt(d, 10)); })
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+      .replace(/&amp;/g, '&').trim();
+  }
+  /** první <jmeno>…</jmeno> v bloku (CAP atributy u těchto prvků nepoužívá) */
+  function prvek(blok, jmeno) {
+    const m = new RegExp('<' + jmeno + '>([\\s\\S]*?)</' + jmeno + '>').exec(blok);
+    return m ? dekoduj(m[1]) : '';
+  }
+  function prvky(blok, jmeno) {
+    const re = new RegExp('<' + jmeno + '>([\\s\\S]*?)</' + jmeno + '>', 'g');
+    const vysledek = [];
+    let m;
+    while ((m = re.exec(blok)) !== null) vysledek.push(m[1]);
+    return vysledek;
+  }
+  /** dvojice valueName/value v prvcích parameter, eventCode, geocode */
+  function pary(blok, jmeno) {
+    const vysledek = {};
+    prvky(blok, jmeno).forEach(function (b) {
+      const k = prvek(b, 'valueName').trim();
+      (vysledek[k] = vysledek[k] || []).push(prvek(b, 'value'));
+    });
+    return vysledek;
+  }
+  function cas(s) {
+    if (!s) return null;
+    const t = Date.parse(s);
+    return isNaN(t) ? null : t;
+  }
+  function vety(text) {
+    if (!text) return [];
+    return String(text).replace(/\s+/g, ' ').trim()
+      .replace(/([.!?])\s+(?=[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ])/g, '$1\n')
+      .split('\n').map(function (v) { return v.trim(); }).filter(Boolean);
+  }
+  function zkrat(s, max) {
+    if (!s || s.length <= max) return s || '';
+    const kus = s.slice(0, max - 1);
+    const mezera = kus.lastIndexOf(' ');
+    return (mezera > max * 0.6 ? kus.slice(0, mezera) : kus) + '…';
+  }
+  /**
+   * Jedna věta „co dělat“ z doporučení ČHMÚ: rady píše infinitivem („Nevstupovat…“) nebo „je třeba / doporučuje se“.
+   * Věty s odkazy a popisy rizika („může se vyskytnout“) mají nízké skóre.
+   */
+  function rada(instrukce) {
+    const vs = vety(instrukce);
+    if (!vs.length) return '';
+    const silne = /(je třeba|je nutné|je vhodné|dbát|vyhn|nevstupov|nezdržov|zdržet se|fyzické zátěž|zabezpeč|ukotv|odklid|snížit|omez|dodržov|chráni|nenecháv|připrav|zajist|opatrn|nepodceň|nevychá|nerozdělávat|nepoužívat|řídit se|věnovat|pít |dostatek tekutin|evaku)/i;
+    const slabe = /(doporuč|sledovat|zvážit|ověřovat|plánovat)/i;
+    let nejlepsi = null, skore = -99;
+    vs.forEach(function (v, i) {
+      let s = 0;
+      const zacatek = v.split(' ').slice(0, 4).join(' ').toLowerCase();
+      if (/\b(ne)?[a-zěščřžýáíéůúťďň]+(at|it|ět|et|out|nout|ovat|ít|ýt)\b/.test(zacatek) && !/\b(může|mohou|lze|bude|budou)\b/.test(zacatek)) s += 3;
+      if (silne.test(v)) s += 3;
+      if (slabe.test(v)) s += 1;
+      if (/(https?:|www\.|tinyurl)/i.test(v)) s -= 5;
+      if (/\b(může|mohou)\b/.test(v) && s < 3) s -= 1;
+      if (v.length > 220) s -= 1;
+      s -= i * 0.01; // při shodě dřívější věta
+      if (s > skore) { skore = s; nejlepsi = v; }
+    });
+    return zkrat(nejlepsi, 200);
+  }
+  function prvniVeta(text) { const vs = vety(text); return vs.length ? zkrat(vs[0], 180) : ''; }
+  /** u výhledu je cenná věta, která jmenuje jev (bouřky, teploty…), ne popis synoptické situace */
+  function vetaSJevem(text) {
+    const vs = vety(text);
+    const re = /(bouř|teplot|vítr|větr|nárazy|déšť|deště|srážk|sníh|sněh|mráz|ledovk|náledí|povod|požár|smog)/i;
+    for (let i = 0; i < vs.length; i++) if (re.test(vs[i])) return zkrat(vs[i], 180);
+    return prvniVeta(text);
+  }
+  function urovenZeZavaznosti(z) { return { Extreme: 'cervena', Severe: 'oranzova', Moderate: 'zluta', Minor: 'info' }[z] || 'info'; }
+  function urovenZBarvy(b) { // „2; yellow; Moderate“ …
+    if (!b) return null;
+    if (/red/i.test(b)) return 'cervena';
+    if (/orange/i.test(b)) return 'oranzova';
+    if (/yellow/i.test(b)) return 'zluta';
+    if (/green/i.test(b)) return 'zelena';
+    return null;
+  }
+
+  // ---- výstrahy (CAP)
+
+  /** Položky týkající se zadaných ORP ({kód: název}), bez časového filtru. */
+  function vystrahy(xml, orp) {
+    orp = orp || {};
+    const kody = Object.keys(orp);
+    const zacatek = xml.slice(0, 3000);
+    const hlavicka = { identifikator: prvek(zacatek, 'identifier'), vydano: cas(prvek(zacatek, 'sent')),
+      status: prvek(zacatek, 'status'), druh: prvek(zacatek, 'msgType') };
+    const vysledek = { hlavicka: hlavicka, polozky: [] };
+    if (hlavicka.status && hlavicka.status !== 'Actual') return vysledek; // Test / Exercise / Draft
+    if (hlavicka.druh === 'Cancel') return vysledek;
+
+    const reInfo = /<info>([\s\S]*?)<\/info>/g;
+    let m;
+    while ((m = reInfo.exec(xml)) !== null) {
+      const info = m[1];
+      if (!/<language>cs/i.test(info)) continue;          // en-GB = stejná výstraha anglicky
+      const jev = prvek(info, 'event');
+      if (/^Žádn/i.test(jev)) continue;                    // „Žádná výstraha“, „Žádný výhled“
+      let kod = null;
+      for (let i = 0; i < kody.length; i++) {
+        if (new RegExp('CISORP</valueName>\\s*<value>' + kody[i] + '</value>').test(info)) { kod = kody[i]; break; }
+      }
+      if (!kod) continue;
+      const zavaznost = prvek(info, 'severity'), jistota = prvek(info, 'certainty'), naleha = prvek(info, 'urgency');
+      const reakce = prvky(info, 'responseType').map(dekoduj);
+      if (reakce.indexOf('AllClear') >= 0 || naleha === 'Past') continue; // odvolaná
+      const par = pary(info, 'parameter');
+      const ec = pary(info, 'eventCode');
+      const ecText = Object.keys(ec).map(function (k) { return k + '=' + ec[k].join('/'); }).join(',');
+      const barva = (par.awareness_level || [''])[0];
+      const druhJevu = ((par.awareness_type || [''])[0].split(';')[0] || '').trim();
+      const kategorie = prvek(info, 'category');
+      let typ;
+      if (/OUTLOOK/.test(ecText) || /^Výhled/i.test(jev)) typ = 'vyhled';
+      else if (ec.SVRS || kategorie === 'Env' || /smog|ozón|ozon|PM10|NO2|SO2|regulace/i.test(jev)) typ = 'smog';
+      else if (/povod|dotok/i.test(jev) || druhJevu === '12' || druhJevu === '13') typ = 'povoden';
+      else typ = 'vystraha';
+      let uroven;
+      if (typ === 'vyhled') uroven = 'vyhled';
+      else {
+        uroven = urovenZBarvy(barva);
+        if (!uroven || uroven === 'zelena') uroven = urovenZeZavaznosti(zavaznost);
+      }
+      if (zavaznost === 'Minor' && jistota === 'Unlikely' && !/dotok/i.test(jev)) continue;
+      let kraj = '', celyKraj = false;
+      prvky(info, 'area').forEach(function (a) {
+        if (new RegExp('<value>' + kod + '</value>').test(a)) {
+          const popis = prvek(a, 'areaDesc');
+          const mm = /^(.*?)\s*\((.*)\)\s*$/.exec(popis);
+          kraj = mm ? mm[1] : popis;
+          celyKraj = !mm;
+        }
+      });
+      const od = cas(prvek(info, 'onset')) || cas(prvek(info, 'effective')) || hlavicka.vydano;
+      let konec = cas((par.eventEndingTime || [''])[0]) || cas(prvek(info, 'expires'));
+      if (typ === 'vyhled' && !konec && od) konec = od + 24 * HODINA;
+      const instrukce = prvek(info, 'instruction'), popis = prvek(info, 'description');
+      const p = {
+        typ: typ, uroven: uroven,
+        nazev: /dotok/i.test(jev) ? 'Dotok (doznívající povodeň)' : jev,
+        od: od, do: konec || null,
+        oblast: orp[kod], kraj: kraj, celyKraj: celyKraj,
+        text: (typ === 'vyhled' ? (vetaSJevem(popis) || rada(instrukce)) : (rada(instrukce) || prvniVeta(popis))) ||
+          (typ === 'povoden' ? 'Sledovat vodní stavy na hydro.chmi.cz.' : ''),
+        popis: prvniVeta(popis),
+        jistota: jistota,
+        web: prvek(info, 'web') || 'https://vystrahy-cr.chmi.cz/'
+      };
+      const profily = [];
+      [['floodWatch', 1], ['floodWarning', 2], ['flooding', 3]].forEach(function (x) {
+        (par[x[0]] || []).forEach(function (v) {
+          const c = v.split(',').map(function (s) { return s.trim(); });
+          profily.push({ spa: x[1], tok: c[0], stanice: c[1], stav: c[2], prutok: c[3], trend: c[4] });
+        });
+      });
+      if (profily.length) p.profily = profily;
+      if (par.hydroOutlook && par.hydroOutlook[0]) p.vyvoj = zkrat(par.hydroOutlook[0], 200);
+      vysledek.polozky.push(p);
+    }
+    return vysledek;
+  }
+
+  /** platné teď nebo začínající do horizontu */
+  function aktualni(polozky, ted, hodin) {
+    const h = (hodin == null ? POCASI_HORIZONT_H : hodin) * HODINA;
+    return polozky.filter(function (p) { return (p.do == null || p.do > ted) && (p.od == null || p.od <= ted + h); });
+  }
+
+  /** stejný jev se stejnou barvou, který na sebe časově navazuje, spojí do jedné položky */
+  function slucDuplicity(polozky) {
+    const skupiny = {}, vysledek = [];
+    polozky.slice().sort(function (a, b) { return (a.od || 0) - (b.od || 0); }).forEach(function (p) {
+      const k = p.typ + '|' + p.nazev + '|' + p.uroven;
+      const posl = skupiny[k];
+      if (posl && posl.do != null && p.od != null && p.od <= posl.do + 60000) {
+        posl.do = p.do == null ? null : Math.max(posl.do, p.do);
+        if (p.celyKraj) posl.celyKraj = true;
+        return;
+      }
+      if (posl && posl.do == null) return; // už „do odvolání“
+      const kopie = JSON.parse(JSON.stringify(p));
+      skupiny[k] = kopie;
+      vysledek.push(kopie);
+    });
+    return vysledek;
+  }
+
+  // ---- vodní stavy
+
+  /** meta1.json → {objID: {nazev, tok, spa1, spa2, spa3, q50}} jen pro zadané stanice */
+  function hydroMeta(text, ids) {
+    const j = typeof text === 'string' ? JSON.parse(text) : text;
+    const d = j.data.data, sloupce = d.header.split(','), vysledek = {};
+    d.values.forEach(function (v) {
+      const o = {};
+      sloupce.forEach(function (k, i) { o[k] = v[i]; });
+      if (ids && ids.indexOf(o.objID) < 0) return;
+      vysledek[o.objID] = { nazev: o.STATION_NAME, tok: o.STREAM_NAME, spa1: o.SPA1H, spa2: o.SPA2H, spa3: o.SPA3H, q50: o.SPA4H };
+    });
+    return vysledek;
+  }
+  function stupenSpa(h, m) {
+    if (h == null || !m) return 0;
+    if (m.q50 != null && h >= m.q50) return 4;
+    if (m.spa3 != null && h >= m.spa3) return 3;
+    if (m.spa2 != null && h >= m.spa2) return 2;
+    if (m.spa1 != null && h >= m.spa1) return 1;
+    return 0;
+  }
+  const NAZVY_SPA = ['bez povodně', '1. SPA – bdělost', '2. SPA – pohotovost', '3. SPA – ohrožení', 'extrémní povodeň'];
+  const UROVNE_SPA = ['zelena', 'zluta', 'oranzova', 'cervena', 'fialova'];
+
+  /**
+   * Stanice (<objID>.json) + metadata → stav řeky. Časy v souborech jsou UTC („Z“).
+   * Modelová předpověď H_F není dorovnaná na měření → posune se o rozdíl model × měření v čase posledního měření.
+   */
+  function reka(text, meta, ted) {
+    const j = typeof text === 'string' ? JSON.parse(text) : text;
+    const obj = j.objList[0], rady = {};
+    obj.tsList.forEach(function (t) { rady[t.tsConID] = t.tsData; });
+    const m = meta[obj.objID] || {};
+    const H = rady.H || [];
+    if (!H.length) return null;
+    const posl = H[H.length - 1], tPosl = cas(posl.dt);
+    let zpet = null;
+    for (let i = H.length - 1; i >= 0; i--) { if (cas(H[i].dt) <= tPosl - 3 * HODINA) { zpet = H[i]; break; } }
+    let trend = 'ustálená';
+    if (zpet) { const rozdil = posl.value - zpet.value; trend = rozdil >= 3 ? 'stoupá' : rozdil <= -3 ? 'klesá' : 'ustálená'; }
+    const horizont = ted + POCASI_HORIZONT_H * HODINA;
+    let maxF = null, tMaxF = null, nejbl = null;
+    (rady.H_F || []).forEach(function (p) {
+      const t = cas(p.dt);
+      if (Math.abs(t - tPosl) <= 2 * HODINA && (nejbl == null || Math.abs(t - tPosl) < Math.abs(cas(nejbl.dt) - tPosl))) nejbl = p;
+      if (t >= ted && t <= horizont && (maxF == null || p.value > maxF)) { maxF = p.value; tMaxF = t; }
+    });
+    const posun = nejbl ? posl.value - nejbl.value : 0;
+    if (maxF != null) maxF = Math.round(maxF + posun);
+    const spaTed = stupenSpa(posl.value, m), spaPred = stupenSpa(maxF, m), spa = Math.max(spaTed, spaPred);
+    return {
+      typ: spa ? 'povoden' : 'hladina',
+      uroven: UROVNE_SPA[spa],
+      nazev: (m.tok || '') + ' – ' + (m.nazev || obj.objID),
+      stav: spaTed ? NAZVY_SPA[spaTed] : spaPred ? 'předpověď: ' + NAZVY_SPA[spaPred] : NAZVY_SPA[0],
+      kdy: tPosl, hladina: posl.value, trend: trend, spa: spaTed, spaPredpoved: spaPred,
+      maxPredpoved: maxF, kdyMax: tMaxF, spa1: m.spa1 == null ? null : m.spa1,
+      text: 'Hladina ' + posl.value + ' cm, ' + trend + (m.spa1 != null ? ' (1. SPA od ' + m.spa1 + ' cm)' : '') + '.',
+      web: 'https://hydro.chmi.cz/hpps/'
+    };
+  }
+
+  // ---- předpovědi (forecast/now, GeoJSON)
+
+  function teploty(s) {
+    s = String(s || '').replace(/−/g, '-');
+    const m = /(-?\d+)\s*(?:až|–|-)\s*(-?\d+)\s*°C/.exec(s) || /(?:kolem|okolo|asi)\s*(-?\d+)\s*°C/.exec(s);
+    if (!m) return null;
+    const a = Number(m[1]), b = m[2] != null ? Number(m[2]) : a;
+    return [Math.min(a, b), Math.max(a, b)];
+  }
+  function ikona(uvod, pocasi, srazky) {
+    const urci = function (t) {
+      if (/bouř/i.test(t)) return 'bourka';
+      if (/sněž|sníh|sněh/i.test(t)) return 'snih';
+      if (/(?<!bez )(déšť|dešt|přeháň|mrholen)/i.test(t)) return 'dest';
+      if (/zataženo|přibývání|zvětšování oblačnosti/i.test(t)) return 'oblacno';
+      if (/polojasno|oblačn|průsvitn|ubývání/i.test(t)) return 'polojasno';
+      if (/jasno|slunečn|slunce/i.test(t)) return 'slunce';
+      if (/mlh/i.test(t)) return 'mlha';
+      return '';
+    };
+    let i = urci(uvod) || urci(String(pocasi || '').replace(/[^.]*mlh[^.]*\.?/gi, '')) || 'polojasno';
+    if (srazky && (i === 'polojasno' || i === 'oblacno')) i = 'dest';
+    return i;
+  }
+  function predpoved(text) {
+    const j = typeof text === 'string' ? JSON.parse(text) : text;
+    const vlastnosti = j.data.features[0].properties, hl = vlastnosti['headline-main'] || {};
+    const bloky = {};
+    (vlastnosti.data || []).forEach(function (x) { bloky[x.name] = x; });
+    const t = function (n) { return bloky[n] && bloky[n].displayText ? String(bloky[n].displayText).replace(/\s+/g, ' ').trim() : ''; };
+    const jevy = [];
+    (vlastnosti.data || []).forEach(function (x) {
+      (x.dangerousPhenomenaList || []).forEach(function (d) { if (d && d.name && jevy.indexOf(d.name) < 0) jevy.push(d.name); });
+    });
+    const srazky = /^0\s*mm\.?$/i.test(t('textPrecipitation')) ? '' : t('textPrecipitation');
+    const vitr = t('textWind');
+    const od = cas(hl.startTime), konec = cas(hl.endTime);
+    return {
+      nazev: hl.headline || 'Předpověď',
+      od: od, do: konec,
+      den: od == null ? '' : denPraha(od + ((konec || od) - od) / 2),
+      oblast: String((vlastnosti.place && vlastnosti.place.name) || '').replace(/^pro\s+/i, ''),
+      uvod: t('textIntro').replace(/\.$/, ''),
+      pocasi: t('textWeather'),
+      tMax: teploty(t('textMaximumTemperature')),
+      tMin: teploty(t('textMinimumTemperature')),
+      srazky: srazky,
+      vitr: /(silný|nárazy|vichř|bouř|\b1[0-9]\s*m\/s|\b[2-9][0-9]\s*m\/s)/i.test(vitr) ? vitr : '',
+      jevy: jevy,
+      ikona: ikona(t('textIntro'), t('textWeather'), srazky),
+      uroven: jevy.length ? 'zluta' : 'info',
+      vydano: cas(vlastnosti.sent)
+    };
+  }
+
+  // ---- pražský čas bez Intl (stejně v Apps Scriptu i v Node)
+  function posledniNedele(rok, mesic0) {
+    const d = new Date(Date.UTC(rok, mesic0 + 1, 0));
+    d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+    return d.getTime();
+  }
+  function posunPrahy(ms) {
+    const rok = new Date(ms).getUTCFullYear();
+    const leto = posledniNedele(rok, 2) + HODINA, zima = posledniNedele(rok, 9) + HODINA;
+    return (ms >= leto && ms < zima ? 120 : 60) * 60000;
+  }
+  function denPraha(ms) { return new Date(ms + posunPrahy(ms)).toISOString().slice(0, 10); }
+
+  // ---- výpis adresáře (nginx autoindex): názvy mají jen DDHHMM → rozhoduje čas změny ve výpisu
+  const MESICE = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+  function nejnovejsi(html, reNazev) {
+    const re = /<a href="([^"]+)">[^<]*<\/a>\s+(\d{2})-([A-Za-z]{3})-(\d{4}) (\d{2}):(\d{2})\s+(\d+|-)/g;
+    let m, nej = null;
+    while ((m = re.exec(html)) !== null) {
+      const nazev = decodeURIComponent(m[1]);
+      if (!reNazev.test(nazev)) continue;
+      const t = Date.UTC(+m[4], MESICE[m[3]], +m[2], +m[5], +m[6]);
+      if (!nej || t > nej.cas || (t === nej.cas && nazev > nej.nazev)) nej = { nazev: nazev, cas: t };
+    }
+    return nej;
+  }
+
+  // ---- přehled pro aplikaci
+  function prehled(vstup, ted, n) {
+    const vyst = slucDuplicity(aktualni(vstup.cap || [], ted)).sort(function (a, b) {
+      const aT = a.od != null && a.od <= ted ? 1 : 0, bT = b.od != null && b.od <= ted ? 1 : 0;
+      return (PORADI[b.uroven] - PORADI[a.uroven]) || (bT - aT) || ((a.od || 0) - (b.od || 0));
+    });
+    // jedna předpověď na den – při překryvu novější vydání
+    const podleDne = {};
+    (vstup.predpovedi || []).forEach(function (p) {
+      if (p.do != null && p.do <= ted) return;
+      const k = p.den || String(p.od);
+      if (!podleDne[k] || (p.vydano || 0) > (podleDne[k].vydano || 0)) podleDne[k] = p;
+    });
+    const predpovedi = Object.keys(podleDne).map(function (k) { return podleDne[k]; })
+      .sort(function (a, b) { return (a.od || 0) - (b.od || 0); });
+    const reky = vstup.reky || [];
+    const vazne = vyst.filter(function (v) { return v.typ !== 'vyhled'; });
+    const povodne = reky.filter(function (r) { return r.spa || r.spaPredpoved; });
+    let souhrn = 'Žádné výstrahy ČHMÚ';
+    if (vazne.length) souhrn = vazne.map(function (v) { return v.nazev; }).filter(function (x, i, a) { return a.indexOf(x) === i; }).slice(0, 3).join(', ');
+    else if (povodne.length) souhrn = povodne[0].nazev + ': ' + povodne[0].stav;
+    return {
+      vytvoreno: ted, misto: n.misto, souhrn: souhrn,
+      vystrahy: vyst, reky: reky, predpovedi: predpovedi, zdroj: 'ČHMÚ'
+    };
+  }
+
+  return { vystrahy: vystrahy, aktualni: aktualni, slucDuplicity: slucDuplicity, hydroMeta: hydroMeta, reka: reka,
+    predpoved: predpoved, nejnovejsi: nejnovejsi, prehled: prehled, rada: rada, denPraha: denPraha, teploty: teploty };
+})();
 
 // ---------------------------------------------------------------- mezipaměť (CacheService, po kusech)
 

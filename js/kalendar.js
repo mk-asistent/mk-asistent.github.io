@@ -111,6 +111,46 @@ export function nejblizsi(n, dni) {
     .slice(0, n);
 }
 
+/** Zápas: z kalendáře zápasů, s míčem v názvu, nebo z importu rozpisu. */
+export function jeZapas(u) {
+  return !!u && (/^⚽/.test(u.nazev || '') || /zápas/i.test(u.kalendar || '') || u.druh === 'fotbal' || !!u.zapas);
+}
+
+/** Nejbližší zápas (běžící nebo budoucí) do n dní. */
+export function dalsiZapas(dni) {
+  const ted = Date.now();
+  return udalostiVRozsahu(ted, pridejDny(pulnoc(ted), dni || 14))
+    .filter((u) => jeZapas(u) && u.konec > ted).sort((a, b) => a.zacatek - b.zacatek)[0] || null;
+}
+
+/**
+ * Krátký výpis na Dnes: příštích n dní po dnech (jen dny, kdy něco je), řádek = čas · barva · název.
+ * Dnes jen to, co ještě neskončilo. Vrací { html, pocet (ukázaných), celkem }.
+ */
+export function agenda(dni, max) {
+  const ted = Date.now();
+  const dnes = pulnoc(ted);
+  let h = '', pocet = 0, celkem = 0;
+  for (let i = 0; i < dni; i++) {
+    const t = pridejDny(dnes, i);
+    const ud = udalostiDne(t).filter((u) => i > 0 || u.celodenni || u.konec > ted);
+    celkem += ud.length;
+    const vejde = Math.max(0, max - pocet);
+    if (!ud.length || !vejde) continue;
+    h += '<li class="agenda__den"><b>' + (i === 0 ? 'Dnes' : i === 1 ? 'Zítra' : velkePrvni(DNY_KR[new Date(t).getDay()])) + '</b>' +
+      '<small>' + new Date(t).getDate() + '. ' + (new Date(t).getMonth() + 1) + '.</small></li>';
+    ud.slice(0, vejde).forEach((u) => {
+      const celyDen = u.celodenni || (u.zacatek < t && u.konec > pridejDny(t, 1));
+      const cas = celyDen ? 'celý den' : u.zacatek < t ? 'do ' + hhmm(u.konec) : hhmm(u.zacatek);
+      h += '<li><button type="button" class="agenda__u' + (jeZapas(u) ? ' agenda__u--zapas' : '') + '" data-udalost="' + esc(u.id) + '">' +
+        '<span class="agenda__cas cisla">' + cas + '</span><i style="--b:' + esc(u.barva || 'var(--accent)') + '"></i>' +
+        '<span class="agenda__nazev">' + esc(u.nazev) + (u.misto ? '<small>' + esc(u.misto) + '</small>' : '') + '</span></button></li>';
+      pocet++;
+    });
+  }
+  return { html: h ? '<ul class="agenda">' + h + '</ul>' : '', pocet, celkem };
+}
+
 /** Pro hledání: všechny načtené události (bez duplicit). */
 export function vsechnyUdalosti() {
   const mapa = new Map();
@@ -118,6 +158,7 @@ export function vsechnyUdalosti() {
   return Array.from(mapa.values());
 }
 function chybaMesice(t) { return k.chyby[klicMesice(t)]; }
+export function chybaKalendare() { return chybaMesice(Date.now()) || null; }
 
 export function najdiUdalost(id) {
   for (const kl of Object.keys(k.mesice)) {

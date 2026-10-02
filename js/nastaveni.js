@@ -1,6 +1,6 @@
 // Připojení k motoru (úvodní obrazovka), Nastavení (pošta, kalendáře z iPhonu, vzhled) a barva akcentu.
 
-import { stav, zmeneno } from './stav.js';
+import { stav, zmeneno, staryMotor, umiMotor } from './stav.js';
 import { volej, pripojeni, jeDemo, ulozPripojeni, zapomenPripojeni } from './api.js';
 import { esc, uloziste } from './pomocne.js';
 import { otevriPanel, obnovPanel, jeOtevreny, elementPanelu } from './panely.js';
@@ -10,12 +10,14 @@ import { smazUlozene as smazKalendar, nactiKalendar } from './kalendar.js';
 import { nactiPostu } from './posta.js';
 import { zapasyHtml } from './udalost.js';
 
-export const VERZE_APLIKACE = '2026-10-02';
+export const VERZE_APLIKACE = '2026-10-03';
 
 // předvolby hlavní barvy – tlumené tmavé odstíny jako ve stylu Fixtrack (lesní zelená je výchozí)
 const AKCENTY = [['#1f3d2c', 'Lesní zelená'], ['#1d4250', 'Ocelová'], ['#2a3f8f', 'Modrá'], ['#4b2d63', 'Švestková'], ['#7a3a1d', 'Cihlová'], ['#2b2f33', 'Grafitová']];
 const BARVY_KALENDARE = ['#2f5bd3', '#0f7c8c', '#2e7a4d', '#a8620c', '#8e5bd3', '#c0392b', '#b5407a', '#37474f'];
-const n = { upravaPripojeni: false, ukazKod: false, novaBarva: BARVY_KALENDARE[1], pracuje: false };
+const n = { upravaPripojeni: false, ukazKod: false, novaBarva: BARVY_KALENDARE[1], pracuje: false, sekce: 'pripojeni' };
+// záložky okna Nastavení – vždy je vidět jen jedna
+const ZALOZKY = [['pripojeni', 'Připojení'], ['posta', 'Pošta'], ['kalendare', 'Kalendáře'], ['pocasi', 'Počasí'], ['vzhled', 'Vzhled'], ['aplikace', 'Aplikace']];
 
 // ---------------------------------------------------------------- vzhled
 
@@ -138,12 +140,9 @@ export function otevriNastaveni(sekce) {
   // z pruhu „Motor není připojený“ rovnou formulář s adresou a klíčem
   n.upravaPripojeni = sekce === 'pripojeni' && !!stav.chyby.info;
   n.ukazKod = false;
-  otevriPanel({
-    id: 'nastaveni', trida: 'panel-bocni', titul: 'Nastavení', vykresli: nastaveniHtml,
-    poOtevreni: (el) => {
-      if (sekce) { const cil = el.querySelector('[data-sekce="' + sekce + '"]'); if (cil) cil.scrollIntoView({ block: 'start' }); }
-    }
-  });
+  if (sekce && ZALOZKY.some((z) => z[0] === sekce)) n.sekce = sekce;
+  else if (staryMotor() || stav.chyby.info) n.sekce = 'pripojeni';
+  otevriPanel({ id: 'nastaveni', trida: 'panel-okno panel-nastaveni', titul: 'Nastavení', vykresli: nastaveniHtml });
   nactiInfo();
 }
 
@@ -155,6 +154,7 @@ function sekcePripojeni() {
     h += '<p class="nast-stav chyba"><i></i>' + esc(stav.chyby.info.message) + '</p>';
   } else if (stav.info) {
     h += '<p class="nast-stav ok"><i></i>Připojeno · motor ' + esc(stav.info.verze || '') + (stav.info.ucet ? ' · ' + esc(stav.info.ucet) : '') + '</p>';
+    if (staryMotor()) h += novaVerzeMotoruHtml();
   } else {
     h += '<p class="nast-stav"><i></i>Ověřuji…</p>';
   }
@@ -248,8 +248,37 @@ function sekceAplikace() {
     '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="smazat-data">Smazat uložená data v zařízení</button></div></section>';
 }
 
+/** Motor bez seznamu akcí = starší kód. Nové věci (počasí, zdraví…) ukáže až Nová verze nasazení. */
+function novaVerzeMotoruHtml() {
+  return '<div class="pruh pruh-varovani"><b>Motor je starší verze</b> – počasí a další novinky ukáže až nový kód.</div>' +
+    '<ol class="napoveda kroky"><li>Otevři projekt motoru na script.google.com a vlož do <b>Kód.gs</b> nový kód z GitHubu (apps-script/Kod.gs).</li>' +
+    '<li><b>Uložit</b> (Ctrl+S).</li><li><b>Nasadit → Spravovat nasazení</b> → tužka → Verze: <b>Nová verze</b> → Nasadit. Adresa zůstane stejná.</li>' +
+    '<li>Tady v aplikaci klepni na Obnovit.</li></ol>';
+}
+
+function sekcePocasi() {
+  const misto = (stav.info && stav.info.pocasi && stav.info.pocasi.misto) || (stav.pocasi && stav.pocasi.misto);
+  let h = '<section class="card nast-sekce" data-sekce="pocasi"><h3>Počasí · ČHMÚ</h3>';
+  if (staryMotor()) return h + '<p>Počasí ukáže nová verze motoru.</p>' + novaVerzeMotoruHtml() + '</section>';
+  h += '<p>Místo: <b>' + esc(misto || (jeDemo() ? 'Veselí nad Moravou (ukázka)' : '—')) + '</b></p>' +
+    '<p class="napoveda">Na Dnes je jen to důležité: výstrahy ČHMÚ pro tvoje místo (bouřky, vedro, mráz, povodně, smog), povodňový stupeň ' +
+    'na řece a krátká předpověď kraje na dnes až tři dny. Klepnutím na kartu Počasí se otevře celý přehled.</p>' +
+    '<details class="napoveda"><summary>Jak změnit místo</summary><ol>' +
+    '<li>V projektu motoru: Nastavení projektu (ozubené kolo) → Vlastnosti skriptu → Přidat: <b>POCASI</b>.</li>' +
+    '<li>Hodnota (JSON), např. <code>{"misto":"Hodonín","orp":{"6206":"Hodonín"},"stanice":["0-203-1-421500"],"kraj":"RPJM"}</code> – ' +
+    'kód ORP je ve výstrahách ČHMÚ (CISORP), stanice na hydro.chmi.cz, kraj: RPJM = Jihomoravský.</li></ol></details>' +
+    '<p class="napoveda">Data: Český hydrometeorologický ústav (otevřená data, CC BY 4.0). Motor je stahuje šetrně – ' +
+    'jen když se změní, přehled drží 15 minut.</p>';
+  return h + '</section>';
+}
+
 function nastaveniHtml() {
-  return '<div class="nast">' + sekcePripojeni() + sekcePosty() + sekceKalendaru() + sekceVzhledu() + sekceAplikace() + '</div>';
+  const s = ZALOZKY.some((z) => z[0] === n.sekce) ? n.sekce : 'pripojeni';
+  const obsah = { pripojeni: sekcePripojeni, posta: sekcePosty, kalendare: sekceKalendaru, pocasi: sekcePocasi, vzhled: sekceVzhledu, aplikace: sekceAplikace }[s]();
+  return '<div class="nast-zalozky" role="tablist" aria-label="Části nastavení">' + ZALOZKY.map((z) =>
+    '<button type="button" class="chip" role="tab" data-nast-sekce="' + z[0] + '" aria-selected="' + (z[0] === s) + '" aria-pressed="' + (z[0] === s) + '">' + z[1] +
+    (z[0] === 'pripojeni' && (staryMotor() || stav.chyby.info) ? ' <i class="tecka"></i>' : '') + '</button>').join('') + '</div>' +
+    '<div class="nast">' + obsah + '</div>';
 }
 
 function poZmeneKalendaru(kalendare) {
@@ -265,6 +294,13 @@ function poZmeneKalendaru(kalendare) {
 export function klikNastaveni(el) {
   const panel = elementPanelu('nastaveni');
   const akce = el.dataset.nast;
+  if (el.dataset.nastSekce) {
+    n.sekce = el.dataset.nastSekce;
+    obnovPanel('nastaveni');
+    const telo = panel && elementPanelu('nastaveni').querySelector('.panel-telo');
+    if (telo) telo.scrollTop = 0;
+    return true;
+  }
   if (akce === 'zmenit-pripojeni') { n.upravaPripojeni = true; obnovPanel('nastaveni'); return true; }
   if (akce === 'kod-zarizeni') { n.ukazKod = true; obnovPanel('nastaveni'); return true; }
   if (akce === 'kopirovat-kod') {

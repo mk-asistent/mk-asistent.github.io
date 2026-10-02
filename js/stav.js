@@ -1,6 +1,7 @@
 // Společný stav aplikace, oznámení o změně a přechod mezi sekcemi (překreslení řídí app.js).
 
 import { pulnoc, uloziste } from './pomocne.js';
+import { jeDemo } from './api.js';
 
 const FILTRY_POSTY = ['vse', 'neprectene', 'hori', 'ceka', 'otazka', 'cekas', 'info'];
 const ze = (hodnota, povolene, vychozi) => (povolene.indexOf(hodnota) >= 0 ? hodnota : vychozi);
@@ -10,6 +11,7 @@ export const stav = {
   info: null,               // z motoru: verze, účet, nastavení pošty, kalendáře
   schranka: null,
   posta: null,
+  pocasi: null,             // přehled ČHMÚ z motoru (výstrahy, řeky, předpovědi)
   chyby: {},                // klíč → ChybaApi (schranka, posta, info)
   nacita: {},               // klíč → true
   naposledy: 0,             // kdy se naposledy načítalo všechno
@@ -55,4 +57,18 @@ export function prejdi(pohled) {
     zmeneno();
   }
   window.scrollTo(0, 0);
+}
+
+/**
+ * Umí připojený motor tuhle akci? Nový motor posílá v info seznam akcí; starý (bez seznamu) nové věci neumí –
+ * aplikace je pak skryje a poradí nasadit novou verzi. Bez načteného info zatím „ne“ (info přijde a překreslí).
+ */
+export function umiMotor(akce) {
+  if (jeDemo()) return true;
+  return !!(stav.info && Array.isArray(stav.info.akce) && stav.info.akce.indexOf(akce) >= 0);
+}
+
+/** Motor je připojený, ale starší verze (bez seznamu akcí) → v Nastavení a na kartách nabídnout aktualizaci. */
+export function staryMotor() {
+  return !jeDemo() && !!stav.info && !Array.isArray(stav.info.akce);
 }

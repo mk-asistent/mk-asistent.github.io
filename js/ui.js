@@ -65,7 +65,8 @@ export function prizpusobVysku(t) {
 let otevreneOkno = null;
 /**
  * Okno uprostřed (vzor CaseDraft): kroužek s ikonou, nadpis, text, šedé řádky, pole, dvě tlačítka.
- * o = { ikona, ton: 'ok'|'pozor'|'nebezpeci', nadpis, text, radky: [[ikona, text, vpravo]], pole: { popisek, hodnota, placeholder },
+ * o = { ikona, ton: 'ok'|'pozor'|'nebezpeci', nadpis, text, radky: [[ikona, text, vpravo]], html (vlastní obsah – už ošetřený),
+ *       pole: { popisek, hodnota, placeholder, radku (víc řádků = textarea, odeslat Ctrl+Enter) }, siroke (širší okno),
  *       ano: 'Smazat', ne: 'Zrušit' (null = bez druhého tlačítka) }
  * Vrací Promise: true / false, s polem napsaný text / null.
  */
@@ -74,18 +75,21 @@ export function okno(o) {
     if (otevreneOkno) otevreneOkno(null);
     const pozadi = document.createElement('div');
     pozadi.className = 'okno-pozadi';
-    pozadi.innerHTML = '<div class="okno" role="dialog" aria-modal="true" aria-labelledby="okno-nadpis">' +
+    const vstup = o.pole && o.pole.radku > 1
+      ? '<textarea class="field" rows="' + o.pole.radku + '" placeholder="' + esc(o.pole.placeholder || '') + '">' + esc(o.pole.hodnota || '') + '</textarea>'
+      : o.pole ? '<input class="field" value="' + esc(o.pole.hodnota || '') + '" placeholder="' + esc(o.pole.placeholder || '') + '" autocomplete="off">' : '';
+    pozadi.innerHTML = '<div class="okno' + (o.siroke ? ' okno--siroke' : '') + '" role="dialog" aria-modal="true" aria-labelledby="okno-nadpis">' +
       (o.ikona ? '<span class="okno__kruh okno__kruh--' + (o.ton || 'ok') + '">' + o.ikona + '</span>' : '') +
       '<h2 id="okno-nadpis">' + esc(o.nadpis) + '</h2>' + (o.text ? '<p>' + esc(o.text) + '</p>' : '') +
       (o.radky && o.radky.length ? '<ul class="okno__radky">' + o.radky.map((r) => '<li>' + (r[0] || '') + '<span>' + esc(r[1]) + '</span>' +
         (r[2] != null && r[2] !== '' ? '<em>' + esc(r[2]) + '</em>' : '') + '</li>').join('') + '</ul>' : '') +
-      (o.pole ? '<label class="okno__pole"><span class="label">' + esc(o.pole.popisek) + '</span><input class="field" value="' + esc(o.pole.hodnota || '') +
-        '" placeholder="' + esc(o.pole.placeholder || '') + '" autocomplete="off"></label>' : '') +
+      (o.html ? '<div class="okno__obsah">' + o.html + '</div>' : '') +
+      (o.pole ? '<label class="okno__pole"><span class="label">' + esc(o.pole.popisek) + '</span>' + vstup + '</label>' : '') +
       '<div class="okno__akce">' + (o.ne === null ? '' : '<button type="button" class="btn btn--ghost" data-okno="ne">' + esc(o.ne || 'Zrušit') + '</button>') +
       '<button type="button" class="btn btn--cerne' + (o.ton === 'nebezpeci' ? ' btn--cervene' : '') + '" data-okno="ano">' + esc(o.ano || 'OK') + '</button></div></div>';
     document.body.appendChild(pozadi);
     requestAnimationFrame(() => pozadi.classList.add('videt'));
-    const pole = pozadi.querySelector('.okno__pole input');
+    const pole = pozadi.querySelector('.okno__pole .field');
     const zrus = pole ? null : false;
     const zavri = (vysledek) => {
       document.removeEventListener('keydown', klavesa, true);
@@ -97,7 +101,7 @@ export function okno(o) {
     const potvrzeno = () => zavri(pole ? (pole.value.trim() || null) : true);
     const klavesa = (e) => {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); zavri(zrus); }
-      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); potvrzeno(); }
+      else if (e.key === 'Enter' && (pole && pole.tagName === 'TEXTAREA' ? (e.ctrlKey || e.metaKey) : true)) { e.preventDefault(); e.stopPropagation(); potvrzeno(); }
     };
     document.addEventListener('keydown', klavesa, true);
     pozadi.addEventListener('click', (e) => {
@@ -107,7 +111,7 @@ export function okno(o) {
       else if (e.target === pozadi) zavri(zrus);
     });
     otevreneOkno = zavri;
-    (pole || pozadi.querySelector('[data-okno="ano"]')).focus();
+    (pole || pozadi.querySelector('[data-okno="ano"]')).focus({ preventScroll: true });
   });
 }
 

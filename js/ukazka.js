@@ -263,6 +263,21 @@ const akce = {
       pridano++;
     });
     return { pridano, upraveno: 0, beze_zmeny, kalendar: 'Zápasy', kalendarId: k.id };
+  },
+  pocasi: () => {
+    // ukázka: zítra odpoledne žluté bouřky, jinak klid; předpověď na 4 dny jako od ČHMÚ
+    const dnyPred = [['slunce', 'Převážně jasno', [19, 23], null], ['bourka', 'Odpoledne bouřky', [24, 28], [12, 15]],
+      ['polojasno', 'Polojasno, ochlazení', [17, 21], [9, 12]], ['dest', 'Oblačno, místy déšť', [14, 17], [8, 11]]];
+    return {
+      vytvoreno: Date.now(), misto: 'Veselí nad Moravou', souhrn: 'Silné bouřky', zdroj: 'ČHMÚ',
+      vystrahy: [{ typ: 'vystraha', uroven: 'zluta', nazev: 'Silné bouřky', od: den(1, 14, 0), do: den(1, 22, 0), oblast: 'Veselí nad Moravou',
+        celyKraj: true, text: 'Je třeba dbát na bezpečnost především s ohledem na nebezpečí zásahu bleskem a úrazu padajícími předměty.', popis: '' }],
+      reky: [{ typ: 'hladina', uroven: 'zelena', nazev: 'Morava – Strážnice', stav: 'bez povodně', kdy: ted - H, hladina: 82, trend: 'ustálená',
+        spa: 0, spaPredpoved: 0, maxPredpoved: 84, kdyMax: den(1, 6, 0), spa1: 530, text: 'Hladina 82 cm, ustálená (1. SPA od 530 cm).' }],
+      predpovedi: dnyPred.map((p, i) => ({ nazev: 'Předpověď', od: den(i, 5, 0), do: den(i + 1, 0, 0), den: iso(den(i, 12, 0)), oblast: 'Jihomoravský kraj',
+        uvod: p[1], pocasi: '', tMax: p[2], tMin: p[3], srazky: p[0] === 'dest' ? '1 až 4 mm' : '', vitr: '', jevy: p[0] === 'bourka' ? ['bouřky'] : [],
+        ikona: p[0], uroven: p[0] === 'bourka' ? 'zluta' : 'info', vydano: ted - 2 * H }))
+    };
   }
 };
 
