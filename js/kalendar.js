@@ -133,7 +133,7 @@ function pocasiDneHtml(den) {
 
 /** Zápas: z kalendáře zápasů, s míčem v názvu, nebo z importu rozpisu. */
 export function jeZapas(u) {
-  return !!u && (/^⚽/.test(u.nazev || '') || /zápas/i.test(u.kalendar || '') || u.druh === 'fotbal' || !!u.zapas);
+  return !!u && (/^⚽|zápas/i.test(u.nazev || '') || /zápas/i.test(u.kalendar || '') || !!u.zapas);
 }
 
 /** Nejbližší zápas (běžící nebo budoucí) do n dní. */

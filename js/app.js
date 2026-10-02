@@ -414,9 +414,11 @@ function pozorKartaHtml(x) {
   if (x.typ === 'schranka') {
     const p = x.x;
     return '<li><button type="button" class="pozor" data-ukaz-polozku="' + esc(p.id) + '">' +
-      '<span class="pozor__hora"><i class="kruh kruh--' + (schranka.skupina(p) === 'rozhodni' ? 'oranz' : 'zluta') + '">' + IKONY.schranka + '</i>' +
+      '<span class="pozor__hora"><i class="kruh kruh--' + (p.navrh ? 'limetka' : schranka.skupina(p) === 'rozhodni' ? 'oranz' : 'zluta') + '">' +
+        (p.navrh ? (p.navrh.typ === 'email' ? IKONY.psat : IKONY.kalendar) : IKONY.schranka) + '</i>' +
       '<span class="pozor__text"><b>' + esc(p.nadpis || p.shrnuti || prvniRadek(p.text, 80)) + '</b><small>' +
-      (schranka.skupina(p) === 'rozhodni' ? 'Rozhodni – Claude čeká na tvé ano' : 'Tvůj úkol · zadáno ' + esc(kdyKratce(p.kdy))) + '</small></span></span>' +
+      (p.navrh ? 'Návrh od Clauda – ' + (p.navrh.typ === 'email' ? 'zkontroluj a odešli e-mail' : 'zkontroluj a ulož událost')
+        : schranka.skupina(p) === 'rozhodni' ? 'Rozhodni – Claude čeká na tvé ano' : 'Tvůj úkol · zadáno ' + esc(kdyKratce(p.kdy))) + '</small></span></span>' +
       (x.t != null ? '<span class="pozor__radek">' + IKONY.cas + '<span>Termín</span><em>' + esc(kdyTerminu(x.t)) + '</em></span>' : '') + '</button></li>';
   }
   const m = x.x;

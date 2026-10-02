@@ -327,6 +327,9 @@ main { padding: 4px var(--mezera) calc(var(--lista-h) + env(safe-area-inset-bott
 .dl-pozornost .dlazdice__telo { max-height: 640px; }
 @media (min-width: 760px) {
     .dnes-mrizka { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); grid-template-areas: "pozornost vpravo"; }
+    /* seznam roste do výšky pravého sloupce, patička (Schránka · Pošta) zůstane dole */
+    .dl-pozornost .dlazdice__telo { max-height: none; }
+    .dl-pozornost .dlazdice__paty { margin-top: auto; }
     .dl-pozornost { align-self: stretch; }
 }
 @media (min-width: 1180px) {
