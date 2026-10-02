@@ -522,6 +522,12 @@ button.legenda-radek { width: 100%; background: none; border: 0; text-align: lef
 .fotbal-volby .chip svg { width: 14px; height: 14px; }
 .kal-druhy { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .kal-druhy::-webkit-scrollbar { display: none; }
+/* předpověď ČHMÚ u dnů v kalendáři */
+.den-pocasi { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; font-style: normal; font-size: 10.5px; font-weight: 600; color: var(--muted); vertical-align: middle; }
+.den-pocasi svg { width: 13px; height: 13px; }
+/* ikona počasí vedle zkratky dne – výška hlavičky zůstane */
+.cas-den-nadpis small .den-pocasi { margin-left: 3px; text-transform: none; }
+@media (max-width: 759px) { .mesic-cislo .den-pocasi { display: none; } }
 .kal-skupina { padding: 8px 16px 0; font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
 select.field--sm { width: auto; min-height: 32px; padding: 4px 26px 4px 8px; font-size: 12.5px; }
 

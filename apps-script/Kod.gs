@@ -3273,13 +3273,18 @@ function upozorni_(nadpis, text, tagy, priorita) {
   return r.getResponseCode() === 200;
 }
 
-/** Spouštěč každou hodinu: WHOOP (nová připravenost ráno), výstrahy ČHMÚ (oranžová a vyšší). */
+/** Spouštěč každou hodinu: WHOOP (nová připravenost ráno), výstrahy ČHMÚ (oranžová a vyšší), ranní souhrn dne
+ *  a nové „hoří“ v poště (6–22 h). Všechno jen když je nastavené NTFY_TEMA. */
 function kazdouHodinu() {
   const p = vlastnosti_();
+  if (!p.getProperty('NTFY_TEMA')) return;
+  const hodina = Number(Utilities.formatDate(new Date(Date.now()), CASOVE_PASMO, 'H'));
+  try { if (hodina >= 6 && hodina <= 22) horiVPoste_(); } catch (chyba) { /* příště */ }
+  try { ranniSouhrn_(hodina); } catch (chyba) { /* příště */ }
   if (whoopStav_().propojeno) {
     try {
       const z = whoopSync_(3);
-      const dnes = Utilities.formatDate(new Date(), CASOVE_PASMO, 'yyyy-MM-dd');
+      const dnes = Utilities.formatDate(new Date(Date.now()), CASOVE_PASMO, 'yyyy-MM-dd');
       const d = z.dny[dnes];
       if (d && d.pripravenost && p.getProperty('OHLASENO_ZDRAVI') !== dnes) {
         const sk = d.pripravenost.skore;
@@ -3306,6 +3311,62 @@ function kazdouHodinu() {
     Object.keys(ohlasene).forEach(function (k) { if (ohlasene[k] > ted && !nove[k]) nove[k] = ohlasene[k]; });
     p.setProperty('OHLASENE_VYSTRAHY', JSON.stringify(nove).slice(0, 8000));
   } catch (chyba) { /* příště */ }
+}
+
+/** Nové konverzace „hoří“ za poslední 2 hodiny (každá jen jednou). */
+function horiVPoste_() {
+  const p = vlastnosti_();
+  const ja = mojeAdresa_().toLowerCase();
+  const prac = pracovniAdresa_();
+  const nove = seznamVlaken_('in:inbox is:unread newer_than:2h -category:promotions -category:social -category:forums', ja, prac, null, 20)
+    .filter(function (v) { return v.stav === 'hori'; });
+  if (!nove.length) return;
+  let ohlasene = [];
+  try { ohlasene = JSON.parse(p.getProperty('OHLASENA_POSTA') || '[]'); } catch (chyba) { ohlasene = []; }
+  const neohlasene = nove.filter(function (v) { return ohlasene.indexOf(v.id) < 0; });
+  if (!neohlasene.length) return;
+  // přes ntfy.sh (cizí server) jen počet a účet – jména, předměty a obsah zůstávají v aplikaci
+  const pracovnich = neohlasene.filter(function (v) { return v.ucet === 'pracovni'; }).length;
+  const text = neohlasene.length + ' ' + (neohlasene.length === 1 ? 'nová konverzace' : neohlasene.length < 5 ? 'nové konverzace' : 'nových konverzací') +
+    (pracovnich ? ' (pracovní ' + pracovnich + ')' : '') + ' – otevři Asistenta';
+  if (upozorni_('🔥 Hoří v poště', text, ['fire'], 4)) neohlasene.forEach(function (v) { ohlasene.push(v.id); });
+  p.setProperty('OHLASENA_POSTA', JSON.stringify(ohlasene.slice(-60)));
+}
+
+/** Ranní souhrn (jednou denně): po probuzení s připraveností z WHOOP, nejpozději v 8 h i bez ní. */
+function ranniSouhrn_(hodina) {
+  const p = vlastnosti_();
+  const dnes = Utilities.formatDate(new Date(Date.now()), CASOVE_PASMO, 'yyyy-MM-dd');
+  if (hodina < 6 || hodina > 11 || p.getProperty('OHLASENO_RANO') === dnes) return;
+  let pripravenost = null;
+  try {
+    const mesic = nactiMesicZdravi_(slozkaZdravi_(), dnes.slice(0, 7)).data;
+    const den = mesic.dny[dnes];
+    pripravenost = den && den.whoop && den.whoop.pripravenost ? den.whoop.pripravenost.skore : null;
+  } catch (chyba) { /* bez zdraví */ }
+  if (pripravenost == null && hodina < 8 && whoopStav_().propojeno) return; // počkat na WHOOP
+  const casti = [];
+  try {
+    const pulnoc = Utilities.parseDate(dnes + ' 00:00', CASOVE_PASMO, 'yyyy-MM-dd HH:mm').getTime();
+    const udalosti = nactiKalendar_(pulnoc, pulnoc + 864e5, false).udalosti.filter(function (u) { return u.celodenni || u.konec > Date.now(); });
+    const prvni = udalosti.filter(function (u) { return !u.celodenni; })[0];
+    // bez názvů událostí (jde to přes cizí server) – jen počet a čas první
+    casti.push(udalosti.length ? udalosti.length + ' v kalendáři' + (prvni ? ', první v ' + Utilities.formatDate(new Date(prvni.zacatek), CASOVE_PASMO, 'H:mm') : '') : 'volný kalendář');
+  } catch (chyba) { /* bez kalendáře */ }
+  try {
+    const ukoly = nactiSchranku_().ceka.filter(function (x) { return !/napad/.test(x.stav || ''); });
+    if (ukoly.length) casti.push(ukoly.length + ' ve schránce');
+  } catch (chyba) { /* bez schránky */ }
+  try {
+    const poc = pocasi_(false);
+    const pred = poc.predpovedi.filter(function (x) { return x.den === dnes; })[0];
+    casti.push((pred && pred.tMax ? pred.tMax[0] + '–' + pred.tMax[1] + ' °C' : 'počasí') + (poc.vystrahy.some(function (v) { return v.typ !== 'vyhled'; }) ? ', ' + poc.souhrn : ''));
+  } catch (chyba) { /* bez počasí */ }
+  if (pripravenost != null) casti.push('připravenost ' + pripravenost + ' %');
+  if (upozorni_('Dobré ráno', casti.join(' · '), ['sunrise'], 3)) {
+    p.setProperty('OHLASENO_RANO', dnes);
+    if (pripravenost != null) p.setProperty('OHLASENO_ZDRAVI', dnes); // připravenost už byla v souhrnu
+  }
 }
 
 /** Spustit jednou v editoru (▶): vyrobí téma pro upozornění a vypíše ho do protokolu (vloží se do aplikace ntfy). */

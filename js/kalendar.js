@@ -11,7 +11,8 @@ import {
 } from './pomocne.js';
 import { otevriPanel } from './panely.js';
 import { chybaHtml, segment, hlavickaKarty } from './ui.js';
-import { IKONY } from './ikony.js';
+import { IKONY, ikonaPocasi } from './ikony.js';
+import { predpovedNa, teplota } from './pocasi.js';
 import { otevriFormular, akceUdalostiHtml, zapasyHtml, zapisovatelneKalendare } from './udalost.js';
 import { tymyHtml as fotbalTymyHtml } from './fotbal.js';
 
@@ -120,6 +121,14 @@ export function nejblizsi(n, dni) {
     .filter((u) => (u.celodenni ? u.zacatek >= pulnoc(ted) : u.konec > ted))
     .sort((a, b) => a.zacatek - b.zacatek)
     .slice(0, n);
+}
+
+/** Předpověď ČHMÚ ke dni: malá ikona a teploty (jen dny, pro které ji ČHMÚ dává – dnes až 3 dny dopředu). */
+function pocasiDneHtml(den) {
+  const p = predpovedNa(den + 12 * 36e5);
+  if (!p) return '';
+  const t = p.tMax || p.tMin;
+  return '<i class="den-pocasi" title="' + esc(p.uvod + (t ? ', ' + teplota(p) : '')) + '">' + ikonaPocasi(p.ikona) + (t ? t[1] + '°' : '') + '</i>';
 }
 
 /** Zápas: z kalendáře zápasů, s míčem v názvu, nebo z importu rozpisu. */
@@ -361,7 +370,7 @@ function mesicHtml() {
       (ud.length > 3 ? '<span class="cip-vic">+' + (ud.length - 3) + ' další</span>' : '');
     h += '<button type="button" class="' + tridy.join(' ') + '" data-den="' + den + '" aria-label="' + esc(datumDlouhe(den)) + (ud.length ? ', událostí ' + ud.length : '') + '"' +
       (den === vybrany ? ' aria-current="date"' : '') + '>' +
-      '<span class="mesic-cislo cisla">' + d.getDate() + '</span>' +
+      '<span class="mesic-cislo cisla">' + d.getDate() + pocasiDneHtml(den) + '</span>' +
       '<span class="mesic-tecky">' + barvy.map((b) => '<i style="--b:' + esc(b) + '"></i>').join('') + '</span>' +
       '<span class="mesic-cipy">' + cipy + '</span></button>';
   }
@@ -397,7 +406,7 @@ function casovaOsaHtml(dny) {
   let h = '<div class="cas-svitek" id="cas-svitek">';
   if (dny.length > 1) {
     h += '<div class="cas-hlava" ' + sloupce + '><span></span>' + dny.map((d) => '<button type="button" class="cas-den-nadpis' + (d === dnes ? ' dnes' : '') +
-      (d === pulnoc(k.vybrany) ? ' vybrany' : '') + '" data-den="' + d + '"><small>' + DNY_KR[new Date(d).getDay()] + '</small><b class="cisla">' + new Date(d).getDate() + '</b></button>').join('') + '</div>';
+      (d === pulnoc(k.vybrany) ? ' vybrany' : '') + '" data-den="' + d + '"><small>' + DNY_KR[new Date(d).getDay()] + pocasiDneHtml(d) + '</small><b class="cisla">' + new Date(d).getDate() + '</b></button>').join('') + '</div>';
   }
   const celodenni = dny.map((d) => udalostiDne(d).filter((u) => u.celodenni || (u.zacatek <= d && u.konec >= pridejDny(d, 1))));
   if (celodenni.some((a) => a.length)) {
@@ -518,6 +527,10 @@ function detailHtml(u) {
       (u.hoste.length > 6 ? ' a další ' + (u.hoste.length - 6) : '') + '</span></p>';
   }
   if (u.popis) h += '<div class="udalost-popis">' + sOdkazy(u.popis) + '</div>';
+  // předpověď ČHMÚ na den události (když ji ČHMÚ už dává) – hodí se hlavně u zápasů
+  const pr = predpovedNa(u.zacatek);
+  if (pr && u.konec > Date.now()) h += '<p class="udalost-radek">' + ikonaPocasi(pr.ikona) + '<span>' + esc(pr.uvod) + (teplota(pr) ? ', ' + esc(teplota(pr)) : '') +
+    (pr.srazky ? ' · srážky ' + esc(pr.srazky) : '') + ' <small class="muted">ČHMÚ</small></span></p>';
   if (hooky.detailUdalosti) h += hooky.detailUdalosti(u); // trénink z WHOOP ve stejném čase
   return h + '</div>';
 }

@@ -115,6 +115,7 @@ function zkontrolujNovinky(p) {
   if (hori) radky.push([IKONY.ohen, 'Hoří v poště', hori]);
   if (nove) radky.push([IKONY.posta, 'Nová pošta, která na tebe čeká', nove]);
   if (odpovedi) radky.push([IKONY.claude, 'Claude odpověděl', odpovedi]);
+  fotbal.noveVysledky(videno).slice(0, 3).forEach((v) => radky.push([IKONY.zapas, v.text, { V: 'výhra', R: 'remíza', P: 'prohra' }[v.vrp] || '']));
   if (prvniDnes && p.terminy.poTerminu) radky.push([IKONY.pozor, 'Úkoly po termínu', p.terminy.poTerminu]);
   if (prvniDnes && p.terminy.dnes) radky.push([IKONY.schranka, 'Úkoly na dnes', p.terminy.dnes]);
   if (!radky.length) return;

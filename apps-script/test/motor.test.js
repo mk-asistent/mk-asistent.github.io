@@ -141,6 +141,7 @@ function prostredi() {
     const posun = Math.round((Date.UTC(+c.year, c.month - 1, +c.day, c.hour % 24, +c.minute, +c.second) - Math.floor(datum.getTime() / 1000) * 1000) / 6e4);
     const zn = (posun < 0 ? '-' : '+') + pad(Math.floor(Math.abs(posun) / 60)) + pad(Math.abs(posun) % 60);
     if (vzor === 'Z') return zn;
+    if (vzor === 'H') return String(c.hour % 24);
     return vzor.replace("'T'", 'T').replace('yyyy', c.year).replace('MM', pad(c.month)).replace('dd', pad(c.day))
       .replace('HH', pad(c.hour % 24)).replace('mm', pad(c.minute)).replace('ss', pad(c.second))
       .replace('XXX', zn.slice(0, 3) + ':' + zn.slice(3)).replace(/^d\. M\./, c.day + '. ' + c.month + '.').replace('H:', (c.hour % 24) + ':');
@@ -218,6 +219,7 @@ function prostredi() {
       log.stazeno++;
       if (url.indexOf('chmi.cz') >= 0) return odpovedChmu(url, moznosti);
       if (url.indexOf('api.prod.whoop.com') >= 0) return odpovedWhoop(url, moznosti || {});
+      if (url === 'https://ntfy.sh/') { log.ntfy = (log.ntfy || []).concat(JSON.parse(moznosti.payload)); return { getResponseCode: () => 200, getContentText: () => '{}' }; }
       return { getResponseCode: () => (url.indexOf('chyba') >= 0 ? 404 : 200), getContentText: () => (url.indexOf('rozpis') >= 0 ? rozpis : ICS) };
     } },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
@@ -1189,6 +1191,33 @@ test('zdraví: zkratka Apple Zdraví – vlastní klíč, česká čísla a data
   assert.deepStrictEqual(zdravi.soubory.map((x) => x.getName()).sort(), ['2026-09.json', '2026-10.json']);
   // prázdná zpráva ze zkratky → srozumitelná chyba
   assert.ok(/žádná data/.test(p.volej('zdraviApple', { verze: '1' }, k).chyba));
+});
+
+// ---------------------------------------------------------------- upozornění do iPhonu (ntfy)
+
+test('upozornění: bez tématu nic; hoří v poště jen počtem (bez jmen a předmětů) a jednou; ranní souhrn jednou denně', () => {
+  const p = prostredi();
+  p.chmu.cap = 'cap_rijen.xml';
+  p.nastavCas(Date.parse('2026-10-02T07:30:00+02:00'));
+  p.ctx.kazdouHodinu();
+  assert.ok(!p.log.ntfy, 'bez NTFY_TEMA se nic neposílá');
+  p.vlastnosti.set('NTFY_TEMA', 'asistent-test');
+  // nepřečtená naléhavá zpráva od známého (trenérovi jsem psal)
+  p.vlakna.v1 = p.vlakno('v1', [p.zprava({ id: 'm1', od: 'Trenér <trener@klub.test>', predmet: 'Hřiště', text: 'Urgentně: nefunguje osvětlení, ozvi se.', kdy: Date.parse('2026-10-02T07:00:00+02:00'), neprectena: true })], true);
+  p.schranka.createFolder('CEKA').createFile('2026-10-01_090000_ab12.md', '---\nkdy: 2026-10-01T09:00:00+02:00\nstav: tvuj-ukol\n---\n\nZavolat.\n');
+  p.ctx.kazdouHodinu();
+  const zpravy = json(p.log.ntfy);
+  const hori = zpravy.find((z) => /Hoří/.test(z.title));
+  assert.ok(hori, JSON.stringify(zpravy));
+  assert.strictEqual(hori.topic, 'asistent-test');
+  assert.ok(/1 nová konverzace/.test(hori.message) && !/Trenér|Hřiště|osvětlení/.test(hori.title + hori.message), hori.message);
+  const rano = zpravy.find((z) => z.title === 'Dobré ráno');
+  assert.ok(rano && /1 ve schránce/.test(rano.message) && /°C/.test(rano.message), JSON.stringify(rano));
+  // podruhé za hodinu nic nového
+  const pocet = p.log.ntfy.length;
+  p.nastavCas(Date.parse('2026-10-02T08:30:00+02:00'));
+  p.ctx.kazdouHodinu();
+  assert.strictEqual(p.log.ntfy.length, pocet);
 });
 
 // ---------------------------------------------------------------- počasí (ČHMÚ)

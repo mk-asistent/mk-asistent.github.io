@@ -76,6 +76,17 @@ export function dalsiZapasKlubu(dni) {
   return { zacatek: cas(z), nazev: (z.doma ? nas + ' – ' + souper(z) : souper(z) + ' – ' + nas) + (t ? ' (' + t.nazev + ')' : '') };
 }
 
+/** Výsledky zápasů odehraných od posledního otevření (pro „Co je nového“): [{ text, vrp }] */
+export function noveVysledky(od) {
+  const d = data();
+  if (!d) return [];
+  const nas = klub(d.klub || '');
+  return d.zapasy.filter((z) => z.vysledek && cas(z) + 2 * 36e5 > od && cas(z) < Date.now()).map((z) => {
+    const t = (d.tymy || []).find((x) => x.klic === z.tym);
+    return { text: (t ? t.nazev + ': ' : '') + (z.doma ? nas + ' – ' + souper(z) : souper(z) + ' – ' + nas) + ' ' + z.vysledek, vrp: vrp(z) };
+  });
+}
+
 /** Karta Fotbal na Dnes: řádek na tým – poslední výsledek (V/R/P) a další zápas. */
 export function kartaDnesHtml() {
   const p = prehled();
