@@ -580,6 +580,43 @@ async function novaStranka(prohlizec, v, motiv) {
     });
   }
 
+  // ---------- diktát z iPhonu, který Claude ještě nezpracoval: „zítra v 10“ počítané od chvíle diktátu → Založit událost hned
+  await test('schránka: rozpoznaný diktát → událost, k položce se připíše „Událost založena“', async () => {
+    const puvodni = motor.schranka;
+    motor.schranka = () => {
+      const s = puvodni();
+      s.nove.push({ id: 'n2', slozka: 'NOVE', kdy: ted - H, odkud: 'iPhone', typ: '', stav: '', shrnuti: '', termin: '', text: 'Schůzka s Trenérem zítra v 10. Vzít rozpis.', vlakno: [] });
+      return s;
+    };
+    try {
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="schranka"]');
+      await page.waitForFunction(() => /Rozpoznáno: událost/.test((document.querySelector('#p-schranka [data-polozka-id="n2"] .tag--limetka') || {}).textContent || ''));
+      jistota(!(await page.locator('#p-schranka [data-polozka-id="n1"] .tag--limetka').count()), 'obyčejná poznámka nemá mít návrh');
+      await page.click('#p-schranka [data-prepni="n2"]');
+      await page.waitForSelector('#p-schranka [data-navrh-mistni="n2"]');
+      jistota(/Rozpoznáno v diktátu/.test(await page.textContent('#p-schranka [data-polozka-id="n2"] .navrh')), 'popisek návrhu');
+      await page.click('#p-schranka [data-navrh-mistni="n2"]');
+      const f = '[data-panel="udalost-formular"] ';
+      await page.waitForSelector(f + '[data-uf="nazev"]');
+      jistota(await page.inputValue(f + '[data-uf="nazev"]') === 'Schůzka s Trenérem' && await page.inputValue(f + '[data-uf="od"]') === '10:00', 'formulář z diktátu');
+      const pred = volano.length;
+      await page.click(f + '[data-ulozit-udalost]');
+      await page.waitForSelector('[data-panel="udalost-formular"]', { state: 'detached' });
+      const zitra = new Date(ted - H); zitra.setHours(10, 0, 0, 0); zitra.setDate(zitra.getDate() + 1); // „zítra“ od diktátu
+      const ulozena = volano.slice(pred).find((d) => d.akce === 'udalostUlozit');
+      jistota(ulozena && ulozena.zacatek === zitra.getTime() && ulozena.popis === 'Vzít rozpis.', 'uložená událost: ' + JSON.stringify(ulozena));
+      for (let i = 0; i < 20 && !volano.slice(pred).some((d) => d.akce === 'polozka'); i++) await page.waitForTimeout(100);
+      const pozn = volano.slice(pred).find((d) => d.akce === 'polozka');
+      jistota(pozn && pozn.id === 'n2' && pozn.jak === 'dopsat' && /^Událost založena: Schůzka s Trenérem/.test(pozn.text), 'poznámka k položce: ' + JSON.stringify(pozn));
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    } finally {
+      motor.schranka = puvodni;
+    }
+  });
+
   // ---------- zdraví: stránka, karta na Dnes, trénink spárovaný s událostí, klíč pro zkratku v Nastavení
   for (const v of [VELIKOSTI[3], VELIKOSTI[0]]) {
     await test(v.nazev + ': Zdraví – připravenost, spánek, trénink u události, Nastavení', async () => {

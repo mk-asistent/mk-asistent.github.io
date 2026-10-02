@@ -145,6 +145,7 @@ export function polozkaHtml(p, kompaktni) {
   const otevrena = !!stav.otevrene[p.id];
   const titul = nadpis(p);
   const posledniClaude = p.vlakno.filter((v) => v.kdo === 'Claude').pop();
+  const mistni = mistniNavrh(p);
   let pod = '';
   if (!otevrena && sk === 'hotovo' && posledniClaude) pod = '→ ' + prvniRadek(posledniClaude.text, 160);
   else if (!otevrena && sk === 'rozhodni' && posledniClaude) pod = prvniRadek(posledniClaude.text, 160);
@@ -153,13 +154,15 @@ export function polozkaHtml(p, kompaktni) {
     '<span class="radek-hora"><span class="radek-titul ' + (otevrena ? '' : 'orez-2') + '">' + esc(titul) + '</span>' +
     '<span class="radek-cas cisla">' + esc(kdyKratce(p.kdy)) + '</span></span>' +
     '<span class="radek-pod">' + (p.navrh ? '<span class="tag tag--limetka">' + IKONY.claude + 'Návrh: ' + (p.navrh.typ === 'email' ? 'e-mail' : 'událost') + '</span> '
-      : kompaktni || sk === 'hotovo' || sk === 'nove' ? '<span class="' + SKUPINA[sk][3] + '">' + SKUPINA[sk][4] + '</span> ' : '') +
+      : (mistni ? '<span class="tag tag--limetka">' + (mistni.typ === 'email' ? IKONY.psat : IKONY.kalendar) + 'Rozpoznáno: ' + (mistni.typ === 'email' ? 'e-mail' : 'událost') + '</span> ' : '') +
+        (kompaktni || sk === 'hotovo' || sk === 'nove' ? '<span class="' + SKUPINA[sk][3] + '">' + SKUPINA[sk][4] + '</span> ' : '')) +
     temaHtml(p.tema) + terminZnacka(p) + (pod ? ' <span class="orez-2">' + esc(pod) + '</span>' : '') + '</span>' +
     '</button>';
 
   if (otevrena) {
     h += '<div class="detail">';
-    if (p.navrh) h += navrhHtml(p);
+    if (p.navrh) h += navrhHtml(p, p.navrh);
+    else if (mistni) h += navrhHtml(p, mistni, true);
     h += '<div class="bublina b-michal"><span class="kdo">Ty · ' + esc(dm(p.kdy) + ' ' + hhmm(p.kdy)) + (p.odkud ? ' · ' + esc(p.odkud) : '') + '</span>' + esc(p.text) + '</div>';
     p.vlakno.forEach((v) => {
       h += '<div class="bublina ' + (v.kdo === 'Claude' ? 'b-claude' : 'b-michal') + '"><span class="kdo">' +
@@ -277,6 +280,7 @@ export function klikSchranka(el) {
   if (el.dataset.temaSchranky !== undefined && el.closest('#p-schranka')) { stav.temaSchranky = el.dataset.temaSchranky; zmeneno(); return true; }
   if (el.dataset.polozkaAkce) { upravPolozku(el.dataset.polozkaAkce, el.dataset.id); return true; }
   if (el.dataset.navrh) { pouzijNavrh(el.dataset.navrh); return true; }
+  if (el.dataset.navrhMistni) { pouzijNavrh(el.dataset.navrhMistni, true); return true; }
   if (el.hasAttribute('data-zapis-navrh')) { pouzijRychlyNavrh(el.closest('.zapis')); return true; }
   if (el.hasAttribute('data-ulozit')) {
     const pole = el.closest('.zapis').querySelector('[data-zapis]');
@@ -448,31 +452,47 @@ function lide(seznam) {
   return { adresy, jmena };
 }
 
-function navrhHtml(p) {
-  const n = p.navrh;
+/** Diktát, který Claude ještě nezpracoval a zní jako schůzka / zpráva → návrh hned, ve stejném tvaru jako `navrh` od Clauda.
+ *  Čas se počítá od chvíle diktátu („zítra“ = den po diktátu). Po použití se k položce jen připíše „Událost založena…“. */
+function mistniNavrh(p) {
+  if (p.navrh || skupina(p) !== 'nove' || !umiMotor('polozkaUpravy')) return null;
+  if (p.vlakno.some((v) => v.kdo === 'Michal' && /^(Událost založena|E-mail odeslán)/.test(v.text))) return null;
+  const r = rozborTextu(p.text, p.kdy);
+  if (!r) return null;
+  if (r.typ === 'email') return { typ: 'email', komu: r.lide, predmet: r.predmet, text: r.text };
+  if (r.konec <= Date.now()) return null; // už proběhlo
+  const d2 = (n) => String(n).padStart(2, '0');
+  const iso = (t) => { const d = new Date(t); return d.getFullYear() + '-' + d2(d.getMonth() + 1) + '-' + d2(d.getDate()) + (r.celodenni ? '' : ' ' + d2(d.getHours()) + ':' + d2(d.getMinutes())); };
+  return { typ: 'udalost', nazev: r.nazev, zacatek: iso(r.zacatek), konec: iso(r.konec), celodenni: r.celodenni, popis: r.popis,
+    hoste: r.pozvat ? r.lide : [], pozvat: r.pozvat };
+}
+
+function navrhHtml(p, n, mistni) {
   const radek = (ikona, text) => text ? '<li>' + ikona + '<span>' + esc(text) + '</span></li>' : '';
-  let h = '<div class="navrh"><small>' + IKONY.claude + 'Claude navrhuje</small>';
+  const data = (mistni ? 'data-navrh-mistni="' : 'data-navrh="') + esc(p.id) + '"';
+  let h = '<div class="navrh"><small>' + (mistni ? IKONY.kalendar + 'Rozpoznáno v diktátu' : IKONY.claude + 'Claude navrhuje') + '</small>';
   if (n.typ === 'udalost') {
     const z = casNavrhu(n.zacatek), k = casNavrhu(n.konec);
     const kdy = z == null ? '' : DNY_KR[new Date(z).getDay()] + ' ' + dm(z) + (n.celodenni ? ' · celý den' : ' · ' + hhmm(z) + (k ? '–' + hhmm(k) : ''));
     h += '<b>' + esc(n.nazev || 'Událost') + '</b><ul>' + radek(IKONY.kalendar, kdy) + radek(IKONY.misto, n.misto) +
       radek(IKONY.pozvat, (n.hoste || []).length ? 'Pozvat: ' + n.hoste.join(', ') : '') + radek(IKONY.info, n.popis) + '</ul>' +
-      '<button type="button" class="btn btn--sm" data-navrh="' + esc(p.id) + '">' + IKONY.kalendar + '<span>Založit událost</span></button>';
+      '<button type="button" class="btn btn--sm" ' + data + '>' + IKONY.kalendar + '<span>Založit událost</span></button>';
   } else {
     h += '<b>' + esc(n.predmet || 'E-mail') + '</b><ul>' + radek(IKONY.lide, (n.komu ? [].concat(n.komu) : []).join(', ')) +
       radek(IKONY.posta, n.text ? prvniRadek(n.text, 160) : '') + '</ul>' +
-      '<button type="button" class="btn btn--sm" data-navrh="' + esc(p.id) + '">' + IKONY.psat + '<span>Napsat e-mail</span></button>';
+      '<button type="button" class="btn btn--sm" ' + data + '>' + IKONY.psat + '<span>Napsat e-mail</span></button>';
   }
-  return h + '<p>Otevře se předvyplněné – nic se neodešle, dokud to nepotvrdíš.</p></div>';
+  return h + '<p>Otevře se předvyplněné – nic se neodešle, dokud to nepotvrdíš.' + (mistni ? ' Claude diktát i tak zpracuje (zbytek úkolu).' : '') + '</p></div>';
 }
 
-/** Otevře formulář události / psaní předvyplněné z návrhu; po uložení / odeslání je položka vyřízená. */
-function pouzijNavrh(id) {
+/** Otevře formulář události / psaní předvyplněné z návrhu. Návrh od Clauda: po uložení je položka vyřízená;
+ *  rozpoznaný diktát (mistni): k položce se jen připíše, co se stalo, a Claude zpracuje zbytek. */
+function pouzijNavrh(id, mistni) {
   const p = najdi(id);
-  if (!p || !p.navrh) return;
+  const n = p && (mistni ? mistniNavrh(p) : p.navrh);
+  if (!n) return;
   nactiKontakty();
-  const n = p.navrh;
-  const hotovo = (text) => volej('polozka', { id, jak: 'hotovo', text }).then(() => nactiSchranku()).catch((e) => toast(e.message, true));
+  const hotovo = (text) => volej('polozka', { id, jak: mistni ? 'dopsat' : 'hotovo', text }).then(() => nactiSchranku()).catch((e) => toast(e.message, true));
   if (n.typ === 'udalost') {
     const l = lide(n.hoste);
     const z = casNavrhu(n.zacatek);
@@ -487,8 +507,9 @@ function pouzijNavrh(id) {
     const l = lide(n.komu);
     otevriPsani('novy', {
       id,
-      komu: l.adresy.concat(l.jmena).join(', '), predmet: n.predmet || '', text: n.text || '', ucet: n.ucet === 'pracovni' ? 'pracovni' : 'osobni',
-      poOdeslani: () => hotovo('E-mail odeslán: ' + (n.predmet || '(bez předmětu)'))
+      // účet z návrhu Clauda; rozpoznaný diktát nechá aktivní účet
+      komu: l.adresy.concat(l.jmena).join(', '), predmet: n.predmet || '', text: n.text || '', ucet: n.ucet ? (n.ucet === 'pracovni' ? 'pracovni' : 'osobni') : '',
+      poOdeslani: (d) => hotovo('E-mail odeslán: ' + ((d && d.predmet) || n.predmet || '(bez předmětu)'))
     });
   }
 }

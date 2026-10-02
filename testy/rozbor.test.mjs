@@ -73,6 +73,16 @@ test('názvy z běžné řeči: „mi připomeň“, „na čtvrtek“, „ve 2 
   assert.strictEqual(rozborTextu('Zítra zkontroluj GDB BPH a pošli mi výsledek', TED), null); // úkol pro Clauda, ne e-mail
 });
 
+test('tečka za hodinou: „zítra v 10.“ (diktát) je čas, „v 1. NP“ a „ve 2. patře“ ne', () => {
+  let r = rozborTextu('Schůzka s Trenérem zítra v 10. Vzít rozpis.', TED);
+  assert.deepStrictEqual([r.celodenni, r.zacatek, r.nazev, r.popis], [false, d(3, 10), 'Schůzka s Trenérem', 'Vzít rozpis.']);
+  r = rozborTextu('Porada zítra v 9.', TED);
+  assert.strictEqual(r.zacatek, d(3, 9));
+  assert.strictEqual(rozborTextu('Zítra kontrola v 1. NP', TED), null); // „v 1. NP“ není čas → úkol, ne událost
+  r = rozborTextu('Schůzka zítra ve 2. patře', TED);
+  assert.strictEqual(r.celodenni, true);
+});
+
 test('e-mail: adresát malým písmenem, předmět z „ohledně“', () => {
   let r = rozborTextu('Odpověz trenérovi, že v sobotu jedeme autobusem', TED);
   assert.deepStrictEqual([r.typ, r.lide, r.text], ['email', ['trenérovi'], 'V sobotu jedeme autobusem.']);

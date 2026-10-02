@@ -36,7 +36,9 @@ otevře předvyplněný formulář; nic se neodešle, dokud ho Michal neuloží 
 **Rychlý zápis** (bez čekání na Clauda): když poznámka v poli zní jako schůzka nebo zpráva – „schůzka s Petrem zítra
 v 10 na 2 hodiny“, „pozvi Janu na poradu ve středu v půl deváté“, „napiš Petrovi, že v úterý nepřijdu“ – pod polem se
 hned nabídne **Do kalendáře** / **Napsat e-mail** (`js/rozbor.js`, čeština bez AI, nic neodesílá). Po uložení události
-nebo odeslání e-mailu se poznámka smaže; **Uložit** ji pořád pošle do schránky.
+nebo odeslání e-mailu se poznámka smaže; **Uložit** ji pořád pošle do schránky. Stejně tak diktát z iPhonu, který
+Claude ještě nezpracoval: u položky je štítek **Rozpoznáno: událost** a v detailu **Založit událost** („zítra“ se počítá
+od chvíle diktátu). Po uložení se k položce připíše „Událost založena: …“ a Claude vyřídí jen zbytek diktátu.
 
 ## Pošta jako případy
 Nápad převzatý z poštovního klienta [Mailer](https://www.fastmailer.one/) (pravidla jsou vlastní): každá konverzace

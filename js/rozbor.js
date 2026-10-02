@@ -13,6 +13,8 @@ const EMAIL = /\b(napis|posli|odepis|odpovez)\b[^.?!]{0,40}\b(e-?mail|mail|zprav
 const VELKE = 'A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ', MALE = 'a-záčďéěíňóřšťúůýž';
 const JMENO = '[' + VELKE + '][' + MALE + ']+(?:\\s+[' + VELKE + '][' + MALE + ']+)?';
 const NEJMENA = /^(Claude|Asistent|Pondělí|Úterý|Středa|Středu|Čtvrtek|Pátek|Sobota|Sobotu|Neděle|Neděli)$/i;
+// „1. NP“, „2. PP“, „ve 2. patře“, „v 1. kole“ – číslo s tečkou jako pořadí, ne čas (testuje se na textu bez diakritiky)
+const ORDINAL = /^\s*\.\s*(np|pp|pnp|patr|podlaz|kol|mist|trid|lig|tym|rocnik|pololet|cast|etap|ctvrtlet|stupn)/;
 
 const bez = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -66,12 +68,17 @@ function cas(text) {
     if (doH < od && doH + 12 < 24) doH += 12;
     return [od, +(m[2] || 0), [doH, +(m[4] || 0)]];
   }
-  const re = /\b(v|ve|na|kolem|o)\s+(\d{1,2})(?:[:.](\d{2}))?(?!\s*\.)(?:\s*(?:h|hod|hodin))?\b/g;
+  const re = /\b(v|ve|na|kolem|o)\s+(\d{1,2})(?:[:.](\d{2}))?(?:\s*(?:h|hod|hodin))?\b/g;
   while ((m = re.exec(t)) !== null) {
     const zbytek = t.slice(m.index + m[0].length);
     if (+m[2] > 23) continue;
-    if (m[3] == null && /^\s*\.\s*\d/.test(zbytek)) continue; // „v 8. 10.“ je datum
     if (m[1] === 'na' && /^\s*(hodiny|hodinu|minut)/.test(zbytek)) continue; // „na 2 hodiny“ je délka
+    if (m[3] == null && /^\s*\./.test(zbytek)) {
+      // tečka za číslem: „v 8. 10.“ = datum, „v 1. NP“, „ve 2. patře“ = pořadí; „v 10.“ na konci věty = čas
+      if (/^\s*\.\s*\d/.test(zbytek) || ORDINAL.test(zbytek)) continue;
+      const po = String(text).slice(m.index + m[0].length); // bez() délku českého textu nemění → stejné indexy
+      if (!/^\s*\.\s*$/.test(po) && !new RegExp('^\\s*\\.\\s+[' + VELKE + ']').test(po)) continue;
+    }
     return [hodina(+m[2]), +(m[3] || 0), null];
   }
   const re2 = /\b(?:v|ve|o)\s+(pul\s+)?([a-z]+)\b/g;
