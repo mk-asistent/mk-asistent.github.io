@@ -155,15 +155,25 @@ function prostredi() {
   };
 
   // Disk: schránka CLAUDE_SCHRANKA s podsložkami, soubory v paměti
+  const iterator = (pole) => { let i = 0; return { hasNext: () => i < pole.length, next: () => pole[i++] }; };
+  const vsechnySoubory = {}; // id → soubor (DriveApp.getFileById)
   const slozka = (nazev, rodic) => {
     const s = { nazev, rodic, deti: {}, soubory: [] };
     s.getId = () => 'slozka-' + nazev; s.getName = () => nazev;
+    s.getParents = () => iterator(rodic ? [rodic] : []);
     s.getFoldersByName = (n) => { const x = s.deti[n]; let hotovo = !x; return { hasNext: () => !hotovo, next: () => { hotovo = true; return x; } }; };
+    s.getFolders = () => iterator(Object.values(s.deti));
+    s.getFiles = () => iterator(s.soubory.filter((x) => !x.vKosi));
     s.createFolder = (n) => (s.deti[n] = slozka(n, s));
     s.createFile = (n, obsah) => {
-      const f = { getId: () => 'soubor-' + n, getName: () => n, getBlob: () => ({ getDataAsString: () => obsah }),
-        getDateCreated: () => new Date(), getLastUpdated: () => new Date(), getParents: () => { let h = false; return { hasNext: () => !h, next: () => { h = true; return s; } }; } };
+      let rodicSouboru = s;
+      const f = { vKosi: false, getId: () => 'soubor-' + n, getName: () => n, getBlob: () => ({ getDataAsString: () => obsah }),
+        getDateCreated: () => new Date(), getLastUpdated: () => new Date(), getParents: () => iterator([rodicSouboru]),
+        setContent: (t) => { obsah = t; return f; },
+        moveTo: (cil) => { rodicSouboru.soubory = rodicSouboru.soubory.filter((x) => x !== f); cil.soubory.push(f); rodicSouboru = cil; return f; },
+        setTrashed: (k) => { f.vKosi = !!k; return f; } };
       s.soubory.push(f); log.soubory = (log.soubory || []).concat({ slozka: nazev, n, obsah });
+      vsechnySoubory[f.getId()] = f;
       return f;
     };
     return s;
@@ -172,7 +182,8 @@ function prostredi() {
   vlastnosti.set('SLOZKA_ID', 'slozka-CLAUDE_SCHRANKA');
 
   const sandbox = {
-    DriveApp: { getFolderById: (id) => { if (id !== 'slozka-CLAUDE_SCHRANKA') throw new Error('nenalezeno'); return schranka; } },
+    DriveApp: { getFolderById: (id) => { if (id !== 'slozka-CLAUDE_SCHRANKA') throw new Error('nenalezeno'); return schranka; },
+      getFileById: (id) => { if (!vsechnySoubory[id]) throw new Error('Soubor nenalezen'); return vsechnySoubory[id]; } },
     MimeType: { PLAIN_TEXT: 'text/plain' },
     PropertiesService: { getScriptProperties: () => ({
       getProperty: (k) => (vlastnosti.has(k) ? vlastnosti.get(k) : null),
@@ -252,7 +263,7 @@ function prostredi() {
   const volej = (akce, data = {}, klic = KLIC) => surovy(JSON.stringify({ klic, akce, ...data }));
   // záznamy z izolovaného prostředí převést na běžné objekty (jinak je deepStrictEqual odmítne)
   const posledniOdeslano = () => JSON.parse(JSON.stringify(log.odeslano.pop()));
-  return { volej, surovy, vlastnosti, cache, ttl, log, posledniOdeslano, ctx, zprava, vlakno, vlakna, kalendare, chmu, nastavCas,
+  return { volej, surovy, vlastnosti, cache, ttl, log, posledniOdeslano, ctx, zprava, vlakno, vlakna, kalendare, chmu, nastavCas, schranka, vsechnySoubory,
     nastavAliasy: (a) => { aliasy = a; }, stitkyVlaken, nastavStitkyGmailu: (o) => { stitkyGmailu = o; }, nastavAktualizace: (a) => { aktualizace = a; }, nastavRozpis: (t) => { rozpis = t; },
     nastavOdeslana: (a) => { odeslana = a; }, nastavStarsi: (osobni, pracovni) => { starsi = { osobni, pracovni: pracovni || [] }; } };
 }
@@ -877,9 +888,57 @@ test('vlákno: dlouhý text a HTML se zkrátí („…“), jiná adresa pro odp
   assert.ok(!('odpovedNa' in z2)); // Reply-To = odesílatel
 });
 
-// ---------------------------------------------------------------- štítky Gmailu, kontakty, podpisy
+// ---------------------------------------------------------------- schránka: dopsat, nadpis, téma, návrh, smazat
 
 const json = (x) => JSON.parse(JSON.stringify(x));
+
+test('schránka: nadpis a téma v hlavičce, dopsat i k vyřízené (zpět do NOVE), návrh od Clauda, smazat do koše', () => {
+  const p = prostredi();
+  const ceka = p.schranka.createFolder('CEKA');
+  p.schranka.createFolder('NOVE');
+  const hotovo = p.schranka.createFolder('HOTOVO');
+  const mesic = hotovo.createFolder('2026-10');
+  const navrh = { typ: 'udalost', nazev: 'Schůzka s Petrem', zacatek: '2026-10-06T10:00', konec: '2026-10-06T11:00', hoste: ['Petr Novák'], pozvat: true };
+  ceka.createFile('2026-10-02_100000_ab12.md', '---\nkdy: 2026-10-02T10:00:00+02:00\nodkud: iPhone\ntyp: ukol-michal\nstav: rozhodni\nshrnuti: Schůzka s Petrem\nnavrh: ' +
+    JSON.stringify(navrh) + '\n---\n\nPozvi Petra na schůzku v úterý v deset.\n\n## Claude – 2026-10-02 10:30\nPřipravil jsem návrh události.\n');
+  mesic.createFile('2026-10-01_090000_cd34.md', '---\nkdy: 2026-10-01T09:00:00+02:00\n---\n\nKolik je místností?\n\n## Claude – 2026-10-01 09:30\n48.\n');
+  let o = p.volej('schranka');
+  assert.strictEqual(o.ok, true, o.chyba);
+  const polozka = o.data.ceka[0];
+  assert.deepStrictEqual(json(polozka.navrh), navrh);
+  assert.deepStrictEqual([polozka.nadpis, polozka.tema], ['', '']);
+  // nadpis a téma: hlavička se upraví, soubor zůstane v CEKA, vrátí se upravená položka
+  o = p.volej('polozka', { id: polozka.id, jak: 'nadpis', text: '  Schůzka   s Petrem – úterý ' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(o.data.nadpis, 'Schůzka s Petrem – úterý');
+  o = p.volej('polozka', { id: polozka.id, jak: 'tema', text: 'Prace' });
+  assert.deepStrictEqual([o.data.tema, o.data.slozka, o.data.text], ['prace', 'CEKA', 'Pozvi Petra na schůzku v úterý v deset.']);
+  assert.strictEqual(p.volej('polozka', { id: polozka.id, jak: 'tema', text: 'nesmysl s mezerou' }).ok, false);
+  o = p.volej('polozka', { id: polozka.id, jak: 'nadpis', text: '' });
+  assert.strictEqual(o.data.nadpis, '');
+  assert.ok(/^---\nkdy: [^\n]+\nodkud: iPhone\n/.test(p.vsechnySoubory[polozka.id].getBlob().getDataAsString()));
+  // hotovo s textem (po založení události z návrhu) → HOTOVO/RRRR-MM, text v sekci Michal
+  assert.strictEqual(p.volej('polozka', { id: polozka.id, jak: 'hotovo', text: 'Událost založena: Schůzka s Petrem, út 6. 10. 10:00' }).ok, true);
+  o = p.volej('schranka');
+  assert.strictEqual(o.data.ceka.length, 0);
+  const hotova = o.data.hotovo.find((x) => x.id === polozka.id);
+  assert.strictEqual(hotova.vlakno.pop().text, 'Událost založena: Schůzka s Petrem, út 6. 10. 10:00');
+  // dopsat k vyřízené → zpět do NOVE jako nový pokyn
+  const stara = o.data.hotovo.find((x) => x.id !== polozka.id);
+  assert.strictEqual(p.volej('polozka', { id: stara.id, jak: 'dopsat', text: 'A kolik jich je ve 3. NP?' }).ok, true);
+  o = p.volej('schranka');
+  const dopsana = o.data.nove.find((x) => x.id === stara.id);
+  assert.ok(dopsana, 'dopsaná položka má být v NOVE');
+  const posledni = dopsana.vlakno[dopsana.vlakno.length - 1];
+  assert.deepStrictEqual([posledni.kdo, posledni.text], ['Michal', 'A kolik jich je ve 3. NP?']);
+  assert.strictEqual(p.volej('polozka', { id: stara.id, jak: 'dopsat', text: '  ' }).ok, false);
+  // smazat → koš (ve výpisu schránky už není)
+  assert.strictEqual(p.volej('polozka', { id: stara.id, jak: 'smazat' }).ok, true);
+  assert.strictEqual(p.vsechnySoubory[stara.id].vKosi, true);
+  assert.ok(!p.volej('schranka').data.nove.some((x) => x.id === stara.id));
+});
+
+// ---------------------------------------------------------------- štítky Gmailu, kontakty, podpisy
 
 test('štítky: u konverzací v seznamu (z mezipaměti podruhé bez Gmailu), seznam štítků, konverzace štítku i archivované', () => {
   const p = prostredi();

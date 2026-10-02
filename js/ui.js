@@ -67,6 +67,7 @@ let otevreneOkno = null;
  * Okno uprostřed (vzor CaseDraft): kroužek s ikonou, nadpis, text, šedé řádky, pole, dvě tlačítka.
  * o = { ikona, ton: 'ok'|'pozor'|'nebezpeci', nadpis, text, radky: [[ikona, text, vpravo]], html (vlastní obsah – už ošetřený),
  *       pole: { popisek, hodnota, placeholder, radku (víc řádků = textarea, odeslat Ctrl+Enter) }, siroke (širší okno),
+ *       volby: [[hodnota, popisek, odstín?]] + vybrana (klepnutí na volbu vrátí její hodnotu),
  *       ano: 'Smazat', ne: 'Zrušit' (null = bez druhého tlačítka) }
  * Vrací Promise: true / false, s polem napsaný text / null.
  */
@@ -84,6 +85,9 @@ export function okno(o) {
       (o.radky && o.radky.length ? '<ul class="okno__radky">' + o.radky.map((r) => '<li>' + (r[0] || '') + '<span>' + esc(r[1]) + '</span>' +
         (r[2] != null && r[2] !== '' ? '<em>' + esc(r[2]) + '</em>' : '') + '</li>').join('') + '</ul>' : '') +
       (o.html ? '<div class="okno__obsah">' + o.html + '</div>' : '') +
+      // volby: klepnutí na jednu rovnou zavře okno a vrátí její hodnotu
+      (o.volby ? '<div class="okno__volby">' + o.volby.map((v) => '<button type="button" class="chip" data-okno-volba="' + esc(v[0]) + '" aria-pressed="' +
+        (v[0] === o.vybrana) + '"' + (v[2] ? ' style="--h:' + v[2] + '"' : '') + '>' + esc(v[1]) + '</button>').join('') + '</div>' : '') +
       (o.pole ? '<label class="okno__pole"><span class="label">' + esc(o.pole.popisek) + '</span>' + vstup + '</label>' : '') +
       '<div class="okno__akce">' + (o.ne === null ? '' : '<button type="button" class="btn btn--ghost" data-okno="ne">' + esc(o.ne || 'Zrušit') + '</button>') +
       '<button type="button" class="btn btn--cerne' + (o.ton === 'nebezpeci' ? ' btn--cervene' : '') + '" data-okno="ano">' + esc(o.ano || 'OK') + '</button></div></div>';
@@ -106,6 +110,8 @@ export function okno(o) {
     document.addEventListener('keydown', klavesa, true);
     pozadi.addEventListener('click', (e) => {
       e.stopPropagation(); // klepnutí v okně nemají jít do ovládání aplikace pod ním
+      const volba = e.target.closest('[data-okno-volba]');
+      if (volba) { zavri(volba.dataset.oknoVolba); return; }
       const tlacitko = e.target.closest('[data-okno]');
       if (tlacitko) { if (tlacitko.dataset.okno === 'ano') potvrzeno(); else zavri(zrus); }
       else if (e.target === pozadi) zavri(zrus);

@@ -21,6 +21,7 @@ export const stav = {
   naposledy: 0,             // kdy se naposledy načítalo všechno
   otevrene: {},             // rozbalené položky schránky
   filtrSchranky: 'vse',
+  temaSchranky: '',         // filtr podle tématu ('' = všechna)
   // pošta
   filtrPosty: ze(uloziste.cti('asistent.filtrPosty'), FILTRY_POSTY, 'vse'),   // stav případu (Hoří, Čeká na tebe …)
   ucetPosty: ze(uloziste.cti('asistent.ucetPosty'), ['oba', 'osobni', 'pracovni'], 'oba'),

@@ -447,15 +447,21 @@ function posledniCizi(d) {
 
 function bezPredpony(s) { return String(s || '').replace(/^\s*((re|fw|fwd|odp|vs|tr)\s*:\s*)+/i, ''); }
 
-export function otevriPsani(rezim) {
+/** rezim: odpoved | vsem | preposlat | novy; predvyplnit (nový e-mail z návrhu): { komu, predmet, text, ucet, poOdeslani } */
+export function otevriPsani(rezim, predvyplnit) {
   const id = stav.otevreneVlakno;
   const d = id && stav.vlakna[id] && stav.vlakna[id].data;
   if (rezim !== 'novy' && !d) { toast(id ? 'Počkej, až se zpráva načte.' : 'Nejdřív otevři konverzaci.'); return; }
   const cil = d && rezim !== 'novy' ? posledniCizi(d) : null;
   const info = (stav.info && stav.info.posta) || {};
-  const ucet = cil ? (d.ucet || 'osobni') : (aktivniUcet() === 'pracovni' && info.pracovniAdresa ? 'pracovni' : 'osobni');
-  const klic = KONCEPT + rezim + '.' + (cil ? cil.id : 'novy');
-  const koncept = uloziste.cti(klic) || {};
+  const ucet = predvyplnit && predvyplnit.ucet === 'pracovni' && info.pracovniAdresa ? 'pracovni' : predvyplnit ? 'osobni'
+    : cil ? (d.ucet || 'osobni') : (aktivniUcet() === 'pracovni' && info.pracovniAdresa ? 'pracovni' : 'osobni');
+  const klic = KONCEPT + rezim + '.' + (cil ? cil.id : predvyplnit ? 'navrh' : 'novy');
+  let koncept = uloziste.cti(klic) || {};
+  if (predvyplnit && !koncept.text) {
+    const podpis = podpisPro(ucet);
+    koncept = { komu: predvyplnit.komu || '', predmet: predvyplnit.predmet || '', text: (predvyplnit.text || '') + (podpis ? '\n\n' + podpis : '') };
+  }
   let komu = '';
   // odpověď jde na adresu pro odpověď (Reply-To), když ji odesílatel nastavil – GmailApp.reply to tak dělá
   if (rezim === 'odpoved') komu = cil.odpovedNa || cil.od + ' <' + cil.odAdresa + '>';
@@ -467,7 +473,8 @@ export function otevriPsani(rezim) {
   stav.psani = { rezim, ucet, podpis: podpisPro(ucet), zpravaId: cil ? cil.id : null, vlaknoId: cil ? id : null, klic, komu,
     predmet: rezim === 'novy' ? '' : (rezim === 'preposlat' ? 'Fwd: ' : 'Re: ') + bezPredpony(d.predmet), citace: cil ? cil.text : '',
     // jedno ID na jedno psaní – motor podle něj pozná opakovaný pokus a e-mail nepošle dvakrát
-    idOdeslani: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2), odpocet: null };
+    idOdeslani: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2), odpocet: null,
+    poOdeslani: (predvyplnit && predvyplnit.poOdeslani) || null };
   otevriPanel({
     id: 'psani', trida: 'panel-okno panel-psani',
     titul: { odpoved: 'Odpověď', vsem: 'Odpověď všem', preposlat: 'Přeposlat', novy: 'Nový e-mail' }[rezim],
@@ -575,6 +582,7 @@ async function odeslatHned(p, tlacitko, data) {
     const vlakno = p.vlaknoId;
     zavriPanel();
     toast(vysledek && vysledek.jizOdeslano ? 'Tahle zpráva už odešla – podruhé ji neposílám' : 'Odesláno');
+    if (p.poOdeslani) p.poOdeslani(data);
     if (vlakno) nactiVlakno(vlakno, true);
     nactiPostu(true);
   } catch (e) {

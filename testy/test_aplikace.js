@@ -34,10 +34,12 @@ const vlaknoSouhrn = {
 const KALENDARE = [{ id: 'g1', nazev: 'Osobní', barva: '#2f6bff', zdroj: 'google', skryty: false, zapis: true },
   { id: 'ics-1', nazev: 'Rodina', barva: '#e2860a', zdroj: 'icloud', skryty: false }];
 const motor = {
-  info: () => ({ verze: 'test', akce: Object.keys(motor), ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false, podpisy: { osobni: 'Michal', pracovni: '' } },
+  info: () => ({ verze: 'test', akce: Object.keys(motor).concat(['polozkaUpravy']), ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false, podpisy: { osobni: 'Michal', pracovni: '' } },
     kalendare: KALENDARE, skupinyHostu: [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@x.test', 'rodic2@x.test'] }] }),
   schranka: () => ({ nove: [{ id: 'n1', slozka: 'NOVE', kdy: ted - H, odkud: 'iPhone', typ: '', stav: '', shrnuti: '', termin: '', text: 'Zkušební poznámka z iPhonu', vlakno: [] }],
-    ceka: [{ id: 'c1', slozka: 'CEKA', kdy: ted - 5 * H, odkud: 'iPhone', typ: 'ukol-michal', stav: 'tvuj-ukol', shrnuti: 'Zavolat kvůli lešení', termin: '', text: 'Připomeň mi zavolat.', vlakno: [] }],
+    ceka: [{ id: 'c1', slozka: 'CEKA', kdy: ted - 5 * H, odkud: 'iPhone', typ: 'ukol-michal', stav: 'tvuj-ukol', shrnuti: 'Zavolat kvůli lešení', termin: '', text: 'Připomeň mi zavolat.', vlakno: [] },
+      { id: 'c2', slozka: 'CEKA', kdy: ted - 2 * H, odkud: 'iPhone', typ: 'email', stav: 'rozhodni', shrnuti: 'E-mail trenérovi', termin: '', tema: '', nadpis: '',
+        navrh: { typ: 'email', komu: ['Trenér'], predmet: 'Trénink', text: 'Ahoj, v úterý nepřijdu.' }, text: 'Napiš trenérovi, že v úterý nepřijdu.', vlakno: [] }],
     hotovo: [], ted: Date.now() }),
   posta: () => ({ osobni: [vlaknoSouhrn.v1], pracovni: [vlaknoSouhrn.v2], pracovniAdresa: 'prace@firma.test', firemni: null, ted: Date.now() }),
   vlakno: (d) => ({ id: d.id, predmet: d.id === 'v1' ? 'Sraz v sobotu' : 'Protokol', odkaz: '#', vDorucenych: true, skryto: 0, ucet: d.id === 'v1' ? 'osobni' : 'pracovni',
@@ -59,6 +61,7 @@ const motor = {
   hledat: (d) => ({ dotaz: d.dotaz, vlakna: [Object.assign({}, vlaknoSouhrn.v2, { id: 'v9', predmet: 'Starý protokol', kdy: ted - 90 * 24 * H })] }),
   pripomenout: (d) => ({ id: 'c9', slozka: 'CEKA', kdy: Date.now(), odkud: 'aplikace (pošta)', typ: 'ukol-michal', stav: 'tvuj-ukol', shrnuti: 'Odpovědět: Sraz v sobotu (Trenér)',
     termin: d.termin, text: 'Připomenutí e-mailu.', vlakno: [] }),
+  polozka: (d) => (d.jak === 'nadpis' || d.jak === 'tema' ? Object.assign(motor.schranka().ceka.find((x) => x.id === d.id), { [d.jak]: d.text }) : true),
   poznamka: (d) => ({ id: 'n' + Date.now(), slozka: 'NOVE', kdy: Date.now(), odkud: 'aplikace', typ: '', stav: '', shrnuti: '', termin: '', text: d.text, vlakno: [] }),
   stitky: () => [{ nazev: 'Fotbal', neprectenych: 1 }, { nazev: 'Účty', neprectenych: 0 }],
   postaStitek: (d) => ({ nazev: d.nazev, vlakna: d.nazev === 'Fotbal' ? [vlaknoSouhrn.v1, { id: 'v8', ucet: 'osobni', stav: 'resi', od: 'Rozhodčí', predmet: 'Zápis o utkání', ukazka: 'Zápis v příloze.', kdy: ted - 200 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Fotbal'] }] : [], ted }),
@@ -446,6 +449,43 @@ async function novaStranka(prohlizec, v, motiv) {
     jistota(!(await page.locator('#naseptavac').count()), 'našeptávač se má zavřít');
     await page.screenshot({ path: path.join(VYSTUP, 'pc_psani_podpis.png') });
     await page.keyboard.press('Escape');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  // ---------- schránka: návrh e-mailu od Clauda (předvyplněné psaní), téma, smazání s Vrátit
+  await test('schránka: návrh e-mailu z diktátu, téma, smazání', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.click('#rail [data-cil="schranka"]');
+    await page.waitForSelector('#p-schranka [data-polozka-id="c2"] .tag--limetka');
+    await page.click('#p-schranka [data-prepni="c2"]');
+    await page.waitForSelector('#p-schranka .navrh [data-navrh="c2"]');
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_schranka_navrh.png') });
+    // kontakty se načtou při prvním návrhu – počkat, ať se jméno přeloží na adresu
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 50)));
+    await page.click('#p-schranka [data-navrh="c2"]');
+    await page.waitForSelector('[data-panel="psani"] [data-psani-komu]');
+    await page.waitForFunction(() => true);
+    const komu = await page.inputValue('[data-panel="psani"] [data-psani-komu]');
+    jistota(komu === 'Trenér <trener@klub.test>' || komu === 'Trenér', 'komu z návrhu: ' + komu);
+    jistota(await page.inputValue('[data-panel="psani"] [data-psani-predmet]') === 'Trénink', 'předmět z návrhu');
+    jistota(await page.inputValue('[data-panel="psani"] [data-psani-text]') === 'Ahoj, v úterý nepřijdu.\n\nMichal', 'text z návrhu s podpisem');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-panel="psani"]', { state: 'detached' });
+    // téma: okno s volbami → Fotbal
+    await page.click('#p-schranka [data-polozka-akce="tema"][data-id="c2"]');
+    await page.waitForSelector('.okno-pozadi.videt [data-okno-volba="fotbal"]');
+    await page.click('.okno-pozadi [data-okno-volba="fotbal"]');
+    await page.waitForFunction(() => document.querySelector('#p-schranka [data-polozka-id="c2"] .stitek-gmail'));
+    jistota(volano.some((d) => d.akce === 'polozka' && d.id === 'c2' && d.jak === 'tema' && d.text === 'fotbal'), 'téma nedorazilo do motoru');
+    jistota(await page.locator('#p-schranka [data-tema-schranky="fotbal"]').count() === 1, 'filtr podle tématu');
+    // smazat: potvrzení, zmizí ze seznamu, nabídne Vrátit
+    await page.click('#p-schranka [data-polozka-akce="smazat"][data-id="c2"]');
+    await page.waitForSelector('.okno-pozadi.videt [data-okno="ano"]');
+    await page.click('.okno-pozadi [data-okno="ano"]');
+    await page.waitForFunction(() => !document.querySelector('#p-schranka [data-polozka-id="c2"]') && /Vrátit/.test(document.getElementById('toast').textContent));
+    jistota(volano.some((d) => d.akce === 'polozka' && d.id === 'c2' && d.jak === 'smazat'), 'smazání nedorazilo do motoru');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
   });

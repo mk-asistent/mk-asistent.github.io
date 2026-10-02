@@ -28,8 +28,20 @@ const schranka = {
       shrnuti: 'Objednat dresy pro dorost', termin: iso(den(4)), text: 'Do pátku objednat dresy pro dorost.', vlakno: [] },
     { id: 'c4', slozka: 'CEKA', kdy: ted - 80 * H, odkud: 'iPhone', typ: 'ukol-michal', stav: 'tvuj-ukol',
       shrnuti: 'Poslat kolegům návod k zásuvkám', termin: iso(den(-1)), text: 'Poslat kolegům návod k zásuvkám.', vlakno: [] },
-    { id: 'c5', slozka: 'CEKA', kdy: ted - 70 * H, odkud: 'iPhone', typ: 'napad', stav: 'napad',
-      shrnuti: '3D taktická tabule pro dorost', termin: '', text: 'Nápad: taktická tabule ve 3D, hráči jako figurky.', vlakno: [] }
+    { id: 'c5', slozka: 'CEKA', kdy: ted - 70 * H, odkud: 'iPhone', typ: 'napad', stav: 'napad', tema: 'fotbal',
+      shrnuti: '3D taktická tabule pro dorost', termin: '', text: 'Nápad: taktická tabule ve 3D, hráči jako figurky.', vlakno: [] },
+    // návrhy z diktátu – Claude je připravil, Michal jedním klepnutím otevře předvyplněné
+    { id: 'c6', slozka: 'CEKA', kdy: ted - 0.8 * H, odkud: 'iPhone', typ: 'udalost', stav: 'rozhodni', tema: 'prace',
+      shrnuti: 'Schůzka s Petrem kvůli předání 2. NP', termin: '',
+      navrh: { typ: 'udalost', nazev: 'Schůzka – předání 2. NP', zacatek: iso(den(3)) + 'T10:00', konec: iso(den(3)) + 'T11:00', misto: 'stavba',
+        hoste: ['Investor – stavba'], pozvat: true, popis: 'Projít soupis vad.' },
+      text: 'Pozvi investora na schůzku ve čtvrtek v deset na stavbu, projdeme soupis vad.',
+      vlakno: [{ kdo: 'Claude', kdy: iso(ted) + ' 07:31', text: 'Připravil jsem návrh události s pozvánkou – stačí ji otevřít a uložit.' }] },
+    { id: 'c7', slozka: 'CEKA', kdy: ted - 1.5 * H, odkud: 'iPhone', typ: 'email', stav: 'rozhodni', tema: 'fotbal',
+      shrnuti: 'E-mail trenérovi – nepřijdu na trénink', termin: '',
+      navrh: { typ: 'email', komu: ['Trenér dorostu'], predmet: 'Úterní trénink', text: 'Ahoj,\n\nv úterý na trénink nedorazím, mám pracovní schůzku. Rozcvičku vezme Honza.\n\nDíky' },
+      text: 'Napiš trenérovi, že v úterý nepřijdu na trénink, rozcvičku vezme Honza.',
+      vlakno: [{ kdo: 'Claude', kdy: iso(ted) + ' 07:32', text: 'Připravil jsem e-mail – zkontroluj ho a odešli.' }] }
   ],
   hotovo: [
     { id: 'h1', slozka: 'HOTOVO', kdy: ted - 22 * H, odkud: 'iPhone', typ: 'dotaz', stav: 'hotovo',
@@ -143,7 +155,10 @@ function udalostiVRozsahu(od, doDne) {
   return vysledek.sort((a, b) => (a.zacatek - b.zacatek) || (b.celodenni - a.celodenni));
 }
 
+const smazanePolozky = {}; // „Vrátit“ po smazání
+
 function najdiPolozku(id) {
+  if (smazanePolozky[id]) { const x = smazanePolozky[id]; delete smazanePolozky[id]; schranka[x.sk].unshift(x.p); }
   for (const sk of ['nove', 'ceka', 'hotovo']) {
     const p = schranka[sk].find((x) => x.id === id);
     if (p) return { p, sk };
@@ -165,7 +180,12 @@ const akce = {
   },
   polozka: (d) => {
     const { p, sk } = najdiPolozku(d.id);
-    p.vlakno.push({ kdo: 'Michal', kdy: '', text: d.jak === 'odpoved' ? d.text : { hotovo: 'Hotovo.', zahodit: 'Zahodit – nedělat.', udelej: 'Udělej to.' }[d.jak] });
+    if (d.jak === 'obnovit') return true; // najdiPolozku ji už vrátila ze „smazaných“
+    if (d.jak === 'nadpis' || d.jak === 'tema') { p[d.jak] = String(d.text || '').trim(); return kopie(p); }
+    if (d.jak === 'smazat') { schranka[sk] = schranka[sk].filter((x) => x.id !== d.id); smazanePolozky[d.id] = { p, sk }; return true; }
+    if (d.jak === 'dopsat' && !String(d.text || '').trim()) throw new Error('Prázdný text.');
+    p.vlakno.push({ kdo: 'Michal', kdy: '', text: d.jak === 'odpoved' || d.jak === 'dopsat' || (d.jak === 'hotovo' && d.text) ? d.text
+      : { hotovo: 'Hotovo.', zahodit: 'Zahodit – nedělat.', udelej: 'Udělej to.' }[d.jak] });
     schranka[sk] = schranka[sk].filter((x) => x.id !== d.id);
     if (d.jak === 'hotovo' || d.jak === 'zahodit') { p.slozka = 'HOTOVO'; schranka.hotovo.unshift(p); } else { p.slozka = 'NOVE'; schranka.nove.unshift(p); }
     return true;

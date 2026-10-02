@@ -41,7 +41,8 @@ function casDne(den, hhmm) { const d = new Date(den); const m = minuty(hhmm) || 
 
 function kalendarZapasu() { return zapisovatelneKalendare().find((kal) => kal.nazev === KALENDAR_ZAPASU) || null; }
 
-/** Nový záznam: { den (půlnoc), hodina (0–23,5), typ: 'udalost' | 'zapas' }, úprava: { udalost: id } */
+/** Nový záznam: { den (půlnoc), hodina (0–23,5), typ: 'udalost' | 'zapas' }, úprava: { udalost: id },
+ *  z návrhu (diktát → Claude): { navrh: { nazev, zacatek, konec (ms), celodenni, misto, popis, hoste: [adresy], pozvat }, poUlozeni(data) } */
 export function otevriFormular(o) {
   o = o || {};
   const kalendare = zapisovatelneKalendare();
@@ -53,7 +54,9 @@ export function otevriFormular(o) {
   if (o.udalost && !u) return;
   const typ = u ? 'udalost' : (o.typ === 'zapas' ? 'zapas' : 'udalost');
   let zacatek, konec;
+  const n = o.navrh || null;
   if (u) { zacatek = u.zacatek; konec = u.konec; }
+  else if (n && n.zacatek) { zacatek = n.zacatek; konec = n.konec > n.zacatek ? n.konec : zacatek + (n.celodenni ? 864e5 : 60 * 6e4); }
   else {
     const den = o.den != null ? pulnoc(o.den) : pulnoc(Date.now());
     // zápas bez zvolené hodiny dopoledne (dorost hraje v 10:00), jiná událost za hodinu od teď
@@ -67,17 +70,19 @@ export function otevriFormular(o) {
   const vychoziKalendar = typ === 'zapas'
     ? (kalendarZapasu() ? kalendarZapasu().id : NOVY_KALENDAR_ZAPASU)
     : (kalendare.some((kal) => kal.id === posledni) ? posledni : (kalendare[0] || {}).id);
-  const celodenni = u ? u.celodenni : false;
+  const celodenni = u ? u.celodenni : !!(n && n.celodenni);
   f = {
     rezim: u ? 'uprava' : 'novy', udalost: u ? u.id : null, opakovana: !!(u && u.opakovana), typ,
-    nazev: u ? u.nazev : '', tym: 'dorost', souper: '', doma: true, sraz: '',
+    nazev: u ? u.nazev : (n && n.nazev) || '', tym: 'dorost', souper: '', doma: true, sraz: '',
     kalendarId: u ? u.kalendarId : vychoziKalendar, celodenni,
     datum: isoDatum(zacatek), od: hhmmPole(zacatek), do: hhmmPole(konec),
     datumDo: isoDatum(celodenni ? pridejDny(konec, -1) : zacatek), delka: Math.max(15, Math.round((konec - zacatek) / 6e4)),
-    misto: u ? u.misto || '' : '', popis: u ? u.popis || '' : '', tydne: false, tydneDo: '', casZvoleny: o.hodina != null,
+    misto: u ? u.misto || '' : (n && n.misto) || '', popis: u ? u.popis || '' : (n && n.popis) || '', tydne: false, tydneDo: '', casZvoleny: o.hodina != null || !!n,
     pripomenuti: !u && typ === 'zapas' ? '1440,120' : 'vychozi',
     // hosté: u nové se pozvánky pošlou, u úpravy e-mail o změně jen na vyžádání
-    hoste: u && Array.isArray(u.hoste) ? u.hoste.join(', ') : '', hosteZnami: !u || Array.isArray(u.hoste), pozvat: !u
+    hoste: u && Array.isArray(u.hoste) ? u.hoste.join(', ') : n && Array.isArray(n.hoste) ? n.hoste.join(', ') : '',
+    hosteZnami: !u || Array.isArray(u.hoste), pozvat: !u && !(n && n.pozvat === false),
+    poUlozeni: o.poUlozeni || null
   };
   otevriPanel({
     id: 'udalost-formular', trida: 'panel-okno panel-formular',
@@ -244,7 +249,9 @@ async function uloz(tlacitko) {
     await volej('udalostUlozit', data);
     if (!zapas) uloziste.pis('asistent.kal.posledni', kalendarId);
     const novy = f.rezim === 'novy';
+    const poUlozeni = f.poUlozeni;
     zavriPanel();
+    if (poUlozeni) poUlozeni(data);
     toast(novy ? 'Přidáno do kalendáře' : 'Uloženo');
     obnovPoZmene(data.zacatek);
   } catch (e) {

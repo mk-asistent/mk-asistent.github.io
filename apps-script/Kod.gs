@@ -75,9 +75,12 @@ function doPost(e) {
   return ContentService.createTextOutput(JSON.stringify(vystup)).setMimeType(ContentService.MimeType.JSON);
 }
 
+// co motor umí uvnitř akcí (aplikace podle toho ukáže nová tlačítka i u starší verze motoru je schová)
+const SCHOPNOSTI = ['polozkaUpravy'];
+
 const AKCE = {
   info: function () {
-    return { verze: VERZE, akce: Object.keys(AKCE), ucet: mojeAdresa_(), posta: nastaveniPosty_(), kalendare: seznamKalendaru_(),
+    return { verze: VERZE, akce: Object.keys(AKCE).concat(SCHOPNOSTI), ucet: mojeAdresa_(), posta: nastaveniPosty_(), kalendare: seznamKalendaru_(),
       skupinyHostu: skupinyHostu_(), pocasi: { misto: mistoPocasi_() } };
   },
   skupinyHostuUlozit: function (d) { return ulozSkupinyHostu_(d.skupiny); },
@@ -193,11 +196,15 @@ function pridejPoznamku_(text) {
 }
 
 /**
- * Akce nad položkou z CEKA:
- *   hotovo   – tvůj úkol splněn → HOTOVO
+ * Akce nad položkou schránky (NOVE, CEKA i HOTOVO):
+ *   hotovo   – tvůj úkol splněn → HOTOVO (text = co se udělalo, např. „Událost založena: …“)
  *   zahodit  – nápad nechci → HOTOVO
  *   udelej   – nápad / plán schválen → zpět do NOVE, Claude ho při dalším zpracování udělá
  *   odpoved  – odpověď na otázku Clauda → zpět do NOVE
+ *   dopsat   – doplnění k poznámce (i už vyřízené) → NOVE, Claude ho vezme jako nový pokyn
+ *   nadpis   – vlastní nadpis položky (prázdný = smazat); zůstává, kde je
+ *   tema     – téma (prace, osobni, fotbal…; prázdné = bez tématu); zůstává, kde je
+ *   smazat   – do koše na Disku Google (30 dní jde obnovit), obnovit – zpět z koše (Vrátit v aplikaci)
  */
 function upravPolozku_(id, akce, text) {
   const zamek = LockService.getScriptLock();
@@ -208,17 +215,34 @@ function upravPolozku_(id, akce, text) {
     // jen poznámky .md ve schránce (ne POSTA_FIREMNI.json ani nic jiného na Disku)
     if (!/\.md$/i.test(soubor.getName()) || !jeVeSchrance_(soubor, koren)) throw new Error('Soubor není ve schránce.');
 
+    if (akce === 'smazat' || akce === 'obnovit') {
+      soubor.setTrashed(akce === 'smazat'); // obnovit = Vrátit hned po smazání
+      return true;
+    }
+    const puvodni = soubor.getBlob().getDataAsString('UTF-8').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+    if (akce === 'nadpis' || akce === 'tema') {
+      let hodnota = String(text || '').replace(/\s+/g, ' ').trim();
+      if (akce === 'nadpis' && hodnota.length > 120) throw new Error('Nadpis je moc dlouhý (nejvýš 120 znaků).');
+      if (akce === 'tema') {
+        hodnota = hodnota.toLowerCase();
+        if (!/^[a-z0-9-]{0,24}$/.test(hodnota)) throw new Error('Neplatné téma.');
+      }
+      soubor.setContent(nastavHlavicku_(puvodni, akce, hodnota));
+      return polozka_(soubor, slozkaPolozky_(soubor, koren));
+    }
+
     const popis = {
-      hotovo: 'Hotovo.',
+      hotovo: String(text || '').trim() || 'Hotovo.',
       zahodit: 'Zahodit – nedělat.',
       udelej: 'Udělej to.',
-      odpoved: String(text || '').trim()
+      odpoved: String(text || '').trim(),
+      dopsat: String(text || '').trim()
     }[akce];
-    if (!popis) throw new Error('Neznámá akce nebo prázdná odpověď.');
+    if (!popis) throw new Error('Neznámá akce nebo prázdný text.');
+    if (popis.length > 20000) throw new Error('Text je příliš dlouhý.');
 
     const kdy = Utilities.formatDate(new Date(), CASOVE_PASMO, 'yyyy-MM-dd HH:mm');
-    const obsah = soubor.getBlob().getDataAsString('UTF-8').replace(/\s*$/, '') +
-      '\n\n## Michal – ' + kdy + ' (aplikace)\n' + popis + '\n';
+    const obsah = puvodni.replace(/\s*$/, '') + '\n\n## Michal – ' + kdy + ' (aplikace' + (akce === 'dopsat' ? ', doplnění' : '') + ')\n' + popis + '\n';
     soubor.setContent(obsah);
 
     let cil;
@@ -269,9 +293,46 @@ function polozka_(soubor, slozka) {
     stav: hlavicka.stav || '',
     shrnuti: hlavicka.shrnuti || '',
     termin: hlavicka.termin || '',
+    nadpis: hlavicka.nadpis || '',
+    tema: hlavicka.tema || '',
+    navrh: navrhZHlavicky_(hlavicka.navrh),
     text: text,
     vlakno: vlakno
   };
+}
+
+/** Návrh od Clauda (JSON na jednom řádku): událost nebo e-mail, který Michal v aplikaci jedním klepnutím potvrdí. */
+function navrhZHlavicky_(text) {
+  if (!text) return null;
+  try {
+    const n = JSON.parse(text);
+    return n && (n.typ === 'udalost' || n.typ === 'email') ? n : null;
+  } catch (chyba) {
+    return null;
+  }
+}
+
+/** Nastaví (nebo smaže, když je hodnota prázdná) řádek „klic: hodnota“ v hlavičce --- poznámky. */
+function nastavHlavicku_(obsah, klic, hodnota) {
+  const m = obsah.match(/^---\n([\s\S]*?)\n---\n?/);
+  let radky = m ? m[1].split('\n') : [];
+  const telo = m ? obsah.slice(m[0].length) : obsah;
+  let nalezeno = false;
+  radky = radky.map(function (r) {
+    if (r.split(':')[0].trim() !== klic) return r;
+    nalezeno = true;
+    return hodnota ? klic + ': ' + hodnota : null;
+  }).filter(function (r) { return r !== null; });
+  if (!nalezeno && hodnota) radky.push(klic + ': ' + hodnota);
+  return '---\n' + radky.join('\n') + '\n---\n' + telo.replace(/^\n?/, '\n');
+}
+
+/** NOVE, CEKA nebo HOTOVO podle složky souboru. */
+function slozkaPolozky_(soubor, koren) {
+  const rodice = soubor.getParents();
+  const r = rodice.hasNext() ? rodice.next() : null;
+  const nazev = r ? r.getName() : '';
+  return nazev === 'NOVE' || nazev === 'CEKA' ? nazev : 'HOTOVO';
 }
 
 function soubory_(slozka) {

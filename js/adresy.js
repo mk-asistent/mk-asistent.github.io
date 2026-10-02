@@ -42,6 +42,24 @@ export function navrhy(hodnota, max) {
   }).slice(0, max || 6);
 }
 
+/**
+ * Jméno z diktátu („Petr Novák“, „Petrovi“) → kontakt { j, a }; adresa zůstane adresou. Bez shody null.
+ * Česká jména se skloňují – porovnává se začátek slov (petrovi ~ petr, novákovi ~ novák); víc shod → nejčastější kontakt.
+ */
+export function najdiKontakt(text) {
+  const t = String(text || '').trim();
+  const m = /<([^>]+@[^>]+)>/.exec(t) || /([^\s<>,;]+@[^\s<>,;]+)/.exec(t);
+  if (m) return { j: t.replace(/<[^>]*>/, '').replace(/["„“]/g, '').trim(), a: m[1].toLowerCase() };
+  const hledam = bezDiakritiky(t).split(/\s+/).filter(Boolean);
+  if (!stav.kontakty || !hledam.length) return null;
+  const kmen = (a, b) => { const n = Math.max(3, Math.min(a.length, b.length) - 2); return a.slice(0, n) === b.slice(0, n); };
+  const shody = stav.kontakty.filter((k) => {
+    const slova = bezDiakritiky(k.j).split(/\s+/).filter(Boolean);
+    return slova.length && hledam.every((h) => slova.some((s) => kmen(h, s)));
+  });
+  return shody[0] || null; // kontakty jsou seřazené od nejčastějšího
+}
+
 /** Dosadí vybraný kontakt místo rozepsaného textu; jenAdresa = pole hostů (jen adresy). */
 export function dosad(hodnota, k, jenAdresa) {
   const casti = rozdelAdresy(hodnota);
