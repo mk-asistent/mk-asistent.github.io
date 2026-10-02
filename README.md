@@ -33,6 +33,11 @@ domov, nákup – filtr nahoře), **Smazat** (koš na Disku, jde vrátit). Dikt�
 v deset“ nebo „napiš trenérovi, že…“ Claude převede na **návrh** – limetková karta **Založit událost** / **Napsat e-mail**
 otevře předvyplněný formulář; nic se neodešle, dokud ho Michal neuloží / neodešle.
 
+**Rychlý zápis** (bez čekání na Clauda): když poznámka v poli zní jako schůzka nebo zpráva – „schůzka s Petrem zítra
+v 10 na 2 hodiny“, „pozvi Janu na poradu ve středu v půl deváté“, „napiš Petrovi, že v úterý nepřijdu“ – pod polem se
+hned nabídne **Do kalendáře** / **Napsat e-mail** (`js/rozbor.js`, čeština bez AI, nic neodesílá). Po uložení události
+nebo odeslání e-mailu se poznámka smaže; **Uložit** ji pořád pošle do schránky.
+
 ## Pošta jako případy
 Nápad převzatý z poštovního klienta [Mailer](https://www.fastmailer.one/) (pravidla jsou vlastní): každá konverzace
 v Doručené poště má stav, který motor určí hned a bez AI:
