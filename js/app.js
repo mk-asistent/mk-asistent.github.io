@@ -3,10 +3,10 @@
 
 import { stav, priZmene, zmeneno, prejdi } from './stav.js';
 import { jePripojeno, jeDemo } from './api.js';
-import { esc, pridejDny, pulnoc, datumDlouhe, hhmm, iniciala, odstin, tvar, velkePrvni, rozdilDni, uloziste } from './pomocne.js';
+import { esc, pridejDny, pulnoc, datumDlouhe, hhmm, iniciala, odstin, tvar, velkePrvni, rozdilDni, uloziste, terminDatum, dm, kdyKratce, prvniRadek } from './pomocne.js';
 import { kostra, chybaHtml, hlavickaKarty } from './ui.js';
 import { IKONY } from './ikony.js';
-import { zavriPanel, horniPanel } from './panely.js';
+import { zavriPanel, horniPanel, otevriPanel, zavriAPak } from './panely.js';
 import { pulkruh, tydenGraf } from './grafy.js';
 import * as schranka from './schranka.js';
 import * as posta from './posta.js';
@@ -17,6 +17,7 @@ import * as udalost from './udalost.js';
 
 const SEKCE = [['dnes', 'Dnes'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář']];
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
+const TELEFON = window.matchMedia('(max-width: 759px)');
 const $ = (id) => document.getElementById(id);
 
 // ---------------------------------------------------------------- start
@@ -134,14 +135,26 @@ function vykresliHlavu(p) {
   } else {
     pod = esc(kal.nadpisObdobi());
   }
-  $('hlava').innerHTML = '<div class="hlava-radek"><div class="hlava-titul"><h1>' + esc(titul) + '</h1>' + (pod ? '<p>' + pod + '</p>' : '') + '</div>' +
-    '<div class="hlava-akce jen-telefon">' +
-      '<button type="button" class="btn btn--ikona" data-hledat aria-label="Hledat">' + IKONY.hledat + '</button>' +
-      '<button type="button" class="btn btn--ikona' + (nacitaSe() ? ' toci' : '') + '" data-obnovit aria-label="Obnovit">' + IKONY.obnovit + '</button>' +
-      (stav.pohled === 'posta' ? '<button type="button" class="btn btn--ikona btn--plna" data-psat="novy" aria-label="Nový e-mail">' + IKONY.psat + '</button>' : '') +
-      (stav.pohled === 'kalendar' ? '<button type="button" class="btn btn--ikona btn--plna" data-nova-udalost aria-label="Nová událost">' + IKONY.plus + '</button>' : '') +
-      '<button type="button" class="btn btn--ikona" data-otevri-nastaveni aria-label="Nastavení">' + IKONY.nastaveni + '</button>' +
-    '</div></div>';
+  // telefon (vzor PriorAuth): nahoře kdo jsem + ikony, nadpis u Dnes je pozdrav
+  const ucet = (stav.info && stav.info.ucet) || '';
+  const jmeno = uloziste.cti('asistent.jmeno') || ucet.split('@')[0] || 'Asistent';
+  const osloveni = uloziste.cti('asistent.osloveni');
+  const nadpis = stav.pohled === 'dnes' && TELEFON.matches ? pozdrav() + (osloveni ? ', ' + osloveni : '') : titul;
+  $('hlava').innerHTML =
+    '<div class="hlava-ja jen-telefon">' +
+      '<button type="button" class="ja" data-otevri-nastaveni aria-label="Nastavení">' +
+        '<span class="avatar" style="--h:' + odstin(jmeno) + '">' + esc(iniciala(jmeno.replace(/[._\d]+/g, ' '))) + '</span>' +
+        '<span><small>Asistent</small><b>' + esc(jmeno) + '</b></span></button>' +
+      '<div class="hlava-akce">' +
+        '<button type="button" class="btn btn--ikona" data-hledat aria-label="Hledat">' + IKONY.hledat + '</button>' +
+        '<button type="button" class="btn btn--ikona' + (nacitaSe() ? ' toci' : '') + '" data-obnovit aria-label="Obnovit">' + IKONY.obnovit + '</button>' +
+      '</div></div>' +
+    '<div class="hlava-radek"><div class="hlava-titul"><h1>' + esc(nadpis) + '</h1>' + (pod ? '<p>' + pod + '</p>' : '') + '</div></div>';
+}
+
+function pozdrav() {
+  const h = new Date().getHours();
+  return h < 4 ? 'Dobrou noc' : h < 10 ? 'Dobré ráno' : h < 18 ? 'Dobrý den' : 'Dobrý večer';
 }
 
 function vykresliPruhy() {
@@ -156,12 +169,38 @@ function vykresliPruhy() {
   $('pruhy').innerHTML = pruhy.join('');
 }
 
+/** Spodní lišta na telefonu: plovoucí černá pilulka, aktivní sekce limetková s popiskem, uprostřed „+“. */
 function vykresliListu(p) {
-  $('lista').innerHTML = SEKCE.map((s) => {
+  const tl = (s) => {
     const n = odznakSekce(s[0], p);
-    return '<button type="button" data-cil="' + s[0] + '"' + (stav.pohled === s[0] ? ' aria-current="page"' : '') + '>' +
-      IKONY[s[0]] + '<span>' + s[1] + '</span>' + (n ? '<span class="odznak cisla">' + n + '</span>' : '') + '</button>';
-  }).join('');
+    return '<button type="button" class="lista__btn" data-cil="' + s[0] + '" aria-label="' + s[1] + (n ? ', ' + n : '') + '"' +
+      (stav.pohled === s[0] ? ' aria-current="page"' : '') + '>' + IKONY[s[0]] + '<span>' + s[1] + '</span>' +
+      (n ? '<span class="odznak cisla">' + n + '</span>' : '') + '</button>';
+  };
+  $('lista').innerHTML = tl(SEKCE[0]) + tl(SEKCE[1]) +
+    '<button type="button" class="lista__plus" data-rychle aria-label="Přidat – poznámku, e-mail, událost nebo zápas">' + IKONY.plus + '</button>' +
+    tl(SEKCE[2]) + tl(SEKCE[3]);
+}
+
+/** „+“ v liště: list zespodu s tím, co jde rychle přidat. */
+function otevriRychle() {
+  const volba = (akce, ikona, barva, nazev, popis) => '<button type="button" data-rychle-akce="' + akce + '"><i class="kruh kruh--' + barva + '">' + ikona + '</i>' +
+    '<b>' + nazev + '</b><small>' + popis + '</small></button>';
+  otevriPanel({
+    id: 'rychle', trida: 'panel-okno panel-rychle', titul: 'Přidat',
+    vykresli: () => '<div class="rychle">' +
+      volba('poznamka', IKONY.claude, 'fialova', 'Poznámka pro Clauda', 'otázka, úkol, nápad') +
+      volba('email', IKONY.psat, 'zluta', 'Nový e-mail', 'z osobní nebo pracovní adresy') +
+      volba('udalost', IKONY.kalendar, 'zelena', 'Událost', 'do kalendáře, i s pozvánkami') +
+      volba('zapas', IKONY.zapas, 'limetka', 'Zápas', 'tým, soupeř, výkop, sraz') + '</div>'
+  });
+}
+
+function rychlaAkce(akce) {
+  if (akce === 'poznamka') schranka.zamerZapis();
+  else if (akce === 'email') posta.otevriPsani('novy');
+  else if (akce === 'udalost') udalost.otevriFormular({ den: stav.pohled === 'kalendar' ? stav.kal.vybrany : undefined });
+  else if (akce === 'zapas') udalost.otevriFormular({ typ: 'zapas', den: stav.pohled === 'kalendar' ? stav.kal.vybrany : undefined });
 }
 
 // ---------------------------------------------------------------- Dnes
@@ -179,7 +218,7 @@ function sipkaKarty(atributy, popisek) {
 
 function vykresliDnes(el, p) {
   if (!el.querySelector('#dnes-obsah')) {
-    el.innerHTML = '<div class="kpi-mrizka" id="dnes-kpi"></div><div class="dnes-mrizka" id="dnes-obsah">' +
+    el.innerHTML = '<div class="dnes-mobil" id="dnes-mobil"></div><div class="kpi-mrizka" id="dnes-kpi"></div><div class="dnes-mrizka" id="dnes-obsah">' +
       '<section class="card dlazdice dl-ceka" id="dl-ceka"></section>' +
       '<section class="card dlazdice dl-posta" id="dl-posta"></section>' +
       '<section class="card dlazdice dl-tyden" id="dl-tyden"></section>' +
@@ -190,6 +229,9 @@ function vykresliDnes(el, p) {
   }
   const dnes = pulnoc(Date.now());
   const ceka = '–';
+
+  // ---- telefon: zelená hlavní karta, malá čísla, Vyžaduje pozornost (vzor PriorAuth)
+  if (TELEFON.matches) el.querySelector('#dnes-mobil').innerHTML = dnesMobilHtml(p, dnes);
 
   // ---- čísla nahoře
   const t = p.terminy;
@@ -276,6 +318,79 @@ function vykresliDnes(el, p) {
     '<p class="poznamka-pod dlazdice__napoveda">Co sem napíšeš, zpracuju při další schránce a odpověď uvidíš tady. Z iPhonu jde totéž hlasem přes zkratku „Pro Clauda“.</p>';
 }
 
+// ---------------------------------------------------------------- Dnes na telefonu (vzor PriorAuth)
+
+function kdyTerminu(t) {
+  const r = rozdilDni(t);
+  return r < 0 ? 'po termínu · ' + dm(t) : r === 0 ? 'dnes' : r === 1 ? 'zítra' : dm(t);
+}
+
+/** Co od tebe chce schránka i pošta dohromady: po termínu, hoří, dnes, rozhodni, čeká na odpověď. */
+function pozornostMobil(p) {
+  const polozky = [];
+  p.ceka.forEach((x) => {
+    const t = terminDatum(x.termin);
+    const r = t == null ? null : rozdilDni(t);
+    const vaha = r != null && r < 0 ? 0 : r === 0 ? 2 : schranka.skupina(x) === 'rozhodni' ? 3 : 5;
+    polozky.push({ vaha, kdy: x.kdy, html: '<li><button type="button" class="pozor" data-ukaz-polozku="' + esc(x.id) + '">' +
+      '<span class="pozor__hora"><i class="kruh kruh--' + (schranka.skupina(x) === 'rozhodni' ? 'oranz' : 'zluta') + '">' + IKONY.schranka + '</i>' +
+      '<span class="pozor__text"><b>' + esc(x.shrnuti || prvniRadek(x.text, 80)) + '</b><small>' +
+      (schranka.skupina(x) === 'rozhodni' ? 'Rozhodni – Claude čeká na tvé ano' : 'Tvůj úkol · zadáno ' + esc(kdyKratce(x.kdy))) + '</small></span></span>' +
+      (t != null ? '<span class="pozor__radek">' + IKONY.cas + '<span>Termín</span><em>' + esc(kdyTerminu(t)) + '</em></span>' : '') + '</button></li>' });
+  });
+  p.pozornost.forEach((m) => {
+    const st = posta.stavZpravy(m);
+    const vaha = st === 'hori' ? 1 : m.neprectena ? 4 : 6;
+    polozky.push({ vaha, kdy: m.kdy, html: '<li><button type="button" class="pozor" data-vlakno="' + esc(m.id) + '">' +
+      '<span class="pozor__hora"><span class="avatar" style="--h:' + odstin(m.od) + '">' + esc(iniciala(m.od)) + '</span>' +
+      '<span class="pozor__text"><b>' + esc(m.od) + '</b><small>' + esc(m.predmet) + '</small></span>' + posta.stavTag(m) + '</span>' +
+      (m.termin ? '<span class="pozor__radek">' + IKONY.cas + '<span>' + esc(m.terminVeta || 'Termín') + '</span><em>' + esc(kdyTerminu(m.termin)) + '</em></span>'
+        : '<span class="pozor__radek">' + IKONY.posta + '<span>' + esc(prvniRadek(m.ukazka || '', 90)) + '</span><em>' + esc(kdyKratce(m.kdy)) + '</em></span>') +
+      '</button></li>' });
+  });
+  return polozky.sort((a, b) => (a.vaha - b.vaha) || (b.kdy - a.kdy));
+}
+
+function dnesMobilHtml(p, dnes) {
+  const t = p.terminy;
+  const nacteno = stav.schranka && stav.posta;
+  const celkem = p.ceka.length + p.pozornost.length;
+  const pristi = kal.nejblizsi(1, 14)[0];
+  const pod = [t.poTerminu ? t.poTerminu + ' po termínu' : '', p.hori ? p.hori + ' ' + tvar(p.hori, 'hoří', 'hoří', 'hoří') + ' v poště' : '',
+    t.dnes ? t.dnes + ' na dnes' : ''].filter(Boolean).join(' · ') || (celkem ? 'úkoly, rozhodnutí a pošta' : 'nic nečeká – klid');
+  const kdyPristi = pristi ? (rozdilDni(pristi.zacatek) === 0 ? '' : rozdilDni(pristi.zacatek) === 1 ? 'zítra ' : dm(pristi.zacatek) + ' ') +
+    (pristi.celodenni ? '' : hhmm(pristi.zacatek) + ' ') : '';
+  let h = '<section class="hero">' +
+    '<div class="hero__hlava"><span class="hero__stitek">' + IKONY.fajfka + 'Čeká na tebe</span>' +
+      '<button type="button" class="hero__sipka" data-cil="schranka" data-filtr-schranky="vse" aria-label="Otevřít schránku">' + IKONY.sipka + '</button></div>' +
+    '<div class="hero__telo"><b class="hero__cislo cisla">' + (nacteno ? celkem : '–') + '</b><p>' + esc(nacteno ? pod : 'Načítám…') + '</p>' +
+      '<div class="hero__deleni">' +
+        '<button type="button" data-cil="kalendar"><small>Další v kalendáři</small><b class="orez-1">' + (pristi ? esc(kdyPristi + pristi.nazev) : 'nic naplánováno') + '</b></button>' +
+        '<button type="button" data-cil="schranka" data-filtr-schranky="nove"><small>U Clauda</small><b>' + p.uClauda.length + ' ' +
+          tvar(p.uClauda.length, 'poznámka', 'poznámky', 'poznámek') + '</b></button>' +
+      '</div></div></section>';
+  const mala = (atr, ikona, barva, cislo, popis, trend) => '<button type="button" class="mini-kpi" ' + atr + '>' +
+    '<span class="mini-kpi__hlava"><i class="kruh kruh--' + barva + '">' + ikona + '</i>' + (trend ? '<span class="trend">' + trend + '</span>' : '') + '</span>' +
+    '<b class="cisla">' + cislo + '</b><small>' + popis + '</small></button>';
+  h += '<div class="mini-kpi-rada">' +
+    mala('data-cil="posta" data-filtr-posty="vse"', IKONY.posta, p.hori ? 'oranz' : 'zluta', stav.posta ? p.pozornost.length : '–', 'Pošta čeká', p.hori ? '↗ ' + p.hori + ' hoří' : '') +
+    mala('data-cil="kalendar"', IKONY.kalendar, 'zelena', kal.mameData(dnes) ? p.dnes.length : '–', 'Dnes v kalendáři', '') +
+    mala('data-cil="schranka" data-filtr-schranky="vse"', IKONY.schranka, 'fialova', stav.schranka ? p.ceka.length : '–', 'Úkoly a rozhodnutí',
+      t.poTerminu ? '↗ ' + t.poTerminu + ' po termínu' : '') +
+    '</div>';
+  const pozornost = pozornostMobil(p);
+  h += '<section class="pozornost"><div class="pozornost__hlava"><h2>Vyžaduje pozornost</h2>' +
+    (pozornost.length ? '<span class="pilulka-oranz cisla">' + pozornost.length + '</span>' : '') + '</div>';
+  if (!nacteno) h += '<div class="card">' + kostra(3) + '</div>';
+  else if (!pozornost.length) h += '<div class="card"><div class="prazdne">Nic nehoří, nic nečeká. Užij si to.</div></div>';
+  else {
+    h += '<ul>' + pozornost.slice(0, 6).map((x) => x.html).join('') + '</ul>' +
+      '<div class="pozornost__dalsi"><button type="button" class="btn btn--ghost" data-cil="schranka" data-filtr-schranky="vse">Schránka</button>' +
+      '<button type="button" class="btn btn--ghost" data-cil="posta" data-filtr-posty="vse">Celá pošta</button></div>';
+  }
+  return h + '</section>';
+}
+
 // ---------------------------------------------------------------- ovládání
 
 document.addEventListener('click', (e) => {
@@ -283,6 +398,9 @@ document.addEventListener('click', (e) => {
   if (!el || el.closest('#uvod')) return;
 
   if (el.hasAttribute('data-zavrit-panel')) { zavriPanel(); return; }
+  if (el.hasAttribute('data-rychle')) { otevriRychle(); return; }
+  if (el.dataset.rychleAkce) { const akce = el.dataset.rychleAkce; zavriAPak(() => rychlaAkce(akce)); return; }
+  if (el.dataset.ukazPolozku) { schranka.ukazPolozku(el.dataset.ukazPolozku); return; }
   if (hledat.klikHledat(el)) return;
   if (el.dataset.cil) {
     // proklik rovnou s filtrem (z čísel a karet na Dnes)
@@ -351,6 +469,8 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('online', () => { zmeneno(); if (jePripojeno()) obnovVse(false); });
 window.addEventListener('offline', zmeneno);
+// telefon ↔ iPad/PC (otočení, změna okna): jiná hlavička a přehled Dnes
+TELEFON.addEventListener('change', zmeneno);
 
 // ---------------------------------------------------------------- spuštění
 

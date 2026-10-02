@@ -35,12 +35,13 @@ const FILTRY = [
   [/(^|\s)(ve|in):(odeslané|odeslane|sent)/gi, '$1in:sent'], [/(^|\s)(ve|in):(koš|kos|trash)/gi, '$1in:trash']
 ];
 
-/** „od:novák má:přílohu po:1.10.2026“ → „from:novák has:attachment after:2026/10/1“ (dotaz pro Gmail). */
+/** „od:novák má:přílohu po:1.10.2026“ → „from:novák has:attachment after:<sekundy>“ (dotaz pro Gmail).
+ *  Datum jako místní půlnoc v sekundách: „after:2026/10/1“ by Gmail bral podle kalifornského času a ranní poštu vynechal. */
 export function naGmail(dotaz) {
   let q = String(dotaz || '').trim();
   FILTRY.forEach((f) => { q = q.replace(f[0], f[1]); });
   q = q.replace(/(^|\s)(po|after|před|pred|before):(\d{1,2})\.\s?(\d{1,2})\.\s?(\d{4})/gi, (c, a, slovo, d, m, r) =>
-    a + (/^(po|after)$/i.test(slovo) ? 'after:' : 'before:') + r + '/' + Number(m) + '/' + Number(d));
+    a + (/^(po|after)$/i.test(slovo) ? 'after:' : 'before:') + Math.floor(new Date(Number(r), Number(m) - 1, Number(d)).getTime() / 1000));
   return q;
 }
 

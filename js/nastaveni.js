@@ -234,7 +234,12 @@ function sekceVzhledu() {
   return '<section class="card nast-sekce" data-sekce="vzhled"><h3>Vzhled</h3>' +
     segment([['auto', 'Podle zařízení'], ['svetly', 'Světlý'], ['tmavy', 'Tmavý']], motiv, 'data-nast-motiv', 'Motiv') +
     '<div class="barvy" role="group" aria-label="Barva aplikace">' + AKCENTY.map((a) => '<button type="button" class="barva" style="--b:' + a[0] +
-      '" data-nast-akcent="' + a[0] + '" aria-pressed="' + (a[0] === akcent) + '" title="' + esc(a[1]) + '" aria-label="' + esc(a[1]) + '"></button>').join('') + '</div></section>';
+      '" data-nast-akcent="' + a[0] + '" aria-pressed="' + (a[0] === akcent) + '" title="' + esc(a[1]) + '" aria-label="' + esc(a[1]) + '"></button>').join('') + '</div>' +
+    // jméno jen v tomhle zařízení (do veřejného kódu nepatří) – na telefonu nahoře a v pozdravu
+    '<div class="fmr"><label><span class="label">Jméno</span><input class="field" data-nast-jmeno type="text" autocomplete="given-name" ' +
+      'placeholder="např. Michal" value="' + esc(uloziste.cti('asistent.jmeno') || '') + '"></label>' +
+    '<label><span class="label">Oslovení v pozdravu</span><input class="field" data-nast-osloveni type="text" autocomplete="off" ' +
+      'placeholder="např. Michale" value="' + esc(uloziste.cti('asistent.osloveni') || '') + '"></label></div></section>';
 }
 
 function sekceAplikace() {
@@ -346,6 +351,13 @@ function obnovPanelPoli() {
 
 export function zmenaNastaveni(e) {
   const t = e.target;
+  // jméno a oslovení se ukládají jen v zařízení
+  if (t.dataset && (t.dataset.nastJmeno !== undefined || t.dataset.nastOsloveni !== undefined)) {
+    const klic = t.dataset.nastJmeno !== undefined ? 'asistent.jmeno' : 'asistent.osloveni';
+    if (t.value.trim()) uloziste.pis(klic, t.value.trim().slice(0, 40)); else uloziste.smaz(klic);
+    zmeneno();
+    return true;
+  }
   if (!t.dataset || !t.dataset.nastKalZobrazit) return false;
   volej('kalendarUpravit', { id: t.dataset.nastKalZobrazit, skryty: !t.checked })
     .then(poZmeneKalendaru)

@@ -8,9 +8,26 @@ export function toast(text, chyba) {
   const el = document.getElementById('toast');
   el.textContent = String(text || '').replace(/\s*✓$/, '');
   el.classList.toggle('chyba', !!chyba);
+  el.classList.remove('s-akci');
   el.classList.add('videt');
   clearTimeout(casovac);
   casovac = setTimeout(() => el.classList.remove('videt'), chyba ? 4800 : 2400);
+}
+
+/** Oznámení s tlačítkem (např. „Hotovo · Vrátit“) – drží se déle a dá se na něj klepnout. */
+export function toastAkce(text, popisek, fn) {
+  const el = document.getElementById('toast');
+  el.textContent = String(text || '');
+  const tlacitko = document.createElement('button');
+  tlacitko.type = 'button';
+  tlacitko.className = 'toast__akce';
+  tlacitko.textContent = popisek;
+  tlacitko.addEventListener('click', (e) => { e.stopPropagation(); el.classList.remove('videt', 's-akci'); fn(); });
+  el.appendChild(tlacitko);
+  el.classList.remove('chyba');
+  el.classList.add('videt', 's-akci');
+  clearTimeout(casovac);
+  casovac = setTimeout(() => el.classList.remove('videt', 's-akci'), 7000);
 }
 
 export function kostra(n) {

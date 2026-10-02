@@ -138,7 +138,7 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.waitForFunction(() => /Klíč nesedí/.test(document.querySelector('[data-pripojeni-chyba]').textContent));
     await page.fill('[data-pripojeni-klic]', KLIC);
     await page.click('[data-uvod-pripojit]');
-    await page.waitForSelector('#aplikace:not([hidden]) .kpi');
+    await page.waitForSelector('#aplikace:not([hidden]) .hero'); // telefon: zelená hlavní karta místo čtyř čísel
     // na Dnes je jen pošta, která na tebe čeká (otázka), ne ta, kde čekáš ty
     await page.waitForFunction(() => document.querySelectorAll('#dl-posta .radek-posta').length === 1);
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
@@ -163,6 +163,10 @@ async function novaStranka(prohlizec, v, motiv) {
         jistota(await vidim('#horni') === v.sirka >= 760, 'horní lišta s hledáním');
         jistota(await vidim('.rail__btn > span:not(.pocet)') === v.sirka >= 1180, 'popisky v postranním panelu');
         jistota(await page.locator('.tyden-graf button').count() === 7, 'týden ve sloupcích');
+        if (v.sirka < 760) {
+          jistota(await vidim('.hero') && await vidim('.lista__plus') && !(await vidim('#dnes-kpi')), 'telefon: hlavní karta a + v liště');
+          jistota(await page.locator('.pozornost .pozor').count() >= 2, 'telefon: Vyžaduje pozornost');
+        }
         await page.screenshot({ path: path.join(VYSTUP, jmeno + '_dnes.png'), fullPage: v.nazev !== 'pc' });
 
         const klikNaSekci = async (s) => page.click((v.sirka < 760 ? '#lista' : '#rail') + ' [data-cil="' + s + '"]');
@@ -223,7 +227,10 @@ async function novaStranka(prohlizec, v, motiv) {
         jistota(await pretika() <= 0, 'Kalendář (týden) přetéká');
         await page.screenshot({ path: path.join(VYSTUP, jmeno + '_kalendar_tyden.png') });
         // formulář nové události (telefon: plus v hlavičce, jinak tlačítko nahoře) – vejde se a nepřetéká
-        await page.click(v.sirka < 760 ? '#hlava [data-nova-udalost]' : '#horni [data-nova-udalost]');
+        if (v.sirka < 760) { // telefon: „+“ v liště → list Přidat → Událost
+          await page.click('#lista [data-rychle]');
+          await page.click('[data-panel="rychle"] [data-rychle-akce="udalost"]');
+        } else await page.click('#horni [data-nova-udalost]');
         await page.waitForSelector('[data-panel="udalost-formular"] [data-uf="nazev"]');
         await page.click('[data-panel="udalost-formular"] [data-uf-typ="zapas"]');
         await page.waitForSelector('[data-panel="udalost-formular"] [data-uf="souper"]');
@@ -350,7 +357,8 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.fill('[data-panel="hledat"] [data-hledat-pole]', 'od:investor má:přílohu po:1.9.2026');
     await page.click('[data-panel="hledat"] [data-h-gmail]');
     await page.waitForSelector('[data-panel="hledat"] [data-h-vlakno="v9"]');
-    jistota(volano.some((d) => d.akce === 'hledat' && d.dotaz === 'from:investor has:attachment after:2026/9/1'), 'filtry se nepřeložily: ' +
+    const po = Math.floor(new Date(2026, 8, 1).getTime() / 1000); // pražská půlnoc v sekundách
+    jistota(volano.some((d) => d.akce === 'hledat' && d.dotaz === 'from:investor has:attachment after:' + po), 'filtry se nepřeložily: ' +
       JSON.stringify(volano.filter((d) => d.akce === 'hledat').map((d) => d.dotaz)));
     await page.click('[data-panel="hledat"] [data-h-vlakno="v9"]');
     await page.waitForSelector('[data-panel="hledat"]', { state: 'detached' });
