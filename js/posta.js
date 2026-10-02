@@ -6,7 +6,7 @@
 import { stav, zmeneno } from './stav.js';
 import { volej } from './api.js';
 import {
-  esc, kdyKratce, kdyDlouze, prvniRadek, iniciala, odstin, sOdkazy, velikost, jmenaAdres, uloziste,
+  esc, kdyKratce, kdyDlouze, prvniRadek, iniciala, odstin, sOdkazy, velikost, jmenaAdres, rozdelAdresy, uloziste,
   pulnoc, pridejDny, isoDatum, terminDatum, dm, rozdilDni
 } from './pomocne.js';
 import { otevriPanel, obnovPanel, zavriPanel, jeOtevreny, elementPanelu, horniPanel } from './panely.js';
@@ -269,7 +269,8 @@ function zpravaHtml(z, rozbalena) {
   const hlava = '<button type="button" class="zprava-hlava" data-rozbal-zpravu="' + esc(z.id) + '" aria-expanded="' + rozbalena + '">' +
     '<span class="avatar maly" style="--h:' + odstin(z.od) + '" aria-hidden="true">' + esc(iniciala(z.od)) + '</span>' +
     '<span class="zprava-kdo"><b>' + esc(kdo) + '</b><small class="orez-1">' +
-      (rozbalena ? 'komu: ' + esc(jmenaAdres(z.komu)) + (z.kopie ? ' · kopie: ' + esc(jmenaAdres(z.kopie)) : '') : esc(prvniRadek(z.text, 120))) +
+      (rozbalena ? 'komu: ' + esc(jmenaAdres(z.komu)) + (z.kopie ? ' · kopie: ' + esc(jmenaAdres(z.kopie)) : '') +
+        (z.odpovedNa ? ' · odpověď na: ' + esc(jmenaAdres(z.odpovedNa)) : '') : esc(prvniRadek(z.text, 120))) +
     '</small></span><span class="zprava-cas cisla">' + esc(kdyDlouze(z.kdy)) + '</span></button>';
   if (!rozbalena) return '<article class="zprava sbalena">' + hlava + '</article>';
   // obrázky z webu až na klepnutí – načtení by odesílateli prozradilo otevření i adresu (Gmail je proxuje, my ne)
@@ -331,7 +332,7 @@ function dalsiKrokHtml(m) {
     info: ['Jen pro informaci – můžeš ji uklidit', '', hotovo]
   }[st];
   return '<div class="dalsi-krok"><small>' + IKONY.claude + 'Další krok</small><b>' + esc(k[0]) + '</b>' +
-    (m.terminVeta ? '<q>' + esc(m.terminVeta) + '</q>' : k[1] ? '<span>' + esc(k[1]) + '</span>' : '') +
+    (m.terminVeta && st !== 'info' && st !== 'resi' ? '<q>' + esc(m.terminVeta) + '</q>' : k[1] ? '<span>' + esc(k[1]) + '</span>' : '') +
     '<button type="button" class="btn btn--sm" ' + k[2][0] + '>' + k[2][1] + '<span>' + k[2][2] + '</span></button></div>';
 }
 
@@ -402,10 +403,11 @@ export function otevriPsani(rezim) {
   const klic = KONCEPT + rezim + '.' + (cil ? cil.id : 'novy');
   const koncept = uloziste.cti(klic) || {};
   let komu = '';
-  if (rezim === 'odpoved') komu = cil.od + ' <' + cil.odAdresa + '>';
+  // odpověď jde na adresu pro odpověď (Reply-To), když ji odesílatel nastavil – GmailApp.reply to tak dělá
+  if (rezim === 'odpoved') komu = cil.odpovedNa || cil.od + ' <' + cil.odAdresa + '>';
   if (rezim === 'vsem') {
     const ja = [info.osobniAdresa, info.pracovniAdresa].filter(Boolean).map((a) => a.toLowerCase());
-    komu = [cil.od + ' <' + cil.odAdresa + '>'].concat(String(cil.komu || '').split(','), String(cil.kopie || '').split(','))
+    komu = [cil.odpovedNa || cil.od + ' <' + cil.odAdresa + '>'].concat(rozdelAdresy(cil.komu), rozdelAdresy(cil.kopie))
       .map((a) => a.trim()).filter((a) => a && !ja.some((x) => a.toLowerCase().indexOf(x) >= 0)).join(', ');
   }
   stav.psani = { rezim, ucet, zpravaId: cil ? cil.id : null, vlaknoId: cil ? id : null, klic, komu,
@@ -619,8 +621,12 @@ async function ulozPripominku(tlacitko) {
   try {
     const polozka = await volej('pripomenout', { id: p.id, termin, poznamka: el.querySelector('[data-pripominka-text]').value.trim() });
     if (stav.schranka && polozka) stav.schranka.ceka.push(polozka);
+    // motor konverzaci odložil (archivoval) – v den termínu se sama vrátí do Doručené; tady ji jen schovat
+    upravVSeznamech(p.id, (m, i, seznam) => seznam.splice(i, 1));
+    if (stav.otevreneVlakno === p.id) stav.otevreneVlakno = null;
     zavriPanel();
-    toast('Připomenu ' + dm(terminDatum(termin)) + ' – úkol je ve Schránce');
+    if (jeOtevreny('vlakno')) setTimeout(zavriPanel, 300);
+    toast('Odloženo do ' + dm(terminDatum(termin)) + ' – pak se vrátí do Doručené, úkol je ve Schránce');
     zmeneno();
   } catch (e) {
     tlacitko.disabled = false;

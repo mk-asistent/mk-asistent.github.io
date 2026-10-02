@@ -108,8 +108,23 @@ export function velikost(b) {
 }
 
 /** Jména z hlavičky „Jan Novák <jan@x.cz>, eva@y.cz“ → „Jan Novák, eva@y.cz“ */
+/** Seznam adres rozdělený podle čárek a středníků mimo uvozovky a <…> – jméno „Novák, Jan“ se nerozdělí. */
+export function rozdelAdresy(text) {
+  const vysledek = [];
+  let aktualni = '', zavira = '';
+  const pary = { '"': '"', '„': '“', '“': '”', '<': '>', '(': ')' };
+  for (const z of String(text || '')) {
+    if (zavira) { aktualni += z; if (z === zavira) zavira = ''; continue; }
+    if (pary[z]) { zavira = pary[z]; aktualni += z; continue; }
+    if (z === ',' || z === ';') { if (aktualni.trim()) vysledek.push(aktualni.trim()); aktualni = ''; continue; }
+    aktualni += z;
+  }
+  if (aktualni.trim()) vysledek.push(aktualni.trim());
+  return vysledek;
+}
+
 export function jmenaAdres(s) {
-  return String(s || '').split(',').map((a) => {
+  return rozdelAdresy(s).map((a) => {
     const m = /^\s*"?([^"<]*?)"?\s*<([^>]+)>/.exec(a);
     return m ? (m[1].trim() || m[2].trim()) : a.trim();
   }).filter(Boolean).join(', ');

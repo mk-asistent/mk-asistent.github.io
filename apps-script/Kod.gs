@@ -11,8 +11,9 @@
  *
  * Data:
  *   Schránka  – Můj disk / CLAUDE_SCHRANKA / NOVE, CEKA, HOTOVO/RRRR-MM (soubory .md, skill asistent-schranka)
- *   Pošta     – Gmail: doručené za 30 dní bez Reklam/Sociálních sítí/Fór; čtení, odpověď, přeposlání, archiv;
- *               každá konverzace má stav (hoří, čeká na tebe, otázka, čekáš na ně, řeší se, informace).
+ *   Pošta     – Gmail: doručené za 30 dní (z 30–90 dní jen nevyřízené) bez Reklam/Sociálních sítí/Fór; čtení,
+ *               odpověď, přeposlání, archiv, odložení („Připomenout“ – v den termínu se zpráva vrátí do Doručených);
+ *               každá konverzace má stav (hoří, čeká na tebe, otázka, čekáš na ně, řeší se, informace) i s důvodem.
  *               Dva účty: osobní (Gmail) a pracovní (vlastnost PRACOVNI_ADRESA). Pracovní pošta se do Gmailu
  *               dostane přeposíláním kopií od poskytovatele; odpovídá se z ní přes „Odesílat poštu jako“ v Gmailu.
  *               Náhradní zdroj bez přeposílání: CLAUDE_SCHRANKA/POSTA_FIREMNI.json (souhrny, zapisuje skript na PC).
@@ -22,12 +23,16 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-02';
+const VERZE = '2026-10-02.4';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
+const DNI_STARSI_POSTY = 90; // druhé okno 30–90 dní: jen nevyřízené (hoří, čeká na tebe, otázka)
 const MAX_VLAKEN = 50;
+const MAX_STARSICH = 25;
 const MAX_ZPRAV_VE_VLAKNE = 12;
+const MAX_TEXTU_ZPRAVY = 100000; // znaků textu jedné zprávy ve vlákně (delší se zkrátí a končí „…“)
+const MAX_HTML_ZPRAVY = 180000;
 const MAX_VYRIZENYCH = 25;
 const MAX_ROZSAH_KALENDARE = 100 * 864e5; // jeden dotaz nejvýš na 100 dní
 const BARVY_KALENDARU = ['#2f5bd3', '#2e7a4d', '#a8620c', '#8e5bd3', '#c0392b', '#0f7c8c', '#b5407a'];
@@ -343,22 +348,36 @@ function nastavPostu_(adresa) {
   const vlastnosti = PropertiesService.getScriptProperties();
   if (adresa) vlastnosti.setProperty('PRACOVNI_ADRESA', adresa); else vlastnosti.deleteProperty('PRACOVNI_ADRESA');
   smazCache_('posta');
+  smazCache_('znami'); // „moje“ odeslané zprávy se počítají i z pracovní adresy
+  ZNAMI_ = undefined;
   return nastaveniPosty_();
 }
 
 function nactiPostu_(znovu) {
+  // odložené zprávy, kterým přišel termín, zpět do Doručených (bez spouštěče; obvykle jen jedno čtení vlastnosti)
+  try {
+    if (vratOdlozene_() > 0) znovu = true;
+  } catch (chyba) { /* pošta se načte i tak, vrátí se při dalším načtení */ }
   if (!znovu) {
     const ulozene = nactiZCache_('posta');
     if (ulozene) return ulozene;
   }
   const ja = mojeAdresa_().toLowerCase();
   const prac = pracovniAdresa_();
-  const zaklad = 'in:inbox newer_than:' + DNI_POSTY + 'd -category:promotions -category:social -category:forums';
-  const pracovni = prac ? seznamVlaken_(zaklad + ' ' + filtrPracovni_(prac), ja, prac, 'pracovni') : [];
+  const kategorie = ' -category:promotions -category:social -category:forums';
+  const zaklad = 'in:inbox newer_than:' + DNI_POSTY + 'd' + kategorie;
+  // druhé, starší okno: z 30–90 dní jen nevyřízené, ať se nedořešená věc neztratí jen proto, že je starší než měsíc
+  const starsi = 'in:inbox older_than:' + DNI_POSTY + 'd newer_than:' + DNI_STARSI_POSTY + 'd' + kategorie;
+  const nevyrizene = function (v) { return v.stav === 'hori' || v.stav === 'ceka' || v.stav === 'otazka'; };
+  const ucet = function (filtr, nazev) {
+    return spojVlakna_(seznamVlaken_(zaklad + filtr, ja, prac, nazev),
+      seznamVlaken_(starsi + filtr, ja, prac, nazev, MAX_STARSICH).filter(nevyrizene));
+  };
+  const pracovni = prac ? ucet(' ' + filtrPracovni_(prac), 'pracovni') : [];
   // hledání jde po zprávách – vlákno s osobní i pracovní zprávou by bylo dvakrát; patří k pracovní
   const vPracovni = {};
   pracovni.forEach(function (v) { vPracovni[v.id] = true; });
-  const osobni = seznamVlaken_(zaklad + (prac ? ' -to:' + prac + ' -cc:' + prac + ' -deliveredto:' + prac : ''), ja, prac, 'osobni')
+  const osobni = ucet(prac ? ' -to:' + prac + ' -cc:' + prac + ' -deliveredto:' + prac : '', 'osobni')
     .filter(function (v) { return !vPracovni[v.id]; });
   const vysledek = {
     osobni: osobni,
@@ -371,11 +390,27 @@ function nactiPostu_(znovu) {
   return vysledek;
 }
 
+/** Dva seznamy vláken dohromady bez duplicit (podle id), v původním pořadí. */
+function spojVlakna_(prvni, druhe) {
+  const videno = {};
+  return prvni.concat(druhe).filter(function (v) {
+    if (videno[v.id]) return false;
+    videno[v.id] = true;
+    return true;
+  });
+}
+
 function seznamVlaken_(dotaz, ja, prac, ucet, max) {
   const vlakna = GmailApp.search(dotaz, 0, max || MAX_VLAKEN);
   const zpravy = GmailApp.getMessagesForThreads(vlakna);
   const oznameni = oznameniVlakna_(dotaz);
   const ted = Date.now();
+  // známí lidé jednou na celý seznam; kolegové z pracovní domény se berou jako známí
+  let znami = znamiLide_();
+  if (znami && prac) {
+    znami = Object.assign({}, znami);
+    znami['@' + prac.split('@')[1]] = true;
+  }
   return vlakna.map(function (vlakno, i) {
     // koncepty a zprávy v koši do přehledu nepatří (náhled by ukázal neodeslaný text)
     const platne = zpravy[i].filter(function (m) { return !m.isDraft() && !m.isInTrash(); });
@@ -389,25 +424,49 @@ function seznamVlaken_(dotaz, ja, prac, ucet, max) {
     }
     const odeMne = function (m) { return [ja, prac].indexOf(adresa_(m.getFrom())) >= 0; };
     const odeMe = odeMne(posledni);
+    const s = stavADuvod_(posledni, odeMe, vlakno, !!oznameni[vlakno.getId()], ted, seznam.some(odeMne), znami);
+    const cekas = s.stav === 'cekas';
+    const ukazka = posledni.getPlainBody().replace(/\s+/g, ' ').trim().slice(0, 180);
     return {
       id: vlakno.getId(),
       // u hledání účet předem neznáme – stačí adresy zpráv (přeposlaná pracovní pošta má pracovní adresu v Komu/Kopie)
       ucet: ucet || (prac && seznam.some(function (m) {
         return (String(m.getTo() || '') + ',' + String(m.getCc() || '') + ',' + String(m.getFrom() || '')).toLowerCase().indexOf(prac) >= 0;
       }) ? 'pracovni' : 'osobni'),
-      stav: stavPripadu_(posledni, odeMe, vlakno, !!oznameni[vlakno.getId()], ted, seznam.some(odeMne)),
-      od: odesilatel ? jmeno_(odesilatel.getFrom()) : 'Já → ' + jmeno_(posledni.getTo()),
+      stav: s.stav,
+      duvod: s.duvod,
+      // „čekáš na ně“: na koho a co (začátek tvé zprávy); jinak poslední, kdo psal tobě
+      od: cekas ? 'Čekáš na: ' + jmenaAdresatu_(posledni)
+        : odesilatel ? jmeno_(odesilatel.getFrom()) : 'Já → ' + jmeno_(posledni.getTo()),
       odAdresa: odesilatel ? adresa_(odesilatel.getFrom()) : '',
       predmet: vlakno.getFirstMessageSubject() || '(bez předmětu)',
-      ukazka: posledni.getPlainBody().replace(/\s+/g, ' ').trim().slice(0, 180),
+      ukazka: (cekas && prvniRadek_(vlastniText_(posledni))) || ukazka,
       kdy: vlakno.getLastMessageDate().getTime(),
       neprectena: vlakno.isUnread(),
       dulezita: vlakno.isImportant(),
       hvezdicka: vlakno.hasStarredMessages(),
       pocet: seznam.length,
-      odkaz: odkazGmail_(vlakno.getId())
+      odkaz: odkazGmail_(vlakno.getId()),
+      termin: s.termin ? s.termin.ms : null, // termín z poslední zprávy (23:59 toho dne v Praze)
+      terminVeta: s.termin ? s.termin.veta : '',
+      poTerminu: !!s.termin && s.termin.ms < ted,
+      cekasOd: cekas ? posledni.getDate().getTime() : null
     };
   });
+}
+
+/** Jména adresátů zprávy (Komu, bez něj Kopie), nejvýš tři – pro „Čekáš na: …“. */
+function jmenaAdresatu_(zprava) {
+  let adresati = rozdelAdresy_(zprava.getTo());
+  if (!adresati.length) adresati = rozdelAdresy_(zprava.getCc());
+  return adresati.slice(0, 3).map(function (a) { return jmeno_(a); }).join(', ');
+}
+
+/** První řádek textu pro náhled; samotné oslovení („Dobrý den,“) se přeskočí. */
+function prvniRadek_(text) {
+  const radky = String(text || '').split('\n').map(function (r) { return r.trim(); }).filter(Boolean);
+  const osloveni = radky.length > 1 && radky[0].length <= 40 && /,$/.test(radky[0]);
+  return (radky[osloveni ? 1 : 0] || '').replace(/\s+/g, ' ').slice(0, 180);
 }
 
 /** Vlákna z kategorie Aktualizace (oznámení, účtenky, systémové zprávy) – jedním dotazem, bez čtení hlaviček. */
@@ -420,13 +479,14 @@ function oznameniVlakna_(dotaz) {
 }
 
 // Stav konverzace jako „případ“ – nápad převzatý z poštovního klienta Mailer (fastmailer.one), pravidla vlastní.
-// Určí se hned a zdarma, bez AI (AI může stav později zpřesnit):
-//   hori   – jednat hned: výslovná naléhavost, nahlášený problém („nefunguje“, „výpadek“), termín do 48 hodin
-//   ceka   – někdo po tobě něco chce (prosba, úkol, „k připomínkám“), nebo jen osobní zpráva bez jasného obsahu
+// Určí se hned a zdarma, bez AI (AI může stav později zpřesnit); ke každému stavu patří krátký důvod (stavADuvod_):
+//   hori   – jednat hned: termín do 48 hodin od teď (od kohokoli kromě automatů); výslovná naléhavost nebo nahlášený
+//            problém („nefunguje“, „výpadek“) jen od známých – komu jsem psal, kolegové z pracovní domény, lidé z vlákna
+//   ceka   – někdo po tobě něco chce (prosba, úkol, „k připomínkám“), nebo jen osobní zpráva od známého
 //   otazka – ptá se, ale nic nežádá
 //   cekas  – poslední jsi psal ty a čekáš na odpověď
 //   resi   – živá konverzace, ve které se od tebe teď nic nečeká
-//   info   – oznámení a automatické zprávy; i konverzace, kterou jsi uzavřel krátkým „díky“
+//   info   – oznámení a automatické zprávy, neznámý odesílatel bez prosby a otázky; i konverzace uzavřená tvým „díky“
 const PISMENO_PRED = '(?<![\\p{L}])';
 const PISMENO_ZA = '(?![\\p{L}])';
 const slova_ = function (seznam) { return new RegExp(PISMENO_PRED + '(?:' + seznam.join('|') + ')' + PISMENO_ZA, 'iu'); };
@@ -438,12 +498,14 @@ const SLOVA_PROSBA = slova_(['prosím', 'prosíme', 'prosil\\p{L}* bych', 'potř
   'doplň(?:te)?', 'oprav(?:te)?', 'rozhodni', 'rozhodněte', 'odpověz(?:te)?', 'můžeš', 'můžete', 'mohl\\p{L}* (?:bys|byste|bychom)',
   'k připomínkám', 'k vyjádření', 'ke schválení', 'k podpisu', 'k odsouhlasení', 'k objednání']);
 const AUTOMAT = /(no-?reply|do-?not-?reply|notification|notifikace|newsletter|mailer-daemon|postmaster|bounce)/i;
-const DIKY = new RegExp('^(?:díky|dík|děkuj\\p{L}*|ok|okay|super|platí|dobře|jasně|v pořádku|výborně|thanks|thank you)' + PISMENO_ZA + '[^?]{0,40}$', 'iu');
+const DIKY = new RegExp('^(díky|dík|děkuj\\p{L}*|ok|okay|super|platí|dobře|jasně|v pořádku|výborně|thanks|thank you)' + PISMENO_ZA + '[^?]{0,40}$', 'iu');
 const DNY_TERMINU = { 'pondělí': 1, 'úterý': 2, 'středy': 3, 'středu': 3, 'čtvrtka': 4, 'čtvrtek': 4, 'pátku': 5, 'pátek': 5,
   'soboty': 6, 'sobotu': 6, 'neděle': 0, 'neděli': 0 };
 const TERMIN = new RegExp(PISMENO_PRED + '(?:do|nejpozději(?: do)?|termín(?:em)?|deadline|potřebuj\\p{L}* (?:to )?(?:do|na))\\s+' +
   '(dnes|dneska|dneška|zítra|zítřka|pozítří|večera|konce dne|' + Object.keys(DNY_TERMINU).join('|') +
   '|(\\d{1,2})\\.\\s?(\\d{1,2})\\.(?:\\s?(\\d{4}))?)' + PISMENO_ZA, 'iu');
+const ZKRATKY_DNU = ['ne', 'po', 'út', 'st', 'čt', 'pá', 'so'];
+const ZNAMI_SEKUND = 21600; // seznam známých v mezipaměti – CacheService drží hodnotu nejvýš 6 hodin
 
 /** Vlastní text zprávy: bez citace předchozích, bez podpisu za „-- “ a bez adres (otazník v odkazu není otázka). */
 function vlastniText_(zprava) {
@@ -452,53 +514,177 @@ function vlastniText_(zprava) {
     .replace(/https?:\/\/\S+/g, '').trim().slice(0, 1500);
 }
 
-/** Je v textu termín do 48 hodin od odeslání zprávy („do zítra“, „do pátku“ ve čtvrtek, „do 5. 10.“)? */
-function terminDo48h_(text, kdy) {
-  const m = TERMIN.exec(text);
-  if (!m) return false;
-  const slovo = m[1].toLowerCase();
-  if (DNY_TERMINU[slovo] === undefined && !m[2]) return true; // dnes, zítra, pozítří, do večera, do konce dne
-  const d = Utilities.formatDate(new Date(kdy), CASOVE_PASMO, 'yyyy-MM-dd').split('-').map(Number);
-  const den = Date.UTC(d[0], d[1] - 1, d[2]);
-  let rozdil;
-  if (m[2]) {
-    let cil = Date.UTC(m[4] ? Number(m[4]) : d[0], Number(m[3]) - 1, Number(m[2]));
-    if (!m[4] && cil < den - 180 * 864e5) cil = Date.UTC(d[0] + 1, Number(m[3]) - 1, Number(m[2])); // „do 5. 1.“ psané v prosinci
-    rozdil = (cil - den) / 864e5;
-  } else {
-    rozdil = (DNY_TERMINU[slovo] - new Date(den).getUTCDay() + 7) % 7;
+/**
+ * Termín v textu jako okamžik – 23:59 toho dne v Praze, počítáno od data zprávy: dnes / do večera / do konce dne = den
+ * zprávy, zítra +1, pozítří +2, den v týdnu = nejbližší takový (i ten samý den), „5. 10.(2026)“ = to datum.
+ * Z více termínů platí nejbližší, který ještě neprošel o víc než den (stejná rezerva jako u „hoří“); když prošly
+ * všechny, ten poslední. Vrací { ms, fraze ('do pátku'), den ('pá 3. 10.'), veta } nebo null.
+ */
+function terminZTextu_(text, kdy, ted) {
+  const denZpravy = cisloDneZMs_(kdy);
+  const hledani = new RegExp(TERMIN.source, 'giu');
+  let nejlepsi = null;
+  let m;
+  while ((m = hledani.exec(text))) {
+    const den = denTerminu_(m, denZpravy);
+    if (den === null) continue;
+    const ymd = zCislaDne_(den);
+    const ms = msVZone_(ymd[0], ymd[1], ymd[2], 23, 59, 0, CASOVE_PASMO);
+    const plati = ms >= ted - 864e5;
+    if (!nejlepsi || (plati ? !nejlepsi.plati || ms < nejlepsi.ms : !nejlepsi.plati && ms > nejlepsi.ms)) {
+      nejlepsi = { ms: ms, plati: plati, den: den, zacatek: m.index, konec: m.index + m[0].length, fraze: m[0] };
+    }
   }
-  return rozdil >= 0 && rozdil <= 2;
+  if (!nejlepsi) return null;
+  const ymd = zCislaDne_(nejlepsi.den);
+  const letos = zCislaDne_(cisloDneZMs_(ted))[0];
+  return {
+    ms: nejlepsi.ms,
+    fraze: nejlepsi.fraze.replace(/\s+/g, ' ').toLowerCase(),
+    den: ZKRATKY_DNU[denTydne_(nejlepsi.den)] + ' ' + ymd[2] + '. ' + ymd[1] + '.' + (ymd[0] !== letos ? ' ' + ymd[0] : ''),
+    veta: vetaKolem_(text, nejlepsi.zacatek, nejlepsi.konec)
+  };
 }
 
-function stavPripadu_(posledni, odeMe, vlakno, jeOznameni, ted, jsemPsal) {
-  if (odeMe) {
-    // „Čekáš na ně“ jen když opravdu čekáš: ne po krátkém „díky“, ne u hromadné zprávy, ne u automatických adres
-    const komu = (String(posledni.getTo() || '') + ',' + String(posledni.getCc() || '')).split(',')
-      .map(function (a) { return a.trim(); }).filter(Boolean);
-    const muj = vlastniText_(posledni);
-    const ukoncil = DIKY.test(muj) && !SLOVA_PROSBA.test(muj);
-    if (komu.length > 5 || (komu.length && komu.every(function (a) { return AUTOMAT.test(a); })) || ukoncil) return 'info';
-    return 'cekas';
+/** Den termínu (číslo dne jako cisloDne_) z jednoho nálezu TERMIN; null = nesmyslné datum („do 31. 9.“). */
+function denTerminu_(m, denZpravy) {
+  if (m[2]) {
+    const den = Number(m[2]);
+    const mesic = Number(m[3]);
+    let rok = m[4] ? Number(m[4]) : zCislaDne_(denZpravy)[0];
+    if (!m[4] && cisloDne_(rok, mesic, den) < denZpravy - 180) rok++; // „do 5. 1.“ psané v prosinci
+    if (mesic < 1 || mesic > 12 || den < 1 || den > dniMesice_(rok, mesic)) return null;
+    return cisloDne_(rok, mesic, den);
   }
-  if (jeOznameni || AUTOMAT.test(String(posledni.getFrom() || ''))) return 'info';
+  const slovo = m[1].toLowerCase();
+  if (DNY_TERMINU[slovo] !== undefined) return denZpravy + (DNY_TERMINU[slovo] - denTydne_(denZpravy) + 7) % 7;
+  if (slovo === 'zítra' || slovo === 'zítřka') return denZpravy + 1;
+  if (slovo === 'pozítří') return denZpravy + 2;
+  return denZpravy; // dnes, dneska, dneška, do večera, do konce dne
+}
+
+/** Věta, ve které leží nález [zacatek, konec) – pro náhled termínu, nejvýš 140 znaků (dlouhá se ořízne kolem nálezu). */
+function vetaKolem_(text, zacatek, konec) {
+  // konec věty: nový řádek; ! ? … před mezerou; tečka před mezerou a velkým písmenem (v „do 3. 10. prosím“ jde o datum)
+  const konecVety = /\n|[!?…](?=\s|$)|\.(?=\s+\p{Lu}|\s*$)/gu;
+  let od = 0;
+  let po = text.length;
+  let m;
+  while ((m = konecVety.exec(text))) {
+    if (m.index < zacatek) od = m.index + 1;
+    else if (m.index >= konec - 1) { po = m.index + 1; break; }
+  }
+  const veta = text.slice(od, po).replace(/\s+/g, ' ').trim();
+  if (veta.length <= 140) return veta;
+  const z = Math.max(od, zacatek - 40);
+  const k = Math.min(po, z + 136);
+  return (z > od ? '…' : '') + text.slice(z, k).replace(/\s+/g, ' ').trim() + (k < po ? '…' : '');
+}
+
+let ZNAMI_; // jednou za běh skriptu; undefined = ještě nenačteno, null = nevíme (každý se bere jako známý)
+
+/**
+ * Známí lidé = komu jsem za poslední rok psal (Komu, Kopie i Skrytá kopie mých odeslaných zpráv) → { adresa: true }.
+ * Prohledání odeslané pošty je pomalé – adresy se drží v mezipaměti (klíč „znami“, po kusech přes ulozDoCache_).
+ */
+function znamiLide_() {
+  if (ZNAMI_ !== undefined) return ZNAMI_;
+  ZNAMI_ = null;
+  let seznam = null;
+  try { seznam = nactiZCache_('znami'); } catch (chyba) { /* poškozená mezipaměť – sestavit znovu */ }
+  if (!Array.isArray(seznam)) {
+    const ja = mojeAdresa_().toLowerCase();
+    const prac = pracovniAdresa_();
+    if (!ja && !prac) return ZNAMI_;
+    const adresy = {};
+    try {
+      const vlakna = GmailApp.search('in:sent newer_than:365d', 0, 300);
+      GmailApp.getMessagesForThreads(vlakna).forEach(function (zpravy) {
+        zpravy.forEach(function (m) {
+          const od = adresa_(m.getFrom());
+          if (!od || (od !== ja && od !== prac)) return; // v odeslaných vláknech jsou i odpovědi ostatních
+          rozdelAdresy_([m.getTo(), m.getCc(), m.getBcc()].join(',')).forEach(function (a) {
+            a = adresa_(a);
+            if (a && a !== ja && a !== prac) adresy[a] = true;
+          });
+        });
+      });
+    } catch (chyba) {
+      return ZNAMI_; // Gmail teď nejde – raději každý známý než všechno „neznámé“
+    }
+    seznam = Object.keys(adresy);
+    ulozDoCache_('znami', seznam, ZNAMI_SEKUND);
+  }
+  ZNAMI_ = {};
+  seznam.forEach(function (a) { ZNAMI_[a] = true; });
+  return ZNAMI_;
+}
+
+/** Je odesílatel známý (adresa nebo „@doména“ v seznamu)? Bez seznamu se bere každý jako známý. */
+function jeZnamy_(od, znami) {
+  if (!znami) return true;
+  const a = adresa_(od);
+  return znami[a] === true || znami['@' + a.slice(a.indexOf('@') + 1)] === true;
+}
+
+/**
+ * Stav konverzace podle poslední zprávy i s důvodem pro aplikaci: { stav, duvod, termin } (termin z terminZTextu_
+ * nebo null). znami = { adresa: true, '@domena': true } ze znamiLide_; bez něj se bere každý jako známý.
+ */
+function stavADuvod_(posledni, odeMe, vlakno, jeOznameni, ted, jsemPsal, znami) {
+  ted = ted || Date.now();
   const text = vlastniText_(posledni);
   const vse = String(posledni.getSubject() || '') + '\n' + text;
-  if (SLOVA_HORI.test(vse) || terminDo48h_(vse, posledni.getDate().getTime())) return 'hori';
-  if (SLOVA_PROSBA.test(vse)) return 'ceka';
-  if (/\?/.test(text)) return 'otazka';
-  return jsemPsal ? 'resi' : 'ceka';
+  const termin = terminZTextu_(vse, posledni.getDate().getTime(), ted);
+  const vysledek = function (stav, duvod) { return { stav: stav, duvod: duvod, termin: termin }; };
+  if (odeMe) {
+    // „Čekáš na ně“ jen když opravdu čekáš: ne po krátkém „díky“, ne u hromadné zprávy, ne u automatických adres
+    const komu = rozdelAdresy_(String(posledni.getTo() || '') + ',' + String(posledni.getCc() || ''));
+    const diky = DIKY.exec(text);
+    if (komu.length > 5) return vysledek('info', 'hromadná zpráva (' + komu.length + ' adresátů)');
+    if (komu.length && komu.every(function (a) { return AUTOMAT.test(a); })) return vysledek('info', 'psal jsi automatické adrese');
+    if (diky && !SLOVA_PROSBA.test(text)) return vysledek('info', 'tvoje „' + diky[1].toLowerCase() + '“ na konci');
+    return vysledek('cekas', 'odpověděl jsi poslední');
+  }
+  if (jeOznameni) return vysledek('info', 'Gmail: Aktualizace');
+  if (AUTOMAT.test(String(posledni.getFrom() || ''))) return vysledek('info', 'automatická adresa');
+  if (termin && termin.ms >= ted - 864e5 && termin.ms <= ted + 48 * 36e5) {
+    return vysledek('hori', 'termín „' + termin.fraze + '“ – ' + termin.den);
+  }
+  // naléhavá slova jen od známých – od cizích to bývá reklama nebo podvod
+  const znamy = jsemPsal || jeZnamy_(posledni.getFrom(), znami);
+  const slovo = SLOVA_HORI.exec(vse);
+  if (slovo && znamy) return vysledek('hori', 'slovo „' + slovo[0].toLowerCase() + '“');
+  const prosba = SLOVA_PROSBA.exec(vse);
+  if (prosba) return vysledek('ceka', 'prosba „' + prosba[0].toLowerCase() + '“');
+  if (/\?/.test(text)) return vysledek('otazka', 'otazník v textu');
+  if (jsemPsal) return vysledek('resi', 'píšete si, nic po tobě nechce');
+  if (!znamy) return vysledek('info', 'neznámý odesílatel');
+  return vysledek('ceka', 'osobní zpráva');
 }
 
-/** Hledání v celé poště (syntaxe Gmailu: from:, has:attachment, after:2026/9/1 …), nejvýš 20 vláken. */
+/** Jen stav (hori, ceka, otazka, cekas, resi, info) – viz stavADuvod_. */
+function stavPripadu_(posledni, odeMe, vlakno, jeOznameni, ted, jsemPsal, znami) {
+  return stavADuvod_(posledni, odeMe, vlakno, jeOznameni, ted, jsemPsal, znami).stav;
+}
+
+/**
+ * Hledání v celé poště (syntaxe Gmailu: from:, has:attachment, after:2026/9/1 …), nejvýš 20 vláken.
+ * Koš a spam se vynechají – kromě dotazu, který je sám chce (in:trash, label:spam, in:anywhere …).
+ */
 function hledatPostu_(dotaz) {
   dotaz = String(dotaz || '').trim().slice(0, 200);
   if (!dotaz) return { vlakna: [], dotaz: '' };
-  const vlakna = seznamVlaken_('(' + dotaz + ') -in:trash -in:spam', mojeAdresa_().toLowerCase(), pracovniAdresa_(), null, 20);
+  const vcetneKose = /(?:^|[^\w-])(?:in|label):(?:trash|spam|anywhere)\b/i.test(dotaz);
+  const vlakna = seznamVlaken_('(' + dotaz + ')' + (vcetneKose ? '' : ' -in:trash -in:spam'),
+    mojeAdresa_().toLowerCase(), pracovniAdresa_(), null, 20);
   return { vlakna: vlakna, dotaz: dotaz };
 }
 
-/** „Připomenout“ – z e-mailu se stane tvůj úkol s termínem ve schránce (CEKA), s odkazem do Gmailu. */
+/**
+ * „Připomenout“ = odložit: z e-mailu se stane tvůj úkol s termínem ve schránce (CEKA, s odkazem do Gmailu), konverzace
+ * se archivuje a v den termínu se sama vrátí do Doručených jako nepřečtená (vratOdlozene_ při načtení pošty).
+ */
 function pripomenout_(id, termin, poznamka) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(termin || ''))) throw new Error('Termín má tvar RRRR-MM-DD.');
   const vlakno = vlakno_(id);
@@ -519,8 +705,95 @@ function pripomenout_(id, termin, poznamka) {
     'Připomenutí e-mailu „' + predmet + '“ od ' + od + '.',
     odkazGmail_(vlakno.getId()),
     poznamka ? '\n' + String(poznamka).slice(0, 2000) : '', ''].join('\n');
-  const soubor = podslozka_(koren_(), 'CEKA').createFile(nazev, obsah, MimeType.PLAIN_TEXT);
+  // chybějící schránka nebo moc odložených skončí chybou dřív, než se cokoli změní; pak úkol a archiv
+  const ceka = podslozka_(koren_(), 'CEKA');
+  zapamatujOdlozene_(vlakno.getId(), termin);
+  const soubor = ceka.createFile(nazev, obsah, MimeType.PLAIN_TEXT);
+  vlakno.moveToArchive();
+  smazCache_('posta');
   return polozka_(soubor, 'CEKA');
+}
+
+// Odložené konverzace: vlastnost skriptu ODLOZENE = [{ id, termin: 'RRRR-MM-DD' }], každé vlákno nejvýš jednou.
+
+function odlozene_() {
+  try {
+    const seznam = JSON.parse(PropertiesService.getScriptProperties().getProperty('ODLOZENE') || '[]');
+    return Array.isArray(seznam) ? seznam : [];
+  } catch (chyba) {
+    return [];
+  }
+}
+
+/** Uloží seznam odložených (volá se pod zámkem); prázdný seznam vlastnost smaže. */
+function ulozOdlozene_(seznam) {
+  const vlastnosti = PropertiesService.getScriptProperties();
+  if (!seznam.length) {
+    vlastnosti.deleteProperty('ODLOZENE');
+    return;
+  }
+  const json = JSON.stringify(seznam);
+  if (json.length > 8500) throw new Error('Odložených zpráv je moc – některé nejdřív vyřiď.');
+  vlastnosti.setProperty('ODLOZENE', json);
+}
+
+/** Zapamatuje odložení konverzace do termínu; nové odložení téže konverzace jen přepíše termín. */
+function zapamatujOdlozene_(id, termin) {
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(10000);
+  try {
+    const seznam = odlozene_().filter(function (o) { return o.id !== id; });
+    seznam.push({ id: id, termin: termin });
+    ulozOdlozene_(seznam);
+  } finally {
+    zamek.releaseLock();
+  }
+}
+
+/** Odložené konverzace s termínem dnes nebo dřív (datum v Praze) vrátí do Doručených jako nepřečtené. Vrací počet. */
+function vratOdlozene_() {
+  const dnes = Utilities.formatDate(new Date(), CASOVE_PASMO, 'yyyy-MM-dd');
+  const nastal = function (o) { return String(o.termin) <= dnes; };
+  if (!odlozene_().some(nastal)) return 0; // běžný případ: jedno čtení vlastnosti, bez zámku
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(10000);
+  try {
+    let vraceno = 0;
+    const zbyva = odlozene_().filter(function (o) {
+      if (!nastal(o)) return true;
+      try {
+        const vlakno = GmailApp.getThreadById(String(o.id));
+        if (vlakno) {
+          vlakno.moveToInbox();
+          vlakno.markUnread();
+          vraceno++;
+        }
+      } catch (chyba) { /* smazaná konverzace – jen vyřadit ze seznamu */ }
+      return false;
+    });
+    ulozOdlozene_(zbyva);
+    if (vraceno) smazCache_('posta');
+    return vraceno;
+  } finally {
+    zamek.releaseLock();
+  }
+}
+
+/**
+ * Odložení už neplatí – konverzace je zpět v Doručených nebo vyřízená (jinak by v den termínu vyskočila znovu).
+ * jenZDorucenych: zrušit jen u konverzace, která je teď v Doručených (Hotovo po odpovědi na odloženou).
+ */
+function zrusOdlozeni_(vlakno, jenZDorucenych) {
+  const id = vlakno.getId();
+  if (!odlozene_().some(function (o) { return o.id === id; })) return; // běžný případ: jedno čtení vlastnosti
+  if (jenZDorucenych && !vlakno.isInInbox()) return;
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(10000);
+  try {
+    ulozOdlozene_(odlozene_().filter(function (o) { return o.id !== id; }));
+  } finally {
+    zamek.releaseLock();
+  }
 }
 
 /**
@@ -536,7 +809,7 @@ function jePracovni_(zprava, prac) {
       return GmailApp.search('rfc822msgid:' + idZpravy + ' ' + filtrPracovni_(prac), 0, 1).length > 0;
     } catch (chyba) { /* níž podle hlaviček */ }
   }
-  return String([zprava.getTo(), zprava.getCc()].join(',')).split(',')
+  return rozdelAdresy_([zprava.getTo(), zprava.getCc()].join(','))
     .some(function (a) { return adresa_(a) === prac; });
 }
 
@@ -575,9 +848,8 @@ function nactiVlakno_(id, precist) {
     // účet podle zprávy, na kterou se bude odpovídat – stejné pravidlo jako při odeslání
     ucet: jePracovni_(cilOdpovedi_(zobrazit, ja, prac), prac) ? 'pracovni' : 'osobni',
     zpravy: zobrazit.map(function (m, i) {
-      const html = m.getBody() || '';
       const od = adresa_(m.getFrom());
-      return {
+      const zprava = {
         id: m.getId(),
         od: jmeno_(m.getFrom()),
         odAdresa: od,
@@ -586,11 +858,16 @@ function nactiVlakno_(id, precist) {
         kopie: m.getCc(),
         kdy: m.getDate().getTime(),
         predmet: m.getSubject(),
-        text: m.getPlainBody(),
-        html: html.length > 600000 ? '' : html,
+        // obří zprávy (newslettery, výpisy) zkrátit – odpověď motoru jinak roste do megabajtů
+        text: zkrat_(m.getPlainBody(), MAX_TEXTU_ZPRAVY),
+        html: zkratHtml_(m.getBody(), MAX_HTML_ZPRAVY),
         // přílohy jen u posledních tří zpráv – stahují se celé, u starších by to zdržovalo
         prilohy: i >= zobrazit.length - 3 ? seznamPriloh_(m) : null
       };
+      // odpověď půjde jinam než na odesílatele (Reply-To) – aplikace to ukáže
+      const odpovedNa = String(m.getReplyTo() || '').trim();
+      if (odpovedNa && rozdelAdresy_(odpovedNa).some(function (a) { return adresa_(a) !== od; })) zprava.odpovedNa = odpovedNa;
+      return zprava;
     })
   };
   if (precist && vlakno.isUnread()) {
@@ -608,8 +885,46 @@ function seznamPriloh_(zprava) {
   }
 }
 
-/** rezim: odpoved | vsem | preposlat | novy */
+/** Text nejvýš max znaků; zkrácený končí „…“. */
+function zkrat_(text, max) {
+  text = String(text || '');
+  return text.length > max ? text.slice(0, max) + '…' : text;
+}
+
+/** HTML nejvýš max znaků, řez za posledním celým tagem (ať na konci nezůstane useknuté „<a href=…“); končí „…“. */
+function zkratHtml_(html, max) {
+  html = String(html || '');
+  if (html.length <= max) return html;
+  const konecTagu = html.lastIndexOf('>', max - 1);
+  return html.slice(0, konecTagu > 0 ? konecTagu + 1 : max) + '…';
+}
+
+/**
+ * rezim: odpoved | vsem | preposlat | novy
+ * idOdeslani (nepovinné, do 64 znaků): stejné id = stejné psaní – opakovaný pokus (po výpadku sítě) e-mail nezdvojí
+ * a vrátí { jizOdeslano: true }; jinak výsledek true.
+ */
 function odeslat_(d) {
+  const idOdeslani = d.idOdeslani == null ? '' : String(d.idOdeslani);
+  if (idOdeslani.length > 64) throw new Error('Neplatné id odeslání.');
+  if (!idOdeslani) return odeslatHned_(d);
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(30000); // dva souběžné pokusy se stejným id – druhý počká (přeposlání s přílohami trvá) a uvidí, že první odeslal
+  try {
+    const cache = CacheService.getScriptCache();
+    const klic = 'odeslano:' + idOdeslani;
+    let uz = null;
+    try { uz = cache.get(klic); } catch (chyba) { /* bez mezipaměti se pošle – horší by bylo neposlat */ }
+    if (uz) return { jizOdeslano: true };
+    const vysledek = odeslatHned_(d);
+    try { cache.put(klic, '1', 21600); } catch (chyba) { /* odesláno je – chyba mezipaměti nesmí hlásit neúspěch */ }
+    return vysledek;
+  } finally {
+    zamek.releaseLock();
+  }
+}
+
+function odeslatHned_(d) {
   const text = String(d.text || '').replace(/\s+$/, '');
   if (!text.trim()) throw new Error('Prázdná zpráva.');
   if (text.length > 50000) throw new Error('Zpráva je příliš dlouhá.');
@@ -634,15 +949,29 @@ function odeslat_(d) {
   return true;
 }
 
-/** jak: prectene | neprectene | archivovat | doDorucenych | spam */
+/**
+ * jak: prectene | neprectene | archivovat | doDorucenych | spam | vratit („Vrátit“ po Hotovo nebo Spamu: zpět do
+ * Doručených z archivu i ze spamu). Návrat do Doručených, spam i Hotovo u vrácené konverzace ruší její odložení.
+ */
 function oznacitVlakno_(id, jak) {
   const vlakno = vlakno_(id);
   if (jak === 'prectene') vlakno.markRead();
   else if (jak === 'neprectene') vlakno.markUnread();
-  else if (jak === 'archivovat') vlakno.moveToArchive();
-  else if (jak === 'doDorucenych') vlakno.moveToInbox();
-  else if (jak === 'spam') GmailApp.moveThreadToSpam(vlakno);
-  else throw new Error('Neznámá akce.');
+  else if (jak === 'archivovat') {
+    zrusOdlozeni_(vlakno, true); // před archivem – rozhoduje, jestli je teď v Doručených
+    vlakno.moveToArchive();
+  } else if (jak === 'doDorucenych') {
+    vlakno.moveToInbox();
+    zrusOdlozeni_(vlakno);
+  } else if (jak === 'vratit') {
+    GmailApp.moveThreadToInbox(vlakno);
+    zrusOdlozeni_(vlakno);
+  } else if (jak === 'spam') {
+    GmailApp.moveThreadToSpam(vlakno);
+    zrusOdlozeni_(vlakno);
+  } else {
+    throw new Error('Neznámá akce.');
+  }
   smazCache_('posta');
   return true;
 }
@@ -660,7 +989,7 @@ function zprava_(id) {
 }
 
 function adresy_(s) {
-  const seznam = String(s || '').split(/[,;]/).map(function (x) { return x.trim(); }).filter(Boolean);
+  const seznam = rozdelAdresy_(s);
   if (!seznam.length) throw new Error('Chybí adresát.');
   seznam.forEach(function (a) {
     if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(adresa_(a))) throw new Error('Neplatná adresa: ' + a);
@@ -727,11 +1056,49 @@ function nactiFiremni_() {
   }
 }
 
+/**
+ * Seznam adres z hlavičky nebo zadání: '"Novák, Jan" <jan@x.cz>, „Dr. X, Ph.D.“ <x@y.cz>; b@c.cz' → 3 adresy.
+ * Čárka a středník dělí jen mimo uvozovky ("…", „…“, “…”), <…> a (…); při nespárovaných uvozovkách nebo
+ * závorkách se dělí obyčejně (jinak by se zbytek seznamu slil do jedné adresy).
+ */
+function rozdelAdresy_(text) {
+  const s = String(text || '');
+  const vysledek = [];
+  let kus = '';
+  let uvozovky = ''; // čekaná zavírací uvozovka
+  let zavorky = 0;
+  for (let i = 0; i < s.length; i++) {
+    const z = s.charAt(i);
+    if (uvozovky) {
+      if (z === '\\' && uvozovky === '"') { kus += z + s.charAt(++i); continue; } // \" uvnitř jména
+      if (uvozovky.indexOf(z) >= 0) uvozovky = '';
+    } else if (z === '"') {
+      uvozovky = '"';
+    } else if (z === '„' || z === '“') {
+      uvozovky = '“”';
+    } else if (z === '<' || z === '(') {
+      zavorky++;
+    } else if ((z === '>' || z === ')') && zavorky) {
+      zavorky--;
+    } else if ((z === ',' || z === ';') && !zavorky) {
+      if (kus.trim()) vysledek.push(kus.trim());
+      kus = '';
+      continue;
+    }
+    kus += z;
+  }
+  if (uvozovky || zavorky) return s.split(/[,;]/).map(function (x) { return x.trim(); }).filter(Boolean);
+  if (kus.trim()) vysledek.push(kus.trim());
+  return vysledek;
+}
+
+/** Jméno z první adresy ('"Novák, Jan" <jan@x.cz>' → Novák, Jan); bez jména adresa. */
 function jmeno_(od) {
-  const prvni = String(od || '').split(',')[0];
-  const m = prvni.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>/);
-  if (m) return m[1].trim() || m[2].trim();
-  return prvni.trim();
+  const prvni = rozdelAdresy_(od)[0] || '';
+  const m = prvni.match(/^([^<]*)<([^>]+)>/);
+  if (!m) return prvni;
+  const jmeno = m[1].trim().replace(/^["„“”]+|["„“”]+$/g, '').replace(/\\(.)/g, '$1').trim();
+  return jmeno || m[2].trim();
 }
 
 function adresa_(od) {
