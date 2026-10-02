@@ -102,11 +102,20 @@ const zpravyVlaken = {
 };
 
 const kalendare = [
-  { id: 'g-osobni', nazev: 'Osobní', barva: '#2f5bd3', zdroj: 'google', skryty: false, zapis: true },
-  { id: 'ics-prace', nazev: 'Práce', barva: '#0f7c8c', zdroj: 'icloud', skryty: false },
-  { id: 'ics-fotbal', nazev: 'Fotbal', barva: '#2e7a4d', zdroj: 'icloud', skryty: false },
-  { id: 'ics-rodina', nazev: 'Rodina', barva: '#a8620c', zdroj: 'icloud', skryty: false }
+  { id: 'g-osobni', nazev: 'Osobní', barva: '#2f5bd3', zdroj: 'google', skryty: false, zapis: true, druh: 'osobni' },
+  { id: 'ics-prace', nazev: 'Práce', barva: '#0f7c8c', zdroj: 'icloud', skryty: false, druh: 'prace' },
+  { id: 'ics-fotbal', nazev: 'Fotbal', barva: '#2e7a4d', zdroj: 'icloud', skryty: false, druh: 'fotbal' },
+  { id: 'ics-rodina', nazev: 'Rodina', barva: '#a8620c', zdroj: 'icloud', skryty: false, druh: 'rodina' }
 ];
+/** Druh nového kalendáře podle názvu – stejně jako motor (odhadDruhu_). */
+function odhadDruhu(nazev) {
+  const n = String(nazev || '').toLowerCase();
+  if (/⚽|fotbal|zápas|zapas|trénink|trenink|dorost|klub|liga/.test(n)) return 'fotbal';
+  if (/práce|prace|pracovn|work|firma|kancel|projekt/.test(n)) return 'prace';
+  if (/rodin|family|děti|deti|domácnost/.test(n)) return 'rodina';
+  if (/svátk|svatk|narozen|holiday/.test(n)) return 'ostatni';
+  return 'osobni';
+}
 const podpisy = { osobni: 'Michal', pracovni: 'S pozdravem\n\nJméno Příjmení\npozice · firma' };
 // kontakty pro našeptávač (komu jsem psal)
 const kontakty = [{ j: 'Trenér dorostu', a: 'trener@example.com', n: 12 }, { j: 'Kolega z kanceláře', a: 'kolega@firma.example', n: 9 },
@@ -166,18 +175,21 @@ const fotbalZapas = (tym, posunDni, hod, domaci, hoste, vysledek, misto) => {
     String(Math.floor(Math.abs(z) / 60)).padStart(2, '0') + ':' + String(Math.abs(z) % 60).padStart(2, '0');
   return { id: tym + posunDni, tym, zacatek: iso, domaci, hoste, doma: /Vnorovy/.test(domaci), misto, vysledek, stav: vysledek ? 'odehrano' : 'naplanovano', url: '#' };
 };
-const doSoboty = ((6 - new Date(dnes).getDay() + 7) % 7) || 7;
+// odehrané = minulý víkend (vždy před dneškem, i v sobotu a v neděli), budoucí = nejbližší víkend po dnešku
+const denTydne = new Date(dnes).getDay();
+const minulaNedele = -((denTydne + 7) % 7 || 7);
+const pristiSobota = ((6 - denTydne + 7) % 7) || 7;
 const fotbalUkazka = {
   verze: 1, aktualizovano: new Date(ted - 3 * H).toISOString(), zdroj: 'fotbal.cz', klub: 'FK Agro Vnorovy',
   tymy: [{ klic: 'A', nazev: 'A-tým', soutez: '6. liga dospělí', barva: '#2e7a4d' }, { klic: 'B', nazev: 'B-tým', soutez: '9. liga dospělí', barva: '#0f7c8c' },
     { klic: 'dorost', nazev: 'Dorost', soutez: '5. liga starší dorost', barva: '#a8620c' }],
   zapasy: [
-    fotbalZapas('A', doSoboty - 7, 16.5, 'FK Agro Vnorovy', 'TJ Lysovice', '1:3', 'Vnorovy'),
-    fotbalZapas('A', doSoboty, 15, 'FK Šardice', 'FK Agro Vnorovy', '', 'Šardice'),
-    fotbalZapas('B', doSoboty - 6, 15, 'Vnorovy B', 'Nová Lhota', '8:0', 'Vnorovy'),
-    fotbalZapas('B', doSoboty + 1, 15, 'Vnorovy B', 'Veselí n. Moravou B', '', 'Vnorovy'),
-    fotbalZapas('dorost', doSoboty - 6, 10.25, 'FC Kyjov 1919', 'FK Agro Vnorovy', '4:1', 'Kyjov'),
-    fotbalZapas('dorost', doSoboty + 1, 12.25, 'FK Agro Vnorovy', 'TJ Sokol Těšany', '', 'Vnorovy')
+    fotbalZapas('A', minulaNedele - 1, 16.5, 'FK Agro Vnorovy', 'TJ Lysovice', '1:3', 'Vnorovy'),
+    fotbalZapas('A', pristiSobota, 15, 'FK Šardice', 'FK Agro Vnorovy', '', 'Šardice'),
+    fotbalZapas('B', minulaNedele, 15, 'Vnorovy B', 'Nová Lhota', '8:0', 'Vnorovy'),
+    fotbalZapas('B', pristiSobota + 1, 15, 'Vnorovy B', 'Veselí n. Moravou B', '', 'Vnorovy'),
+    fotbalZapas('dorost', minulaNedele, 10.25, 'FC Kyjov 1919', 'FK Agro Vnorovy', '4:1', 'Kyjov'),
+    fotbalZapas('dorost', pristiSobota + 1, 12.25, 'FK Agro Vnorovy', 'TJ Sokol Těšany', '', 'Vnorovy')
   ]
 };
 let fotbalVKalendari = ['dorost'];
@@ -299,12 +311,13 @@ const akce = {
   kalendare: () => kopie(kalendare),
   kalendarPridat: (d) => {
     if (!/^(webcal|https):\/\//i.test(String(d.odkaz || '').trim())) throw new Error('Odkaz musí začínat webcal:// nebo https://');
-    kalendare.push({ id: 'ics-' + Date.now(), nazev: String(d.nazev || '').trim() || 'Kalendář z iPhonu', barva: d.barva || '#8e5bd3', zdroj: 'icloud', skryty: false });
+    const nazev = String(d.nazev || '').trim() || 'Kalendář z iPhonu';
+    kalendare.push({ id: 'ics-' + Date.now(), nazev, barva: d.barva || '#8e5bd3', zdroj: 'icloud', skryty: false, druh: odhadDruhu(nazev) });
     return kopie(kalendare);
   },
   kalendarUpravit: (d) => {
     const k = kalendare.find((x) => x.id === d.id);
-    if (k) { if (d.skryty !== undefined) k.skryty = !!d.skryty; if (d.nazev) k.nazev = d.nazev; if (d.barva) k.barva = d.barva; }
+    if (k) { if (d.skryty !== undefined) k.skryty = !!d.skryty; if (d.nazev) k.nazev = d.nazev; if (d.barva) k.barva = d.barva; if (d.druh) k.druh = d.druh; }
     return kopie(kalendare);
   },
   kalendarOdebrat: (d) => { const i = kalendare.findIndex((x) => x.id === d.id); if (i >= 0) kalendare.splice(i, 1); return kopie(kalendare); },
@@ -312,7 +325,7 @@ const akce = {
     const nazev = String(d.nazev || '').trim();
     if (!nazev) throw new Error('Doplň název kalendáře.');
     let k = kalendare.find((x) => x.nazev === nazev && x.zapis);
-    if (!k) { k = { id: 'g-' + Date.now(), nazev, barva: d.barva || '#2e7a4d', zdroj: 'google', skryty: false, zapis: true }; kalendare.push(k); }
+    if (!k) { k = { id: 'g-' + Date.now(), nazev, barva: d.barva || '#2e7a4d', zdroj: 'google', skryty: false, zapis: true, druh: odhadDruhu(nazev) }; kalendare.push(k); }
     return { id: k.id, kalendare: kopie(kalendare) };
   },
   udalostUlozit: (d) => {

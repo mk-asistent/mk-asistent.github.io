@@ -504,6 +504,7 @@ button.legenda-radek { width: 100%; background: none; border: 0; text-align: lef
     .zdravi-kpi .kpi { padding: 12px; border-radius: 20px; }
     .zdravi-kpi .kpi__hodnota { font-size: 24px; }
     .zdravi-kpi .kpi__hlava span { display: none; }
+    .zdravi-kpi .orez-1 { -webkit-line-clamp: 2; } /* úzká dlaždice: „dnes zatím · včera 5,7“ na dva řádky místo „…“ */
 }
 
 /* ================================================================ Fotbal (zápasy klubu) a druhy kalendářů */
