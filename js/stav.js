@@ -12,6 +12,10 @@ export const stav = {
   schranka: null,
   posta: null,
   pocasi: null,             // přehled ČHMÚ z motoru (výstrahy, řeky, předpovědi)
+  kontakty: null,           // komu jsem psal (našeptávač adres)
+  stitkyGmailu: null,       // štítky Gmailu [{ nazev, neprectenych }]
+  stitekPosty: '',          // vybraný štítek ('' = Doručená pošta)
+  postaStitku: {},          // název štítku → { vlakna, nacita, chyba, kdy }
   chyby: {},                // klíč → ChybaApi (schranka, posta, info)
   nacita: {},               // klíč → true
   naposledy: 0,             // kdy se naposledy načítalo všechno

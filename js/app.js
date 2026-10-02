@@ -15,6 +15,7 @@ import * as hledat from './hledat.js';
 import * as udalost from './udalost.js';
 import * as pocasi from './pocasi.js';
 import * as zdravi from './zdravi.js';
+import { vstupAdresy, klavesaAdresy } from './adresy.js';
 
 const SEKCE = [['dnes', 'Dnes'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář']];
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
@@ -503,13 +504,14 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('input', (e) => {
+  vstupAdresy(e);
   if (hledat.vstupHledat(e)) return;
   if (udalost.vstupUdalost(e)) return;
   if (schranka.vstupSchranka(e)) return;
   posta.vstupPosta(e);
 });
 
-document.addEventListener('change', (e) => { if (!udalost.zmenaUdalost(e)) nast.zmenaNastaveni(e); });
+document.addEventListener('change', (e) => { if (!posta.zmenaPosta(e) && !udalost.zmenaUdalost(e)) nast.zmenaNastaveni(e); });
 
 function pise(e) {
   const t = e.target;
@@ -518,6 +520,7 @@ function pise(e) {
 
 document.addEventListener('keydown', (e) => {
   if ($('aplikace').hidden) return;
+  if (klavesaAdresy(e)) return;
   // Ctrl/Cmd+K = hledání (všude)
   if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); hledat.otevriHledani(); return; }
   // Ctrl/Cmd+Enter uloží poznámku nebo odešle e-mail

@@ -29,9 +29,11 @@ function prostredi() {
     replyAll: (t, m) => log.odeslano.push({ jak: 'replyAll', id: o.id, t, m }),
     forward: (komu, m) => log.odeslano.push({ jak: 'forward', id: o.id, komu, m })
   });
+  const stitkyVlaken = {}; // id vlákna → jména štítků Gmailu
   const vlakno = (id, zpravy, neprectene) => {
     let vDorucenych = true;
     return {
+      getLabels: () => { log.getLabels = (log.getLabels || 0) + 1; return (stitkyVlaken[id] || []).map((n) => ({ getName: () => n })); },
       getId: () => id, getFirstMessageSubject: () => zpravy[0].getSubject(), getLastMessageDate: () => zpravy[zpravy.length - 1].getDate(),
       isUnread: () => neprectene, isImportant: () => false, hasStarredMessages: () => false, getMessageCount: () => zpravy.length,
       getMessages: () => zpravy, isInInbox: () => vDorucenych,
@@ -48,6 +50,7 @@ function prostredi() {
   const m4 = zprava({ id: 'm4', od: 'Já <' + JA + '>', komu: 'Trenér <trener@klub.test>', predmet: 'Omluva', text: 'Dnes nepřijdu.', kdy: ted - 5 * 864e5 });
   const vlakna = { v1: vlakno('v1', [m1], true), v2: vlakno('v2', [m2, m3], false), v3: vlakno('v3', [m4], false) };
   let aliasy = [];
+  let stitkyGmailu = {}; // název → { neprectenych, vlakna }
 
   const zpravy = { m1, m2, m3 };
   let aktualizace = []; // vlákna v kategorii Aktualizace (oznámení)
@@ -71,6 +74,8 @@ function prostredi() {
     getThreadById: (id) => vlakna[id] || null,
     getMessageById: (id) => ({ m1, m2, m3 })[id] || null,
     getAliases: () => aliasy,
+    getUserLabels: () => Object.keys(stitkyGmailu).map((n) => ({ getName: () => n, getUnreadCount: () => stitkyGmailu[n].neprectenych })),
+    getUserLabelByName: (n) => (stitkyGmailu[n] ? { getName: () => n, getThreads: (od, max) => stitkyGmailu[n].vlakna.slice(od, od + max) } : null),
     getInboxUnreadCount: () => 1,
     sendEmail: (komu, predmet, text, m) => log.odeslano.push({ jak: 'send', komu, predmet, t: text, m })
   };
@@ -248,7 +253,7 @@ function prostredi() {
   // záznamy z izolovaného prostředí převést na běžné objekty (jinak je deepStrictEqual odmítne)
   const posledniOdeslano = () => JSON.parse(JSON.stringify(log.odeslano.pop()));
   return { volej, surovy, vlastnosti, cache, ttl, log, posledniOdeslano, ctx, zprava, vlakno, vlakna, kalendare, chmu, nastavCas,
-    nastavAliasy: (a) => { aliasy = a; }, nastavAktualizace: (a) => { aktualizace = a; }, nastavRozpis: (t) => { rozpis = t; },
+    nastavAliasy: (a) => { aliasy = a; }, stitkyVlaken, nastavStitkyGmailu: (o) => { stitkyGmailu = o; }, nastavAktualizace: (a) => { aktualizace = a; }, nastavRozpis: (t) => { rozpis = t; },
     nastavOdeslana: (a) => { odeslana = a; }, nastavStarsi: (osobni, pracovni) => { starsi = { osobni, pracovni: pracovni || [] }; } };
 }
 
@@ -872,9 +877,50 @@ test('vlákno: dlouhý text a HTML se zkrátí („…“), jiná adresa pro odp
   assert.ok(!('odpovedNa' in z2)); // Reply-To = odesílatel
 });
 
-// ---------------------------------------------------------------- počasí (ČHMÚ)
+// ---------------------------------------------------------------- štítky Gmailu, kontakty, podpisy
 
 const json = (x) => JSON.parse(JSON.stringify(x));
+
+test('štítky: u konverzací v seznamu (z mezipaměti podruhé bez Gmailu), seznam štítků, konverzace štítku i archivované', () => {
+  const p = prostredi();
+  p.stitkyVlaken.v1 = ['Fotbal', 'Fotbal/Dorost'];
+  let o = p.volej('posta');
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.osobni[0].stitky), ['Fotbal', 'Fotbal/Dorost']);
+  const volani = p.log.getLabels;
+  o = p.volej('posta', { znovu: true });
+  assert.deepStrictEqual(json(o.data.osobni[0].stitky), ['Fotbal', 'Fotbal/Dorost']);
+  assert.strictEqual(p.log.getLabels, volani, 'štítky vlákna se mají brát z mezipaměti');
+  // seznam štítků s nepřečtenými, seřazený po česku
+  p.nastavStitkyGmailu({ 'Účty': { neprectenych: 2, vlakna: [] }, 'Fotbal': { neprectenych: 0, vlakna: [p.vlakna.v1, p.vlakna.v3] }, 'Auto': { neprectenych: 1, vlakna: [] } });
+  o = p.volej('stitky');
+  assert.deepStrictEqual(json(o.data).map((s) => s.nazev + ':' + s.neprectenych), ['Auto:1', 'Fotbal:0', 'Účty:2']);
+  // konverzace štítku: i ta odeslaná/archivovaná (v3), každá se stavem
+  o = p.volej('postaStitek', { nazev: 'Fotbal' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(o.data.vlakna.map((v) => v.id), ['v1', 'v3']);
+  assert.strictEqual(o.data.vlakna[1].stav, 'cekas');
+  assert.strictEqual(p.volej('postaStitek', { nazev: 'Neexistuje' }).ok, false);
+});
+
+test('kontakty ze odeslané pošty (jméno, adresa, počet) a podpisy osobní / pracovní', () => {
+  const p = prostredi();
+  let o = p.volej('kontakty');
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data), [{ j: 'Trenér', a: 'trener@klub.test', n: 1 }]);
+  // starý tvar mezipaměti (jen adresy) se sestaví znovu i se jmény
+  const p2 = prostredi();
+  p2.cache.set('znami', '1'); p2.cache.set('znami:0', JSON.stringify(['trener@klub.test']));
+  assert.deepStrictEqual(json(p2.volej('kontakty').data), [{ j: 'Trenér', a: 'trener@klub.test', n: 1 }]);
+  // podpisy: uložit, info je vrací, příliš dlouhý odmítnout
+  o = p.volej('podpisyUlozit', { podpisy: { osobni: 'Michal\r\n', pracovni: 'S pozdravem\nMichal\nFirma' } });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.podpisy), { osobni: 'Michal', pracovni: 'S pozdravem\nMichal\nFirma' });
+  assert.deepStrictEqual(json(p.volej('info').data.posta.podpisy), { osobni: 'Michal', pracovni: 'S pozdravem\nMichal\nFirma' });
+  assert.strictEqual(p.volej('podpisyUlozit', { podpisy: { osobni: 'x'.repeat(2001) } }).ok, false);
+});
+
+// ---------------------------------------------------------------- počasí (ČHMÚ)
 
 test('počasí: výstrahy pro ORP ze skutečného CAP (28. 6. 2026), řeka a předpovědi; přehled se drží v mezipaměti', () => {
   const p = prostredi();

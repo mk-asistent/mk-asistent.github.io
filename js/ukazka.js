@@ -40,10 +40,10 @@ const schranka = {
 
 const posta = {
   osobni: [
-    { id: 't1', ucet: 'osobni', stav: 'ceka', od: 'Trenér dorostu', predmet: 'Sobotní zápas – sraz v 8:30', ukazka: 'Ahoj, sraz je výjimečně dřív, autobus jede z náměstí. Vezměte si prosím oba dresy.', kdy: ted - 1.2 * H, neprectena: true, pocet: 2, odkaz: '#' },
-    { id: 't2', ucet: 'osobni', stav: 'info', od: 'Banka', predmet: 'Výpis z účtu za září', ukazka: 'Váš výpis je připraven v internetovém bankovnictví.', kdy: ted - 5 * H, neprectena: true, pocet: 1, odkaz: '#' },
+    { id: 't1', ucet: 'osobni', stav: 'ceka', od: 'Trenér dorostu', predmet: 'Sobotní zápas – sraz v 8:30', ukazka: 'Ahoj, sraz je výjimečně dřív, autobus jede z náměstí. Vezměte si prosím oba dresy.', kdy: ted - 1.2 * H, neprectena: true, pocet: 2, odkaz: '#', stitky: ['Fotbal', 'Fotbal/Dorost'] },
+    { id: 't2', ucet: 'osobni', stav: 'info', od: 'Banka', predmet: 'Výpis z účtu za září', ukazka: 'Váš výpis je připraven v internetovém bankovnictví.', kdy: ted - 5 * H, neprectena: true, pocet: 1, odkaz: '#', stitky: ['Účty'] },
     { id: 't3', ucet: 'osobni', stav: 'info', od: 'Google', predmet: 'Bezpečnostní upozornění', ukazka: 'Nové přihlášení na zařízení Windows.', kdy: ted - 28 * H, neprectena: false, pocet: 1, odkaz: '#' },
-    { id: 't4', ucet: 'osobni', stav: 'otazka', od: 'Fotbalový svaz', predmet: 'Změna termínu utkání dorostu', ukazka: 'Utkání 10. kola se přesouvá na neděli 10:15. Stihnete to i s autobusem?', kdy: ted - 75 * H, neprectena: false, pocet: 1, odkaz: '#' }
+    { id: 't4', ucet: 'osobni', stav: 'otazka', od: 'Fotbalový svaz', predmet: 'Změna termínu utkání dorostu', ukazka: 'Utkání 10. kola se přesouvá na neděli 10:15. Stihnete to i s autobusem?', kdy: ted - 75 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Fotbal'] }
   ],
   pracovni: [
     { id: 'p1', ucet: 'pracovni', stav: 'hori', od: 'Investor – stavba', predmet: 'Předávací protokol 2. NP', ukazka: 'Dobrý den, posílám protokol k připomínkám – potřebuji je nejpozději zítra, předání je ve středu.', kdy: ted - 2 * H, neprectena: true, pocet: 1, odkaz: '#' },
@@ -95,6 +95,16 @@ const kalendare = [
   { id: 'ics-fotbal', nazev: 'Fotbal', barva: '#2e7a4d', zdroj: 'icloud', skryty: false },
   { id: 'ics-rodina', nazev: 'Rodina', barva: '#a8620c', zdroj: 'icloud', skryty: false }
 ];
+const podpisy = { osobni: 'Michal', pracovni: 'S pozdravem\n\nJméno Příjmení\npozice · firma' };
+// kontakty pro našeptávač (komu jsem psal)
+const kontakty = [{ j: 'Trenér dorostu', a: 'trener@example.com', n: 12 }, { j: 'Kolega z kanceláře', a: 'kolega@firma.example', n: 9 },
+  { j: 'Investor – stavba', a: 'investor@example.com', n: 4 }, { j: '', a: 'rodic1@example.com', n: 2 }];
+// štítky Gmailu: Fotbal a Účty i se staršími (archivovanými) konverzacemi
+const stitkyGmailu = { 'Fotbal': ['t1', 't4', 'a1'], 'Fotbal/Dorost': ['t1'], 'Účty': ['t2', 'a2'] };
+const archivovane = [
+  { id: 'a1', ucet: 'osobni', stav: 'resi', od: 'Rozhodčí', predmet: 'Zápis o utkání 8. kola', ukazka: 'V příloze zápis, prosím o kontrolu sestavy.', kdy: ted - 9 * 24 * H, neprectena: false, pocet: 2, odkaz: '#', stitky: ['Fotbal'] },
+  { id: 'a2', ucet: 'osobni', stav: 'info', od: 'Elektřina', predmet: 'Vyúčtování za září', ukazka: 'Vyúčtování je k dispozici v zákaznickém portálu.', kdy: ted - 12 * 24 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Účty'] }
+];
 const skupinyHostu = [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@example.com', 'rodic2@example.com', 'rodic3@example.com'] }];
 const vlastni = [];         // události zapsané v ukázce
 const smazane = new Set();  // smazané nebo přepsané ukázkové události
@@ -143,7 +153,7 @@ function najdiPolozku(id) {
 
 const akce = {
   info: () => ({ verze: 'ukázka', ucet: 'ja@example.com', skupinyHostu: kopie(skupinyHostu),
-    posta: { osobniAdresa: 'ja@example.com', pracovniAdresa: posta.pracovniAdresa, lzeOdesilatZPracovni: true }, kalendare }),
+    posta: { osobniAdresa: 'ja@example.com', pracovniAdresa: posta.pracovniAdresa, lzeOdesilatZPracovni: true, podpisy: kopie(podpisy) }, kalendare }),
   nastavPostu: (d) => { posta.pracovniAdresa = String(d.pracovniAdresa || '').trim(); return akce.info().posta; },
   schranka: () => Object.assign(kopie(schranka), { ted: Date.now() }),
   poznamka: (d) => {
@@ -264,6 +274,15 @@ const akce = {
     });
     return { pridano, upraveno: 0, beze_zmeny, kalendar: 'Zápasy', kalendarId: k.id };
   },
+  stitky: () => Object.keys(stitkyGmailu).map((nazev) => ({ nazev, neprectenych: nazev === 'Účty' ? 1 : 0 })),
+  postaStitek: (d) => {
+    const ids = stitkyGmailu[d.nazev];
+    if (!ids) throw new Error('Štítek „' + d.nazev + '“ v Gmailu není.');
+    const vse = posta.osobni.concat(posta.pracovni, archivovane);
+    return { nazev: d.nazev, vlakna: kopie(ids.map((id) => vse.find((m) => m.id === id)).filter(Boolean)), ted: Date.now() };
+  },
+  kontakty: () => kopie(kontakty),
+  podpisyUlozit: (d) => { Object.assign(podpisy, { osobni: String((d.podpisy || {}).osobni || ''), pracovni: String((d.podpisy || {}).pracovni || '') }); return akce.info().posta; },
   pocasi: () => {
     // ukázka: zítra odpoledne žluté bouřky, jinak klid; předpověď na 4 dny jako od ČHMÚ
     const dnyPred = [['slunce', 'Převážně jasno', [19, 23], null], ['bourka', 'Odpoledne bouřky', [24, 28], [12, 15]],

@@ -151,8 +151,8 @@ function adresyZTextu(text) {
 
 function hosteHtml() {
   const skupiny = skupinyHostu();
-  return '<label><span class="label">Pozvat lidi (e-mail)</span><input class="field" data-uf="hoste" value="' + esc(f.hoste) + '" ' +
-      'placeholder="adresy oddělené čárkou" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false"></label>' +
+  return '<label><span class="label">Pozvat lidi (e-mail)</span><input class="field" data-uf="hoste" data-naseptavac data-jen-adresy value="' + esc(f.hoste) + '" ' +
+      'placeholder="jméno nebo adresa, víc oddělit čárkou" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false"></label>' +
     (skupiny.length ? '<div class="volby">' + skupiny.map((s) => '<button type="button" class="chip" data-uf-skupina="' + esc(s.nazev) + '">' + IKONY.plus +
       esc(s.nazev) + '<span class="pocet cisla">' + s.adresy.length + '</span></button>').join('') + '</div>' : '') +
     '<div class="formular__radek formular__radek--hoste">' +

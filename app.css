@@ -518,6 +518,21 @@ li.aktivni > .radek { background: var(--sand); box-shadow: inset 3px 0 0 var(--a
 .psani-citace summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
 .psani-citace div { white-space: pre-wrap; border-left: 2px solid var(--sand-2); padding: 4px 0 4px 10px; max-height: 30vh; overflow: auto; }
 .psani-zahodit { align-self: flex-start; margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+.psani-podpis { margin: 6px 0 0; }
+
+/* štítky z Gmailu: u konverzace malá barevná pilulka (odstín podle názvu), nahoře výběr štítku */
+.stitek-gmail { display: inline-block; margin-right: 6px; padding: 0 7px; border-radius: 6px; font-size: 10.5px; font-weight: 650; line-height: 1.65; vertical-align: 1px;
+    background: hsl(var(--h) var(--avatar-s) var(--avatar-l)); color: hsl(var(--h) var(--avatar-ts) var(--avatar-tl)); }
+.stitek-volba { display: inline-flex; align-items: center; gap: 6px; padding: 0 4px 0 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); }
+.stitek-volba svg { width: 15px; height: 15px; }
+.stitek-volba select { border: 0; background: transparent; padding: 7px 6px; font-size: 13px; font-weight: 600; color: var(--text); max-width: 220px; outline: none; }
+
+/* našeptávač adres (Komu, hosté události) */
+.naseptavac { position: fixed; z-index: 120; display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-pop); max-height: 280px; overflow-y: auto; }
+.naseptavac button { display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 7px 10px; border: 0; border-radius: 8px; background: none; color: inherit; text-align: left; }
+.naseptavac button b { font-size: 13.5px; font-weight: 600; }
+.naseptavac button small { font-size: 12px; color: var(--muted); }
+.naseptavac button[aria-selected="true"], .naseptavac button:hover { background: var(--sand); }
 .psani .pruh { margin: 8px 0; }
 
 /* ---------- Připomenout ---------- */

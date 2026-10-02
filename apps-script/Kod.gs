@@ -100,7 +100,11 @@ const AKCE = {
   udalostUlozit: function (d) { return ulozUdalost_(d); },
   udalostSmazat: function (d) { return smazUdalost_(d.kalendarId, d.udalost, !!d.cela); },
   zapasyImport: function (d) { return importujZapasy_(d); },
-  pocasi: function (d) { return pocasi_(!!d.znovu); }
+  pocasi: function (d) { return pocasi_(!!d.znovu); },
+  stitky: function (d) { return stitkyGmailu_(!!d.znovu); },
+  postaStitek: function (d) { return postaStitku_(d.nazev); },
+  kontakty: function () { return kontakty_(); },
+  podpisyUlozit: function (d) { return ulozPodpisy_(d.podpisy); }
 };
 
 // ---------------------------------------------------------------- nastavení (spouští se ručně v editoru)
@@ -341,7 +345,7 @@ function aliasPracovni_(prac) {
 /** Stav pošty pro Nastavení v aplikaci: pracovní adresa a jestli z ní jde odesílat. */
 function nastaveniPosty_() {
   const prac = pracovniAdresa_();
-  return { osobniAdresa: mojeAdresa_(), pracovniAdresa: prac, lzeOdesilatZPracovni: !!prac && !!aliasPracovni_(prac) };
+  return { osobniAdresa: mojeAdresa_(), pracovniAdresa: prac, lzeOdesilatZPracovni: !!prac && !!aliasPracovni_(prac), podpisy: podpisy_() };
 }
 
 function nastavPostu_(adresa) {
@@ -403,10 +407,15 @@ function spojVlakna_(prvni, druhe) {
   });
 }
 
-function seznamVlaken_(dotaz, ja, prac, ucet, max) {
-  const vlakna = GmailApp.search(dotaz, 0, max || MAX_VLAKEN);
+/**
+ * Souhrny vláken pro seznam v aplikaci. Vlákna z dotazu do Gmailu, nebo už načtená (predem – např. vlákna štítku);
+ * dotaz pak slouží jen k poznání oznámení (kategorie Aktualizace).
+ */
+function seznamVlaken_(dotaz, ja, prac, ucet, max, predem) {
+  const vlakna = predem || GmailApp.search(dotaz, 0, max || MAX_VLAKEN);
   const zpravy = GmailApp.getMessagesForThreads(vlakna);
-  const oznameni = oznameniVlakna_(dotaz);
+  const oznameni = dotaz ? oznameniVlakna_(dotaz) : {};
+  const stitky = stitkyVlaken_(vlakna);
   const ted = Date.now();
   // známí lidé jednou na celý seznam; kolegové z pracovní domény se berou jako známí
   let znami = znamiLide_();
@@ -448,6 +457,7 @@ function seznamVlaken_(dotaz, ja, prac, ucet, max) {
       neprectena: vlakno.isUnread(),
       dulezita: vlakno.isImportant(),
       hvezdicka: vlakno.hasStarredMessages(),
+      stitky: stitky[i],
       pocet: seznam.length,
       odkaz: odkazGmail_(vlakno.getId()),
       termin: s.termin ? s.termin.ms : null, // termín z poslední zprávy (23:59 toho dne v Praze)
@@ -479,6 +489,82 @@ function oznameniVlakna_(dotaz) {
     GmailApp.search('(' + dotaz + ') category:updates', 0, MAX_VLAKEN).forEach(function (v) { mapa[v.getId()] = true; });
   } catch (chyba) { /* bez kategorií – rozhodne odesílatel */ }
   return mapa;
+}
+
+// ---------------------------------------------------------------- Pošta – štítky Gmailu, kontakty, podpisy
+
+const STITKY_SEKUND = 3600; // štítky vlákna se mění zřídka (přidává je hlavně filtr při doručení)
+const MAX_VLAKEN_STITKU = 40;
+const MAX_PODPISU = 2000;
+
+/** Uživatelské štítky Gmailu u vláken (jména) – z mezipaměti, chybějící se dočtou jedním voláním na vlákno. */
+function stitkyVlaken_(vlakna) {
+  const cache = CacheService.getScriptCache();
+  const klice = vlakna.map(function (v) { return 'stitky:' + v.getId(); });
+  let ulozene = {};
+  try { ulozene = (klice.length && cache.getAll(klice)) || {}; } catch (chyba) { ulozene = {}; }
+  const nove = {};
+  const vysledek = vlakna.map(function (v, i) {
+    if (ulozene[klice[i]] != null) {
+      try { return JSON.parse(ulozene[klice[i]]); } catch (chyba) { /* dočíst znovu */ }
+    }
+    let jmena = [];
+    try { jmena = (v.getLabels ? v.getLabels() : []).map(function (l) { return l.getName(); }); } catch (chyba) { jmena = []; }
+    nove[klice[i]] = JSON.stringify(jmena);
+    return jmena;
+  });
+  if (Object.keys(nove).length) {
+    try { cache.putAll(nove, STITKY_SEKUND); } catch (chyba) { /* jen zrychlení */ }
+  }
+  return vysledek;
+}
+
+/** Štítky Gmailu tak, jak je má Michal (vlastní, i vnořené „Rodič/Dítě“), s počtem nepřečtených. */
+function stitkyGmailu_(znovu) {
+  if (!znovu) {
+    const ulozene = nactiZCache_('stitky');
+    if (ulozene) return ulozene;
+  }
+  const vysledek = GmailApp.getUserLabels().map(function (l) {
+    let neprectenych = 0;
+    try { neprectenych = l.getUnreadCount(); } catch (chyba) { /* počet není nutný */ }
+    return { nazev: l.getName(), neprectenych: neprectenych };
+  }).sort(function (a, b) { return a.nazev.localeCompare(b.nazev, 'cs'); });
+  ulozDoCache_('stitky', vysledek, 600);
+  return vysledek;
+}
+
+/** Konverzace se štítkem (kdekoli, i archivované) – nejnovější nahoře. */
+function postaStitku_(nazev) {
+  nazev = String(nazev || '').trim();
+  if (!nazev) throw new Error('Chybí štítek.');
+  const stitek = GmailApp.getUserLabelByName(nazev);
+  if (!stitek) throw new Error('Štítek „' + nazev + '“ v Gmailu není.');
+  const ja = mojeAdresa_().toLowerCase();
+  const prac = pracovniAdresa_();
+  return { nazev: nazev, vlakna: seznamVlaken_(null, ja, prac, null, MAX_VLAKEN_STITKU, stitek.getThreads(0, MAX_VLAKEN_STITKU)), ted: Date.now() };
+}
+
+/** Lidé, kterým jsem za rok psal (jméno, adresa, kolikrát) – pro našeptávání adres v aplikaci. */
+function kontakty_() {
+  znamiLide_();
+  return (KONTAKTY_ || []).slice(0, 400);
+}
+
+/** Podpisy na konec e-mailu (osobní a pracovní) – aplikace je vloží do psaní, motor nic nepřidává. */
+function podpisy_() {
+  let p = {};
+  try { p = JSON.parse(PropertiesService.getScriptProperties().getProperty('PODPISY') || '{}') || {}; } catch (chyba) { p = {}; }
+  return { osobni: String(p.osobni || ''), pracovni: String(p.pracovni || '') };
+}
+
+function ulozPodpisy_(podpisy) {
+  podpisy = podpisy || {};
+  const cisty = function (s) { return String(s || '').replace(/\r\n/g, '\n').replace(/\s+$/, ''); };
+  const p = { osobni: cisty(podpisy.osobni), pracovni: cisty(podpisy.pracovni) };
+  if (p.osobni.length > MAX_PODPISU || p.pracovni.length > MAX_PODPISU) throw new Error('Podpis je příliš dlouhý (nejvýš 2000 znaků).');
+  PropertiesService.getScriptProperties().setProperty('PODPISY', JSON.stringify(p));
+  return nastaveniPosty_();
 }
 
 // Stav konverzace jako „případ“ – nápad převzatý z poštovního klienta Mailer (fastmailer.one), pravidla vlastní.
@@ -585,17 +671,19 @@ function vetaKolem_(text, zacatek, konec) {
 }
 
 let ZNAMI_; // jednou za běh skriptu; undefined = ještě nenačteno, null = nevíme (každý se bere jako známý)
+let KONTAKTY_ = null; // [{ j: jméno, a: adresa, n: kolikrát jsem psal }] – nejčastější nahoře
 
 /**
  * Známí lidé = komu jsem za poslední rok psal (Komu, Kopie i Skrytá kopie mých odeslaných zpráv) → { adresa: true }.
- * Prohledání odeslané pošty je pomalé – adresy se drží v mezipaměti (klíč „znami“, po kusech přes ulozDoCache_).
+ * Zároveň kontakty se jménem a počtem pro našeptávání adres. Prohledání odeslané pošty je pomalé – drží se
+ * v mezipaměti (klíč „znami“ = [[adresa, jméno, počet], …], po kusech přes ulozDoCache_).
  */
 function znamiLide_() {
   if (ZNAMI_ !== undefined) return ZNAMI_;
   ZNAMI_ = null;
   let seznam = null;
   try { seznam = nactiZCache_('znami'); } catch (chyba) { /* poškozená mezipaměť – sestavit znovu */ }
-  if (!Array.isArray(seznam)) {
+  if (!Array.isArray(seznam) || (seznam.length && !Array.isArray(seznam[0]))) { // starý tvar (jen adresy) = sestavit znovu
     const ja = mojeAdresa_().toLowerCase();
     const prac = pracovniAdresa_();
     if (!ja && !prac) return ZNAMI_;
@@ -606,20 +694,26 @@ function znamiLide_() {
         zpravy.forEach(function (m) {
           const od = adresa_(m.getFrom());
           if (!od || (od !== ja && od !== prac)) return; // v odeslaných vláknech jsou i odpovědi ostatních
-          rozdelAdresy_([m.getTo(), m.getCc(), m.getBcc()].join(',')).forEach(function (a) {
-            a = adresa_(a);
-            if (a && a !== ja && a !== prac) adresy[a] = true;
+          rozdelAdresy_([m.getTo(), m.getCc(), m.getBcc()].join(',')).forEach(function (cela) {
+            const a = adresa_(cela);
+            if (!a || a === ja || a === prac) return;
+            const jmeno = jmeno_(cela);
+            const k = adresy[a] || (adresy[a] = { j: '', n: 0 });
+            k.n++;
+            if (!k.j && jmeno && jmeno.toLowerCase() !== a) k.j = jmeno;
           });
         });
       });
     } catch (chyba) {
       return ZNAMI_; // Gmail teď nejde – raději každý známý než všechno „neznámé“
     }
-    seznam = Object.keys(adresy);
+    seznam = Object.keys(adresy).map(function (a) { return [a, adresy[a].j, adresy[a].n]; })
+      .sort(function (x, y) { return y[2] - x[2]; });
     ulozDoCache_('znami', seznam, ZNAMI_SEKUND);
   }
   ZNAMI_ = {};
-  seznam.forEach(function (a) { ZNAMI_[a] = true; });
+  seznam.forEach(function (x) { ZNAMI_[x[0]] = true; });
+  KONTAKTY_ = seznam.map(function (x) { return { j: x[1] || '', a: x[0], n: x[2] || 0 }; });
   return ZNAMI_;
 }
 

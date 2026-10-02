@@ -196,6 +196,16 @@ function sekcePosty() {
     '(wes1-smtp.wedos.net, login celá adresa, heslo zadáš jen ty).</li>' +
     '<li>Sem napiš pracovní adresu a ulož. Aplikace pak pracovní poštu oddělí a odpovídá z ní.</li></ol>' +
     '<p>Přeposíláním se firemní e-maily ukládají i v osobním účtu Google – je to rozhodnutí firmy, ne aplikace.</p></details>';
+  // podpis na konec e-mailu – vloží se do psaní (nový e-mail i odpověď), před odesláním jde upravit
+  const podpisy = p.podpisy || {};
+  const jmeno = uloziste.cti('asistent.jmeno') || '';
+  h += '<h3>Podpis</h3><p class="napoveda">Vloží se na konec nového e-mailu i odpovědi; před odesláním ho můžeš upravit.' +
+    (staryMotor() ? ' Uložit ho půjde po nasazení nové verze motoru.' : '') + '</p>' +
+    '<label><span class="label">Osobní</span><textarea class="field" rows="3" data-nast-podpis="osobni" placeholder="S pozdravem&#10;' + esc(jmeno || 'Jméno') + '">' +
+      esc(podpisy.osobni || '') + '</textarea></label>' +
+    (p.pracovniAdresa ? '<label><span class="label">Pracovní · ' + esc(p.pracovniAdresa) + '</span><textarea class="field" rows="5" data-nast-podpis="pracovni" ' +
+      'placeholder="S pozdravem&#10;&#10;' + esc(jmeno || 'Jméno Příjmení') + '&#10;pozice · firma&#10;telefon · web">' + esc(podpisy.pracovni || '') + '</textarea></label>' : '') +
+    '<div class="akce"><button type="button" class="btn btn--primary" data-nast="ulozit-podpisy"' + (staryMotor() ? ' disabled' : '') + '>Uložit podpis</button></div>';
   return h + '</section>';
 }
 
@@ -341,6 +351,14 @@ export function klikNastaveni(el) {
         nactiPostu(true);
         obnovPanel('nastaveni');
       })
+      .catch((e) => { el.disabled = false; toast(e.message, true); });
+    return true;
+  }
+  if (akce === 'ulozit-podpisy') {
+    const cti = (u) => { const t = panel.querySelector('[data-nast-podpis="' + u + '"]'); return t ? t.value : ((stav.info && stav.info.posta && stav.info.posta.podpisy) || {})[u] || ''; };
+    el.disabled = true;
+    volej('podpisyUlozit', { podpisy: { osobni: cti('osobni'), pracovni: cti('pracovni') } })
+      .then((posta) => { if (stav.info) stav.info.posta = posta; uloziste.pis('asistent.info', stav.info); toast('Podpis uložen ✓'); obnovPanel('nastaveni'); })
       .catch((e) => { el.disabled = false; toast(e.message, true); });
     return true;
   }
