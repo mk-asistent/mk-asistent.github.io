@@ -84,12 +84,14 @@ function odznakSekce(sekce, p) {
 /** Postranní panel: logo, sekce s počty, Nastavení, kdo je připojený. Na iPadu jen ikony (CSS). */
 function vykresliRail(p) {
   const ucet = (stav.info && stav.info.ucet) || (jeDemo() ? 'ukázka' : '');
-  const pripojeni = jeDemo() ? ['ukazka', 'ukázková data'] : navigator.onLine === false ? ['offline', 'offline'] : ['', 'připojeno'];
+  const pripojeni = jeDemo() ? ['ukazka', 'ukázková data'] : navigator.onLine === false ? ['offline', 'offline']
+    : stav.chyby.info ? ['offline', 'nepřipojeno – viz Nastavení'] : stav.info ? ['', 'připojeno'] : ['ukazka', 'připojuji…'];
   const tl = (atr, nazev, ikona, n, aktivni) => '<button type="button" class="rail__btn" ' + atr + ' title="' + nazev + '" aria-label="' + nazev +
     (n ? ', ' + n : '') + '"' + (aktivni ? ' aria-current="page"' : '') + '>' + ikona + '<span>' + nazev + '</span>' +
     (n ? '<span class="pocet cisla">' + n + '</span>' : '') + '</button>';
   $('rail').innerHTML =
-    '<div class="rail__logo"><span class="znak">' + IKONY.dnes + '</span><div><b>Asistent</b><small>osobní přehled</small></div></div>' +
+    '<button type="button" class="rail__logo" data-cil="dnes" title="Dnes – hlavní stránka" aria-label="Asistent – hlavní stránka">' +
+      '<span class="znak">' + IKONY.dnes + '</span><div><b>Asistent</b><small>osobní přehled</small></div></button>' +
     '<div class="rail__sekce">Hlavní</div>' +
     SEKCE.map((s) => tl('data-cil="' + s[0] + '"', s[1], IKONY[s[0]], odznakSekce(s[0], p), stav.pohled === s[0])).join('') +
     '<div class="rail__spodek"><div class="rail__sekce">Účet</div>' +
@@ -146,6 +148,11 @@ function vykresliPruhy() {
   const pruhy = [];
   if (jeDemo()) pruhy.push('<p class="pruh pruh-ukazka">Ukázková data – skutečná se ukážou po připojení motoru v Nastavení.</p>');
   if (navigator.onLine === false) pruhy.push('<p class="pruh pruh-offline">Jsi offline – ukazuju naposledy uložená data.</p>');
+  // motor nejde připojit (špatná adresa, klíč, nasazení) – říct to nahoře, ne jen nechat prázdné karty
+  else if (!jeDemo() && stav.chyby.info && stav.chyby.info.kod !== 'sit') {
+    pruhy.push('<p class="pruh pruh-varovani spread"><span>Motor není připojený: ' + esc(stav.chyby.info.message) + '</span>' +
+      '<button type="button" class="btn btn--ghost btn--sm" data-otevri-nastaveni="pripojeni">Nastavení připojení</button></p>');
+  }
   $('pruhy').innerHTML = pruhy.join('');
 }
 

@@ -70,7 +70,10 @@ function doPost(e) {
 }
 
 const AKCE = {
-  info: function () { return { verze: VERZE, ucet: mojeAdresa_(), posta: nastaveniPosty_(), kalendare: seznamKalendaru_() }; },
+  info: function () {
+    return { verze: VERZE, ucet: mojeAdresa_(), posta: nastaveniPosty_(), kalendare: seznamKalendaru_(), skupinyHostu: skupinyHostu_() };
+  },
+  skupinyHostuUlozit: function (d) { return ulozSkupinyHostu_(d.skupiny); },
   nastavPostu: function (d) { return nastavPostu_(d.pracovniAdresa); },
   schranka: function () { return nactiSchranku_(); },
   poznamka: function (d) { return pridejPoznamku_(d.text); },
@@ -759,6 +762,7 @@ function nactiKalendar_(od, doDne, znovu) {
       nazev = kal.getName();
       const barva = kal.getColor();
       const kalId = kal.getId();
+      const zapis = vlastniKalendar_(kal); // hosty má smysl číst jen u vlastních (jinde je stejně nejde měnit)
       kal.getEvents(new Date(od), new Date(doDne)).forEach(function (u) {
         const celodenni = u.isAllDayEvent();
         const zacatek = (celodenni ? u.getAllDayStartDate() : u.getStartTime()).getTime();
@@ -774,7 +778,8 @@ function nactiKalendar_(od, doDne, znovu) {
           kalendarId: kalId,
           barva: BARVY_UDALOSTI_GOOGLE[u.getColor()] || barva,
           zdroj: 'google',
-          opakovana: u.isRecurringEvent()
+          opakovana: u.isRecurringEvent(),
+          hoste: zapis ? u.getGuestList().map(function (g) { return g.getEmail(); }).slice(0, MAX_HOSTU) : []
         });
       });
     } catch (chyba) {
@@ -924,9 +929,34 @@ function nastavPripomenuti_(u, minuty) {
   });
 }
 
+const MAX_HOSTU = 100;
+
+/** Adresy hostů ze zadání (text „a@x.cz, b@y.cz“ nebo pole) – bez duplicit, všechny musí být platné. */
+function hosteZeZadani_(hoste) {
+  const seznam = (Array.isArray(hoste) ? hoste : String(hoste || '').split(/[,;\s]+/))
+    .map(function (a) { return String(a || '').trim().toLowerCase(); }).filter(Boolean);
+  const spatna = seznam.filter(function (a) { return !PROSTA_ADRESA.test(a); })[0];
+  if (spatna) throw new Error('Neplatná adresa hosta: ' + spatna.slice(0, 80));
+  const bezDuplicit = seznam.filter(function (a, i) { return seznam.indexOf(a) === i; });
+  if (bezDuplicit.length > MAX_HOSTU) throw new Error('Nejvýš ' + MAX_HOSTU + ' hostů.');
+  return bezDuplicit;
+}
+
+/** Hostům upravené události pošle krátký e-mail o změně (CalendarApp u úprav pozvánky sám neposílá). */
+function posliZmenuHostum_(hoste, nazev, zacatek, konec, celodenni, misto) {
+  const kdy = celodenni
+    ? Utilities.formatDate(new Date(zacatek), CASOVE_PASMO, 'd. M. yyyy') + (konec - zacatek > 25 * 36e5
+      ? ' – ' + Utilities.formatDate(new Date(konec - 864e5), CASOVE_PASMO, 'd. M. yyyy') : '') + ' (celý den)'
+    : Utilities.formatDate(new Date(zacatek), CASOVE_PASMO, 'd. M. yyyy H:mm') + ' – ' + Utilities.formatDate(new Date(konec), CASOVE_PASMO, 'H:mm');
+  const text = ['Událost „' + nazev + '“ se změnila.', '', 'Kdy: ' + kdy, misto ? 'Kde: ' + misto : '', '',
+    'Aktuální podobu najdeš v pozvánce ve svém kalendáři.'].filter(function (r, i, a) { return r || a[i - 1]; }).join('\n');
+  GmailApp.sendEmail(hoste.join(','), 'Změna: ' + nazev, text);
+}
+
 /**
  * Nová nebo upravená událost. d = { kalendarId, udalost? (id pro úpravu), nazev, celodenni, zacatek, konec (ms; u celodenní
- * půlnoc prvního dne a půlnoc po posledním dni), misto, popis, pripomenuti: [min], barva ('1'–'11'), tydne, tydneDo ('RRRR-MM-DD') }
+ * půlnoc prvního dne a půlnoc po posledním dni), misto, popis, pripomenuti: [min], barva ('1'–'11'), tydne, tydneDo ('RRRR-MM-DD'),
+ * hoste (e-maily), pozvat (nová: Google pošle pozvánky; úprava: e-mail o změně) }
  */
 function ulozUdalost_(d) {
   const kal = zapisovatelnyKalendar_(d.kalendarId);
@@ -938,6 +968,11 @@ function ulozUdalost_(d) {
   const celodenni = !!d.celodenni;
   const jedenDen = konec - zacatek <= 25 * 36e5; // celodenní přes změnu času má 23 nebo 25 hodin
   const moznosti = { location: String(d.misto || '').slice(0, 300), description: String(d.popis || '').slice(0, 5000) };
+  const hoste = d.hoste === undefined ? null : hosteZeZadani_(d.hoste);
+  if (!d.udalost && hoste && hoste.length) {
+    moznosti.guests = hoste.join(',');
+    moznosti.sendInvites = !!d.pozvat;
+  }
   let u;
   if (d.udalost) {
     u = najdiUdalost_(kal, d.udalost);
@@ -949,6 +984,12 @@ function ulozUdalost_(d) {
     }
     u.setLocation(moznosti.location);
     u.setDescription(moznosti.description);
+    if (hoste) {
+      const stavajici = u.getGuestList().map(function (g) { return String(g.getEmail()).toLowerCase(); });
+      hoste.filter(function (a) { return stavajici.indexOf(a) < 0; }).forEach(function (a) { u.addGuest(a); });
+      stavajici.filter(function (a) { return hoste.indexOf(a) < 0; }).forEach(function (a) { u.removeGuest(a); });
+      if (d.pozvat && hoste.length) posliZmenuHostum_(hoste, nazev, zacatek, konec, celodenni, moznosti.location);
+    }
   } else if (d.tydne) {
     // opakování každý týden (třeba trénink), případně do data včetně
     const pravidlo = CalendarApp.newRecurrence().addWeeklyRule();
@@ -967,6 +1008,28 @@ function ulozUdalost_(d) {
   if (BARVY_UDALOSTI_GOOGLE[String(d.barva || '')]) u.setColor(String(d.barva));
   zvysVerziKalendaru_();
   return { id: u.getId(), kalendarId: kal.getId() };
+}
+
+/** Uložené skupiny hostů (např. „Dorost – rodiče“) – sdílené mezi zařízeními přes vlastnosti skriptu. */
+function skupinyHostu_() {
+  try {
+    return JSON.parse(PropertiesService.getScriptProperties().getProperty('SKUPINY_HOSTU') || '[]');
+  } catch (chyba) {
+    return [];
+  }
+}
+
+function ulozSkupinyHostu_(skupiny) {
+  if (!Array.isArray(skupiny)) throw new Error('Chybí seznam skupin.');
+  const cista = skupiny.slice(0, 30).map(function (s) {
+    const nazev = String((s && s.nazev) || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    if (!nazev) throw new Error('Skupina bez názvu.');
+    return { nazev: nazev, adresy: hosteZeZadani_(s.adresy) };
+  }).filter(function (s) { return s.adresy.length; });
+  const json = JSON.stringify(cista);
+  if (json.length > 8500) throw new Error('Skupin a adres je moc – některé zkrať.');
+  PropertiesService.getScriptProperties().setProperty('SKUPINY_HOSTU', json);
+  return cista;
 }
 
 /** Smazání události (u opakované jen tohoto výskytu, s cela = true celé řady). */

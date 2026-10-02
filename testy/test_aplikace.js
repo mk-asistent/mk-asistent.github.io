@@ -35,7 +35,7 @@ const KALENDARE = [{ id: 'g1', nazev: 'Osobní', barva: '#2f6bff', zdroj: 'googl
   { id: 'ics-1', nazev: 'Rodina', barva: '#e2860a', zdroj: 'icloud', skryty: false }];
 const motor = {
   info: () => ({ verze: 'test', ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false },
-    kalendare: KALENDARE }),
+    kalendare: KALENDARE, skupinyHostu: [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@x.test', 'rodic2@x.test'] }] }),
   schranka: () => ({ nove: [{ id: 'n1', slozka: 'NOVE', kdy: ted - H, odkud: 'iPhone', typ: '', stav: '', shrnuti: '', termin: '', text: 'Zkušební poznámka z iPhonu', vlakno: [] }],
     ceka: [{ id: 'c1', slozka: 'CEKA', kdy: ted - 5 * H, odkud: 'iPhone', typ: 'ukol-michal', stav: 'tvuj-ukol', shrnuti: 'Zavolat kvůli lešení', termin: '', text: 'Připomeň mi zavolat.', vlakno: [] }],
     hotovo: [], ted }),
@@ -119,6 +119,15 @@ async function novaStranka(prohlizec, v, motiv) {
     await pripravMotor(page);
     await page.goto(WEB);
     await page.waitForSelector('#uvod:not([hidden]) [data-uvod-pripojit]');
+    // adresa Schránky pro Clauda (diktování) místo motoru – odpovídá {ok: 'ne'} a aplikace to musí poznat
+    const SCHRANKA = 'https://script.google.com/macros/s/TEST-schranka/exec';
+    await page.route(SCHRANKA, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({ ok: 'ne', chyba: 'prázdná poznámka' }) }));
+    await page.fill('[data-pripojeni-url]', SCHRANKA);
+    await page.fill('[data-pripojeni-klic]', KLIC);
+    await page.click('[data-uvod-pripojit]');
+    await page.waitForFunction(() => /Schránce pro Clauda/.test(document.querySelector('[data-pripojeni-chyba]').textContent));
+    jistota(!(await page.isVisible('#aplikace')), 'se Schránkou se aplikace nesmí tvářit připojeně');
     await page.fill('[data-pripojeni-url]', 'https://example.com/neco');
     await page.fill('[data-pripojeni-klic]', KLIC);
     await page.click('[data-uvod-pripojit]');
@@ -251,6 +260,9 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.fill('[data-panel="udalost-formular"] [data-uf="od"]', '10:15');
     jistota(await page.inputValue('[data-panel="udalost-formular"] [data-uf="do"]') === '12:15', 'konec se neposunul s výkopem');
     await page.fill('[data-panel="udalost-formular"] [data-uf="sraz"]', '09:00');
+    await page.fill('[data-panel="udalost-formular"] [data-uf="hoste"]', 'Trener@Klub.test');
+    await page.click('[data-panel="udalost-formular"] [data-uf-skupina="Dorost – rodiče"]');
+    jistota(await page.inputValue('[data-panel="udalost-formular"] [data-uf="hoste"]') === 'trener@klub.test, rodic1@x.test, rodic2@x.test', 'skupina hostů se nepřidala');
     jistota(/Kyjov – Vnorovy \(dorost\)/.test(await page.textContent('[data-uf-nahled]')), 'náhled názvu zápasu');
     await page.click('[data-panel="udalost-formular"] [data-ulozit-udalost]');
     await page.waitForSelector('[data-panel="udalost-formular"]', { state: 'detached' });
@@ -262,6 +274,7 @@ async function novaStranka(prohlizec, v, motiv) {
     const vykop = new Date(za3); vykop.setHours(10, 15);
     jistota(zapas.zacatek === vykop.getTime() && zapas.konec - zapas.zacatek === 2 * H, 'čas zápasu');
     jistota(JSON.stringify(zapas.pripomenuti) === '[1440,120]', 'připomenutí zápasu');
+    jistota(JSON.stringify(zapas.hoste) === JSON.stringify(['trener@klub.test', 'rodic1@x.test', 'rodic2@x.test']) && zapas.pozvat === true, 'hosté: ' + JSON.stringify(zapas.hoste));
     // po uložení kalendář ukáže den zápasu
     jistota(await page.evaluate((t) => !!document.querySelector('.cas-den-nadpis.vybrany[data-den="' + t + '"]'), za3.getTime()), 'kalendář neukázal den zápasu');
     await page.click('[data-kal="dnes"]');

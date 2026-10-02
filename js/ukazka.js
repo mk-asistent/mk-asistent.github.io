@@ -95,6 +95,7 @@ const kalendare = [
   { id: 'ics-fotbal', nazev: 'Fotbal', barva: '#2e7a4d', zdroj: 'icloud', skryty: false },
   { id: 'ics-rodina', nazev: 'Rodina', barva: '#a8620c', zdroj: 'icloud', skryty: false }
 ];
+const skupinyHostu = [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@example.com', 'rodic2@example.com', 'rodic3@example.com'] }];
 const vlastni = [];         // události zapsané v ukázce
 const smazane = new Set();  // smazané nebo přepsané ukázkové události
 let citac = 0;
@@ -141,7 +142,7 @@ function najdiPolozku(id) {
 }
 
 const akce = {
-  info: () => ({ verze: 'ukázka', ucet: 'ja@example.com',
+  info: () => ({ verze: 'ukázka', ucet: 'ja@example.com', skupinyHostu: kopie(skupinyHostu),
     posta: { osobniAdresa: 'ja@example.com', pracovniAdresa: posta.pracovniAdresa, lzeOdesilatZPracovni: true }, kalendare }),
   nastavPostu: (d) => { posta.pracovniAdresa = String(d.pracovniAdresa || '').trim(); return akce.info().posta; },
   schranka: () => Object.assign(kopie(schranka), { ted: Date.now() }),
@@ -234,7 +235,7 @@ const akce = {
     const konecRady = d.tydneDo ? new Date(d.tydneDo + 'T23:59').getTime() : d.zacatek + 12 * 7 * 864e5;
     for (let n = 0, z = d.zacatek; n < (d.tydne ? 60 : 1) && z <= (d.tydne ? konecRady : z); n++, z = pridejDny(z, 7)) {
       vlastni.push({ id: 'v' + (++citac) + '|' + z, rada, nazev: d.nazev, zacatek: z, konec: z + (d.konec - d.zacatek), celodenni: !!d.celodenni,
-        misto: d.misto || '', popis: d.popis || '', kalendarId: k.id, opakovana: !!d.tydne });
+        misto: d.misto || '', popis: d.popis || '', kalendarId: k.id, opakovana: !!d.tydne, hoste: Array.isArray(d.hoste) ? d.hoste : [] });
     }
     return { id: 'v' + citac, kalendarId: k.id };
   },
@@ -246,6 +247,7 @@ const akce = {
     }
     return true;
   },
+  skupinyHostuUlozit: (d) => { skupinyHostu.splice(0, skupinyHostu.length, ...(d.skupiny || [])); return kopie(skupinyHostu); },
   zapasyImport: (d) => {
     // ukázkový rozpis: tři sobotní zápasy od příští soboty, opakovaný import nic nezdvojí
     const k = akce.kalendarZalozit({ nazev: 'Zápasy', barva: '#2e7a4d' });

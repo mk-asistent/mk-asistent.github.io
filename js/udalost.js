@@ -75,7 +75,9 @@ export function otevriFormular(o) {
     datum: isoDatum(zacatek), od: hhmmPole(zacatek), do: hhmmPole(konec),
     datumDo: isoDatum(celodenni ? pridejDny(konec, -1) : zacatek), delka: Math.max(15, Math.round((konec - zacatek) / 6e4)),
     misto: u ? u.misto || '' : '', popis: u ? u.popis || '' : '', tydne: false, tydneDo: '', casZvoleny: o.hodina != null,
-    pripomenuti: !u && typ === 'zapas' ? '1440,120' : 'vychozi'
+    pripomenuti: !u && typ === 'zapas' ? '1440,120' : 'vychozi',
+    // hosté: u nové se pozvánky pošlou, u úpravy e-mail o změně jen na vyžádání
+    hoste: u && Array.isArray(u.hoste) ? u.hoste.join(', ') : '', hosteZnami: !u || Array.isArray(u.hoste), pozvat: !u
   };
   otevriPanel({
     id: 'udalost-formular', trida: 'panel-okno panel-formular',
@@ -127,6 +129,7 @@ function formularHtml() {
   if (zapas) h += '<label><span class="label">Sraz (nepovinné)</span><input class="field" type="time" data-uf="sraz" value="' + f.sraz + '" step="300"></label>';
   h += '<label><span class="label">Místo</span><input class="field" data-uf="misto" value="' + esc(f.misto) + '" placeholder="' +
     (zapas ? (f.doma ? DOMACI + ', hřiště' : 'obec soupeře') : 'nepovinné') + '" autocomplete="off"></label>';
+  h += hosteHtml();
   if (f.rezim === 'novy' && !zapas) {
     h += '<label class="prepinac-radek"><span>Opakovat každý týden</span><span class="prepinac"><input type="checkbox" data-uf-tydne' + (f.tydne ? ' checked' : '') + '><span></span></span></label>';
     if (f.tydne) h += '<label><span class="label">Opakovat do (nepovinné)</span><input class="field" type="date" data-uf="tydneDo" value="' + f.tydneDo + '" min="' + f.datum + '"></label>';
@@ -135,6 +138,45 @@ function formularHtml() {
   h += '<label><span class="label">Poznámka</span><textarea class="odpoved" data-uf="popis" rows="3" placeholder="nepovinné">' + esc(f.popis) + '</textarea></label>';
   if (f.opakovana) h += '<p class="napoveda">Opakovaná událost – změna platí jen pro tento výskyt.</p>';
   return h + '</div>';
+}
+
+// ---------------------------------------------------------------- hosté (pozvánky e-mailem)
+
+const ADRESA = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
+const skupinyHostu = () => (stav.info && stav.info.skupinyHostu) || [];
+function adresyZTextu(text) {
+  const seznam = String(text || '').split(/[,;\s]+/).map((a) => a.trim().toLowerCase()).filter(Boolean);
+  return seznam.filter((a, i) => seznam.indexOf(a) === i);
+}
+
+function hosteHtml() {
+  const skupiny = skupinyHostu();
+  return '<label><span class="label">Pozvat lidi (e-mail)</span><input class="field" data-uf="hoste" value="' + esc(f.hoste) + '" ' +
+      'placeholder="adresy oddělené čárkou" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false"></label>' +
+    (skupiny.length ? '<div class="volby">' + skupiny.map((s) => '<button type="button" class="chip" data-uf-skupina="' + esc(s.nazev) + '">' + IKONY.plus +
+      esc(s.nazev) + '<span class="pocet cisla">' + s.adresy.length + '</span></button>').join('') + '</div>' : '') +
+    '<div class="formular__radek formular__radek--hoste">' +
+      '<label class="prepinac-radek"><span>' + (f.rezim === 'uprava' ? 'Poslat hostům e-mail o změně' : 'Poslat pozvánky e-mailem') + '</span>' +
+      '<span class="prepinac"><input type="checkbox" data-uf-pozvat' + (f.pozvat ? ' checked' : '') + '><span></span></span></label>' +
+      '<button type="button" class="odkaz" data-uf-ulozit-skupinu>Uložit adresy jako skupinu</button></div>';
+}
+
+async function ulozSkupinu(tlacitko) {
+  ctiFormular();
+  const adresy = adresyZTextu(f.hoste);
+  if (!adresy.length) { toast('Nejdřív napiš adresy do pole Pozvat lidi.', true); return; }
+  const nazev = (window.prompt('Název skupiny (třeba „Dorost – rodiče“):') || '').trim();
+  if (!nazev) return;
+  tlacitko.disabled = true;
+  try {
+    const skupiny = await volej('skupinyHostuUlozit', { skupiny: skupinyHostu().filter((s) => s.nazev !== nazev).concat({ nazev, adresy }) });
+    if (stav.info) { stav.info.skupinyHostu = skupiny; uloziste.pis('asistent.info', stav.info); }
+    toast('Skupina „' + nazev + '“ uložená (' + adresy.length + ' adres)');
+    prekresli();
+  } catch (e) {
+    tlacitko.disabled = false;
+    toast(e.message, true);
+  }
 }
 
 /** Hodnoty z polí do f (před překreslením a uložením). */
@@ -184,6 +226,11 @@ async function uloz(tlacitko) {
     if (terminDatum(f.tydneDo) != null) data.tydneDo = f.tydneDo;
   }
   if (f.pripomenuti !== 'vychozi') data.pripomenuti = f.pripomenuti ? f.pripomenuti.split(',').map(Number) : [];
+  const hoste = adresyZTextu(f.hoste);
+  const spatna = hoste.find((a) => !ADRESA.test(a));
+  if (spatna) { toast('Neplatná adresa: ' + spatna, true); return; }
+  // u úpravy hosty posílat, jen když je známe (jinak by se smazali) nebo je někdo dopsal
+  if (f.hosteZnami || hoste.length) { data.hoste = hoste; data.pozvat = !!f.pozvat && hoste.length > 0; }
   tlacitko.disabled = true;
   try {
     let kalendarId = f.kalendarId;
@@ -291,6 +338,19 @@ export function klikUdalost(el) {
     return true;
   }
   if (el.dataset.ufDoma) { ctiFormular(); f.doma = el.dataset.ufDoma === 'doma'; obnovPanel('udalost-formular'); return true; }
+  if (el.dataset.ufSkupina) {
+    // přidat adresy skupiny k těm, co už v poli jsou
+    ctiFormular();
+    const s = skupinyHostu().find((x) => x.nazev === el.dataset.ufSkupina);
+    if (s) {
+      f.hoste = adresyZTextu(f.hoste + ',' + s.adresy.join(',')).join(', ');
+      const pole = elementPanelu('udalost-formular').querySelector('[data-uf="hoste"]');
+      if (pole) pole.value = f.hoste;
+      toast('Přidáno: ' + s.nazev + ' (' + s.adresy.length + ')');
+    }
+    return true;
+  }
+  if (el.hasAttribute('data-uf-ulozit-skupinu')) { ulozSkupinu(el); return true; }
   return false;
 }
 
@@ -306,6 +366,7 @@ export function zmenaUdalost(e) {
     return true;
   }
   if (t.matches('[data-uf-tydne]')) { ctiFormular(); f.tydne = t.checked; prekresli(); return true; }
+  if (t.matches('[data-uf-pozvat]')) { f.pozvat = t.checked; return true; }
   return false;
 }
 

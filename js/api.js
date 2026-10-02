@@ -48,7 +48,11 @@ export async function volej(akce, data, jinePripojeni) {
   if (!json) {
     throw new ChybaApi('Motor neodpověděl daty – zkontroluj adresu a nasazení s přístupem „Kdokoli“.', 'format');
   }
-  if (!json.ok) {
+  // Schránka pro Clauda (skript pro diktování z iPhonu) odpovídá {ok: 'ano'|'ne'} – to není motor aplikace
+  if (json.ok === 'ano' || json.ok === 'ne') {
+    throw new ChybaApi('Tahle adresa patří Schránce pro Clauda (diktování z iPhonu), ne motoru. Vlož adresu projektu „Asistent“.', 'jinySkript');
+  }
+  if (json.ok !== true) {
     if (json.chyba === 'klic') throw new ChybaApi('Klíč nesedí – zkontroluj ho v Nastavení.', 'klic');
     throw new ChybaApi(json.chyba || 'Neznámá chyba motoru.', 'motor');
   }

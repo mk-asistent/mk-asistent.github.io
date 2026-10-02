@@ -447,6 +447,10 @@ function detailHtml(u) {
   }
   h += '<p class="udalost-radek"><i class="tecka-kal"></i><span>' + esc(u.kalendar || '') + (u.zdroj === 'icloud' ? ' · iPhone' : u.zdroj === 'google' ? ' · Google' : '') +
     (u.opakovana ? ' · opakuje se' : '') + '</span></p>';
+  if (u.hoste && u.hoste.length) {
+    h += '<p class="udalost-radek">' + IKONY.lide + '<span>' + esc(u.hoste.slice(0, 6).join(', ')) +
+      (u.hoste.length > 6 ? ' a další ' + (u.hoste.length - 6) : '') + '</span></p>';
+  }
   if (u.popis) h += '<div class="udalost-popis">' + sOdkazy(u.popis) + '</div>';
   return h + '</div>';
 }

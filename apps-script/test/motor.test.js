@@ -61,7 +61,7 @@ function prostredi() {
   };
 
   const udalostG = (nazev, z, k, celodenni) => ({
-    getId: () => 'g-' + nazev, getTitle: () => nazev, isAllDayEvent: () => !!celodenni, isRecurringEvent: () => false,
+    getId: () => 'g-' + nazev, getTitle: () => nazev, isAllDayEvent: () => !!celodenni, isRecurringEvent: () => false, getGuestList: () => [],
     getStartTime: () => new Date(z), getEndTime: () => new Date(k), getAllDayStartDate: () => new Date(z), getAllDayEndDate: () => new Date(k),
     getLocation: () => '', getDescription: () => 'Popis <b>tučně</b><br>řádek', getColor: () => ''
   });
@@ -77,7 +77,8 @@ function prostredi() {
     const udalosti = [];
     const nova = (nazev, z, k, celodenni, moznosti, rada) => {
       const u = { nazev, z: +z, k: +k, celodenni: !!celodenni, misto: (moznosti || {}).location || '', popis: (moznosti || {}).description || '',
-        pripomenuti: null, barva: '', stitky: {}, rada: rada || null, smazano: false, id: 'ev-' + (udalosti.length + 1) + '@google.com' };
+        pripomenuti: null, barva: '', stitky: {}, rada: rada || null, smazano: false, id: 'ev-' + (udalosti.length + 1) + '@google.com',
+        hoste: (moznosti && moznosti.guests ? moznosti.guests.split(',') : []), pozvanky: !!(moznosti && moznosti.sendInvites) };
       const o = {
         _: u, getId: () => u.id, getTitle: () => u.nazev, isAllDayEvent: () => u.celodenni, isRecurringEvent: () => !!u.rada,
         getStartTime: () => new Date(u.z), getEndTime: () => new Date(u.k), getAllDayStartDate: () => new Date(u.z), getAllDayEndDate: () => new Date(u.k),
@@ -88,7 +89,9 @@ function prostredi() {
         setLocation: (t) => { u.misto = t; return o; }, setDescription: (t) => { u.popis = t; return o; },
         removeAllReminders: () => { u.pripomenuti = []; return o; }, addPopupReminder: (m) => { (u.pripomenuti = u.pripomenuti || []).push(m); return o; },
         setColor: (c) => { u.barva = c; return o; }, setTag: (t, v) => { u.stitky[t] = v; return o; },
-        deleteEvent: () => { u.smazano = true; }, getEventSeries: () => ({ deleteEventSeries: () => { u.smazano = true; u.celaRada = true; } })
+        deleteEvent: () => { u.smazano = true; }, getEventSeries: () => ({ deleteEventSeries: () => { u.smazano = true; u.celaRada = true; } }),
+        getGuestList: () => u.hoste.map((a) => ({ getEmail: () => a })), addGuest: (a) => { u.hoste.push(a); return o; },
+        removeGuest: (a) => { u.hoste = u.hoste.filter((x) => x !== a); return o; }
       };
       udalosti.push(o);
       return o;
@@ -472,6 +475,38 @@ test('kalendář – zápis: založit kalendář, nová / celodenní / týdně o
   assert.ok(/moc dlouhá/.test(p.volej('udalostUlozit', { kalendarId: zid, nazev: 'X', zacatek: z, konec: z + 90 * 864e5 }).chyba));
   assert.ok(/zapisovat nejde/.test(p.volej('udalostUlozit', { kalendarId: 'x', nazev: 'X', zacatek: z, konec: z + 1 }).chyba));
   assert.ok(/nenalezen/.test(p.volej('udalostUlozit', { kalendarId: 'neni', nazev: 'X', zacatek: z, konec: z + 1 }).chyba));
+});
+
+test('kalendář – hosté: pozvánky u nové, změna hostů a e-mail o změně, skupiny hostů', () => {
+  const p = prostredi();
+  const zid = p.volej('kalendarZalozit', { nazev: 'Zápasy' }).data.id;
+  const kal = p.kalendare.find((k) => k.getId() === zid);
+  const z = Date.UTC(2026, 9, 10, 8);
+  let o = p.volej('udalostUlozit', { kalendarId: zid, nazev: 'Zápas', zacatek: z, konec: z + 2 * 36e5, misto: 'hřiště',
+    hoste: 'Trener@Klub.test; rodic@x.test, trener@klub.test', pozvat: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  const u = kal.udalosti[0];
+  assert.deepStrictEqual([u._.hoste.join(), u._.pozvanky], ['trener@klub.test,rodic@x.test', true]); // malá písmena, bez duplicit
+  assert.ok(/Neplatná adresa/.test(p.volej('udalostUlozit', { kalendarId: zid, nazev: 'X', zacatek: z, konec: z + 1, hoste: 'nekdo@' }).chyba));
+  // úprava: jeden host pryč, jeden nový, e-mail o změně všem současným
+  const pred = p.log.odeslano.length;
+  o = p.volej('udalostUlozit', { kalendarId: zid, udalost: u.getId() + '|' + z, nazev: 'Zápas', zacatek: z + 36e5, konec: z + 3 * 36e5,
+    misto: 'hřiště', hoste: ['trener@klub.test', 'novy@y.test'], pozvat: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(u._.hoste, ['trener@klub.test', 'novy@y.test']);
+  const mail = JSON.parse(JSON.stringify(p.log.odeslano[pred]));
+  assert.deepStrictEqual([mail.jak, mail.komu, mail.predmet], ['send', 'trener@klub.test,novy@y.test', 'Změna: Zápas']);
+  assert.ok(/Kdy: 10\. 10\. 2026 11:00 – 13:00/.test(mail.t) && /Kde: hřiště/.test(mail.t), mail.t);
+  // bez „pozvat“ se nic neposílá, bez pole hosté se hosté nemění
+  p.volej('udalostUlozit', { kalendarId: zid, udalost: u.getId() + '|' + (z + 36e5), nazev: 'Zápas!', zacatek: z + 36e5, konec: z + 3 * 36e5 });
+  assert.strictEqual(p.log.odeslano.length, pred + 1);
+  assert.strictEqual(u._.hoste.length, 2);
+  // skupiny hostů: uložit, v info, kontrola adres
+  o = p.volej('skupinyHostuUlozit', { skupiny: [{ nazev: ' Dorost – rodiče ', adresy: 'a@x.test, b@x.test' }, { nazev: 'Prázdná', adresy: '' }] });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(o.data)), [{ nazev: 'Dorost – rodiče', adresy: ['a@x.test', 'b@x.test'] }]);
+  assert.strictEqual(p.volej('info').data.skupinyHostu[0].nazev, 'Dorost – rodiče');
+  assert.strictEqual(p.volej('skupinyHostuUlozit', { skupiny: [{ nazev: 'X', adresy: 'spatne' }] }).ok, false);
 });
 
 test('zápasy z rozpisu webu: import do „Zápasy“, odehrané vynechá, opakovaný import nic nezdvojí, změnu termínu upraví', () => {

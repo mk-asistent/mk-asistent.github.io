@@ -85,6 +85,7 @@ async function zkusPripojit(koren, tlacitko) {
   ukaz('');
   try {
     const info = await volej('info', {}, { url, klic });
+    if (!info || !info.verze) throw new Error('Adresa neodpovídá jako motor Asistenta – zkontroluj, že je to nasazení projektu „Asistent“.');
     ulozPripojeni({ url, klic });
     stav.info = info;
     uloziste.pis('asistent.info', info);
@@ -134,7 +135,8 @@ export function nactiInfo() {
 // ---------------------------------------------------------------- panel Nastavení
 
 export function otevriNastaveni(sekce) {
-  n.upravaPripojeni = false;
+  // z pruhu „Motor není připojený“ rovnou formulář s adresou a klíčem
+  n.upravaPripojeni = sekce === 'pripojeni' && !!stav.chyby.info;
   n.ukazKod = false;
   otevriPanel({
     id: 'nastaveni', trida: 'panel-bocni', titul: 'Nastavení', vykresli: nastaveniHtml,
