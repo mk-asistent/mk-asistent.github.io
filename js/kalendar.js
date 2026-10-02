@@ -1,5 +1,6 @@
 // Kalendář: Měsíc (mřížka + seznam vybraného dne), Týden (časová osa; na telefonu pruh dnů + jeden den),
-// Seznam (30 dní). Data z motoru po měsících (mřížka 6 týdnů), uložená i v zařízení pro okamžitý start.
+// Seznam (30 dní). Na PC vpravo panel: malý měsíc, kalendáře, nejbližší události.
+// Data z motoru po měsících (mřížka 6 týdnů), uložená i v zařízení pro okamžitý start.
 
 import { stav, zmeneno } from './stav.js';
 import { volej } from './api.js';
@@ -8,7 +9,7 @@ import {
   sOdkazy, uloziste, DNY_KR, MESICE, MESICE_1
 } from './pomocne.js';
 import { otevriPanel } from './panely.js';
-import { chybaHtml, segment } from './ui.js';
+import { chybaHtml, segment, hlavickaKarty } from './ui.js';
 import { IKONY } from './ikony.js';
 
 const k = stav.kal;
@@ -88,6 +89,32 @@ export function udalostiVRozsahu(od, doDne) {
 
 export function udalostiDne(t) { const d = pulnoc(t); return udalostiVRozsahu(d, pridejDny(d, 1)); }
 export function mameData(t) { return !!k.mesice[klicMesice(t)]; }
+
+/** Tento týden po dnech (pro sloupcový graf na přehledu Dnes). */
+export function tydenPrehled() {
+  const po = zacatekTydne(Date.now());
+  const dnes = pulnoc(Date.now());
+  return [0, 1, 2, 3, 4, 5, 6].map((i) => {
+    const t = pridejDny(po, i);
+    return { t, pocet: udalostiDne(t).length, dnes: t === dnes, popisek: DNY_KR[new Date(t).getDay()], nazev: datumDlouhe(t) };
+  });
+}
+
+/** Nejbližší události od teď (běžící i budoucí, bez celodenních, které už začaly) – nejvýš n. */
+export function nejblizsi(n, dni) {
+  const ted = Date.now();
+  return udalostiVRozsahu(ted, pridejDny(pulnoc(ted), dni || 14))
+    .filter((u) => (u.celodenni ? u.zacatek >= pulnoc(ted) : u.konec > ted))
+    .sort((a, b) => a.zacatek - b.zacatek)
+    .slice(0, n);
+}
+
+/** Pro hledání: všechny načtené události (bez duplicit). */
+export function vsechnyUdalosti() {
+  const mapa = new Map();
+  Object.keys(k.mesice).forEach((kl) => k.mesice[kl].udalosti.forEach((u) => { if (!mapa.has(u.id)) mapa.set(u.id, u); }));
+  return Array.from(mapa.values());
+}
 function chybaMesice(t) { return k.chyby[klicMesice(t)]; }
 
 function najdiUdalost(id) {
@@ -112,7 +139,7 @@ export function udalostHtml(u, den) {
   const probehla = !u.celodenni && u.konec < Date.now();
   const pod = [u.misto, u.kalendar].filter(Boolean).map(esc).join(' · ');
   return '<li><button type="button" class="udalost' + (probehla ? ' probehla' : '') + '" data-udalost="' + esc(u.id) + '">' + cas +
-    '<span class="udalost-barva" style="--b:' + esc(u.barva || 'var(--akcent)') + '"></span>' +
+    '<span class="udalost-barva" style="--b:' + esc(u.barva || 'var(--accent)') + '"></span>' +
     '<span class="udalost-text"><span class="nazev">' + esc(u.nazev) + '</span>' + (pod ? '<span class="pod">' + pod + '</span>' : '') + '</span></button></li>';
 }
 
@@ -136,7 +163,8 @@ export function vykresliKalendar(el) {
   const varovani = chyby.length
     ? '<p class="pruh pruh-varovani">Některý kalendář se nepodařilo načíst: ' + esc(Array.from(new Set(chyby.map((c) => c.kalendar))).join(', ')) + '</p>'
     : '';
-  el.innerHTML = listaHtml() + varovani + telo;
+  el.innerHTML = '<div class="kal-rozlozeni"><div class="kal-hlavni">' + listaHtml() + varovani + telo + '</div>' +
+    '<aside class="kal-boc" aria-label="Kalendáře a nejbližší události">' + bocniPanelHtml() + '</aside></div>';
   const novaOsa = el.querySelector('#cas-svitek');
   if (novaOsa) {
     if (posunOsy == null) {
@@ -202,6 +230,30 @@ export function miniMesicHtml() {
     h += '<button type="button" class="' + tridy.join(' ') + '" data-den="' + den + '" aria-label="' + esc(datumDlouhe(den)) + '">' + d.getDate() + '</button>';
   }
   return h + '</div></div>';
+}
+
+/** Pravý panel kalendáře (PC): malý měsíc, kalendáře se zapínáním, nejbližší události. */
+function bocniPanelHtml() {
+  const kalendare = (stav.info && stav.info.kalendare) || [];
+  let h = '<section class="card">' + miniMesicHtml() + '</section>';
+  h += '<section class="card">' + hlavickaKarty(IKONY.kalendar, 'Kalendáře') +
+    (kalendare.length
+      ? '<ul class="kal-seznam">' + kalendare.map((kal) => '<li><i style="--b:' + esc(kal.barva) + '"></i><span class="orez-1">' + esc(kal.nazev) + '</span>' +
+          '<input type="checkbox" data-nast-kal-zobrazit="' + esc(kal.id) + '"' + (kal.skryty ? '' : ' checked') + ' aria-label="Ukazovat ' + esc(kal.nazev) + '"></li>').join('') + '</ul>'
+      : '<div class="prazdne">Zatím žádný kalendář.</div>') +
+    '<button type="button" class="dlazdice__pata" data-otevri-nastaveni="kalendare">Přidat kalendář z iPhonu</button></section>';
+  const dalsi = nejblizsi(6);
+  h += '<section class="card">' + hlavickaKarty(IKONY.cas, 'Nejbližší') +
+    (dalsi.length
+      ? '<ul class="seznam">' + dalsi.map((u) => {
+          const den = pulnoc(u.zacatek);
+          const kdy = rozdilDni(den) === 0 ? 'dnes' : rozdilDni(den) === 1 ? 'zítra' : DNY_KR[new Date(den).getDay()] + ' ' + new Date(den).getDate() + '. ' + (new Date(den).getMonth() + 1) + '.';
+          return '<li><button type="button" class="udalost udalost--mala" data-udalost="' + esc(u.id) + '"><span class="cas cisla">' + (u.celodenni ? 'celý' : hhmm(u.zacatek)) +
+            '<small>' + esc(kdy) + '</small></span><span class="udalost-barva" style="--b:' + esc(u.barva) + '"></span>' +
+            '<span class="udalost-text"><span class="nazev">' + esc(u.nazev) + '</span>' + (u.misto ? '<span class="pod">' + esc(u.misto) + '</span>' : '') + '</span></button></li>';
+        }).join('') + '</ul>'
+      : '<div class="prazdne">' + (mameData(Date.now()) ? 'Dva týdny nic.' : 'Načítám…') + '</div>') + '</section>';
+  return h;
 }
 
 function mesicHtml() {
@@ -367,7 +419,7 @@ function kdyUdalosti(u) {
 }
 
 function detailHtml(u) {
-  let h = '<div class="udalost-detail" style="--b:' + esc(u.barva || 'var(--akcent)') + '">';
+  let h = '<div class="udalost-detail" style="--b:' + esc(u.barva || 'var(--accent)') + '">';
   h += '<h3 class="udalost-titul">' + esc(u.nazev) + '</h3>';
   h += '<p class="udalost-radek">' + IKONY.cas + '<span>' + esc(kdyUdalosti(u)) + '</span></p>';
   if (u.misto) {
@@ -414,8 +466,8 @@ export function klikKalendar(el) {
     zmeneno();
     return true;
   }
-  if (el.dataset.den && el.closest('#p-kalendar, #bocni')) {
-    if (el.closest('#bocni') && miniMesic) miniMesic.listovano = false; // malý měsíc se zase drží vybraného dne
+  if (el.dataset.den && el.closest('#p-kalendar')) {
+    if (el.closest('.mini') && miniMesic) miniMesic.listovano = false; // malý měsíc se zase drží vybraného dne
     const den = Number(el.dataset.den);
     const jinyMesic = klicMesice(den) !== klicMesice(k.vybrany);
     k.vybrany = den;

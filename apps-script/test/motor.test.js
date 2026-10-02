@@ -41,13 +41,17 @@ function prostredi() {
   let aliasy = [];
 
   const zpravy = { m1, m2, m3 };
+  let aktualizace = []; // vlákna v kategorii Aktualizace (oznámení)
   const GmailApp = {
     search: (q) => {
+      log.dotazy = (log.dotazy || []).concat(q);
       // „rfc822msgid:<id> {to:… }“ = šla tahle zpráva na pracovní adresu?
       const m = /rfc822msgid:(\S+)@mail\.test/.exec(q);
       if (m) return zpravy[m[1]] && zpravy[m[1]].getTo() === PRAC && q.indexOf('{to:' + PRAC) >= 0 ? [vlakna.v2] : [];
+      if (q.indexOf('category:updates') >= 0) return aktualizace;
       return q.indexOf('{to:') >= 0 ? [vlakna.v2] : [vlakna.v1];
     },
+    moveThreadToSpam: (v) => { log.spam = v.getId(); },
     getMessagesForThreads: (v) => v.map((x) => x.getMessages()),
     getThreadById: (id) => vlakna[id] || null,
     getMessageById: (id) => ({ m1, m2, m3 })[id] || null,
@@ -83,7 +87,26 @@ function prostredi() {
       .replace('XXX', zn.slice(0, 3) + ':' + zn.slice(3)).replace(/^d\. M\./, c.day + '. ' + c.month + '.').replace('H:', (c.hour % 24) + ':');
   };
 
+  // Disk: schránka CLAUDE_SCHRANKA s podsložkami, soubory v paměti
+  const slozka = (nazev, rodic) => {
+    const s = { nazev, rodic, deti: {}, soubory: [] };
+    s.getId = () => 'slozka-' + nazev; s.getName = () => nazev;
+    s.getFoldersByName = (n) => { const x = s.deti[n]; let hotovo = !x; return { hasNext: () => !hotovo, next: () => { hotovo = true; return x; } }; };
+    s.createFolder = (n) => (s.deti[n] = slozka(n, s));
+    s.createFile = (n, obsah) => {
+      const f = { getId: () => 'soubor-' + n, getName: () => n, getBlob: () => ({ getDataAsString: () => obsah }),
+        getDateCreated: () => new Date(), getLastUpdated: () => new Date(), getParents: () => { let h = false; return { hasNext: () => !h, next: () => { h = true; return s; } }; } };
+      s.soubory.push(f); log.soubory = (log.soubory || []).concat({ slozka: nazev, n, obsah });
+      return f;
+    };
+    return s;
+  };
+  const schranka = slozka('CLAUDE_SCHRANKA', null);
+  vlastnosti.set('SLOZKA_ID', 'slozka-CLAUDE_SCHRANKA');
+
   const sandbox = {
+    DriveApp: { getFolderById: (id) => { if (id !== 'slozka-CLAUDE_SCHRANKA') throw new Error('nenalezeno'); return schranka; } },
+    MimeType: { PLAIN_TEXT: 'text/plain' },
     PropertiesService: { getScriptProperties: () => ({
       getProperty: (k) => (vlastnosti.has(k) ? vlastnosti.get(k) : null),
       setProperty: (k, v) => vlastnosti.set(k, String(v)), deleteProperty: (k) => vlastnosti.delete(k)
@@ -116,7 +139,8 @@ function prostredi() {
   const volej = (akce, data = {}, klic = KLIC) => surovy(JSON.stringify({ klic, akce, ...data }));
   // záznamy z izolovaného prostředí převést na běžné objekty (jinak je deepStrictEqual odmítne)
   const posledniOdeslano = () => JSON.parse(JSON.stringify(log.odeslano.pop()));
-  return { volej, surovy, vlastnosti, cache, log, posledniOdeslano, nastavAliasy: (a) => { aliasy = a; } };
+  return { volej, surovy, vlastnosti, cache, log, posledniOdeslano, ctx, zprava, vlakno, vlakna,
+    nastavAliasy: (a) => { aliasy = a; }, nastavAktualizace: (a) => { aktualizace = a; } };
 }
 
 let ok = 0;
@@ -270,6 +294,78 @@ test('kalendář z nefunkčního odkazu: chyba u kalendáře, ostatní události
   assert.strictEqual(o.data.udalosti.length, 1);
   assert.strictEqual(o.data.chyby[0].kalendar, 'Rozbitý');
   assert.ok(/404/.test(o.data.chyby[0].chyba));
+});
+
+test('stavy konverzací podle pravidel: hoří, čeká na tebe, otázka, čekáš na ně, řeší se, informace', () => {
+  const p = prostredi();
+  const ted = Date.UTC(2026, 9, 2, 13); // pátek 2. 10. 2026, 15:00 v Praze
+  const stav = (o, odeMe, jeOznameni, jsemPsal) => {
+    const m = p.zprava(Object.assign({ id: 'x', od: 'Někdo <nekdo@firma.test>', predmet: 'Věc', kdy: ted - 36e5 }, o));
+    return p.ctx.stavPripadu_(m, !!odeMe, p.vlakno('vx', [m], true), !!jeOznameni, ted, !!jsemPsal);
+  };
+  // někdo něco chce / osobní zpráva bez jasného obsahu
+  assert.strictEqual(stav({ text: 'Posílám podklady.' }), 'ceka');
+  assert.strictEqual(stav({ text: 'Posíláme protokol k připomínkám.' }), 'ceka');
+  assert.strictEqual(stav({ text: 'Můžeš to prosím zkontrolovat do středy?' }), 'ceka'); // prosba přebije otazník; středa je za 5 dní
+  assert.strictEqual(stav({ text: 'Odkaz: https://x.test/a?b=1 posílám.' }), 'ceka'); // otazník v adrese není otázka
+  assert.strictEqual(stav({ text: 'Ahoj\n-- \nJan Novák\nChceš vizitku?' }), 'ceka'); // otazník jen v podpisu
+  assert.strictEqual(stav({ text: 'Velký úspěch, gratuluji!' }), 'ceka'); // „úspěch“ není „spěchá“
+  assert.strictEqual(stav({ text: 'Jsem rychlejší, než jsem čekal.' }), 'ceka'); // „rychlejší“ není „rychle“
+  // otázka bez prosby
+  assert.strictEqual(stav({ text: 'Jak to vypadá s výkresy?' }), 'otazka');
+  // hoří: naléhavost, problém, termín do 48 hodin od odeslání
+  assert.strictEqual(stav({ predmet: 'URGENTNÍ: předání', text: 'Ozvi se.' }), 'hori');
+  assert.strictEqual(stav({ text: 'Potřebuji to nejpozději dnes.' }), 'hori');
+  assert.strictEqual(stav({ text: 'Můžeš to prosím zkontrolovat do pátku?' }), 'hori'); // napsáno v pátek
+  assert.strictEqual(stav({ text: 'Pošlete to prosím do 3. 10.' }), 'hori');
+  assert.strictEqual(stav({ text: 'Pošlete to prosím do 20. 10.' }), 'ceka');
+  assert.strictEqual(stav({ text: 'Web nefunguje, podívej se na to.' }), 'hori');
+  // živá konverzace bez požadavku
+  assert.strictEqual(stav({ text: 'Díky.\n> Máš čas?' }, false, false, true), 'resi'); // otázka jen v citaci
+  // informace
+  assert.strictEqual(stav({ od: 'Banka <no-reply@banka.test>', text: 'Výpis?' }), 'info');
+  assert.strictEqual(stav({ text: 'Účtenka' }, false, true), 'info');
+  // čekáš na ně – ale ne po krátkém „díky“ a ne u hromadné zprávy
+  assert.strictEqual(stav({ text: 'Odpověděl jsem?' }, true), 'cekas');
+  assert.strictEqual(stav({ text: 'Díky, platí.' }, true), 'info');
+  assert.strictEqual(stav({ text: 'Děkuji, pošlete prosím ještě soupis vad.' }, true), 'cekas');
+  assert.strictEqual(stav({ text: 'Zítra nejdu.', komu: 'a@x.test, b@x.test, c@x.test, d@x.test, e@x.test, f@x.test' }, true), 'info');
+});
+
+test('pošta: stav v seznamu (moje poslední = čekáš na ně, oznámení podle kategorie)', () => {
+  const p = prostredi();
+  p.volej('nastavPostu', { pracovniAdresa: PRAC });
+  let o = p.volej('posta', { znovu: true });
+  assert.strictEqual(o.data.pracovni[0].stav, 'info'); // poslední je moje „Děkuji.“ = uzavřené
+  assert.strictEqual(o.data.osobni[0].stav, 'ceka');
+  p.nastavAktualizace([p.vlakna.v1]);
+  o = p.volej('posta', { znovu: true });
+  assert.strictEqual(o.data.osobni[0].stav, 'info');
+});
+
+test('hledání v celé poště, spam, připomenutí jako úkol ve schránce', () => {
+  const p = prostredi();
+  let o = p.volej('hledat', { dotaz: 'from:trener has:attachment' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(o.data.vlakna.length, 1);
+  assert.strictEqual(o.data.vlakna[0].ucet, 'osobni');
+  assert.ok(p.log.dotazy.some((q) => q === '(from:trener has:attachment) -in:trash -in:spam'));
+  p.volej('nastavPostu', { pracovniAdresa: PRAC });
+  o = p.volej('hledat', { dotaz: '{to:' + PRAC + '} protokol' }); // napodobený Gmail vrátí pracovní vlákno
+  assert.strictEqual(o.data.vlakna[0].ucet, 'pracovni');
+  assert.deepStrictEqual(p.volej('hledat', { dotaz: '   ' }).data.vlakna.length, 0);
+  assert.strictEqual(p.volej('oznacit', { id: 'v1', jak: 'spam' }).ok, true);
+  assert.strictEqual(p.log.spam, 'v1');
+  assert.strictEqual(p.volej('pripomenout', { id: 'v1', termin: 'zitra' }).ok, false);
+  o = p.volej('pripomenout', { id: 'v1', termin: '2026-10-05', poznamka: 'Zavolat trenérovi' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(o.data.slozka, 'CEKA');
+  assert.strictEqual(o.data.typ, 'ukol-michal');
+  assert.strictEqual(o.data.termin, '2026-10-05');
+  assert.ok(/^Odpovědět: Sraz v sobotu/.test(o.data.shrnuti));
+  const soubor = p.log.soubory.pop();
+  assert.strictEqual(soubor.slozka, 'CEKA');
+  assert.ok(soubor.obsah.indexOf('mail.google.com') > 0 && soubor.obsah.indexOf('Zavolat trenérovi') > 0);
 });
 
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

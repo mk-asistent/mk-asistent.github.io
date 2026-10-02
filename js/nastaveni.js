@@ -11,8 +11,8 @@ import { nactiPostu } from './posta.js';
 
 export const VERZE_APLIKACE = '2026-10-02';
 
-// předvolby barvy aplikace (modrá je výchozí)
-const AKCENTY = [['#2f6bff', 'Modrá'], ['#5b5bd6', 'Indigo'], ['#0f9d7a', 'Smaragdová'], ['#e5612a', 'Oranžová'], ['#d6336c', 'Malinová'], ['#3f4652', 'Grafitová']];
+// předvolby hlavní barvy – tlumené tmavé odstíny jako ve stylu Fixtrack (lesní zelená je výchozí)
+const AKCENTY = [['#1f3d2c', 'Lesní zelená'], ['#1d4250', 'Ocelová'], ['#2a3f8f', 'Modrá'], ['#4b2d63', 'Švestková'], ['#7a3a1d', 'Cihlová'], ['#2b2f33', 'Grafitová']];
 const BARVY_KALENDARE = ['#2f5bd3', '#0f7c8c', '#2e7a4d', '#a8620c', '#8e5bd3', '#c0392b', '#b5407a', '#37474f'];
 const n = { upravaPripojeni: false, novaBarva: BARVY_KALENDARE[1], pracuje: false };
 
@@ -46,8 +46,9 @@ function nastavAkcent(hex) {
   if (!/^#[0-9a-f]{6}$/i.test(hex) || hex.toLowerCase() === AKCENTY[0][0]) { jmena.forEach((j) => st.removeProperty(j)); return; }
   const [h, s, l] = hexNaHsl(hex);
   const sd = Math.min(s + 10, 90);
-  const hodnoty = [hex, `hsl(${h} ${s}% ${Math.max(l - 9, 8)}%)`, `hsl(${h} ${Math.min(s, 85)}% 96%)`,
-    `hsl(${h} ${sd}% 66%)`, `hsl(${h} ${sd}% 58%)`, `hsl(${h} ${sd}% 66% / .16)`];
+  // světlý režim: barva, tmavší pro najetí, jemný nádech; tmavý režim: světlá na text, sytá tmavší na tlačítka
+  const hodnoty = [hex, `hsl(${h} ${s}% ${Math.max(l - 7, 6)}%)`, `hsl(${h} ${Math.min(s, 60)}% 94%)`,
+    `hsl(${h} ${sd}% 70%)`, `hsl(${h} ${sd}% 34%)`, `hsl(${h} ${sd}% 70% / .15)`];
   jmena.forEach((j, i) => st.setProperty(j, hodnoty[i]));
 }
 

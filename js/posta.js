@@ -1,19 +1,35 @@
-// Pošta: jedna schránka pro oba účty (osobní Gmail + pracovní), čtení celých e-mailů, odpověď, přeposlání,
-// nový e-mail, archiv. Na telefonu se e-mail otevře přes celou obrazovku, na iPadu a PC vedle seznamu.
+// Pošta: jedna schránka pro oba účty (osobní Gmail + pracovní), každá konverzace je „případ“ se stavem
+// (Hoří, Čeká na tebe, Otázka, Čekáš na ně, Řeší se, Informace – nápad z poštovního klienta Mailer, stav určuje motor).
+// Čtení celých e-mailů, odpověď, přeposlání, nový e-mail; jedním klepnutím Hotovo (archiv), Připomenout, Spam.
+// Na telefonu se e-mail otevře přes celou obrazovku, na iPadu na šířku a PC vedle seznamu.
 
 import { stav, zmeneno } from './stav.js';
 import { volej } from './api.js';
 import {
-  esc, kdyKratce, kdyDlouze, prvniRadek, iniciala, odstin, sOdkazy, velikost, jmenaAdres, uloziste
+  esc, kdyKratce, kdyDlouze, prvniRadek, iniciala, odstin, sOdkazy, velikost, jmenaAdres, uloziste,
+  pulnoc, pridejDny, isoDatum, terminDatum, dm
 } from './pomocne.js';
-import { otevriPanel, obnovPanel, zavriPanel, jeOtevreny, elementPanelu } from './panely.js';
-import { toast, kostra, chybaHtml, segment, prizpusobVysku } from './ui.js';
+import { otevriPanel, obnovPanel, zavriPanel, jeOtevreny, elementPanelu, horniPanel } from './panely.js';
+import { toast, kostra, chybaHtml, segment, prizpusobVysku, potvrd } from './ui.js';
 import { IKONY } from './ikony.js';
 
 const DVA_SLOUPCE = window.matchMedia('(min-width: 1000px)');
 const ULOZISTE = 'asistent.data.posta';
 const KONCEPT = 'asistent.koncept.';
+const DNI_OZNAMENI = 14; // oznámení starší dvou týdnů se v přehledu neukazují (motor posílá 30 dní)
 let posledniDetail = '';
+
+/** Stavy případů: [popisek, třída štítku, ikona, text prázdného seznamu] */
+export const STAVY = {
+  hori: ['Hoří', 'tag tag--danger', 'ohen', 'Nic nehoří.'],
+  ceka: ['Čeká na tebe', 'tag', 'posta', 'Nic nečeká na tvou odpověď.'],
+  otazka: ['Otázka', 'tag tag--warn', 'otazka', 'Žádné otázky.'],
+  cekas: ['Čekáš na ně', 'tag tag--fialova', 'cekas', 'Na nikoho nečekáš.'],
+  resi: ['Řeší se', 'tag tag--seda', 'odpovedet', 'Žádné rozběhnuté konverzace.'],
+  info: ['Informace', 'tag tag--seda', 'info', 'Žádná oznámení.']
+};
+const FILTRY = [['vse', 'Vše'], ['neprectene', 'Nepřečtené'], ['hori', 'Hoří'], ['ceka', 'Čeká na tebe'], ['otazka', 'Otázky'],
+  ['cekas', 'Čekáš na ně'], ['resi', 'Řeší se'], ['info', 'Informace']];
 
 // ---------------------------------------------------------------- data
 
@@ -23,7 +39,7 @@ export function nactiZUloziste() {
 }
 
 export function nactiPostu(znovu) {
-  if (stav.nacita.posta) return;
+  if (stav.nacita.posta) return Promise.resolve();
   stav.nacita.posta = true;
   stav.chyby.posta = null;
   zmeneno();
@@ -36,69 +52,121 @@ export function nactiPostu(znovu) {
     .then(() => { stav.nacita.posta = false; zmeneno(); });
 }
 
-/** Všechny zprávy obou účtů (+ souhrny firemní pošty z PC), nejnovější nahoře. */
+export function stavZpravy(m) { return STAVY[m.stav] ? m.stav : 'ceka'; }
+
+/** Všechny konverzace obou účtů (+ souhrny firemní pošty z PC), nejnovější nahoře. */
 export function vsechnyZpravy() {
   const p = stav.posta;
   if (!p) return [];
   const pc = p.firemni && p.firemni.zpravy && !(p.pracovni && p.pracovni.length)
     ? p.firemni.zpravy.map((m) => Object.assign({}, m, { id: 'pc-' + m.id, ucet: 'pracovni', zPc: true }))
     : [];
+  const hranice = Date.now() - DNI_OZNAMENI * 864e5;
   return (p.osobni || []).map((m) => Object.assign({ ucet: 'osobni' }, m))
     .concat((p.pracovni || []).map((m) => Object.assign({ ucet: 'pracovni' }, m)), pc)
+    .filter((m) => !(m.stav === 'info' && m.kdy < hranice))
     .sort((a, b) => b.kdy - a.kdy);
 }
 
 export function neprectene() { return vsechnyZpravy().filter((m) => m.neprectena); }
 export function maPracovni() { return !!(stav.posta && (stav.posta.pracovniAdresa || (stav.posta.firemni && stav.posta.firemni.zpravy))); }
+function aktivniUcet() { return maPracovni() ? stav.ucetPosty : 'oba'; }
+
+/** Co od tebe pošta chce: Hoří, Čeká na tebe, Otázka – v tomhle pořadí, v každé skupině nejnovější nahoře. */
+export function kPozornosti() {
+  const vaha = { hori: 0, ceka: 1, otazka: 2 };
+  return vsechnyZpravy().filter((m) => vaha[stavZpravy(m)] != null)
+    .sort((a, b) => (vaha[stavZpravy(a)] - vaha[stavZpravy(b)]) || (b.kdy - a.kdy));
+}
+
+export function pocetStavu(stavPripadu) { return vsechnyZpravy().filter((m) => stavZpravy(m) === stavPripadu).length; }
+
+/** Souhrn konverzace podle id – ze seznamu, nebo z výsledků hledání v celé poště. */
+export function najdiSouhrn(id) {
+  return vsechnyZpravy().find((m) => m.id === id) ||
+    (stav.hledani && stav.hledani.vlakna ? stav.hledani.vlakna.find((m) => m.id === id) : null) || null;
+}
 
 /** Změna přímo v uložených seznamech (vsechnyZpravy vrací kopie). */
 function upravVSeznamech(id, fn) {
   if (!stav.posta) return;
-  ['osobni', 'pracovni'].forEach((ucet) => (stav.posta[ucet] || []).forEach((m, i, seznam) => { if (m.id === id) fn(m, i, seznam); }));
+  ['osobni', 'pracovni'].forEach((ucet) => {
+    const seznam = stav.posta[ucet] || [];
+    const i = seznam.findIndex((m) => m.id === id);
+    if (i >= 0) fn(seznam[i], i, seznam);
+  });
+}
+
+function filtrovane() {
+  let z = vsechnyZpravy();
+  const ucet = aktivniUcet();
+  if (ucet !== 'oba') z = z.filter((m) => m.ucet === ucet);
+  const f = stav.filtrPosty;
+  if (f === 'neprectene') return z.filter((m) => m.neprectena);
+  if (STAVY[f]) return z.filter((m) => stavZpravy(m) === f);
+  return z;
+}
+
+/** Sousední konverzace v aktuálním seznamu (j/k, další po Hotovo). */
+function sousedni(id, smer) {
+  const z = filtrovane();
+  const i = z.findIndex((m) => m.id === id);
+  if (i < 0) return z.length ? z[0].id : null;
+  const x = z[i + smer];
+  return x ? x.id : null;
 }
 
 // ---------------------------------------------------------------- seznam
 
+export function stavTag(m) {
+  const s = STAVY[stavZpravy(m)];
+  return '<span class="' + s[1] + '">' + s[0] + '</span>';
+}
+
 export function zpravaRadekHtml(m, ukazUcet) {
   const aktivni = DVA_SLOUPCE.matches && stav.pohled === 'posta' && stav.otevreneVlakno === m.id ? ' aktivni' : '';
-  const stitek = ukazUcet ? '<span class="ucet ucet-' + m.ucet + '">' + (m.ucet === 'pracovni' ? 'Pracovní' : 'Osobní') + '</span>' : '';
+  const stitekUctu = ukazUcet ? '<span class="ucet ucet-' + m.ucet + '">' + (m.ucet === 'pracovni' ? 'Pracovní' : 'Osobní') + '</span>' : '';
   return '<li class="' + (m.neprectena ? 'neprect' : 'prect') + aktivni + '"><button type="button" class="radek radek-posta" data-vlakno="' + esc(m.id) + '">' +
     '<span class="avatar" style="--h:' + odstin(m.od) + '" aria-hidden="true">' + esc(iniciala(m.od)) + '</span>' +
     '<span class="radek-obsah">' +
       '<span class="radek-hora">' + (m.neprectena ? '<span class="tecka" aria-label="nepřečtené"></span>' : '') +
         '<span class="radek-titul orez-1">' + esc(m.od) + '</span><span class="radek-cas cisla">' + esc(kdyKratce(m.kdy)) + '</span></span>' +
       '<span class="radek-predmet orez-1">' + esc(m.predmet) + (m.pocet > 1 ? ' <span class="pocet">' + m.pocet + '</span>' : '') + '</span>' +
-      '<span class="radek-pod orez-2">' + stitek + esc(m.ukazka || '') + '</span>' +
+      '<span class="radek-pod orez-2">' + stavTag(m) + ' ' + stitekUctu + esc(m.ukazka || '') + '</span>' +
     '</span></button></li>';
 }
 
-function seznamHtml() {
-  // filtry (Vše / Nepřečtené / Osobní / Pracovní) jsou v záložkách hlavičky, na širokém okně v postranním panelu
-  const filtr = stav.filtrPosty;
-  let h = '';
-  if (!stav.posta) return h + '<div class="card">' + (stav.chyby.posta ? chybaHtml(stav.chyby.posta, 'data-posta-znovu') : kostra(6)) + '</div>';
-  if (filtr === 'pracovni' && !maPracovni()) {
-    return h + '<div class="card"><div class="prazdne">Pracovní pošta zatím není připojená. ' +
-      '<button type="button" class="odkaz" data-otevri-nastaveni="posta">Nastavení pošty</button></div></div>';
-  }
-  let zpravy = vsechnyZpravy();
-  if (filtr === 'osobni') zpravy = zpravy.filter((m) => m.ucet === 'osobni');
-  else if (filtr === 'pracovni') zpravy = zpravy.filter((m) => m.ucet === 'pracovni');
-  else if (filtr === 'neprectene') zpravy = zpravy.filter((m) => m.neprectena);
-  if (stav.chyby.posta) h += '<p class="pruh pruh-varovani">' + esc(stav.chyby.posta.message) + ' Ukazuju naposledy načtené.</p>';
-  if (!zpravy.length) {
-    return h + '<div class="card"><div class="prazdne">' + (filtr === 'neprectene' ? 'Všechno přečteno.' : 'Za poslední dva týdny nic.') + '</div></div>';
-  }
-  return h + '<div class="card"><ul class="seznam seznam-posta">' + zpravy.map((m) => zpravaRadekHtml(m, maPracovni() && filtr !== 'osobni' && filtr !== 'pracovni')).join('') + '</ul></div>';
+function filtryHtml() {
+  const ucet = aktivniUcet();
+  const zUctu = vsechnyZpravy().filter((m) => ucet === 'oba' || m.ucet === ucet);
+  const pocet = (f) => (f === 'vse' ? zUctu.length : f === 'neprectene' ? zUctu.filter((m) => m.neprectena).length
+    : zUctu.filter((m) => stavZpravy(m) === f).length);
+  const chipy = FILTRY.filter((f) => f[0] === 'vse' || f[0] === stav.filtrPosty || pocet(f[0]) > 0)
+    .map((f) => '<button type="button" class="chip' + (f[0] === 'hori' ? ' chip--hori' : '') + '" data-filtr-posty="' + f[0] + '" aria-pressed="' +
+      (stav.filtrPosty === f[0]) + '">' + f[1] + '<span class="pocet cisla">' + pocet(f[0]) + '</span></button>').join('');
+  return '<div class="filtry posta-filtry"><div class="segment" role="group" aria-label="Stav konverzací">' + chipy + '</div>' +
+    (maPracovni() ? segment([['oba', 'Oba účty'], ['osobni', 'Osobní'], ['pracovni', 'Pracovní']], ucet, 'data-ucet-posty', 'Účet') : '') + '</div>';
 }
 
-/** Pohled Pošta: kostra (seznam | detail) se vytvoří jednou, detail se překresluje jen při změně vlákna. */
+function seznamHtml() {
+  if (!stav.posta) return '<div class="card">' + (stav.chyby.posta ? chybaHtml(stav.chyby.posta, 'data-posta-znovu') : kostra(6)) + '</div>';
+  const zpravy = filtrovane();
+  const h = stav.chyby.posta ? '<p class="pruh pruh-varovani">' + esc(stav.chyby.posta.message) + ' Ukazuju naposledy načtené.</p>' : '';
+  if (!zpravy.length) {
+    const f = stav.filtrPosty;
+    return h + '<div class="card"><div class="prazdne">' + (STAVY[f] ? STAVY[f][3] : f === 'neprectene' ? 'Všechno přečteno.' : 'Doručená pošta je prázdná.') + '</div></div>';
+  }
+  return h + '<div class="card"><ul class="seznam seznam-posta">' + zpravy.map((m) => zpravaRadekHtml(m, maPracovni() && aktivniUcet() === 'oba')).join('') + '</ul></div>';
+}
+
+/** Pohled Pošta: filtry nahoře, pod nimi seznam | detail. Detail se překresluje jen při změně vlákna. */
 export function vykresliPostu(el) {
   if (!el.querySelector('.posta-rozlozeni')) {
-    el.innerHTML = '<div class="posta-rozlozeni"><div class="posta-seznam" id="posta-seznam"></div>' +
+    el.innerHTML = '<div id="posta-filtry"></div><div class="posta-rozlozeni"><div class="posta-seznam" id="posta-seznam"></div>' +
       '<div class="posta-detail" id="posta-detail"></div></div>';
     posledniDetail = '';
   }
+  el.querySelector('#posta-filtry').innerHTML = stav.posta ? filtryHtml() : '';
   el.querySelector('#posta-seznam').innerHTML = seznamHtml();
   if (DVA_SLOUPCE.matches) vykresliDetail();
 }
@@ -106,7 +174,8 @@ export function vykresliPostu(el) {
 function klicDetailu() {
   const id = stav.otevreneVlakno;
   const st = id && stav.vlakna[id];
-  return id ? id + ':' + (st ? (st.nacita ? 'n' : '') + (st.chyba ? 'e' : '') + (st.verze || 0) : '-') + ':' + JSON.stringify(stav.rozbaleneZpravy) : '';
+  return id ? id + ':' + (st ? (st.nacita ? 'n' : '') + (st.chyba ? 'e' : '') + (st.verze || 0) : '-') + ':' + JSON.stringify(stav.rozbaleneZpravy) +
+    ':' + JSON.stringify(stav.obrazky) : '';
 }
 
 function vykresliDetail(vynutit) {
@@ -117,10 +186,11 @@ function vykresliDetail(vynutit) {
   posledniDetail = klic;
   const id = stav.otevreneVlakno;
   if (!id) {
-    el.innerHTML = '<div class="posta-prazdny">' + IKONY.posta + '<p>Vyber zprávu vlevo.</p></div>';
+    el.innerHTML = '<div class="posta-prazdny">' + IKONY.posta + '<p>Vyber konverzaci vlevo.</p>' +
+      '<small>Klávesy: j / k další a předchozí · e hotovo · r odpovědět</small></div>';
     return;
   }
-  el.innerHTML = '<div class="detail-lista">' + akceHlavickyHtml(id) + '</div><div class="detail-telo">' + vlaknoHtml(id) + '</div>' +
+  el.innerHTML = '<div class="detail-lista">' + akceHlavickyHtml(id, true) + '</div><div class="detail-telo">' + vlaknoHtml(id) + '</div>' +
     '<div class="detail-paticka">' + akceVlaknaHtml(id) + '</div>';
   pripravTelaZprav(el);
 }
@@ -128,7 +198,7 @@ function vykresliDetail(vynutit) {
 // ---------------------------------------------------------------- vlákno
 
 export function otevriVlakno(id) {
-  const m = vsechnyZpravy().find((x) => x.id === id);
+  const m = najdiSouhrn(id);
   if (m && m.zPc) { if (m.odkaz && m.odkaz !== '#') window.open(m.odkaz, '_blank', 'noopener'); return; }
   stav.otevreneVlakno = id;
   stav.rozbaleneZpravy = {};
@@ -136,15 +206,22 @@ export function otevriVlakno(id) {
   if (!DVA_SLOUPCE.matches) {
     otevriPanel({
       id: 'vlakno', trida: 'panel-bocni panel-vlakno', titul: '',
-      vpravo: () => akceHlavickyHtml(stav.otevreneVlakno),
+      vpravo: () => akceHlavickyHtml(stav.otevreneVlakno, false),
       vykresli: () => vlaknoHtml(stav.otevreneVlakno),
       paticka: () => akceVlaknaHtml(stav.otevreneVlakno),
       poVykresleni: pripravTelaZprav,
-      priZavreni: () => { stav.otevreneVlakno = null; }
+      priZavreni: () => { stav.otevreneVlakno = null; zmeneno(); }
     });
   }
   nactiVlakno(id);
   zmeneno();
+  // na širokém okně řádek v seznamu udržet na očích (j/k)
+  if (DVA_SLOUPCE.matches) {
+    setTimeout(() => {
+      const radek = Array.from(document.querySelectorAll('#posta-seznam [data-vlakno]')).find((b) => b.dataset.vlakno === id);
+      if (radek) { const r = radek.getBoundingClientRect(); if (r.bottom > innerHeight || r.top < 0) radek.scrollIntoView({ block: 'nearest' }); }
+    }, 30);
+  }
 }
 
 function nactiVlakno(id, znovu) {
@@ -166,12 +243,13 @@ function obnovDetail(id) {
 
 function vlaknoHtml(id) {
   const st = stav.vlakna[id] || {};
-  const souhrn = vsechnyZpravy().find((m) => m.id === id);
+  const souhrn = najdiSouhrn(id);
   const d = st.data;
   const predmet = (d && d.predmet) || (souhrn && souhrn.predmet) || '';
   const ucet = (d && d.ucet) || (souhrn && souhrn.ucet);
   let h = '<div class="vlakno"><h1 class="vlakno-predmet">' + esc(predmet) + '</h1>';
-  if (maPracovni() && ucet) h += '<span class="ucet ucet-' + ucet + '">' + (ucet === 'pracovni' ? 'Pracovní' : 'Osobní') + '</span>';
+  const stitky = (souhrn ? stavTag(souhrn) : '') + (maPracovni() && ucet ? '<span class="ucet ucet-' + ucet + '">' + (ucet === 'pracovni' ? 'Pracovní' : 'Osobní') + '</span>' : '');
+  if (stitky) h += '<div class="vlakno-stitky">' + stitky + '</div>';
   if (d) {
     if (d.skryto) h += '<p class="vlakno-skryto">Starších zpráv: ' + d.skryto + ' – jsou v Gmailu.</p>';
     h += d.zpravy.map((z, i) => zpravaHtml(z, i === d.zpravy.length - 1 || !!stav.rozbaleneZpravy[z.id])).join('');
@@ -204,19 +282,25 @@ function zpravaHtml(z, rozbalena) {
   return '<article class="zprava">' + hlava + telo + prilohy + '</article>';
 }
 
-function akceHlavickyHtml(id) {
+/** Akce nad konverzací. Široké okno: Hotovo a Připomenout s popiskem; telefon a panel: jen ikony. */
+function akceHlavickyHtml(id, siroke) {
   const st = stav.vlakna[id];
-  const odkaz = st && st.data ? st.data.odkaz : (vsechnyZpravy().find((m) => m.id === id) || {}).odkaz;
-  return '<button type="button" class="btn btn--ikona" data-oznacit="archivovat" aria-label="Archivovat" title="Archivovat">' + IKONY.archiv + '</button>' +
-    '<button type="button" class="btn btn--ikona" data-oznacit="neprectene" aria-label="Označit jako nepřečtené" title="Označit jako nepřečtené">' + IKONY.neprectene + '</button>' +
+  const souhrn = najdiSouhrn(id) || {};
+  const odkaz = st && st.data ? st.data.odkaz : souhrn.odkaz;
+  const tl = (atr, ikona, text, klavesa, sPopiskem) => sPopiskem
+    ? '<button type="button" class="btn btn--ghost btn--sm" ' + atr + ' title="' + text + (klavesa ? ' (' + klavesa + ')' : '') + '">' + ikona + '<span>' + text + '</span></button>'
+    : '<button type="button" class="btn btn--ikona" ' + atr + ' aria-label="' + text + '" title="' + text + (klavesa ? ' (' + klavesa + ')' : '') + '">' + ikona + '</button>';
+  const hlavni = tl('data-oznacit="archivovat"', IKONY.hotovo, 'Hotovo', 'E', siroke) + tl('data-pripomenout', IKONY.pripomenout, 'Připomenout', 'H', siroke);
+  const dalsi = tl('data-oznacit="neprectene"', IKONY.neprectene, 'Označit jako nepřečtené', 'U') + tl('data-oznacit="spam"', IKONY.spam, 'Spam') +
     (odkaz && odkaz !== '#' ? '<a class="btn btn--ikona" href="' + esc(odkaz) + '" target="_blank" rel="noopener" aria-label="Otevřít v Gmailu" title="Otevřít v Gmailu">' + IKONY.ven + '</a>' : '');
+  return siroke ? '<div class="detail-lista__skupina">' + hlavni + '</div><div class="detail-lista__skupina">' + dalsi + '</div>' : hlavni + dalsi;
 }
 
 function akceVlaknaHtml() {
   return '<div class="vlakno-akce">' +
-    '<button type="button" class="btn btn--primary" data-psat="odpoved">' + IKONY.odpovedet + '<span>Odpovědět</span></button>' +
-    '<button type="button" class="btn btn--ghost" data-psat="vsem">' + IKONY.vsem + '<span>Všem</span></button>' +
-    '<button type="button" class="btn btn--ghost" data-psat="preposlat">' + IKONY.preposlat + '<span>Přeposlat</span></button></div>';
+    '<button type="button" class="btn btn--primary" data-psat="odpoved" title="Odpovědět (R)">' + IKONY.odpovedet + '<span>Odpovědět</span></button>' +
+    '<button type="button" class="btn btn--ghost" data-psat="vsem" title="Odpovědět všem (A)">' + IKONY.vsem + '<span>Všem</span></button>' +
+    '<button type="button" class="btn btn--ghost" data-psat="preposlat" title="Přeposlat (F)">' + IKONY.preposlat + '<span>Přeposlat</span></button></div>';
 }
 
 function maVzdaleneObrazky(html) {
@@ -236,10 +320,10 @@ function pripravTelaZprav(koren) {
       '<meta http-equiv="Content-Security-Policy" content="img-src data: cid:; media-src \'none\'; font-src data:">';
     ramec.srcdoc = '<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank">' + zakazObrazku +
       '<meta name="viewport" content="width=device-width, initial-scale=1">' +
-      '<style>html,body{margin:0;padding:0;background:#fff;color:#1d1d1f;overflow:hidden}' +
+      '<style>html,body{margin:0;padding:0;background:#fff;color:#1b231e;overflow:hidden}' +
       'body{font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:4px 2px 10px;overflow-wrap:anywhere}' +
-      'img{max-width:100%;height:auto}a{color:#2f5bd3}pre{white-space:pre-wrap}' +
-      'blockquote{margin:0 0 0 .4em;padding-left:.8em;border-left:3px solid #d9d9de;color:#555}</style></head><body>' +
+      'img{max-width:100%;height:auto}a{color:#1f6b45}pre{white-space:pre-wrap}' +
+      'blockquote{margin:0 0 0 .4em;padding-left:.8em;border-left:3px solid #e8e0d2;color:#555}</style></head><body>' +
       z.html + '</body></html>';
   });
 }
@@ -277,10 +361,10 @@ function bezPredpony(s) { return String(s || '').replace(/^\s*((re|fw|fwd|odp|vs
 export function otevriPsani(rezim) {
   const id = stav.otevreneVlakno;
   const d = id && stav.vlakna[id] && stav.vlakna[id].data;
-  if (rezim !== 'novy' && !d) { toast('Počkej, až se zpráva načte.'); return; }
-  const cil = d ? posledniCizi(d) : null;
+  if (rezim !== 'novy' && !d) { toast(id ? 'Počkej, až se zpráva načte.' : 'Nejdřív otevři konverzaci.'); return; }
+  const cil = d && rezim !== 'novy' ? posledniCizi(d) : null;
   const info = (stav.info && stav.info.posta) || {};
-  const ucet = d ? (d.ucet || 'osobni') : (stav.filtrPosty === 'pracovni' && info.pracovniAdresa ? 'pracovni' : 'osobni');
+  const ucet = cil ? (d.ucet || 'osobni') : (aktivniUcet() === 'pracovni' && info.pracovniAdresa ? 'pracovni' : 'osobni');
   const klic = KONCEPT + rezim + '.' + (cil ? cil.id : 'novy');
   const koncept = uloziste.cti(klic) || {};
   let komu = '';
@@ -290,12 +374,12 @@ export function otevriPsani(rezim) {
     komu = [cil.od + ' <' + cil.odAdresa + '>'].concat(String(cil.komu || '').split(','), String(cil.kopie || '').split(','))
       .map((a) => a.trim()).filter((a) => a && !ja.some((x) => a.toLowerCase().indexOf(x) >= 0)).join(', ');
   }
-  stav.psani = { rezim, ucet, zpravaId: cil ? cil.id : null, vlaknoId: id || null, klic, komu,
+  stav.psani = { rezim, ucet, zpravaId: cil ? cil.id : null, vlaknoId: cil ? id : null, klic, komu,
     predmet: rezim === 'novy' ? '' : (rezim === 'preposlat' ? 'Fwd: ' : 'Re: ') + bezPredpony(d.predmet), citace: cil ? cil.text : '' };
   otevriPanel({
     id: 'psani', trida: 'panel-okno panel-psani',
     titul: { odpoved: 'Odpověď', vsem: 'Odpověď všem', preposlat: 'Přeposlat', novy: 'Nový e-mail' }[rezim],
-    vpravo: () => '<button type="button" class="btn btn--primary" data-odeslat>' + IKONY.odeslat + '<span>Odeslat</span></button>',
+    vpravo: () => '<button type="button" class="btn btn--primary" data-odeslat title="Odeslat (Ctrl+Enter)">' + IKONY.odeslat + '<span>Odeslat</span></button>',
     vykresli: () => psaniHtml(koncept),
     poOtevreni: (el) => {
       const pole = el.querySelector(rezim === 'novy' || rezim === 'preposlat' ? '[data-psani-komu]' : '[data-psani-text]');
@@ -352,11 +436,11 @@ async function odeslat(tlacitko) {
   const el = elementPanelu('psani');
   if (!p || !el) return;
   const text = el.querySelector('[data-psani-text]').value;
-  if (!text.trim()) { toast('Napiš text zprávy.'); el.querySelector('[data-psani-text]').focus(); return; }
+  if (!text.trim()) { toast('Napiš text zprávy.', true); el.querySelector('[data-psani-text]').focus(); return; }
   const data = { rezim: p.rezim, id: p.zpravaId, text, ucet: p.ucet };
   if (p.rezim === 'preposlat' || p.rezim === 'novy') {
     data.komu = el.querySelector('[data-psani-komu]').value.trim();
-    if (!data.komu) { toast('Doplň adresáta.'); el.querySelector('[data-psani-komu]').focus(); return; }
+    if (!data.komu) { toast('Doplň adresáta.', true); el.querySelector('[data-psani-komu]').focus(); return; }
   }
   if (p.rezim === 'novy') data.predmet = el.querySelector('[data-psani-predmet]').value.trim();
   tlacitko.disabled = true;
@@ -366,7 +450,7 @@ async function odeslat(tlacitko) {
     uloziste.smaz(p.klic);
     const vlakno = p.vlaknoId;
     zavriPanel();
-    toast('Odesláno ✓');
+    toast('Odesláno');
     if (vlakno) nactiVlakno(vlakno, true);
     nactiPostu(true);
   } catch (e) {
@@ -376,25 +460,96 @@ async function odeslat(tlacitko) {
   }
 }
 
-// ---------------------------------------------------------------- označení a archiv
+// ---------------------------------------------------------------- Hotovo, Spam, nepřečtené
 
 async function oznac(jak) {
   const id = stav.otevreneVlakno;
   if (!id) return;
+  if (jak === 'spam' && !potvrd('Označit jako spam? Konverzace se v Gmailu přesune do Spamu.')) return;
+  const pryc = jak === 'archivovat' || jak === 'spam';
+  const dalsi = pryc ? (sousedni(id, 1) || sousedni(id, -1)) : null;
   try {
     await volej('oznacit', { id, jak });
-    if (jak === 'archivovat') {
+    if (pryc) {
       upravVSeznamech(id, (m, i, seznam) => seznam.splice(i, 1));
-      toast('Archivováno');
+      toast(jak === 'spam' ? 'Přesunuto do spamu' : 'Hotovo – vrátí se, až přijde nová zpráva');
     } else {
       upravVSeznamech(id, (m) => { m.neprectena = jak === 'neprectene'; });
       toast('Označeno jako nepřečtené');
     }
-    stav.otevreneVlakno = null;
-    if (jeOtevreny('vlakno')) zavriPanel();
+    // na širokém okně rovnou další konverzace (jako v poštovních klientech na PC), jinak zpět na seznam
+    if (DVA_SLOUPCE.matches && dalsi && dalsi !== id) otevriVlakno(dalsi);
+    else {
+      stav.otevreneVlakno = null;
+      if (jeOtevreny('vlakno')) zavriPanel();
+    }
     zmeneno();
     nactiPostu(true);
   } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+// ---------------------------------------------------------------- Připomenout (úkol s termínem do Schránky)
+
+function volbyPripominky() {
+  const dnes = pulnoc(Date.now());
+  const doPondeli = ((8 - new Date(dnes).getDay()) % 7) || 7;
+  return [['Zítra', 1], ['Pozítří', 2], ['V pondělí', doPondeli], ['Za týden', 7]].map((v) => [v[0], isoDatum(pridejDny(dnes, v[1]))]);
+}
+
+function otevriPripominku() {
+  const id = stav.otevreneVlakno;
+  if (!id) return;
+  stav.pripominka = { id, termin: volbyPripominky()[0][1] };
+  otevriPanel({
+    id: 'pripomenout', trida: 'panel-okno panel-pripominka', titul: 'Připomenout',
+    vykresli: pripominkaHtml,
+    paticka: () => '<div class="akce"><button type="button" class="btn btn--ghost" data-zavrit-panel>Zrušit</button>' +
+      '<button type="button" class="btn btn--primary" data-ulozit-pripominku>' + IKONY.pripomenout + '<span>Připomenout</span></button></div>',
+    poOtevreni: (el) => { const b = el.querySelector('[data-termin][aria-pressed="true"]'); if (b) b.focus({ preventScroll: true }); },
+    priZavreni: () => { stav.pripominka = null; }
+  });
+}
+
+function pripominkaHtml() {
+  const p = stav.pripominka;
+  const souhrn = najdiSouhrn(p.id) || {};
+  const d = stav.vlakna[p.id] && stav.vlakna[p.id].data;
+  const predmet = (d && d.predmet) || souhrn.predmet || '';
+  return '<div class="pripominka">' +
+    '<p class="pripominka__predmet">' + IKONY.posta + '<span class="orez-2">' + esc(predmet) + (souhrn.od ? ' <small class="muted">· ' + esc(souhrn.od) + '</small>' : '') + '</span></p>' +
+    '<div><span class="label">Kdy</span><div class="volby">' + volbyPripominky().map((v) => '<button type="button" class="chip" data-termin="' + v[1] + '" aria-pressed="' +
+      (v[1] === p.termin) + '">' + v[0] + '<small>' + dm(terminDatum(v[1])) + '</small></button>').join('') + '</div></div>' +
+    '<label><span class="label">Nebo vyber datum</span><input class="field" type="date" data-pripominka-datum value="' + p.termin + '" min="' + isoDatum(Date.now()) + '"></label>' +
+    '<label><span class="label">Poznámka (nepovinné)</span><textarea class="odpoved" data-pripominka-text rows="2" placeholder="Co s tím mám udělat…"></textarea></label>' +
+    '<p class="napoveda">Uloží se do Schránky mezi tvé úkoly s odkazem na e-mail; v den termínu svítí na přehledu Dnes.</p></div>';
+}
+
+function zvolTermin(termin) {
+  const el = elementPanelu('pripomenout');
+  if (!el || !stav.pripominka) return;
+  stav.pripominka.termin = termin;
+  el.querySelectorAll('[data-termin]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.termin === termin)));
+  const pole = el.querySelector('[data-pripominka-datum]');
+  if (pole.value !== termin) pole.value = termin;
+}
+
+async function ulozPripominku(tlacitko) {
+  const el = elementPanelu('pripomenout');
+  const p = stav.pripominka;
+  if (!el || !p) return;
+  const termin = el.querySelector('[data-pripominka-datum]').value || p.termin;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(termin)) { toast('Vyber datum.', true); return; }
+  tlacitko.disabled = true;
+  try {
+    const polozka = await volej('pripomenout', { id: p.id, termin, poznamka: el.querySelector('[data-pripominka-text]').value.trim() });
+    if (stav.schranka && polozka) stav.schranka.ceka.push(polozka);
+    zavriPanel();
+    toast('Připomenu ' + dm(terminDatum(termin)) + ' – úkol je ve Schránce');
+    zmeneno();
+  } catch (e) {
+    tlacitko.disabled = false;
     toast(e.message, true);
   }
 }
@@ -409,9 +564,18 @@ export function klikPosta(el) {
     zmeneno();
     return true;
   }
+  if (el.dataset.ucetPosty) {
+    stav.ucetPosty = el.dataset.ucetPosty;
+    uloziste.pis('asistent.ucetPosty', stav.ucetPosty);
+    zmeneno();
+    return true;
+  }
   if (el.dataset.psat) { otevriPsani(el.dataset.psat); return true; }
   if (el.hasAttribute('data-odeslat')) { odeslat(el); return true; }
   if (el.dataset.oznacit) { oznac(el.dataset.oznacit); return true; }
+  if (el.hasAttribute('data-pripomenout')) { otevriPripominku(); return true; }
+  if (el.dataset.termin && el.closest('[data-panel="pripomenout"]')) { zvolTermin(el.dataset.termin); return true; }
+  if (el.hasAttribute('data-ulozit-pripominku')) { ulozPripominku(el); return true; }
   if (el.dataset.rozbalZpravu) {
     const st = stav.vlakna[stav.otevreneVlakno];
     const posledni = st && st.data && st.data.zpravy[st.data.zpravy.length - 1];
@@ -443,10 +607,31 @@ export function klikPosta(el) {
 let casovacKonceptu;
 export function vstupPosta(e) {
   const t = e.target;
+  if (t.matches && t.matches('[data-pripominka-datum]')) { if (t.value) zvolTermin(t.value); return true; }
   if (!t.closest || !t.closest('[data-panel="psani"]')) return false;
   if (t.matches('[data-psani-text]')) prizpusobVysku(t);
   clearTimeout(casovacKonceptu);
   casovacKonceptu = setTimeout(ulozKoncept, 400);
+  return true;
+}
+
+/** Klávesy v Poště (PC, iPad s klávesnicí): j/k další a předchozí, e hotovo, h připomenout, u nepřečtené,
+ *  r odpovědět, a všem, f přeposlat, c nový e-mail. Vrací true, když klávesu použila. */
+export function klavesaPosta(e) {
+  const horni = horniPanel();
+  if (stav.pohled !== 'posta' || (horni && horni.id !== 'vlakno')) return false;
+  const k = e.key.toLowerCase();
+  if (k === 'c') { otevriPsani('novy'); return true; }
+  if (k === 'j' || k === 'k') {
+    const cil = stav.otevreneVlakno ? sousedni(stav.otevreneVlakno, k === 'j' ? 1 : -1) : (filtrovane()[0] || {}).id;
+    if (cil) otevriVlakno(cil);
+    return true;
+  }
+  if (!stav.otevreneVlakno) return false;
+  const akce = { e: () => oznac('archivovat'), u: () => oznac('neprectene'), h: otevriPripominku,
+    r: () => otevriPsani('odpoved'), a: () => otevriPsani('vsem'), f: () => otevriPsani('preposlat') }[k];
+  if (!akce) return false;
+  akce();
   return true;
 }
 

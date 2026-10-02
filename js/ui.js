@@ -3,13 +3,14 @@
 import { esc } from './pomocne.js';
 
 let casovac;
-/** Krátké oznámení dole („Uloženo ✓“). */
-export function toast(text, dlouze) {
+/** Krátké oznámení dole (tmavě zelené s fajfkou; chyba korálová s vykřičníkem a déle). */
+export function toast(text, chyba) {
   const el = document.getElementById('toast');
-  el.textContent = text;
+  el.textContent = String(text || '').replace(/\s*✓$/, '');
+  el.classList.toggle('chyba', !!chyba);
   el.classList.add('videt');
   clearTimeout(casovac);
-  casovac = setTimeout(() => el.classList.remove('videt'), dlouze ? 4800 : 2200);
+  casovac = setTimeout(() => el.classList.remove('videt'), chyba ? 4800 : 2400);
 }
 
 export function kostra(n) {
@@ -24,11 +25,18 @@ export function chybaHtml(chyba, atribut) {
     (atribut ? '<button type="button" class="btn btn--ghost btn--sm" ' + atribut + '>Zkusit znovu</button>' : '') + '</div>';
 }
 
-/** Přepínač z několika voleb: volby = [[hodnota, popisek], …] */
+/** Přepínač z několika voleb: volby = [[hodnota, popisek, počet?], …] – pilulky, aktivní tmavá. */
 export function segment(volby, aktivni, atribut, popisek) {
   return '<div class="segment" role="group"' + (popisek ? ' aria-label="' + esc(popisek) + '"' : '') + '>' +
-    volby.map((v) => '<button type="button" class="chip" ' + atribut + '="' + esc(v[0]) + '" aria-pressed="' + (v[0] === aktivni) + '">' + esc(v[1]) + '</button>').join('') +
+    volby.map((v) => '<button type="button" class="chip" ' + atribut + '="' + esc(v[0]) + '" aria-pressed="' + (v[0] === aktivni) + '">' + esc(v[1]) +
+      (v[2] != null ? '<span class="pocet cisla">' + v[2] + '</span>' : '') + '</button>').join('') +
     '</div>';
+}
+
+/** Hlavička karty ve stylu přehledu: ikona + název (velkými písmeny), vpravo šipka ↗ nebo vlastní obsah. */
+export function hlavickaKarty(ikona, nazev, vpravo) {
+  return '<div class="card-hlava"><span class="nadpis">' + ikona + '<span>' + nazev + '</span></span>' +
+    (vpravo ? '<span class="vpravo">' + vpravo + '</span>' : '') + '</div>';
 }
 
 export function prizpusobVysku(t) {

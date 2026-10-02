@@ -17,6 +17,26 @@ na plochu a otevírá se jako samostatná aplikace, bez lišty prohlížeče.
 Aplikace mluví s motorem přes `POST` s klíčem. **Adresa motoru a klíč jsou jen v zařízení** (zadají se
 jednou v aplikaci) – nikdy v tomhle repozitáři.
 
+Vzhled: styl „Fixtrack“ (skill `osobni-vzhled`) – postranní panel, hledání `Ctrl K` / `⌘ K`, přehled Dnes s čísly a grafy.
+
+## Pošta jako případy
+Nápad převzatý z poštovního klienta [Mailer](https://www.fastmailer.one/) (pravidla jsou vlastní): každá konverzace
+v Doručené poště má stav, který motor určí hned a bez AI:
+
+| Stav | Kdy |
+|---|---|
+| **Hoří** | výslovná naléhavost („urgentní“, „ihned“), nahlášený problém („nefunguje“, „výpadek“), termín do 48 hodin („do zítra“, „do pátku“ ve čtvrtek, „do 5. 10.“) |
+| **Čeká na tebe** | někdo po tobě něco chce („prosím“, „pošlete“, „k připomínkám“…), nebo osobní zpráva bez jasného obsahu |
+| **Otázka** | ptá se, ale nic nežádá |
+| **Čekáš na ně** | poslední jsi psal ty (ne krátké „díky“, ne hromadně, ne na automatické adresy) |
+| **Řeší se** | živá konverzace, ve které se od tebe teď nic nečeká |
+| **Informace** | oznámení, automatické zprávy, kategorie Aktualizace; konverzace uzavřená tvým „díky“ |
+
+**Hotovo** = archiv (konverzace se vrátí s novou zprávou), **Připomenout** = úkol s termínem do schránky (s odkazem
+do Gmailu), **Spam**. Hledání v celé poště rozumí i českým filtrům (`od:`, `komu:`, `předmět:`, `má:přílohu`,
+`je:nepřečtené`, `po:1.10.2026`, `před:`). Klávesy na PC: `j`/`k` další a předchozí, `e` hotovo, `h` připomenout,
+`r` odpovědět, `a` všem, `f` přeposlat, `c` nový e-mail, `/` hledat, `1`–`4` sekce.
+
 ## Nasazení motoru (jednou)
 
 1. <https://script.google.com> → projekt motoru → `Kód.gs` nahradit obsahem `apps-script/Kod.gs`

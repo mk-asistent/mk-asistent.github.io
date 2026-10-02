@@ -23,8 +23,8 @@
 const VERZE = '2026-10-02';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
-const DNI_POSTY = 14;
-const MAX_VLAKEN = 40;
+const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
+const MAX_VLAKEN = 50;
 const MAX_ZPRAV_VE_VLAKNE = 12;
 const MAX_VYRIZENYCH = 25;
 const MAX_ROZSAH_KALENDARE = 100 * 864e5; // jeden dotaz nejvýš na 100 dní
@@ -77,6 +77,8 @@ const AKCE = {
   vlakno: function (d) { return nactiVlakno_(d.id, d.precist !== false); },
   odeslat: function (d) { return odeslat_(d); },
   oznacit: function (d) { return oznacitVlakno_(d.id, d.jak); },
+  hledat: function (d) { return hledatPostu_(d.dotaz); },
+  pripomenout: function (d) { return pripomenout_(d.id, d.termin, d.poznamka); },
   kalendar: function (d) { return nactiKalendar_(d.od, d.do, d.znovu); },
   kalendare: function () { return seznamKalendaru_(); },
   kalendarPridat: function (d) { return pridejKalendar_(d.nazev, d.odkaz, d.barva); },
@@ -360,9 +362,11 @@ function nactiPostu_(znovu) {
   return vysledek;
 }
 
-function seznamVlaken_(dotaz, ja, prac, ucet) {
-  const vlakna = GmailApp.search(dotaz, 0, MAX_VLAKEN);
+function seznamVlaken_(dotaz, ja, prac, ucet, max) {
+  const vlakna = GmailApp.search(dotaz, 0, max || MAX_VLAKEN);
   const zpravy = GmailApp.getMessagesForThreads(vlakna);
+  const oznameni = oznameniVlakna_(dotaz);
+  const ted = Date.now();
   return vlakna.map(function (vlakno, i) {
     // koncepty a zprávy v koši do přehledu nepatří (náhled by ukázal neodeslaný text)
     const platne = zpravy[i].filter(function (m) { return !m.isDraft() && !m.isInTrash(); });
@@ -374,9 +378,15 @@ function seznamVlaken_(dotaz, ja, prac, ucet) {
       const od = adresa_(seznam[j].getFrom());
       if (od !== ja && od !== prac) odesilatel = seznam[j];
     }
+    const odeMne = function (m) { return [ja, prac].indexOf(adresa_(m.getFrom())) >= 0; };
+    const odeMe = odeMne(posledni);
     return {
       id: vlakno.getId(),
-      ucet: ucet,
+      // u hledání účet předem neznáme – stačí adresy zpráv (přeposlaná pracovní pošta má pracovní adresu v Komu/Kopie)
+      ucet: ucet || (prac && seznam.some(function (m) {
+        return (String(m.getTo() || '') + ',' + String(m.getCc() || '') + ',' + String(m.getFrom() || '')).toLowerCase().indexOf(prac) >= 0;
+      }) ? 'pracovni' : 'osobni'),
+      stav: stavPripadu_(posledni, odeMe, vlakno, !!oznameni[vlakno.getId()], ted, seznam.some(odeMne)),
       od: odesilatel ? jmeno_(odesilatel.getFrom()) : 'Já → ' + jmeno_(posledni.getTo()),
       odAdresa: odesilatel ? adresa_(odesilatel.getFrom()) : '',
       predmet: vlakno.getFirstMessageSubject() || '(bez předmětu)',
@@ -389,6 +399,119 @@ function seznamVlaken_(dotaz, ja, prac, ucet) {
       odkaz: odkazGmail_(vlakno.getId())
     };
   });
+}
+
+/** Vlákna z kategorie Aktualizace (oznámení, účtenky, systémové zprávy) – jedním dotazem, bez čtení hlaviček. */
+function oznameniVlakna_(dotaz) {
+  const mapa = {};
+  try {
+    GmailApp.search('(' + dotaz + ') category:updates', 0, MAX_VLAKEN).forEach(function (v) { mapa[v.getId()] = true; });
+  } catch (chyba) { /* bez kategorií – rozhodne odesílatel */ }
+  return mapa;
+}
+
+// Stav konverzace jako „případ“ – nápad převzatý z poštovního klienta Mailer (fastmailer.one), pravidla vlastní.
+// Určí se hned a zdarma, bez AI (AI může stav později zpřesnit):
+//   hori   – jednat hned: výslovná naléhavost, nahlášený problém („nefunguje“, „výpadek“), termín do 48 hodin
+//   ceka   – někdo po tobě něco chce (prosba, úkol, „k připomínkám“), nebo jen osobní zpráva bez jasného obsahu
+//   otazka – ptá se, ale nic nežádá
+//   cekas  – poslední jsi psal ty a čekáš na odpověď
+//   resi   – živá konverzace, ve které se od tebe teď nic nečeká
+//   info   – oznámení a automatické zprávy; i konverzace, kterou jsi uzavřel krátkým „díky“
+const PISMENO_PRED = '(?<![\\p{L}])';
+const PISMENO_ZA = '(?![\\p{L}])';
+const slova_ = function (seznam) { return new RegExp(PISMENO_PRED + '(?:' + seznam.join('|') + ')' + PISMENO_ZA, 'iu'); };
+const SLOVA_HORI = slova_(['urgent\\p{L}*', 'asap', 'naléhav\\p{L}*', 'spěchá', 'rychle', 'ihned', 'okamžitě', 'neprodleně',
+  'co nejdřív(?:e)?', 'deadline', 'nefunguj\\p{L}*', 'výpadek', 'výpadku', 'nedostupn\\p{L}*', 'havári\\p{L}*', 'porucha', 'poruchu']);
+const SLOVA_PROSBA = slova_(['prosím', 'prosíme', 'prosil\\p{L}* bych', 'potřebuj\\p{L}*', 'potřeboval\\p{L}* bych', 'je potřeba', 'je nutné',
+  'pošli', 'pošlete', 'pošleš', 'zašli', 'zašlete', 'dej(?:te)?(?: mi)? vědět', 'ozvi se', 'ozvěte se', 'potvrď(?:te)?', 'potvrdíš',
+  'zkontroluj(?:te)?', 'připrav(?:te)?', 'zaplať(?:te)?', 'uhraď(?:te)?', 'vyplň(?:te)?', 'schval(?:te)?', 'podepiš(?:te)?',
+  'doplň(?:te)?', 'oprav(?:te)?', 'rozhodni', 'rozhodněte', 'odpověz(?:te)?', 'můžeš', 'můžete', 'mohl\\p{L}* (?:bys|byste|bychom)',
+  'k připomínkám', 'k vyjádření', 'ke schválení', 'k podpisu', 'k odsouhlasení', 'k objednání']);
+const AUTOMAT = /(no-?reply|do-?not-?reply|notification|notifikace|newsletter|mailer-daemon|postmaster|bounce)/i;
+const DIKY = new RegExp('^(?:díky|dík|děkuj\\p{L}*|ok|okay|super|platí|dobře|jasně|v pořádku|výborně|thanks|thank you)' + PISMENO_ZA + '[^?]{0,40}$', 'iu');
+const DNY_TERMINU = { 'pondělí': 1, 'úterý': 2, 'středy': 3, 'středu': 3, 'čtvrtka': 4, 'čtvrtek': 4, 'pátku': 5, 'pátek': 5,
+  'soboty': 6, 'sobotu': 6, 'neděle': 0, 'neděli': 0 };
+const TERMIN = new RegExp(PISMENO_PRED + '(?:do|nejpozději(?: do)?|termín(?:em)?|deadline|potřebuj\\p{L}* (?:to )?(?:do|na))\\s+' +
+  '(dnes|dneska|dneška|zítra|zítřka|pozítří|večera|konce dne|' + Object.keys(DNY_TERMINU).join('|') +
+  '|(\\d{1,2})\\.\\s?(\\d{1,2})\\.(?:\\s?(\\d{4}))?)' + PISMENO_ZA, 'iu');
+
+/** Vlastní text zprávy: bez citace předchozích, bez podpisu za „-- “ a bez adres (otazník v odkazu není otázka). */
+function vlastniText_(zprava) {
+  return String(zprava.getPlainBody() || '')
+    .split(/\n\s*(?:>|Dne .{0,80}napsal|On .{0,80}wrote:|-----|Od:\s.*\n\s*(?:Odesláno|Datum|Komu):|From:\s.*\n\s*(?:Sent|Date|To):)|\n-- ?\n/)[0]
+    .replace(/https?:\/\/\S+/g, '').trim().slice(0, 1500);
+}
+
+/** Je v textu termín do 48 hodin od odeslání zprávy („do zítra“, „do pátku“ ve čtvrtek, „do 5. 10.“)? */
+function terminDo48h_(text, kdy) {
+  const m = TERMIN.exec(text);
+  if (!m) return false;
+  const slovo = m[1].toLowerCase();
+  if (DNY_TERMINU[slovo] === undefined && !m[2]) return true; // dnes, zítra, pozítří, do večera, do konce dne
+  const d = Utilities.formatDate(new Date(kdy), CASOVE_PASMO, 'yyyy-MM-dd').split('-').map(Number);
+  const den = Date.UTC(d[0], d[1] - 1, d[2]);
+  let rozdil;
+  if (m[2]) {
+    let cil = Date.UTC(m[4] ? Number(m[4]) : d[0], Number(m[3]) - 1, Number(m[2]));
+    if (!m[4] && cil < den - 180 * 864e5) cil = Date.UTC(d[0] + 1, Number(m[3]) - 1, Number(m[2])); // „do 5. 1.“ psané v prosinci
+    rozdil = (cil - den) / 864e5;
+  } else {
+    rozdil = (DNY_TERMINU[slovo] - new Date(den).getUTCDay() + 7) % 7;
+  }
+  return rozdil >= 0 && rozdil <= 2;
+}
+
+function stavPripadu_(posledni, odeMe, vlakno, jeOznameni, ted, jsemPsal) {
+  if (odeMe) {
+    // „Čekáš na ně“ jen když opravdu čekáš: ne po krátkém „díky“, ne u hromadné zprávy, ne u automatických adres
+    const komu = (String(posledni.getTo() || '') + ',' + String(posledni.getCc() || '')).split(',')
+      .map(function (a) { return a.trim(); }).filter(Boolean);
+    const muj = vlastniText_(posledni);
+    const ukoncil = DIKY.test(muj) && !SLOVA_PROSBA.test(muj);
+    if (komu.length > 5 || (komu.length && komu.every(function (a) { return AUTOMAT.test(a); })) || ukoncil) return 'info';
+    return 'cekas';
+  }
+  if (jeOznameni || AUTOMAT.test(String(posledni.getFrom() || ''))) return 'info';
+  const text = vlastniText_(posledni);
+  const vse = String(posledni.getSubject() || '') + '\n' + text;
+  if (SLOVA_HORI.test(vse) || terminDo48h_(vse, posledni.getDate().getTime())) return 'hori';
+  if (SLOVA_PROSBA.test(vse)) return 'ceka';
+  if (/\?/.test(text)) return 'otazka';
+  return jsemPsal ? 'resi' : 'ceka';
+}
+
+/** Hledání v celé poště (syntaxe Gmailu: from:, has:attachment, after:2026/9/1 …), nejvýš 20 vláken. */
+function hledatPostu_(dotaz) {
+  dotaz = String(dotaz || '').trim().slice(0, 200);
+  if (!dotaz) return { vlakna: [], dotaz: '' };
+  const vlakna = seznamVlaken_('(' + dotaz + ') -in:trash -in:spam', mojeAdresa_().toLowerCase(), pracovniAdresa_(), null, 20);
+  return { vlakna: vlakna, dotaz: dotaz };
+}
+
+/** „Připomenout“ – z e-mailu se stane tvůj úkol s termínem ve schránce (CEKA), s odkazem do Gmailu. */
+function pripomenout_(id, termin, poznamka) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(termin || ''))) throw new Error('Termín má tvar RRRR-MM-DD.');
+  const vlakno = vlakno_(id);
+  const zpravy = vlakno.getMessages();
+  const posledni = zpravy[zpravy.length - 1];
+  const predmet = String(vlakno.getFirstMessageSubject() || '(bez předmětu)').replace(/[\r\n]+/g, ' ');
+  const od = jmeno_(posledni.getFrom()).replace(/[\r\n]+/g, ' ');
+  const ted = new Date();
+  const nazev = Utilities.formatDate(ted, CASOVE_PASMO, 'yyyy-MM-dd_HHmmss') + '_' + Utilities.getUuid().slice(0, 4) + '.md';
+  const obsah = ['---',
+    'kdy: ' + Utilities.formatDate(ted, CASOVE_PASMO, "yyyy-MM-dd'T'HH:mm:ssXXX"),
+    'odkud: aplikace (pošta)',
+    'typ: ukol-michal',
+    'stav: tvuj-ukol',
+    'shrnuti: ' + ('Odpovědět: ' + predmet + ' (' + od + ')').slice(0, 160),
+    'termin: ' + termin,
+    '---', '',
+    'Připomenutí e-mailu „' + predmet + '“ od ' + od + '.',
+    odkazGmail_(vlakno.getId()),
+    poznamka ? '\n' + String(poznamka).slice(0, 2000) : '', ''].join('\n');
+  const soubor = podslozka_(koren_(), 'CEKA').createFile(nazev, obsah, MimeType.PLAIN_TEXT);
+  return polozka_(soubor, 'CEKA');
 }
 
 /**
@@ -502,13 +625,14 @@ function odeslat_(d) {
   return true;
 }
 
-/** jak: prectene | neprectene | archivovat | doDorucenych */
+/** jak: prectene | neprectene | archivovat | doDorucenych | spam */
 function oznacitVlakno_(id, jak) {
   const vlakno = vlakno_(id);
   if (jak === 'prectene') vlakno.markRead();
   else if (jak === 'neprectene') vlakno.markUnread();
   else if (jak === 'archivovat') vlakno.moveToArchive();
   else if (jak === 'doDorucenych') vlakno.moveToInbox();
+  else if (jak === 'spam') GmailApp.moveThreadToSpam(vlakno);
   else throw new Error('Neznámá akce.');
   smazCache_('posta');
   return true;

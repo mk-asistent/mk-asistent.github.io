@@ -54,6 +54,12 @@ export function terminDatum(s) { // "2026-10-06" → ms místní půlnoci
   return m ? new Date(+m[1], +m[2] - 1, +m[3]).getTime() : null;
 }
 
+/** ms → "2026-10-06" (místní datum) */
+export function isoDatum(t) {
+  const d = new Date(t);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 export function trvani(ms) {
   const min = Math.round(ms / 6e4);
   if (min < 60) return min + ' min';

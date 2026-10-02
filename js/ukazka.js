@@ -40,14 +40,16 @@ const schranka = {
 
 const posta = {
   osobni: [
-    { id: 't1', ucet: 'osobni', od: 'Trenér dorostu', predmet: 'Sobotní zápas – sraz v 8:30', ukazka: 'Ahoj, sraz je výjimečně dřív, autobus jede z náměstí. Vezměte si oba dresy.', kdy: ted - 1.2 * H, neprectena: true, pocet: 2, odkaz: '#' },
-    { id: 't2', ucet: 'osobni', od: 'Banka', predmet: 'Výpis z účtu za září', ukazka: 'Váš výpis je připraven v internetovém bankovnictví.', kdy: ted - 5 * H, neprectena: true, pocet: 1, odkaz: '#' },
-    { id: 't3', ucet: 'osobni', od: 'Google', predmet: 'Bezpečnostní upozornění', ukazka: 'Nové přihlášení na zařízení Windows.', kdy: ted - 28 * H, neprectena: false, pocet: 1, odkaz: '#' },
-    { id: 't4', ucet: 'osobni', od: 'Fotbalový svaz', predmet: 'Změna termínu utkání dorostu', ukazka: 'Utkání 10. kola se přesouvá na neděli 10:15.', kdy: ted - 75 * H, neprectena: false, pocet: 1, odkaz: '#' }
+    { id: 't1', ucet: 'osobni', stav: 'ceka', od: 'Trenér dorostu', predmet: 'Sobotní zápas – sraz v 8:30', ukazka: 'Ahoj, sraz je výjimečně dřív, autobus jede z náměstí. Vezměte si prosím oba dresy.', kdy: ted - 1.2 * H, neprectena: true, pocet: 2, odkaz: '#' },
+    { id: 't2', ucet: 'osobni', stav: 'info', od: 'Banka', predmet: 'Výpis z účtu za září', ukazka: 'Váš výpis je připraven v internetovém bankovnictví.', kdy: ted - 5 * H, neprectena: true, pocet: 1, odkaz: '#' },
+    { id: 't3', ucet: 'osobni', stav: 'info', od: 'Google', predmet: 'Bezpečnostní upozornění', ukazka: 'Nové přihlášení na zařízení Windows.', kdy: ted - 28 * H, neprectena: false, pocet: 1, odkaz: '#' },
+    { id: 't4', ucet: 'osobni', stav: 'otazka', od: 'Fotbalový svaz', predmet: 'Změna termínu utkání dorostu', ukazka: 'Utkání 10. kola se přesouvá na neděli 10:15. Stihnete to i s autobusem?', kdy: ted - 75 * H, neprectena: false, pocet: 1, odkaz: '#' }
   ],
   pracovni: [
-    { id: 'p1', ucet: 'pracovni', od: 'Investor – stavba', predmet: 'Předávací protokol 2. NP', ukazka: 'Dobrý den, posílám protokol k připomínkám. Termín předání je příští středa.', kdy: ted - 2 * H, neprectena: true, pocet: 1, odkaz: '#' },
-    { id: 'p2', ucet: 'pracovni', od: 'Kolega z kanceláře', predmet: 'Re: Výkresy SLN', ukazka: 'Díky, opravené výkresy jsem nahrál na disk.', kdy: ted - 30 * H, neprectena: false, pocet: 3, odkaz: '#' }
+    { id: 'p1', ucet: 'pracovni', stav: 'hori', od: 'Investor – stavba', predmet: 'Předávací protokol 2. NP', ukazka: 'Dobrý den, posílám protokol k připomínkám – potřebuji je nejpozději zítra, předání je ve středu.', kdy: ted - 2 * H, neprectena: true, pocet: 1, odkaz: '#' },
+    { id: 'p2', ucet: 'pracovni', stav: 'resi', od: 'Kolega z kanceláře', predmet: 'Re: Výkresy SLN', ukazka: 'Díky, opravené výkresy jsem nahrál na disk.', kdy: ted - 30 * H, neprectena: false, pocet: 3, odkaz: '#' }
+,
+    { id: 'p3', ucet: 'pracovni', stav: 'cekas', od: 'Já → Dodavatel lešení', predmet: 'Objednávka lešení – fasáda', ukazka: 'Dobrý den, posílám objednávku, potvrďte prosím termín montáže.', kdy: ted - 52 * H, neprectena: false, pocet: 1, odkaz: '#' }
   ],
   pracovniAdresa: 'prace@firma.example',
   firemni: null,
@@ -59,7 +61,7 @@ const zpravyVlaken = {
     { id: 'z11', od: 'Já', odAdresa: 'ja@example.com', odeMe: true, komu: 'Trenér dorostu <trener@example.com>', kdy: ted - 30 * H,
       text: 'Ahoj, v kolik je v sobotu sraz?', html: '' },
     { id: 'z12', od: 'Trenér dorostu', odAdresa: 'trener@example.com', odeMe: false, komu: 'ja@example.com', kdy: ted - 1.2 * H,
-      text: 'Ahoj,\n\nsraz je výjimečně dřív, v 8:30 u hřiště, autobus jede z náměstí v 8:45.\nVezměte si oba dresy a kartičky.\n\nRozpis: https://example.com/rozpis\n\nDíky, trenér', html: '' }
+      text: 'Ahoj,\n\nsraz je výjimečně dřív, v 8:30 u hřiště, autobus jede z náměstí v 8:45.\nVezměte si prosím oba dresy a kartičky.\n\nRozpis: https://example.com/rozpis\n\nDíky, trenér', html: '' }
   ] },
   t2: { predmet: 'Výpis z účtu za září', ucet: 'osobni', zpravy: [
     { id: 'z21', od: 'Banka', odAdresa: 'info@banka.example', odeMe: false, komu: 'ja@example.com', kdy: ted - 5 * H, text: 'Váš výpis je připraven.',
@@ -69,12 +71,16 @@ const zpravyVlaken = {
     { id: 'z31', od: 'Google', odAdresa: 'no-reply@accounts.example', odeMe: false, komu: 'ja@example.com', kdy: ted - 28 * H, text: 'Nové přihlášení na zařízení Windows. Pokud jste to byli vy, nemusíte nic dělat.', html: '' }
   ] },
   t4: { predmet: 'Změna termínu utkání dorostu', ucet: 'osobni', zpravy: [
-    { id: 'z41', od: 'Fotbalový svaz', odAdresa: 'svaz@example.com', odeMe: false, komu: 'ja@example.com', kdy: ted - 75 * H, text: 'Utkání 10. kola se přesouvá na neděli 10:15.', html: '' }
+    { id: 'z41', od: 'Fotbalový svaz', odAdresa: 'svaz@example.com', odeMe: false, komu: 'ja@example.com', kdy: ted - 75 * H, text: 'Utkání 10. kola se přesouvá na neděli 10:15. Stihnete to i s autobusem?', html: '' }
   ] },
   p1: { predmet: 'Předávací protokol 2. NP', ucet: 'pracovni', zpravy: [
     { id: 'z51', od: 'Investor – stavba', odAdresa: 'investor@example.com', odeMe: false, komu: 'prace@firma.example', kopie: 'vedouci@firma.example', kdy: ted - 2 * H,
-      text: 'Dobrý den,\n\nposílám předávací protokol k připomínkám. Termín předání je příští středa v 9:00.\n\nS pozdravem\nInvestor', html: '',
+      text: 'Dobrý den,\n\nposílám předávací protokol k připomínkám. Připomínky potřebuji nejpozději zítra, předání je ve středu v 9:00.\n\nS pozdravem\nInvestor', html: '',
       prilohy: [{ nazev: 'Predavaci_protokol_2NP.pdf', velikost: 482133 }, { nazev: 'Soupis_vad.xlsx', velikost: 23011 }] }
+  ] },
+  p3: { predmet: 'Objednávka lešení – fasáda', ucet: 'pracovni', zpravy: [
+    { id: 'z71', od: 'Já', odAdresa: 'prace@firma.example', odeMe: true, komu: 'Dodavatel lešení <leseni@example.com>', kdy: ted - 52 * H,
+      text: 'Dobrý den,\n\nposílám objednávku lešení na fasádu. Potvrďte prosím termín montáže.\n\nDěkuji', html: '' }
   ] },
   p2: { predmet: 'Re: Výkresy SLN', ucet: 'pracovni', zpravy: [
     { id: 'z61', od: 'Já', odAdresa: 'prace@firma.example', odeMe: true, komu: 'kolega@firma.example', kdy: ted - 50 * H, text: 'Ahoj, můžeš prosím opravit výkresy SLN ve 3. NP?', html: '' },
@@ -167,11 +173,27 @@ const akce = {
       if (!m) return;
       if (d.jak === 'neprectene') m.neprectena = true;
       if (d.jak === 'prectene') m.neprectena = false;
-      if (d.jak === 'archivovat') s.splice(s.indexOf(m), 1);
+      if (d.jak === 'archivovat' || d.jak === 'spam') s.splice(s.indexOf(m), 1);
     });
     return true;
   },
   kalendar: (d) => ({ udalosti: udalostiVRozsahu(Number(d.od), Number(d.do)), chyby: [], od: d.od, do: d.do, ted: Date.now() }),
+  hledat: (d) => {
+    // „celá pošta“ v ukázce = načtené konverzace + jedna starší, která v přehledu není
+    const slova = String(d.dotaz || '').toLowerCase().split(/\s+/).filter((x) => x && x.indexOf(':') < 0);
+    const starsi = { id: 'x1', ucet: 'osobni', stav: 'info', od: 'Autoservis', predmet: 'Faktura za servis – srpen', ukazka: 'V příloze posíláme fakturu za servis vozu.', kdy: ted - 40 * 24 * H, neprectena: false, pocet: 1, odkaz: '#' };
+    const vse = posta.osobni.concat(posta.pracovni, [starsi]);
+    return { dotaz: d.dotaz, vlakna: kopie(vse.filter((m) => slova.length && slova.every((x) => (m.od + ' ' + m.predmet + ' ' + m.ukazka).toLowerCase().indexOf(x) >= 0))) };
+  },
+  pripomenout: (d) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(d.termin || ''))) throw new Error('Termín má tvar RRRR-MM-DD.');
+    const m = posta.osobni.concat(posta.pracovni).find((x) => x.id === d.id) || { predmet: 'e-mail', od: '' };
+    const p = { id: 'c' + Date.now(), slozka: 'CEKA', kdy: Date.now(), odkud: 'aplikace (pošta)', typ: 'ukol-michal', stav: 'tvuj-ukol',
+      shrnuti: 'Odpovědět: ' + m.predmet + (m.od ? ' (' + m.od + ')' : ''), termin: d.termin,
+      text: 'Připomenutí e-mailu „' + m.predmet + '“.' + (d.poznamka ? '\n\n' + d.poznamka : ''), vlakno: [] };
+    schranka.ceka.push(p);
+    return kopie(p);
+  },
   kalendare: () => kopie(kalendare),
   kalendarPridat: (d) => {
     if (!/^(webcal|https):\/\//i.test(String(d.odkaz || '').trim())) throw new Error('Odkaz musí začínat webcal:// nebo https://');

@@ -1,18 +1,21 @@
-// Asistent – start, navigace (pruh ikon, postranní panel, spodní lišta), hlavička, pohled Dnes, načítání a ovládání.
+// Asistent – start, navigace (postranní panel, horní lišta s hledáním, spodní lišta na telefonu), hlavička,
+// přehled Dnes (čísla, grafy, co čeká) a ovládání (klepnutí, klávesy). Vzhled: styl „Fixtrack“, skill osobni-vzhled.
 
-import { stav, priZmene, zmeneno } from './stav.js';
+import { stav, priZmene, zmeneno, prejdi } from './stav.js';
 import { jePripojeno, jeDemo } from './api.js';
-import { esc, pridejDny, pulnoc, datumDlouhe, hhmm, iniciala, odstin, tvar, uloziste, terminDatum, rozdilDni } from './pomocne.js';
-import { kostra, chybaHtml } from './ui.js';
+import { esc, pridejDny, pulnoc, datumDlouhe, hhmm, iniciala, odstin, tvar, velkePrvni, rozdilDni, uloziste } from './pomocne.js';
+import { kostra, chybaHtml, hlavickaKarty } from './ui.js';
 import { IKONY } from './ikony.js';
 import { zavriPanel, horniPanel } from './panely.js';
+import { pulkruh, tydenGraf } from './grafy.js';
 import * as schranka from './schranka.js';
 import * as posta from './posta.js';
 import * as kal from './kalendar.js';
 import * as nast from './nastaveni.js';
+import * as hledat from './hledat.js';
 
 const SEKCE = [['dnes', 'Dnes'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář']];
-const SIROKE_OKNO = window.matchMedia('(min-width: 1000px)');
+const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
 const $ = (id) => document.getElementById(id);
 
 // ---------------------------------------------------------------- start
@@ -39,27 +42,22 @@ function obnovVse(znovu) {
   nast.nactiInfo();
 }
 
-function prepni(pohled) {
-  if (stav.pohled === pohled) { window.scrollTo(0, 0); return; }
-  stav.pohled = pohled;
-  uloziste.pis('asistent.pohled', pohled);
-  vykresli();
-  window.scrollTo(0, 0);
-}
-
-// ---------------------------------------------------------------- počty pro navigaci
+// ---------------------------------------------------------------- počty
 
 function pocty() {
   const nep = posta.neprectene();
   return {
     ceka: schranka.naTebe(),
     uClauda: schranka.uClauda(),
+    terminy: schranka.terminy(),
     nep,
-    nepOsobni: nep.filter((m) => m.ucet !== 'pracovni').length,
-    nepPracovni: nep.filter((m) => m.ucet === 'pracovni').length,
+    hori: posta.pocetStavu('hori'),
+    pozornost: posta.kPozornosti(),
     dnes: kal.udalostiDne(Date.now())
   };
 }
+
+function nacitaSe() { return Object.keys(stav.nacita).some((k) => stav.nacita[k]) || kal.nacitaSe(); }
 
 // ---------------------------------------------------------------- vykreslení
 
@@ -67,7 +65,7 @@ function vykresli() {
   const p = pocty();
   document.querySelectorAll('[data-pohled]').forEach((el) => { el.hidden = el.dataset.pohled !== stav.pohled; });
   vykresliRail(p);
-  vykresliBocni(p);
+  vykresliHorni();
   vykresliHlavu(p);
   vykresliPruhy();
   vykresliListu(p);
@@ -82,90 +80,64 @@ function odznakSekce(sekce, p) {
   return { schranka: p.ceka.length, posta: p.nep.length }[sekce] || 0;
 }
 
+/** Postranní panel: logo, sekce s počty, Nastavení, kdo je připojený. Na iPadu jen ikony (CSS). */
 function vykresliRail(p) {
-  const ucet = (stav.info && stav.info.ucet) || (jeDemo() ? 'Ukázka' : '');
-  $('rail').innerHTML = '<div class="rail__logo" title="Asistent">' + IKONY.dnes + '</div>' +
-    SEKCE.map((s) => {
-      const n = odznakSekce(s[0], p);
-      return '<button type="button" class="rail__btn" data-cil="' + s[0] + '" title="' + s[1] + '" aria-label="' + s[1] + '"' +
-        (stav.pohled === s[0] ? ' aria-current="page"' : '') + '>' + IKONY[s[0]] + (n ? '<span class="odznak cisla">' + n + '</span>' : '') + '</button>';
-    }).join('') +
-    '<div class="rail__spodek">' +
-      '<button type="button" class="rail__btn" data-otevri-nastaveni title="Nastavení" aria-label="Nastavení">' + IKONY.nastaveni + '</button>' +
-      (ucet ? '<span class="avatar rail__ja" style="--h:' + odstin(ucet) + '" title="' + esc(ucet) + '">' + esc(iniciala(ucet.split('@')[0].replace(/[._]/g, ' '))) + '</span>' : '') +
+  const ucet = (stav.info && stav.info.ucet) || (jeDemo() ? 'ukázka' : '');
+  const pripojeni = jeDemo() ? ['ukazka', 'ukázková data'] : navigator.onLine === false ? ['offline', 'offline'] : ['', 'připojeno'];
+  const tl = (atr, nazev, ikona, n, aktivni) => '<button type="button" class="rail__btn" ' + atr + ' title="' + nazev + '" aria-label="' + nazev +
+    (n ? ', ' + n : '') + '"' + (aktivni ? ' aria-current="page"' : '') + '>' + ikona + '<span>' + nazev + '</span>' +
+    (n ? '<span class="pocet cisla">' + n + '</span>' : '') + '</button>';
+  $('rail').innerHTML =
+    '<div class="rail__logo"><span class="znak">' + IKONY.dnes + '</span><div><b>Asistent</b><small>osobní přehled</small></div></div>' +
+    '<div class="rail__sekce">Hlavní</div>' +
+    SEKCE.map((s) => tl('data-cil="' + s[0] + '"', s[1], IKONY[s[0]], odznakSekce(s[0], p), stav.pohled === s[0])).join('') +
+    '<div class="rail__spodek"><div class="rail__sekce">Účet</div>' +
+      tl('data-otevri-nastaveni', 'Nastavení', IKONY.nastaveni, 0, false) +
+      '<div class="rail__ja" title="' + esc(ucet) + '">' +
+        '<span class="avatar" style="--h:' + odstin(ucet || 'A') + '">' + esc(iniciala(String(ucet || 'A').split('@')[0].replace(/[._\d]+/g, ' '))) + '</span>' +
+        '<div><b>' + esc(ucet || 'Asistent') + '</b><small><i class="' + pripojeni[0] + '"></i>' + pripojeni[1] + '</small></div></div>' +
     '</div>';
 }
 
-function polozkaBocni(text, atributy, pocet, aktivni, znak) {
-  return '<button type="button" class="bocni__polozka" ' + atributy + (aktivni ? ' aria-current="true"' : '') + '>' +
-    (znak || '') + '<span>' + text + '</span>' + (pocet ? '<span class="pocet cisla">' + pocet + '</span>' : '') + '</button>';
+/** Hlavní akce sekce (vpravo nahoře): poznámka, nový e-mail, přidat kalendář. */
+function hlavniAkce() {
+  if (stav.pohled === 'posta') return '<button type="button" class="btn btn--primary" data-psat="novy">' + IKONY.psat + '<span>Nový e-mail</span></button>';
+  if (stav.pohled === 'kalendar') return '<button type="button" class="btn btn--primary" data-otevri-nastaveni="kalendare">' + IKONY.plus + '<span>Přidat kalendář</span></button>';
+  return '<button type="button" class="btn btn--primary" data-nova-poznamka>' + IKONY.plus + '<span>Poznámka pro Clauda</span></button>';
 }
 
-function vykresliBocni(p) {
-  let h = '<div class="bocni__nadpis">' + SEKCE.find((s) => s[0] === stav.pohled)[1] + '</div>';
-  const znak = (barva, plny) => '<i class="znak' + (plny ? ' plny' : '') + '" style="--b:' + barva + '"></i>';
-  if (stav.pohled === 'dnes') {
-    h += '<div class="bocni__sekce">Přehled</div>' +
-      polozkaBocni('Čeká na tebe', 'data-cil="schranka"', p.ceka.length, false, znak('var(--warn)')) +
-      polozkaBocni('U Clauda', 'data-cil="schranka"', p.uClauda.length, false, znak('var(--fialova)')) +
-      polozkaBocni('Nepřečtená pošta', 'data-cil="posta" data-filtr-posty="neprectene"', p.nep.length, false, znak('var(--accent)')) +
-      polozkaBocni('Dnes v kalendáři', 'data-cil="kalendar"', p.dnes.length, false, znak('var(--ok)'));
-    h += '<div class="bocni__spodek"><button type="button" class="btn btn--primary" data-nova-poznamka>' + IKONY.plus + 'Poznámka pro Clauda</button></div>';
-  } else if (stav.pohled === 'schranka') {
-    const sk = schranka.skupinyPocty();
-    h += '<div class="bocni__sekce">Skupiny</div>' + schranka.SKUPINY.map((s) =>
-      polozkaBocni(s[1], 'data-skoc-skupina="' + s[0] + '"', sk[s[0]], false, znak(s[2]))).join('');
-    h += '<div class="bocni__spodek"><button type="button" class="btn btn--primary" data-nova-poznamka>' + IKONY.plus + 'Poznámka pro Clauda</button></div>';
-  } else if (stav.pohled === 'posta') {
-    const vse = posta.vsechnyZpravy();
-    h += '<div class="bocni__sekce">Schránky</div>' +
-      polozkaBocni('Vše', 'data-filtr-posty="vse"', vse.length, stav.filtrPosty === 'vse', znak('var(--muted)')) +
-      polozkaBocni('Nepřečtené', 'data-filtr-posty="neprectene"', p.nep.length, stav.filtrPosty === 'neprectene', znak('var(--accent)', true)) +
-      polozkaBocni('Osobní', 'data-filtr-posty="osobni"', vse.filter((m) => m.ucet === 'osobni').length, stav.filtrPosty === 'osobni', znak('var(--muted)')) +
-      polozkaBocni('Pracovní', 'data-filtr-posty="pracovni"', vse.filter((m) => m.ucet === 'pracovni').length, stav.filtrPosty === 'pracovni', znak('var(--fialova)'));
-    h += '<div class="bocni__spodek"><button type="button" class="btn btn--primary" data-psat="novy">' + IKONY.psat + 'Nový e-mail</button></div>';
-  } else {
-    h += kal.miniMesicHtml();
-    const kalendare = (stav.info && stav.info.kalendare) || [];
-    if (kalendare.length) {
-      h += '<div class="bocni__sekce">Kalendáře</div>' + kalendare.map((k) => '<label class="bocni__polozka">' + znak(esc(k.barva), true) +
-        '<span>' + esc(k.nazev) + '</span><input type="checkbox" data-nast-kal-zobrazit="' + esc(k.id) + '"' + (k.skryty ? '' : ' checked') +
-        ' aria-label="Ukazovat ' + esc(k.nazev) + '"></label>').join('');
-    }
-    h += '<div class="bocni__spodek"><button type="button" class="btn btn--ghost" data-otevri-nastaveni="kalendare">' + IKONY.plus + 'Přidat kalendář z iPhonu</button></div>';
-  }
-  $('bocni').innerHTML = h;
+/** Horní lišta (iPad, PC): hledání vlevo, obnovit a hlavní akce vpravo. */
+function vykresliHorni() {
+  $('horni').innerHTML = '<button type="button" class="hledat-tl" data-hledat>' + IKONY.hledat +
+    '<span>Hledat v poště, schránce a kalendáři…</span><kbd>' + (MAC ? '⌘ K' : 'Ctrl K') + '</kbd></button>' +
+    '<div class="horni__akce"><button type="button" class="btn btn--ikona' + (nacitaSe() ? ' toci' : '') + '" data-obnovit aria-label="Obnovit" title="Obnovit">' +
+    IKONY.obnovit + '</button>' + hlavniAkce() + '</div>';
 }
 
 function vykresliHlavu(p) {
-  let titul = SEKCE.find((s) => s[0] === stav.pohled)[1];
+  const titul = SEKCE.find((s) => s[0] === stav.pohled)[1];
   let pod = '';
-  let akce = '';
-  let zalozky = '';
   if (stav.pohled === 'dnes') {
-    pod = datumDlouhe(Date.now());
-    pod = pod.charAt(0).toUpperCase() + pod.slice(1);
+    pod = esc(velkePrvni(datumDlouhe(Date.now())));
+    if (stav.schranka && stav.posta) {
+      const n = p.ceka.length + p.pozornost.length;
+      pod += ' · ' + (n ? n + ' ' + tvar(n, 'věc čeká', 'věci čekají', 'věcí čeká') + ' na tebe' : 'nic na tebe nečeká');
+    }
   } else if (stav.pohled === 'schranka') {
     pod = stav.schranka ? p.ceka.length + ' čeká na tebe · ' + p.uClauda.length + ' u Clauda' : 'Načítám…';
   } else if (stav.pohled === 'posta') {
-    pod = stav.posta ? p.nep.length + ' ' + tvar(p.nep.length, 'nepřečtená', 'nepřečtené', 'nepřečtených') +
-      (posta.maPracovni() ? ' · osobní a pracovní' : ' · osobní Gmail') : 'Načítám…';
-    akce = '<button type="button" class="btn btn--primary" data-psat="novy" aria-label="Nový e-mail">' + IKONY.psat + '<span class="jen-siroke">Nový e-mail</span></button>';
-    const vse = posta.vsechnyZpravy();
-    zalozky = '<div class="zalozky jen-uzke" role="tablist">' + [
-      ['vse', 'Vše', vse.length, false], ['neprectene', 'Nepřečtené', p.nep.length, true],
-      ['osobni', 'Osobní', vse.filter((m) => m.ucet === 'osobni').length, false], ['pracovni', 'Pracovní', vse.filter((m) => m.ucet === 'pracovni').length, false]
-    ].map((z) => '<button type="button" class="zalozka" data-filtr-posty="' + z[0] + '" aria-current="' + (stav.filtrPosty === z[0]) + '">' + z[1] +
-      (z[2] ? (z[3] ? '<span class="odznak-tab cisla">' + z[2] + '</span>' : '<span class="pocet cisla">' + z[2] + '</span>') : '') + '</button>').join('') + '</div>';
+    pod = stav.posta ? p.pozornost.length + ' ' + tvar(p.pozornost.length, 'konverzace čeká', 'konverzace čekají', 'konverzací čeká') + ' na tebe' +
+      (p.hori ? ' · ' + p.hori + ' hoří' : '') + ' · ' + (posta.maPracovni() ? 'osobní a pracovní' : 'osobní Gmail') : 'Načítám…';
   } else {
-    pod = kal.nadpisObdobi();
+    pod = esc(kal.nadpisObdobi());
   }
-  const nacita = Object.keys(stav.nacita).some((k) => stav.nacita[k]) || kal.nacitaSe();
-  $('hlava').innerHTML = '<div class="hlava-radek"><div class="hlava-titul"><h1>' + esc(titul) + '</h1>' + (pod ? '<p>' + esc(pod) + '</p>' : '') + '</div>' +
-    '<div class="hlava-akce">' +
-      '<button type="button" class="btn btn--ikona' + (nacita ? ' toci' : '') + '" id="obnovit" aria-label="Obnovit" title="Obnovit">' + IKONY.obnovit + '</button>' +
-      '<button type="button" class="btn btn--ikona jen-telefon" data-otevri-nastaveni aria-label="Nastavení">' + IKONY.nastaveni + '</button>' +
-      akce + '</div></div>' + zalozky;
+  $('hlava').innerHTML = '<div class="hlava-radek"><div class="hlava-titul"><h1>' + esc(titul) + '</h1>' + (pod ? '<p>' + pod + '</p>' : '') + '</div>' +
+    '<div class="hlava-akce jen-telefon">' +
+      '<button type="button" class="btn btn--ikona" data-hledat aria-label="Hledat">' + IKONY.hledat + '</button>' +
+      '<button type="button" class="btn btn--ikona' + (nacitaSe() ? ' toci' : '') + '" data-obnovit aria-label="Obnovit">' + IKONY.obnovit + '</button>' +
+      (stav.pohled === 'posta' ? '<button type="button" class="btn btn--ikona btn--plna" data-psat="novy" aria-label="Nový e-mail">' + IKONY.psat + '</button>' : '') +
+      '<button type="button" class="btn btn--ikona" data-otevri-nastaveni aria-label="Nastavení">' + IKONY.nastaveni + '</button>' +
+    '</div></div>';
 }
 
 function vykresliPruhy() {
@@ -185,73 +157,110 @@ function vykresliListu(p) {
 
 // ---------------------------------------------------------------- Dnes
 
-function kpi(cil, ikona, nazev, hodnota, pod, pruh, atributy) {
-  return '<button type="button" class="kpi" data-cil="' + cil + '"' + (atributy || '') + '>' +
-    '<span class="kpi__hlava"><span class="kpi__ikona">' + ikona + '</span>' + nazev + '</span>' +
-    '<span class="kpi__hodnota">' + hodnota + '</span>' +
-    '<span class="kpi__pod">' + pod + '</span>' +
-    (pruh ? '<span class="kpi__pruh">' + pruh + '</span>' : '') + '</button>';
+function kpi(atributy, ikona, nazev, hodnota, jednotka, pod) {
+  return '<button type="button" class="kpi" ' + atributy + '>' +
+    '<span class="kpi__hlava">' + ikona + '<span>' + nazev + '</span></span><span class="sipka" aria-hidden="true">' + IKONY.sipka + '</span>' +
+    '<span class="kpi__hodnota">' + hodnota + (jednotka ? '<small>' + jednotka + '</small>' : '') + '</span>' +
+    '<span class="kpi__pod">' + pod + '</span></button>';
+}
+
+function sipkaKarty(atributy, popisek) {
+  return '<button type="button" class="sipka" ' + atributy + ' aria-label="' + popisek + '" title="' + popisek + '">' + IKONY.sipka + '</button>';
 }
 
 function vykresliDnes(el, p) {
   if (!el.querySelector('#dnes-obsah')) {
-    el.innerHTML = '<div class="kpi-mrizka" id="dnes-kpi"></div><div class="zapis-misto">' + schranka.zapisHtml() + '</div><div id="dnes-obsah"></div>';
+    el.innerHTML = '<div class="kpi-mrizka" id="dnes-kpi"></div><div class="dnes-mrizka" id="dnes-obsah">' +
+      '<section class="card dlazdice dl-ceka" id="dl-ceka"></section>' +
+      '<section class="card dlazdice dl-posta" id="dl-posta"></section>' +
+      '<section class="card dlazdice dl-tyden" id="dl-tyden"></section>' +
+      '<section class="card dlazdice dl-schranka" id="dl-schranka"></section>' +
+      '<section class="card dlazdice dl-zapis">' + hlavickaKarty(IKONY.claude, 'Poznámka pro Clauda') +
+        schranka.zapisHtml(true) + '<div class="dlazdice__telo" id="dl-zapis-seznam"></div></section>' +
+    '</div>';
   }
-  const dnes = pulnoc(Date.now()), zitra = pridejDny(dnes, 1);
-  const udZitra = kal.udalostiDne(zitra);
-  const poTerminu = p.ceka.filter((x) => { const t = terminDatum(x.termin); return t != null && rozdilDni(t) < 0; }).length;
-  const ukoly = p.ceka.filter((x) => schranka.skupina(x) === 'ukol').length;
-  const dalsi = p.dnes.filter((u) => !u.celodenni && u.konec > Date.now())[0];
+  const dnes = pulnoc(Date.now());
   const ceka = '–';
 
+  // ---- čísla nahoře
+  const t = p.terminy;
+  const ukoly = p.ceka.filter((x) => schranka.skupina(x) === 'ukol').length;
+  const dalsi = kal.nejblizsi(1, 1).filter((u) => !u.celodenni && pulnoc(u.zacatek) === dnes)[0];
   el.querySelector('#dnes-kpi').innerHTML =
-    kpi('schranka', IKONY.schranka, 'Čeká na tebe', stav.schranka ? p.ceka.length : ceka,
-      poTerminu ? '<span class="pozor">' + poTerminu + ' po termínu</span>' : (p.ceka.length ? 'úkoly a rozhodnutí' : 'nic nečeká'),
-      p.ceka.length ? '<i style="--podil:' + ukoly + ';--b:var(--accent)"></i><i style="--podil:' + (p.ceka.length - ukoly) + ';--b:var(--warn)"></i>' : '<i></i>') +
-    kpi('schranka', IKONY.claude, 'U Clauda', stav.schranka ? p.uClauda.length : ceka,
-      p.uClauda.length ? 'zpracuju při další schránce' : 'vše zpracované', '<i style="--b:' + (p.uClauda.length ? 'var(--fialova)' : 'var(--line-soft)') + '"></i>') +
-    kpi('posta', IKONY.posta, 'Nepřečtená pošta', stav.posta ? p.nep.length : ceka,
-      posta.maPracovni() ? 'osobní ' + p.nepOsobni + ' · pracovní ' + p.nepPracovni : (p.nep.length ? 'v osobním Gmailu' : 'vše přečteno'),
-      p.nep.length ? '<i style="--podil:' + p.nepOsobni + ';--b:var(--accent)"></i><i style="--podil:' + p.nepPracovni + ';--b:var(--fialova)"></i>' : '<i></i>',
-      ' data-filtr-posty="neprectene"') +
-    kpi('kalendar', IKONY.kalendar, 'Dnes v kalendáři', kal.mameData(dnes) ? p.dnes.length : ceka,
-      dalsi ? 'další ' + hhmm(dalsi.zacatek) + ' · ' + esc(dalsi.nazev) : (p.dnes.length ? 'na dnes hotovo' : 'volný den'),
-      '<i style="--b:' + (p.dnes.length ? 'var(--ok)' : 'var(--line-soft)') + '"></i>');
+    kpi('data-cil="schranka" data-filtr-schranky="vse"', IKONY.schranka, 'Čeká na tebe', stav.schranka ? p.ceka.length : ceka,
+      stav.schranka ? tvar(p.ceka.length, 'věc', 'věci', 'věcí') : '',
+      (t.poTerminu ? '<span class="tag tag--danger">' + t.poTerminu + ' po termínu</span>' : t.dnes ? '<span class="tag tag--warn">' + t.dnes + ' dnes</span>' : '') +
+      '<span>' + ukoly + ' ' + tvar(ukoly, 'úkol', 'úkoly', 'úkolů') + ' · ' + (p.ceka.length - ukoly) + ' rozhodnutí</span>') +
+    kpi('data-cil="posta" data-filtr-posty="vse"', IKONY.posta, 'Pošta', stav.posta ? p.pozornost.length : ceka,
+      stav.posta ? tvar(p.pozornost.length, 'čeká', 'čekají', 'čeká') : '',
+      (p.hori ? '<span class="tag tag--danger">' + p.hori + ' hoří</span>' : '') + '<span>' + p.nep.length + ' ' + tvar(p.nep.length, 'nepřečtená', 'nepřečtené', 'nepřečtených') + '</span>') +
+    kpi('data-cil="kalendar"', IKONY.kalendar, 'Dnes v kalendáři', kal.mameData(dnes) ? p.dnes.length : ceka,
+      kal.mameData(dnes) ? tvar(p.dnes.length, 'událost', 'události', 'událostí') : '',
+      dalsi ? '<span class="tag">' + hhmm(dalsi.zacatek) + '</span><span class="orez-1">' + esc(dalsi.nazev) + '</span>' : '<span>' + (p.dnes.length ? 'na dnes hotovo' : 'volný den') + '</span>') +
+    kpi('data-cil="schranka" data-filtr-schranky="nove"', IKONY.claude, 'U Clauda', stav.schranka ? p.uClauda.length : ceka,
+      stav.schranka ? tvar(p.uClauda.length, 'poznámka', 'poznámky', 'poznámek') : '',
+      p.uClauda.length ? '<span class="tag tag--fialova">zpracuju ráno</span>' : '<span>vše zpracované</span>');
 
-  // kalendář: dnes a zítra
-  let k;
-  if (!kal.mameData(dnes)) k = kostra(3);
-  else if (!p.dnes.length && !udZitra.length) k = '<div class="prazdne">Dnes ani zítra nic v kalendáři.</div>';
+  // ---- čeká na tebe (úkoly a rozhodnutí ze schránky)
+  let c;
+  if (!stav.schranka) c = stav.chyby.schranka ? chybaHtml(stav.chyby.schranka, 'data-schranka-znovu') : kostra(3);
+  else if (!p.ceka.length) c = '<div class="prazdne">Nic nečeká – všechno vyřízené.</div>';
+  else c = '<ul class="seznam">' + p.ceka.slice(0, 8).map((x) => schranka.polozkaHtml(x, true)).join('') + '</ul>';
+  el.querySelector('#dl-ceka').innerHTML = hlavickaKarty(IKONY.fajfka, 'Čeká na tebe' + (p.ceka.length ? ' · ' + p.ceka.length : ''),
+    sipkaKarty('data-cil="schranka" data-filtr-schranky="vse"', 'Otevřít schránku')) + '<div class="dlazdice__telo">' + c + '</div>' +
+    (p.ceka.length > 8 ? '<button type="button" class="dlazdice__pata" data-cil="schranka">Všech ' + p.ceka.length + ' ve schránce</button>' : '');
+
+  // ---- pošta, která na tebe čeká
+  let m;
+  if (!stav.posta) m = stav.chyby.posta ? chybaHtml(stav.chyby.posta, 'data-posta-znovu') : kostra(4);
+  else if (!p.pozornost.length) m = '<div class="prazdne">Nic nehoří a nic nečeká na tvou odpověď.</div>';
+  else m = '<ul class="seznam">' + p.pozornost.slice(0, 8).map((x) => posta.zpravaRadekHtml(x, posta.maPracovni())).join('') + '</ul>';
+  el.querySelector('#dl-posta').innerHTML = hlavickaKarty(IKONY.posta, 'Pošta · čeká na tebe',
+    sipkaKarty('data-cil="posta" data-filtr-posty="vse"', 'Otevřít poštu')) + '<div class="dlazdice__telo">' + m + '</div>' +
+    (stav.posta ? '<button type="button" class="dlazdice__pata" data-cil="posta" data-filtr-posty="vse">Celá pošta · ' + posta.vsechnyZpravy().length + '</button>' : '');
+
+  // ---- tento týden: sloupce, další událost, dnešek
+  const tyden = kal.tydenPrehled();
+  const celkem = tyden.reduce((a, d) => a + d.pocet, 0);
+  const pristi = kal.nejblizsi(1, 14)[0];
+  let k = '<div class="dlazdice__cislo"><b class="cisla">' + (kal.mameData(dnes) ? celkem : '–') + '</b><small>' + tvar(celkem, 'událost', 'události', 'událostí') + ' tento týden</small></div>' +
+    tydenGraf(tyden);
+  if (pristi) {
+    const den = pulnoc(pristi.zacatek);
+    const kdy = rozdilDni(den) === 0 ? 'Dnes' : rozdilDni(den) === 1 ? 'Zítra' : velkePrvni(datumDlouhe(den));
+    k += '<button type="button" class="tmava-karta" data-udalost="' + esc(pristi.id) + '"><small>Další</small><b>' + esc(pristi.nazev) + '</b>' +
+      '<span>' + esc(kdy) + (pristi.celodenni ? ' · celý den' : ' · ' + hhmm(pristi.zacatek) + '–' + hhmm(pristi.konec)) + (pristi.misto ? ' · ' + esc(pristi.misto) : '') + '</span></button>';
+  }
+  const zitra = pridejDny(dnes, 1);
+  const udZitra = kal.udalostiDne(zitra);
+  if (!kal.mameData(dnes)) k += kostra(2);
   else {
-    k = [[dnes, p.dnes, 'Dnes'], [zitra, udZitra, 'Zítra']].filter((x) => x[1].length).map((x) =>
+    k += [[dnes, p.dnes, 'Dnes'], [zitra, udZitra, 'Zítra']].filter((x) => x[1].length).map((x) =>
       '<div class="dlazdice__mezinadpis">' + x[2] + '</div><ul class="seznam">' + x[1].map((u) => kal.udalostHtml(u, x[0])).join('') + '</ul>').join('');
   }
-  // schránka: čeká na tebe + u Clauda
+  el.querySelector('#dl-tyden').innerHTML = hlavickaKarty(IKONY.kalendar, 'Tento týden', sipkaKarty('data-cil="kalendar"', 'Otevřít kalendář')) +
+    '<div class="dlazdice__telo">' + k + '</div>';
+
+  // ---- schránka v půlkruhu
   let s;
-  if (!stav.schranka) s = stav.chyby.schranka ? chybaHtml(stav.chyby.schranka, 'data-schranka-znovu') : kostra(3);
+  if (!stav.schranka) s = kostra(4);
   else {
-    s = '<div class="dlazdice__mezinadpis">Čeká na tebe</div>' + (p.ceka.length
-      ? '<ul class="seznam">' + p.ceka.slice(0, 6).map((x) => schranka.polozkaHtml(x, true)).join('') + '</ul>'
-      : '<div class="prazdne">Nic nečeká.</div>');
-    if (p.uClauda.length) {
-      s += '<div class="dlazdice__mezinadpis">U Clauda</div><ul class="seznam">' + p.uClauda.slice(0, 5).map((x) => schranka.polozkaHtml(x, true)).join('') + '</ul>';
-    }
+    const sk = schranka.skupinyPocty();
+    const otevrenych = sk.ukol + sk.rozhodni + sk.nove + sk.napad;
+    const popis = { ukol: t.poTerminu ? t.poTerminu + ' po termínu' : t.dnes ? t.dnes + ' na dnes' : 'podle termínu',
+      rozhodni: 'čeká na tvé ano', nove: 'zpracuju při další schránce', napad: 'na později' };
+    s = pulkruh(schranka.SKUPINY.filter((g) => g[0] !== 'hotovo').map((g) => [sk[g[0]], g[2]]), otevrenych, tvar(otevrenych, 'otevřená', 'otevřené', 'otevřených')) +
+      '<ul class="legenda">' + schranka.SKUPINY.filter((g) => g[0] !== 'hotovo').map((g) =>
+        '<li><button type="button" class="legenda-radek" data-cil="schranka" data-filtr-schranky="' + g[0] + '"><i style="--b:' + g[2] + '"></i>' +
+        '<span><b>' + g[1] + '</b><small>' + popis[g[0]] + '</small></span><em>' + sk[g[0]] + '</em></button></li>').join('') + '</ul>';
   }
-  // pošta: nepřečtené
-  let m;
-  if (!stav.posta) m = stav.chyby.posta ? chybaHtml(stav.chyby.posta, 'data-posta-znovu') : kostra(3);
-  else if (!p.nep.length) m = '<div class="prazdne">Žádná nepřečtená pošta.</div>';
-  else m = '<ul class="seznam">' + p.nep.slice(0, 8).map((x) => posta.zpravaRadekHtml(x, posta.maPracovni())).join('') + '</ul>';
+  el.querySelector('#dl-schranka').innerHTML = hlavickaKarty(IKONY.schranka, 'Schránka', sipkaKarty('data-cil="schranka" data-filtr-schranky="vse"', 'Otevřít schránku')) +
+    '<div class="dlazdice__telo">' + s + '</div>';
 
-  const dlazdice = (nazev, pod, cil, telo, siroka, atributy) => '<section class="card dlazdice' + (siroka ? ' dlazdice--siroka' : '') + '">' +
-    '<button type="button" class="dlazdice__hlava" data-cil="' + cil + '"' + (atributy || '') + '><b>' + nazev + '</b><small>' + pod + '</small>' +
-    '<span class="vpravo">Vše' + IKONY.vpravo + '</span></button><div class="dlazdice__telo">' + telo + '</div></section>';
-
-  el.querySelector('#dnes-obsah').innerHTML = '<div class="dlazdice-mrizka">' +
-    dlazdice('Kalendář', 'dnes a zítra', 'kalendar', k) +
-    dlazdice('Schránka', p.ceka.length + ' čeká · ' + p.uClauda.length + ' u Clauda', 'schranka', s) +
-    dlazdice('Pošta', p.nep.length + ' ' + tvar(p.nep.length, 'nepřečtená', 'nepřečtené', 'nepřečtených'), 'posta', m, true, ' data-filtr-posty="neprectene"') +
-    '</div>';
+  // ---- poznámka pro Clauda: pod polem to, co u Clauda leží
+  el.querySelector('#dl-zapis-seznam').innerHTML = p.uClauda.length
+    ? '<div class="dlazdice__mezinadpis">U Clauda · ' + p.uClauda.length + '</div><ul class="seznam">' + p.uClauda.slice(0, 4).map((x) => schranka.polozkaHtml(x, false)).join('') + '</ul>'
+    : '<p class="poznamka-pod dlazdice__napoveda">Co sem napíšeš, zpracuju při další schránce. Z iPhonu jde totéž hlasem přes zkratku „Pro Clauda“.</p>';
 }
 
 // ---------------------------------------------------------------- ovládání
@@ -261,27 +270,28 @@ document.addEventListener('click', (e) => {
   if (!el || el.closest('#uvod')) return;
 
   if (el.hasAttribute('data-zavrit-panel')) { zavriPanel(); return; }
+  if (hledat.klikHledat(el)) return;
   if (el.dataset.cil) {
-    // proklik na nepřečtenou poštu rovnou s filtrem
-    if (el.dataset.filtrPosty) { stav.filtrPosty = el.dataset.filtrPosty; uloziste.pis('asistent.filtrPosty', stav.filtrPosty); }
-    prepni(el.dataset.cil);
+    // proklik rovnou s filtrem (z čísel a karet na Dnes)
+    if (el.dataset.filtrPosty) { stav.filtrPosty = el.dataset.filtrPosty; }
+    if (el.dataset.filtrSchranky) { stav.filtrSchranky = el.dataset.filtrSchranky; }
+    prejdi(el.dataset.cil);
+    zmeneno();
     return;
   }
-  if (el.id === 'obnovit') { obnovVse(true); return; }
+  if (el.hasAttribute('data-obnovit')) { obnovVse(true); return; }
+  if (el.hasAttribute('data-hledat')) { hledat.otevriHledani(); return; }
   if (el.hasAttribute('data-otevri-nastaveni')) { nast.otevriNastaveni(el.dataset.otevriNastaveni); return; }
-  if (el.hasAttribute('data-nova-poznamka')) {
-    if (stav.pohled !== 'dnes' && stav.pohled !== 'schranka') prepni('dnes');
-    const pole = document.querySelector('#p-' + stav.pohled + ' [data-zapis]');
-    if (pole) { pole.scrollIntoView({ block: 'center' }); pole.focus(); }
-    return;
-  }
-  if (el.dataset.skocSkupina) {
-    const cil = document.getElementById('sk-' + el.dataset.skocSkupina);
-    if (cil) cil.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (el.hasAttribute('data-nova-poznamka')) { schranka.zamerZapis(); return; }
+  if (el.dataset.skocDen) {
+    stav.kal.vybrany = Number(el.dataset.skocDen);
+    kal.nactiKalendar();
+    prejdi('kalendar');
+    zmeneno();
     return;
   }
   // e-mail otevřený z Dnes na širokém okně patří do pohledu Pošta (seznam + detail vedle sebe)
-  if (el.dataset.vlakno && stav.pohled !== 'posta' && SIROKE_OKNO.matches) prepni('posta');
+  if (el.dataset.vlakno && stav.pohled !== 'posta' && window.matchMedia('(min-width: 1000px)').matches) prejdi('posta');
   if (schranka.klikSchranka(el)) return;
   if (posta.klikPosta(el)) return;
   if (kal.klikKalendar(el)) return;
@@ -289,19 +299,35 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('input', (e) => {
+  if (hledat.vstupHledat(e)) return;
   if (schranka.vstupSchranka(e)) return;
   posta.vstupPosta(e);
 });
 
 document.addEventListener('change', (e) => { nast.zmenaNastaveni(e); });
 
+function pise(e) {
+  const t = e.target;
+  return t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+}
+
 document.addEventListener('keydown', (e) => {
-  // Ctrl/Cmd+Enter uloží poznámku nebo odešle e-mail (na PC)
+  if ($('aplikace').hidden) return;
+  // Ctrl/Cmd+K = hledání (všude)
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); hledat.otevriHledani(); return; }
+  // Ctrl/Cmd+Enter uloží poznámku nebo odešle e-mail
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     if (e.target.matches('[data-zapis]')) { e.preventDefault(); e.target.closest('.zapis').querySelector('[data-ulozit]').click(); }
     else if (e.target.closest('[data-panel="psani"]')) { e.preventDefault(); const t = document.querySelector('[data-panel="psani"] [data-odeslat]'); if (t) t.click(); }
+    return;
   }
-  if (e.key === 'Escape' && horniPanel()) zavriPanel();
+  if (e.key === 'Escape' && horniPanel()) { zavriPanel(); return; }
+  if (hledat.klavesaHledat(e)) return;
+  if (pise(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+  // jednoduché klávesy (PC, iPad s klávesnicí)
+  if (e.key === '/') { e.preventDefault(); hledat.otevriHledani(); return; }
+  if (!horniPanel() && /^[1-4]$/.test(e.key)) { prejdi(SEKCE[Number(e.key) - 1][0]); return; }
+  if (posta.klavesaPosta(e)) e.preventDefault();
 });
 
 document.addEventListener('visibilitychange', () => {

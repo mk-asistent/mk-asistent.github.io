@@ -1,7 +1,7 @@
 // Schránka pro Clauda: poznámky z iPhonu i z aplikace, co čeká na Michala, co dělá Claude, co je vyřízené.
 // Aplikace nic nemaže – jen připíše odpověď a soubor přesune (dělá to motor, viz skill asistent-schranka).
 
-import { stav, zmeneno } from './stav.js';
+import { stav, zmeneno, prejdi } from './stav.js';
 import { volej } from './api.js';
 import { esc, kdyKratce, prvniRadek, dm, hhmm, rozdilDni, terminDatum, DNY_KR, uloziste } from './pomocne.js';
 import { toast, kostra, chybaHtml, prizpusobVysku } from './ui.js';
@@ -14,7 +14,7 @@ export function nactiZUloziste() {
 }
 
 export function nactiSchranku() {
-  if (stav.nacita.schranka) return;
+  if (stav.nacita.schranka) return Promise.resolve();
   stav.nacita.schranka = true;
   stav.chyby.schranka = null;
   zmeneno();
@@ -38,20 +38,24 @@ export function skupina(p) {
   return 'rozhodni';
 }
 
-const ZNACKY = {
-  rozhodni: ['tag tag--warn', 'Rozhodni'], ukol: ['tag', 'Tvůj úkol'], napad: ['tag tag--seda', 'Nápad'],
-  nove: ['tag tag--fialova', 'U Clauda'], hotovo: ['tag tag--ok', 'Vyřízeno']
-};
-
-/** Skupiny schránky v pořadí na stránce: [klíč, název, barva značky v postranním panelu] */
+/** Skupiny v pořadí na stránce: [klíč, název, barva (graf, legenda), třída štítku, krátký štítek, název filtru] */
 export const SKUPINY = [
-  ['rozhodni', 'Rozhodni', 'var(--warn)'], ['ukol', 'Tvoje úkoly', 'var(--accent)'], ['nove', 'U Clauda', 'var(--fialova)'],
-  ['napad', 'Nápady na později', 'var(--muted)'], ['hotovo', 'Naposledy vyřízeno', 'var(--ok)']
+  ['ukol', 'Tvoje úkoly', 'var(--tmava)', 'tag', 'Tvůj úkol', 'Úkoly'],
+  ['rozhodni', 'Rozhodni', 'var(--oranz)', 'tag tag--danger', 'Rozhodni', 'Rozhodni'],
+  ['nove', 'U Clauda', 'var(--fialova)', 'tag tag--fialova', 'U Clauda', 'U Clauda'],
+  ['napad', 'Nápady na později', 'var(--sand-2)', 'tag tag--seda', 'Nápad', 'Nápady'],
+  ['hotovo', 'Naposledy vyřízeno', 'var(--ok)', 'tag tag--ok', 'Vyřízeno', 'Vyřízeno']
 ];
+const SKUPINA = {};
+SKUPINY.forEach((s) => { SKUPINA[s[0]] = s; });
+
+export function vsechnyPolozky() {
+  return stav.schranka ? stav.schranka.nove.concat(stav.schranka.ceka, stav.schranka.hotovo) : [];
+}
 
 export function skupinyPocty() {
   const pocty = { rozhodni: 0, ukol: 0, napad: 0, nove: 0, hotovo: 0 };
-  if (stav.schranka) stav.schranka.nove.concat(stav.schranka.ceka, stav.schranka.hotovo).forEach((p) => { pocty[skupina(p)]++; });
+  vsechnyPolozky().forEach((p) => { pocty[skupina(p)]++; });
   return pocty;
 }
 
@@ -63,18 +67,30 @@ export function seradUkoly(a, b) {
   return ta - tb;
 }
 
-/** Co čeká na Michala: jeho úkoly (podle termínu) a rozhodnutí. Nápady na později sem nepatří. */
+/** Co čeká na Michala: jeho úkoly a rozhodnutí (nápady na později sem nepatří).
+ *  Nahoře po termínu a dnešní, pak rozhodnutí, pak ostatní úkoly podle termínu. */
 export function naTebe() {
   const ceka = stav.schranka ? stav.schranka.ceka : [];
-  return ceka.filter((p) => skupina(p) !== 'napad').sort((a, b) => {
-    const poradi = { ukol: 0, rozhodni: 1 };
-    return (poradi[skupina(a)] - poradi[skupina(b)]) || seradUkoly(a, b);
-  });
+  const naleha = (p) => { const t = terminDatum(p.termin); return t != null && rozdilDni(t) <= 0 ? 0 : skupina(p) === 'rozhodni' ? 1 : 2; };
+  return ceka.filter((p) => skupina(p) !== 'napad').sort((a, b) => (naleha(a) - naleha(b)) || seradUkoly(a, b));
 }
 
 /** Nové poznámky, které ještě Claude nezpracoval. */
 export function uClauda() {
   return stav.schranka ? stav.schranka.nove.slice().sort((a, b) => b.kdy - a.kdy) : [];
+}
+
+/** Počty pro přehled: kolik je po termínu a kolik na dnes. */
+export function terminy() {
+  const r = { poTerminu: 0, dnes: 0 };
+  naTebe().forEach((p) => {
+    const t = terminDatum(p.termin);
+    if (t == null) return;
+    const d = rozdilDni(t);
+    if (d < 0) r.poTerminu++;
+    else if (d === 0) r.dnes++;
+  });
+  return r;
 }
 
 function terminZnacka(p) {
@@ -98,10 +114,10 @@ export function polozkaHtml(p, kompaktni) {
   if (!otevrena && sk === 'hotovo' && posledniClaude) pod = '→ ' + prvniRadek(posledniClaude.text, 160);
   else if (!otevrena && sk === 'rozhodni' && posledniClaude) pod = prvniRadek(posledniClaude.text, 160);
 
-  let h = '<li><button type="button" class="radek" data-prepni="' + esc(p.id) + '" aria-expanded="' + otevrena + '">' +
+  let h = '<li data-polozka-id="' + esc(p.id) + '"><button type="button" class="radek" data-prepni="' + esc(p.id) + '" aria-expanded="' + otevrena + '">' +
     '<span class="radek-hora"><span class="radek-titul ' + (otevrena ? '' : 'orez-2') + '">' + esc(titul) + '</span>' +
     '<span class="radek-cas cisla">' + esc(kdyKratce(p.kdy)) + '</span></span>' +
-    '<span class="radek-pod">' + (kompaktni || sk === 'hotovo' || sk === 'nove' ? '<span class="' + ZNACKY[sk][0] + '">' + ZNACKY[sk][1] + '</span> ' : '') +
+    '<span class="radek-pod">' + (kompaktni || sk === 'hotovo' || sk === 'nove' ? '<span class="' + SKUPINA[sk][3] + '">' + SKUPINA[sk][4] + '</span> ' : '') +
     terminZnacka(p) + (pod ? ' <span class="orez-2">' + esc(pod) + '</span>' : '') + '</span>' +
     '</button>';
 
@@ -130,35 +146,70 @@ export function polozkaHtml(p, kompaktni) {
 }
 
 /** Pole pro zápis poznámky – vytváří se jednou, překreslování ho nemaže. */
-export function zapisHtml() {
-  return '<div class="card zapis"><textarea data-zapis rows="1" placeholder="Poznámka nebo úkol pro Clauda…" enterkeyhint="send" aria-label="Poznámka pro Clauda"></textarea>' +
+export function zapisHtml(bezKarty) {
+  return '<div class="' + (bezKarty ? '' : 'card ') + 'zapis"><textarea data-zapis rows="1" placeholder="Poznámka nebo úkol pro Clauda…" enterkeyhint="send" aria-label="Poznámka pro Clauda"></textarea>' +
     '<div class="zapis-paticka"><span class="znaku"></span><button type="button" class="btn btn--primary" data-ulozit disabled>Uložit</button></div></div>';
 }
 
+/** Skok na pole pro poznámku (tlačítko „Poznámka pro Clauda“, hledání). */
+export function zamerZapis() {
+  if (stav.pohled !== 'dnes' && stav.pohled !== 'schranka') prejdi('schranka');
+  setTimeout(() => {
+    const pole = document.querySelector('#p-' + stav.pohled + ' [data-zapis]');
+    if (pole) { pole.scrollIntoView({ block: 'center' }); pole.focus(); }
+  }, 30);
+}
+
+/** Otevře položku ve Schránce (z hledání). */
+export function ukazPolozku(id) {
+  stav.filtrSchranky = 'vse';
+  stav.otevrene[id] = true;
+  prejdi('schranka');
+  zmeneno();
+  setTimeout(() => {
+    const li = Array.from(document.querySelectorAll('#p-schranka [data-polozka-id]')).find((x) => x.dataset.polozkaId === id);
+    if (li) li.scrollIntoView({ block: 'center' });
+  }, 30);
+}
+
+function filtryHtml(pocty) {
+  const volby = [['vse', 'Vše', vsechnyPolozky().length]].concat(SKUPINY.map((s) => [s[0], s[5], pocty[s[0]]]));
+  return '<div class="filtry"><div class="segment" role="group" aria-label="Filtr schránky">' +
+    volby.filter((v) => v[0] === 'vse' || v[2] || v[0] === stav.filtrSchranky).map((v) =>
+      '<button type="button" class="chip" data-filtr-schranky="' + v[0] + '" aria-pressed="' + (stav.filtrSchranky === v[0]) + '">' + esc(v[1]) +
+      '<span class="pocet cisla">' + v[2] + '</span></button>').join('') + '</div></div>';
+}
+
 export function vykresliSchranku(el) {
-  if (!el.querySelector('#schranka-obsah')) el.innerHTML = zapisHtml() + '<div id="schranka-obsah" class="pohled-sloupec"></div>';
+  if (!el.querySelector('#schranka-obsah')) {
+    el.innerHTML = zapisHtml() + '<div id="schranka-filtry"></div><div id="schranka-obsah" class="pohled"></div>';
+  }
   const obsah = el.querySelector('#schranka-obsah');
   if (!stav.schranka) {
+    el.querySelector('#schranka-filtry').innerHTML = '';
     obsah.innerHTML = '<div class="card">' + (stav.chyby.schranka ? chybaHtml(stav.chyby.schranka, 'data-schranka-znovu') : kostra(4)) + '</div>';
     return;
   }
-  const vse = stav.schranka.nove.concat(stav.schranka.ceka, stav.schranka.hotovo);
   const sk = { rozhodni: [], ukol: [], napad: [], nove: [], hotovo: [] };
-  vse.forEach((p) => sk[skupina(p)].push(p));
+  vsechnyPolozky().forEach((p) => sk[skupina(p)].push(p));
   sk.ukol.sort(seradUkoly);
   sk.rozhodni.sort((a, b) => a.kdy - b.kdy);
   sk.nove.sort((a, b) => b.kdy - a.kdy);
+  const pocty = {};
+  Object.keys(sk).forEach((k) => { pocty[k] = sk[k].length; });
+  el.querySelector('#schranka-filtry').innerHTML = filtryHtml(pocty);
 
   let h = stav.chyby.schranka ? '<p class="pruh pruh-varovani">' + esc(stav.chyby.schranka.message) + ' Ukazuju naposledy načtené.</p>' : '';
   let neco = false;
   SKUPINY.forEach((s) => {
     const pol = sk[s[0]];
-    if (!pol.length) return;
+    if (!pol.length || (stav.filtrSchranky !== 'vse' && stav.filtrSchranky !== s[0])) return;
     neco = true;
-    h += '<h2 class="skupina-nadpis" id="sk-' + s[0] + '">' + s[1] + '<span class="pocet cisla">' + pol.length + '</span></h2>' +
-      '<div class="card"><ul class="seznam">' + pol.map((p) => polozkaHtml(p, false)).join('') + '</ul></div>';
+    h += '<section class="skupina"><h2 class="skupina-nadpis" id="sk-' + s[0] + '"><i class="znacka" style="--b:' + s[2] + '"></i>' + s[1] +
+      '<span class="pocet cisla">' + pol.length + '</span></h2>' +
+      '<div class="card"><ul class="seznam">' + pol.map((p) => polozkaHtml(p, false)).join('') + '</ul></div></section>';
   });
-  if (!neco) h += '<div class="card"><div class="prazdne">Schránka je prázdná. Nadiktuj první poznámku.</div></div>';
+  if (!neco) h += '<div class="card"><div class="prazdne">' + (stav.filtrSchranky === 'vse' ? 'Schránka je prázdná. Nadiktuj první poznámku.' : 'Tady nic není.') + '</div></div>';
   obsah.innerHTML = h;
 }
 
@@ -170,6 +221,7 @@ export function klikSchranka(el) {
     zmeneno();
     return true;
   }
+  if (el.dataset.filtrSchranky && el.closest('#p-schranka')) { stav.filtrSchranky = el.dataset.filtrSchranky; zmeneno(); return true; }
   if (el.hasAttribute('data-ulozit')) {
     const pole = el.closest('.zapis').querySelector('[data-zapis]');
     const text = pole.value.trim();
@@ -181,7 +233,7 @@ export function klikSchranka(el) {
       el.closest('.zapis').querySelector('.znaku').textContent = '';
       if (stav.schranka) stav.schranka.nove.unshift(p);
       zmeneno();
-      toast('Uloženo do schránky ✓');
+      toast('Uloženo do schránky');
     }).catch((e) => {
       el.disabled = false;
       toast('Neuloženo – ' + e.message, true);
@@ -200,7 +252,7 @@ export function klikSchranka(el) {
     el.disabled = true;
     volej('polozka', { id, jak, text }).then(() => {
       delete stav.otevrene[id];
-      toast({ hotovo: 'Hotovo ✓', zahodit: 'Zahozeno', udelej: 'Předáno Claudovi', odpoved: 'Odpověď předána Claudovi' }[jak]);
+      toast({ hotovo: 'Hotovo', zahodit: 'Zahozeno', udelej: 'Předáno Claudovi', odpoved: 'Odpověď předána Claudovi' }[jak]);
       return nactiSchranku();
     }).catch((e) => { el.disabled = false; toast(e.message, true); });
     return true;

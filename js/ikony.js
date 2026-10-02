@@ -27,5 +27,15 @@ export const IKONY = {
   fajfka: s('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
   odeslat: s('<path d="M21 3L10 14"/><path d="M21 3l-7 18-4-7-7-4z"/>'),
   claude: s('<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>'),
-  obrazek: s('<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>')
+  obrazek: s('<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>'),
+  hledat: s('<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>'),
+  sipka: s('<path d="M7 17L17 7M8.5 7H17v8.5"/>'),
+  hotovo: s('<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.8 2.8 5.2-5.6"/>'),
+  pripomenout: s('<circle cx="12" cy="13" r="7.5"/><path d="M12 9.5V13l2.5 1.6M4.5 5.6L7.6 3M19.5 5.6L16.4 3"/>'),
+  spam: s('<path d="M8.2 3h7.6L21 8.2v7.6L15.8 21H8.2L3 15.8V8.2z"/><path d="M12 8v5M12 16.5v.01"/>'),
+  ohen: s('<path d="M12 21c3.9 0 6.5-2.6 6.5-6.2 0-3.3-2.2-5.4-3.6-7.3-.5 1.8-1.4 2.9-2.6 3.4.2-2.9-.9-5.7-3.3-7.9.1 3.4-1.6 5.3-3 7.1a7.4 7.4 0 0 0-.5 4.7C6 18.7 8.4 21 12 21z"/>'),
+  otazka: s('<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6M12 17v.01"/>'),
+  cekas: s('<path d="M7 3h10M7 21h10M8 3v3.5a4 4 0 0 0 1.6 3.2L12 12l2.4-2.3A4 4 0 0 0 16 6.5V3M8 21v-3.5a4 4 0 0 1 1.6-3.2L12 12l2.4 2.3a4 4 0 0 1 1.6 3.2V21"/>'),
+  info: s('<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5v.01"/>'),
+  klavesnice: s('<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>')
 };

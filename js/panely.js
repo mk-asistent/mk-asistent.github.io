@@ -43,7 +43,7 @@ export function obnovPanel(id) {
   el.innerHTML =
     '<header class="panel-hlava">' +
       '<button type="button" class="btn btn--ikona panel-zavrit" data-zavrit-panel aria-label="Zavřít">' +
-        (p.trida === 'panel-okno' ? IKONY.zavrit : IKONY.zpet) + '</button>' +
+        (/\bpanel-okno\b/.test(p.trida || '') ? IKONY.zavrit : IKONY.zpet) + '</button>' +
       '<h2 class="panel-titul">' + esc(titul) + '</h2>' +
       '<div class="panel-vpravo">' + (p.vpravo ? p.vpravo() : '') + '</div>' +
     '</header>' +
@@ -59,6 +59,18 @@ export function zavriPanel() {
   try { history.back(); } catch (e) { zavriHorni(); }
 }
 
+let poZavreni = null;
+/** Zavře horní panel a teprve potom udělá fn – např. z hledání otevřít e-mail v novém panelu
+ *  (kdyby se otevřel dřív, krok Zpět z historie by zavřel ten nový). */
+export function zavriAPak(fn) {
+  if (!zasobnik.length) { fn(); return; }
+  const pocet = zasobnik.length;
+  poZavreni = fn;
+  zavriPanel();
+  // pojistka, kdyby prohlížeč krok Zpět neohlásil
+  setTimeout(() => { if (poZavreni === fn && zasobnik.length === pocet) zavriHorni(); }, 400);
+}
+
 function zavriHorni() {
   const p = zasobnik.pop();
   if (!p) return;
@@ -66,10 +78,15 @@ function zavriHorni() {
   if (el) {
     el.classList.remove('otevreny');
     el.classList.add('zavira');
+    el.removeAttribute('data-panel'); // zavírající se panel už nehledat (nový se stejným id může vzniknout hned)
+    el.inert = true;                  // a už do něj nejde klepnout ani psát
     setTimeout(() => el.remove(), 260);
   }
   if (!zasobnik.length) document.documentElement.classList.remove('s-panelem');
   if (p.priZavreni) p.priZavreni();
+  const fn = poZavreni;
+  poZavreni = null;
+  if (fn) fn();
 }
 
 window.addEventListener('popstate', () => { if (zasobnik.length) zavriHorni(); });
