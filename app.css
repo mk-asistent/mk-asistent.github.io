@@ -417,6 +417,92 @@ button.legenda-radek { width: 100%; background: none; border: 0; text-align: lef
 .tmava-karta b { display: block; margin-top: 2px; font-size: 15px; font-weight: 650; }
 .tmava-karta span { display: block; font-size: 12.5px; opacity: .8; }
 
+/* ================================================================ Zdraví (WHOOP + Apple Watch) */
+.pohled-zdravi { max-width: 1180px; }
+.zdravi-pripojit { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+.zdravi-pripojit > span:nth-child(2) { flex: 1; min-width: 0; }
+.zdravi-pripojit b { display: block; font-size: 14px; font-weight: 650; }
+.zdravi-pripojit small { display: block; font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.zdravi-hero { display: flex; align-items: center; gap: 22px; padding: 18px 20px; }
+.zdravi-hero__kruh { position: relative; width: 132px; height: 132px; flex: none; }
+.zdravi-hero__kruh svg { width: 100%; height: 100%; }
+.zdravi-hero__kruh > div { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+.zdravi-hero__kruh b { font-size: 36px; line-height: 1; font-weight: 700; letter-spacing: -.02em; }
+.zdravi-hero__kruh b small { font-size: 16px; font-weight: 600; margin-left: 1px; }
+.zdravi-hero__kruh span { font-size: 11.5px; color: var(--muted); }
+.kruh-pripravenosti circle { fill: none; stroke-width: 10; stroke-linecap: round; }
+.kruh-pripravenosti__pozadi { stroke: var(--sand); }
+.kruh-pripravenosti--zelena .kruh-pripravenosti__hodnota { stroke: #16a34a; }
+.kruh-pripravenosti--zluta .kruh-pripravenosti__hodnota { stroke: #e3a008; }
+.kruh-pripravenosti--cervena .kruh-pripravenosti__hodnota { stroke: #dc3d2e; }
+.zdravi-hero__text { flex: 1; min-width: 0; }
+.zdravi-hero__text > small { font-size: 12px; color: var(--muted); }
+.zdravi-hero__text h2 { margin: 2px 0 12px; font-size: 19px; font-weight: 650; letter-spacing: -.01em; }
+.zdravi-hodnoty { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 22px; }
+.zdravi-hodnoty small { display: block; font-size: 11px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.zdravi-hodnoty b { font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+.zdravi-hodnoty i { font-style: normal; font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 3px; }
+.zdravi-kpi { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.zdravi-mrizka-karet { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+@media (min-width: 900px) { .zdravi-mrizka-karet { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); } }
+.zdravi-legenda { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; margin: 2px 16px 0; font-size: 12px; color: var(--muted); }
+.zdravi-legenda i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.zdravi-legenda .graf14__sl--zelena { background: #16a34a; }
+.zdravi-legenda .graf14__tecka { border-radius: 50%; background: var(--fialova); }
+.graf14 { display: block; width: 100%; height: auto; padding: 6px 4px 8px; }
+.graf14__mez { stroke: var(--line); stroke-dasharray: 3 4; }
+.graf14__sl--zelena { fill: #16a34a; } .graf14__sl--zluta { fill: #e3a008; } .graf14__sl--cervena { fill: #dc3d2e; }
+.graf14__sl--prazdny { fill: var(--sand); }
+.graf14__zatez { fill: var(--surface); stroke: var(--fialova); stroke-width: 2; }
+.graf14__cara { fill: none; stroke: var(--fialova); stroke-width: 1.6; opacity: .55; }
+.graf14__popis { font-size: 10.5px; fill: var(--muted); font-weight: 600; }
+.zdravi-velke { margin: 6px 16px 0; font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
+.zdravi-zdroj { margin: 2px 16px 10px; font-size: 12.5px; color: var(--muted); }
+.pruh-spanku { display: flex; height: 14px; margin: 4px 16px 8px; border-radius: 7px; overflow: hidden; background: var(--sand); }
+.pruh-spanku i { display: block; height: 100%; }
+.pruh-spanku__hluboky { background: #4338ca; } .pruh-spanku__rem { background: #8b7cf6; }
+.pruh-spanku__lehky { background: #c4b5fd; } .pruh-spanku__bdeni { background: #f3c96b; }
+.legenda-spanku { list-style: none; margin: 0 16px 14px; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; font-size: 12.5px; color: var(--text-soft); }
+.legenda-spanku li { display: flex; align-items: center; gap: 6px; }
+.legenda-spanku i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.legenda-spanku b { margin-left: auto; font-weight: 650; font-variant-numeric: tabular-nums; }
+.trenink { display: flex; align-items: center; gap: 12px; padding: 11px 16px; }
+.trenink[data-udalost] { cursor: pointer; }
+.trenink[data-udalost]:hover { background: var(--bg-soft); }
+.trenink__ikona { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--sand); color: var(--text-soft); }
+.trenink--zapas .trenink__ikona { background: var(--limetka); color: var(--na-limetce); }
+.trenink__ikona svg { width: 18px; height: 18px; }
+.trenink__text { flex: 1; min-width: 0; }
+.trenink__text b { display: block; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trenink__text small { display: block; font-size: 12px; color: var(--muted); line-height: 1.4; }
+.trenink__zatez { font-style: normal; text-align: right; font-size: 18px; font-weight: 700; color: var(--fialova); }
+.trenink__zatez small { display: block; font-size: 10.5px; font-weight: 600; color: var(--muted); }
+.zony { display: flex; height: 5px; margin-top: 6px; border-radius: 3px; overflow: hidden; background: var(--sand); max-width: 260px; }
+.zony i { display: block; height: 100%; }
+.zony__0 { background: #d6d3d1; } .zony__1 { background: #93c5fd; } .zony__2 { background: #4ade80; }
+.zony__3 { background: #facc15; } .zony__4 { background: #fb923c; } .zony__5 { background: #ef4444; }
+.zdravi-mrizka { list-style: none; margin: 0 16px 14px; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.zdravi-mrizka li { padding: 10px 12px; border-radius: 12px; background: var(--bg-soft); }
+.zdravi-mrizka small { display: block; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.zdravi-mrizka b { font-size: 20px; font-weight: 700; }
+.zdravi-mrizka i { font-style: normal; font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 3px; }
+.zdravi-mrizka span { display: block; font-size: 11.5px; color: var(--dim); }
+.zdravi-paticka { margin: 0; font-size: 12px; color: var(--dim); text-align: center; }
+.zdravi-k-udalosti { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--fialova-tint); color: var(--fialova); }
+.zdravi-k-udalosti svg { width: 18px; height: 18px; flex: none; }
+.zdravi-k-udalosti b { display: block; font-size: 13.5px; color: var(--text); }
+.zdravi-k-udalosti small { display: block; font-size: 12px; color: var(--text-soft); }
+@media (max-width: 759px) {
+    .zdravi-hero { flex-direction: column; align-items: flex-start; gap: 12px; border-radius: 26px; background: #3d7a56; color: #fff; border: 0; }
+    .zdravi-hero__kruh { width: 120px; height: 120px; }
+    .zdravi-hero .kruh-pripravenosti__pozadi { stroke: rgba(255, 255, 255, .2); }
+    .zdravi-hero__kruh span, .zdravi-hero__text > small, .zdravi-hodnoty small, .zdravi-hodnoty i { color: rgba(255, 255, 255, .75); }
+    .zdravi-kpi { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .zdravi-kpi .kpi { padding: 12px; border-radius: 20px; }
+    .zdravi-kpi .kpi__hodnota { font-size: 24px; }
+    .zdravi-kpi .kpi__hlava span { display: none; }
+}
+
 /* ================================================================ seznamy */
 .seznam { list-style: none; margin: 0; padding: 0; }
 .seznam > li + li { border-top: 1px solid var(--line-soft); }

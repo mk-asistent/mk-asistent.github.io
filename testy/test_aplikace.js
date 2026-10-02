@@ -63,6 +63,15 @@ const motor = {
     termin: d.termin, text: 'Připomenutí e-mailu.', vlakno: [] }),
   polozka: (d) => (d.jak === 'nadpis' || d.jak === 'tema' ? Object.assign(motor.schranka().ceka.find((x) => x.id === d.id), { [d.jak]: d.text }) : true),
   poznamka: (d) => ({ id: 'n' + Date.now(), slozka: 'NOVE', kdy: Date.now(), odkud: 'aplikace', typ: '', stav: '', shrnuti: '', termin: '', text: d.text, vlakno: [] }),
+  zdravi: () => ({ vytvoreno: ted, dny: [
+      { den: iso(den(-1, 12)), whoop: { pripravenost: { skore: 55, hrv: 70, klidovyTep: 52 }, zatez: { zatez: 12.1, kroky: 9000 } },
+        apple: { kroky: 10234, energie: 640, cviceni: 45, vzdalenost: 7.8, vo2max: 41.2 } },
+      { den: iso(ted), whoop: { pripravenost: { skore: 72, hrv: 84.3, klidovyTep: 49, spo2: 96.4 },
+        spanek: { start: den(0, -1), konec: den(0, 6), celkem: 6.5 * H, hluboky: 1.4 * H, rem: 1.6 * H, lehky: 3.5 * H, bdeni: 0.3 * H, vykon: 91, potreba: 8 * H },
+        zatez: { probiha: true, zatez: 6.2, kroky: 4000 } } }],
+    treninky: [{ id: 'w1', den: iso(ted), start: den(0, 9), konec: den(0, 10), sport: 'soccer', zatez: 11.5, tepPrumer: 140, tepMax: 180, kcal: 700, zony: [1, 5, 20, 20, 10, 4] }],
+    whoop: { nastaveno: true, propojeno: true, sync: { kdy: ted, chyba: '' } }, apple: { kdy: ted } }),
+  zdraviKlic: () => ({ klic: 'testovaci-klic-zdravi' }),
   stitky: () => [{ nazev: 'Fotbal', neprectenych: 1 }, { nazev: 'Účty', neprectenych: 0 }],
   postaStitek: (d) => ({ nazev: d.nazev, vlakna: d.nazev === 'Fotbal' ? [vlaknoSouhrn.v1, { id: 'v8', ucet: 'osobni', stav: 'resi', od: 'Rozhodčí', predmet: 'Zápis o utkání', ukazka: 'Zápis v příloze.', kdy: ted - 200 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Fotbal'] }] : [], ted }),
   kontakty: () => [{ j: 'Trenér', a: 'trener@klub.test', n: 5 }, { j: 'Investor', a: 'info@stavba.test', n: 2 }],
@@ -489,6 +498,39 @@ async function novaStranka(prohlizec, v, motiv) {
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
   });
+
+  // ---------- zdraví: stránka, karta na Dnes, trénink spárovaný s událostí, klíč pro zkratku v Nastavení
+  for (const v of [VELIKOSTI[3], VELIKOSTI[0]]) {
+    await test(v.nazev + ': Zdraví – připravenost, spánek, trénink u události, Nastavení', async () => {
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, v);
+      await page.goto(WEB);
+      if (v.sirka >= 760) await page.waitForFunction(() => /Připravenost/.test((document.getElementById('dnes-kpi') || {}).textContent || ''));
+      else await page.waitForFunction(() => /72/.test((document.querySelector('.mini-kpi[data-cil="zdravi"]') || {}).textContent || ''));
+      await page.click(v.sirka >= 760 ? '#rail [data-cil="zdravi"]' : '.hlava-ja [data-cil="zdravi"]');
+      await page.waitForSelector('#p-zdravi .zdravi-hero');
+      jistota(/72/.test(await page.textContent('#p-zdravi .zdravi-hero')), 'připravenost 72 %');
+      jistota(await page.locator('#p-zdravi .graf14 rect').count() === 14, 'graf 14 dní');
+      jistota(/Porada/.test(await page.textContent('#p-zdravi .trenink')), 'trénink spárovaný s událostí v kalendáři');
+      jistota(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, 'Zdraví přetéká');
+      await page.screenshot({ path: path.join(VYSTUP, v.nazev + '_zdravi.png'), fullPage: true });
+      // klepnutí na trénink otevře událost a v ní čísla z WHOOP
+      await page.click('#p-zdravi .trenink[data-udalost]');
+      await page.waitForSelector('[data-panel="udalost"] .zdravi-k-udalosti');
+      jistota(/zátěž 11,5/.test(await page.textContent('[data-panel="udalost"] .zdravi-k-udalosti')), 'WHOOP v detailu události');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-panel="udalost"]', { state: 'detached' });
+      if (v.sirka >= 760) {
+        await page.click('#rail [data-otevri-nastaveni]');
+        await page.click('[data-panel="nastaveni"] [data-nast-sekce="zdravi"]');
+        await page.click('[data-panel="nastaveni"] [data-nast="zdravi-klic"]');
+        await page.waitForSelector('[data-panel="nastaveni"] [data-klic-zdravi]');
+        jistota(await page.inputValue('[data-panel="nastaveni"] [data-klic-zdravi]') === 'testovaci-klic-zdravi', 'klíč pro zkratku');
+        await page.screenshot({ path: path.join(VYSTUP, 'pc_nastaveni_zdravi.png') });
+      }
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    });
+  }
 
   // ---------- Co je nového: po návratu ukáže, co přibylo (tady nová pošta, která čeká), Ukázat vede do Pošty
   await test('okno Co je nového po návratu do aplikace', async () => {

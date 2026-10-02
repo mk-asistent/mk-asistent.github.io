@@ -60,4 +60,6 @@ export const IKONY = {
   mlha: s('<path d="M7.5 11.5a4.5 4.5 0 0 1 9 0"/><path d="M3 14.5h18M5 18h14M8 21.5h8"/>')
 };
 // ikona počasí podle klíče z motoru (slunce, polojasno, oblacno, dest, bourka, snih, mlha)
+IKONY.zdravi = IKONY.srdce;
+
 export function ikonaPocasi(klic) { return IKONY[klic] || IKONY.polojasno; }

@@ -17,7 +17,7 @@ import * as pocasi from './pocasi.js';
 import * as zdravi from './zdravi.js';
 import { vstupAdresy, klavesaAdresy } from './adresy.js';
 
-const SEKCE = [['dnes', 'Dnes'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář']];
+const SEKCE = [['dnes', 'Dnes'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář'], ['zdravi', 'Zdraví']];
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
 const TELEFON = window.matchMedia('(max-width: 759px)');
 const $ = (id) => document.getElementById(id);
@@ -178,6 +178,9 @@ function vykresliHlavu(p) {
   } else if (stav.pohled === 'posta') {
     pod = stav.posta ? p.pozornost.length + ' ' + tvar(p.pozornost.length, 'konverzace čeká', 'konverzace čekají', 'konverzací čeká') + ' na tebe' +
       (p.hori ? ' · ' + p.hori + ' hoří' : '') + ' · ' + (posta.maPracovni() ? 'osobní a pracovní' : 'osobní Gmail') : 'Načítám…';
+  } else if (stav.pohled === 'zdravi') {
+    const z = stav.zdravi;
+    pod = 'WHOOP a Apple Watch' + (z && z.whoop && z.whoop.sync && z.whoop.sync.kdy ? ' · aktualizováno ' + esc(kdyKratce(z.whoop.sync.kdy)) : '');
   } else {
     pod = esc(kal.nadpisObdobi());
   }
@@ -192,6 +195,7 @@ function vykresliHlavu(p) {
         '<span class="avatar" style="--h:' + odstin(jmeno) + '">' + esc(iniciala(jmeno.replace(/[._\d]+/g, ' '))) + '</span>' +
         '<span><small>Asistent</small><b>' + esc(jmeno) + '</b></span></button>' +
       '<div class="hlava-akce">' +
+        (umiMotor('zdravi') && stav.pohled !== 'zdravi' ? '<button type="button" class="btn btn--ikona" data-cil="zdravi" aria-label="Zdraví">' + IKONY.srdce + '</button>' : '') +
         '<button type="button" class="btn btn--ikona" data-hledat aria-label="Hledat">' + IKONY.hledat + '</button>' +
         '<button type="button" class="btn btn--ikona' + (nacitaSe() ? ' toci' : '') + '" data-obnovit aria-label="Obnovit">' + IKONY.obnovit + '</button>' +
       '</div></div>' +
@@ -498,6 +502,7 @@ document.addEventListener('click', (e) => {
   if (el.dataset.vlakno && stav.pohled !== 'posta' && window.matchMedia('(min-width: 1000px)').matches) prejdi('posta');
   if (schranka.klikSchranka(el)) return;
   if (posta.klikPosta(el)) return;
+  if (zdravi.klikZdravi(el)) return;
   if (udalost.klikUdalost(el)) return;
   if (kal.klikKalendar(el)) return;
   nast.klikNastaveni(el);
@@ -534,7 +539,7 @@ document.addEventListener('keydown', (e) => {
   if (pise(e) || e.ctrlKey || e.metaKey || e.altKey) return;
   // jednoduché klávesy (PC, iPad s klávesnicí)
   if (e.key === '/') { e.preventDefault(); hledat.otevriHledani(); return; }
-  if (!horniPanel() && /^[1-4]$/.test(e.key)) { prejdi(SEKCE[Number(e.key) - 1][0]); return; }
+  if (!horniPanel() && /^[1-5]$/.test(e.key)) { prejdi(SEKCE[Number(e.key) - 1][0]); return; }
   if (!horniPanel() && stav.pohled === 'kalendar' && e.key.toLowerCase() === 'n') { udalost.otevriFormular({ den: stav.kal.vybrany }); return; }
   if (posta.klavesaPosta(e)) e.preventDefault();
 });

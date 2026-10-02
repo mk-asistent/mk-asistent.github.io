@@ -157,6 +157,44 @@ function udalostiVRozsahu(od, doDne) {
 
 const smazanePolozky = {}; // „Vrátit“ po smazání
 
+/** Zdraví v ukázce: 30 dní připravenosti, spánku a zátěže; zápas v sobotu, trénink út a čt (sedí s kalendářem), posilovna v pondělí. */
+function zdraviUkazka() {
+  const nahoda = (i, k) => { const x = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453; return x - Math.floor(x); };
+  const dnyZ = [], treninky = [];
+  for (let i = 29; i >= 0; i--) {
+    const t = pridejDny(dnes, -i);
+    const dt = new Date(t).getDay();
+    const zapas = dt === 6, trenink = dt === 2 || dt === 4, posilovna = dt === 1;
+    const skore = Math.max(18, Math.min(96, Math.round(42 + nahoda(i, 1) * 50 - (dt === 0 ? 14 : 0))));
+    const spanek = Math.round((6.5 + nahoda(i, 2) * 1.9) * 60) * 6e4;
+    const konec = t + (6 * 60 + 5) * 6e4, bdeni = Math.round((12 + nahoda(i, 5) * 20)) * 6e4;
+    const zatez = +(4 + nahoda(i, 3) * 4 + (zapas ? 9 : trenink ? 6 : posilovna ? 3 : 0)).toFixed(1);
+    const kroky = Math.round(6500 + nahoda(i, 6) * 5000 + (zapas || trenink ? 3500 : 0));
+    dnyZ.push({ den: iso(t),
+      whoop: {
+        pripravenost: { skore, hrv: Math.round(58 + skore * 0.32 + nahoda(i, 4) * 8), klidovyTep: Math.round(57 - skore * 0.08), spo2: 96.4, teplota: 33.8, kalibrace: false },
+        spanek: { start: konec - spanek - bdeni, konec, celkem: spanek, hluboky: Math.round(spanek * 0.21), rem: Math.round(spanek * 0.24), lehky: Math.round(spanek * 0.55),
+          bdeni, probuzeni: Math.round(5 + nahoda(i, 7) * 8), vykon: Math.round(78 + nahoda(i, 8) * 20), konzistence: 80, efektivita: 93.5, dech: 15.1, potreba: 8 * H },
+        zatez: { probiha: i === 0, kroky, zatez: i === 0 ? 6.2 : zatez, kcal: Math.round(2100 + zatez * 80), tepPrumer: 68, tepMax: zapas ? 189 : 150 }
+      },
+      apple: { kroky: i === 0 ? Math.round(kroky * 0.45) : kroky, energie: Math.round(380 + zatez * 32), cviceni: Math.round(18 + zatez * 3.5), stani: 11,
+        vzdalenost: +(kroky * 0.00076).toFixed(2), klidovyTep: Math.round(58 - skore * 0.08), vo2max: i === 6 ? 42.3 : undefined }
+    });
+    const pridej = (sport, hod, min, delkaMin, z, tep, tepMax) => {
+      const start = t + (hod * 60 + min) * 6e4;
+      if (start > Date.now()) return;
+      treninky.push({ id: 'w' + i + sport, den: iso(t), start, konec: start + delkaMin * 6e4, sport, zatez: z, tepPrumer: tep, tepMax,
+        kcal: Math.round(z * 62), vzdalenost: sport === 'soccer' ? Math.round(6000 + nahoda(i, 9) * 4000) : null,
+        zony: sport === 'soccer' ? [4, 12, 22, 28, 22, 8] : [6, 20, 24, 8, 2, 0] });
+    };
+    if (zapas) pridej('soccer', 10, 15, 105, +(15 + nahoda(i, 10) * 2).toFixed(1), 154, 191);
+    if (trenink) pridej('soccer', 17, 0, 90, +(11 + nahoda(i, 11) * 2).toFixed(1), 138, 178);
+    if (posilovna) pridej('weightlifting', 19, 0, 60, 7.8, 112, 151);
+  }
+  return { vytvoreno: Date.now(), dny: dnyZ, treninky: treninky.sort((a, b) => b.start - a.start),
+    whoop: { nastaveno: true, propojeno: true, sync: { kdy: Date.now() - 12 * 6e4, chyba: '' } }, apple: { kdy: Date.now() - 3 * H } };
+}
+
 function najdiPolozku(id) {
   if (smazanePolozky[id]) { const x = smazanePolozky[id]; delete smazanePolozky[id]; schranka[x.sk].unshift(x.p); }
   for (const sk of ['nove', 'ceka', 'hotovo']) {
@@ -303,6 +341,10 @@ const akce = {
   },
   kontakty: () => kopie(kontakty),
   podpisyUlozit: (d) => { Object.assign(podpisy, { osobni: String((d.podpisy || {}).osobni || ''), pracovni: String((d.podpisy || {}).pracovni || '') }); return akce.info().posta; },
+  zdravi: () => zdraviUkazka(),
+  whoopPropojit: () => { throw new Error('V ukázce se WHOOP nepropojuje – po připojení motoru to půjde.'); },
+  whoopOdpojit: () => zdraviUkazka().whoop,
+  zdraviKlic: () => ({ klic: 'ukazka-klic-pro-zkratku-zdravi-0000' }),
   pocasi: () => {
     // ukázka: zítra odpoledne žluté bouřky, jinak klid; předpověď na 4 dny jako od ČHMÚ
     const dnyPred = [['slunce', 'Převážně jasno', [19, 23], null], ['bourka', 'Odpoledne bouřky', [24, 28], [12, 15]],

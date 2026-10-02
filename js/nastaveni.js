@@ -15,9 +15,9 @@ export const VERZE_APLIKACE = '2026-10-03';
 // předvolby hlavní barvy – tlumené tmavé odstíny jako ve stylu Fixtrack (lesní zelená je výchozí)
 const AKCENTY = [['#1f3d2c', 'Lesní zelená'], ['#1d4250', 'Ocelová'], ['#2a3f8f', 'Modrá'], ['#4b2d63', 'Švestková'], ['#7a3a1d', 'Cihlová'], ['#2b2f33', 'Grafitová']];
 const BARVY_KALENDARE = ['#2f5bd3', '#0f7c8c', '#2e7a4d', '#a8620c', '#8e5bd3', '#c0392b', '#b5407a', '#37474f'];
-const n = { upravaPripojeni: false, ukazKod: false, novaBarva: BARVY_KALENDARE[1], pracuje: false, sekce: 'pripojeni' };
+const n = { upravaPripojeni: false, ukazKod: false, novaBarva: BARVY_KALENDARE[1], pracuje: false, sekce: 'pripojeni', klicZdravi: '' };
 // záložky okna Nastavení – vždy je vidět jen jedna
-const ZALOZKY = [['pripojeni', 'Připojení'], ['posta', 'Pošta'], ['kalendare', 'Kalendáře'], ['pocasi', 'Počasí'], ['vzhled', 'Vzhled'], ['aplikace', 'Aplikace']];
+const ZALOZKY = [['pripojeni', 'Připojení'], ['posta', 'Pošta'], ['kalendare', 'Kalendáře'], ['pocasi', 'Počasí'], ['zdravi', 'Zdraví'], ['vzhled', 'Vzhled'], ['aplikace', 'Aplikace']];
 
 // ---------------------------------------------------------------- vzhled
 
@@ -282,9 +282,56 @@ function sekcePocasi() {
   return h + '</section>';
 }
 
+function sekceZdravi() {
+  let h = '<section class="card nast-sekce" data-sekce="zdravi"><h3>Zdraví · WHOOP</h3>';
+  if (staryMotor()) return h + '<p>Zdraví ukáže nová verze motoru.</p>' + novaVerzeMotoruHtml() + '</section>';
+  const w = (stav.zdravi && stav.zdravi.whoop) || {};
+  const motor = (pripojeni() || {}).url || 'https://script.google.com/macros/s/…/exec';
+  h += '<p class="nast-stav ' + (w.propojeno ? 'ok' : w.nastaveno ? '' : 'chyba') + '"><i></i>' +
+    (w.propojeno ? 'Propojeno' + (w.sync && w.sync.kdy ? ' · data z ' + new Date(w.sync.kdy).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : '')
+      : w.nastaveno ? 'Nastaveno, ještě nepropojeno' : 'Zatím nenastaveno') + '</p>' +
+    (w.sync && w.sync.chyba ? '<p class="pruh pruh-varovani">' + esc(w.sync.chyba) + '</p>' : '') +
+    '<div class="akce">' + (w.propojeno ? '<button type="button" class="btn btn--ghost btn--sm" data-nast="whoop-odpojit">Odpojit WHOOP</button>' : '') +
+    (w.nastaveno || jeDemo() ? '<button type="button" class="btn btn--primary btn--sm" data-zdravi="propojit">' + (w.propojeno ? 'Propojit znovu' : 'Propojit WHOOP') + '</button>' : '') + '</div>' +
+    '<details class="napoveda"' + (w.nastaveno ? '' : ' open') + '><summary>Jak nastavit WHOOP (jednou, na PC, asi 10 minut)</summary><ol class="kroky">' +
+    '<li>Otevři <a href="https://developer-dashboard.whoop.com" target="_blank" rel="noopener">developer-dashboard.whoop.com</a> a přihlas se účtem WHOOP. ' +
+      '<b>Get Started</b> → název týmu (např. „Michal – osobní“) → <b>Create Team</b>.</li>' +
+    '<li><b>Apps → Create</b>: Name <code>Asistent</code>, Contacts tvůj e-mail, Privacy Policy URL <code>https://mk-asistent.github.io/soukromi.html</code>, ' +
+      'Redirect URL přesně adresa motoru: <code>' + esc(motor) + '</code> (bez # a parametrů), Scopes: read:recovery, read:cycles, read:sleep, read:workout, ' +
+      'read:body_measurement. Webhooks nech prázdné → <b>Create</b>.</li>' +
+    '<li>V detailu aplikace jsou <b>Client ID</b> a <b>Client Secret</b>. Nikam je neposílej (chat, e-mail, Disk) – rovnou do motoru:</li>' +
+    '<li>script.google.com → projekt motoru → ⚙ Nastavení projektu → <b>Vlastnosti skriptu</b> → Přidat: <code>WHOOP_CLIENT_ID</code>, ' +
+      '<code>WHOOP_CLIENT_SECRET</code> a <code>WHOOP_REDIRECT_URI</code> (= stejná adresa motoru jako výš) → Uložit.</li>' +
+    '<li>Tady klepni na <b>Propojit WHOOP</b> → přihlas se → <b>Allow</b>. Data za 30 dní se načtou sama.</li></ol></details>';
+  h += '<h3>Apple Watch – zkratka v iPhonu</h3>' +
+    '<p class="napoveda">Data ze Zdraví jdou číst jen při odemčeném iPhonu, proto je posílá zkratka, když otevřeš aplikaci WHOOP ' +
+    '(ráno stejně koukáš na připravenost). Zkratka má vlastní klíč – umí jen zapsat data Zdraví, poštu neotevře.</p>' +
+    (n.klicZdravi ? '<label><span class="label">Klíč pro zkratku (pole „klic“)</span><input class="field kod-pripojeni" data-klic-zdravi readonly value="' + esc(n.klicZdravi) + '"></label>' +
+      '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="zdravi-klic-novy">Vyrobit nový</button>' +
+      '<button type="button" class="btn btn--primary btn--sm" data-nast="zdravi-klic-kopirovat">Kopírovat klíč</button></div>'
+      : '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="zdravi-klic">Ukázat klíč pro zkratku</button></div>') +
+    '<details class="napoveda"><summary>Jak udělat zkratku „Zdraví do Asistenta“</summary><ol class="kroky">' +
+    '<li>Aplikace Zdraví → profil → Soukromí → Aplikace → <b>Zkratky</b> → povol čtení: Kroky, Aktivní energie, Minuty cvičení, Hodiny stání, ' +
+      'Klidová tepová frekvence, Variabilita srdečního tepu, Kardiovaskulární kondice (VO₂ max), Vzdálenost chůze a běhu, Spánek.</li>' +
+    '<li>Zkratky → <b>+</b> → název <code>Zdraví do Asistenta</code>. Pro každý údaj: <b>Hledat vzorky zdravotních dat</b> (typ, Datum zahájení je ' +
+      'v posledních 7 dnech, Seskupit podle: Den; u energie, tepu a HRV i Zdroj = tvoje Apple Watch) → <b>Opakovat se všemi položkami</b> → ' +
+      '<b>Text</b> <code>[Datum zahájení]=[Hodnota]</code> (datum ve formátu ISO 8601) → Konec opakování → <b>Spojit text</b> oddělovačem <code>;</code> → ' +
+      '<b>Nastavit proměnnou</b> → <b>Žádná akce</b>.</li>' +
+    '<li>Spánek: bez seskupení, Datum ukončení je v posledních 2 dnech, Zdroj Apple Watch, Text <code>[Datum zahájení]|[Datum ukončení]|[Hodnota]</code>.</li>' +
+    '<li><b>Načíst obsah URL</b>: adresa motoru → Metoda POST → Tělo požadavku JSON, pole (Text): <code>klic</code> = klíč výš, <code>akce</code> = ' +
+      '<code>zdraviApple</code>, a proměnné: <code>kroky</code>, <code>energie</code>, <code>cviceni</code>, <code>stani</code>, <code>vzdalenost</code>, ' +
+      '<code>klidovy_tep</code>, <code>hrv</code>, <code>vo2max</code>, <code>spanek</code>.</li>' +
+    '<li>Automatizace → <b>+</b> → Vytvořit osobní automatizaci → <b>Aplikace</b> → WHOOP → je otevřená → <b>Spustit okamžitě</b> → zkratka výš.</li></ol></details>';
+  h += '<h3>Upozornění do iPhonu</h3><details class="napoveda"><summary>Ráno připravenost, výstrahy ČHMÚ (nepovinné, aplikace ntfy)</summary><ol class="kroky">' +
+    '<li>V editoru motoru spusť funkci <b>nastavUpozorneni</b> – v protokolu je téma (jméno kanálu, funguje jako heslo).</li>' +
+    '<li>iPhone: App Store → <b>ntfy</b> → + → téma z protokolu, server ntfy.sh → povol oznámení.</li>' +
+    '<li>Editor → Spouštěče (budík) → Přidat spouštěč → <b>kazdouHodinu</b> → Časový → Hodinový časovač → Každou hodinu.</li></ol></details>';
+  return h + '</section>';
+}
+
 function nastaveniHtml() {
   const s = ZALOZKY.some((z) => z[0] === n.sekce) ? n.sekce : 'pripojeni';
-  const obsah = { pripojeni: sekcePripojeni, posta: sekcePosty, kalendare: sekceKalendaru, pocasi: sekcePocasi, vzhled: sekceVzhledu, aplikace: sekceAplikace }[s]();
+  const obsah = { pripojeni: sekcePripojeni, posta: sekcePosty, kalendare: sekceKalendaru, pocasi: sekcePocasi, zdravi: sekceZdravi, vzhled: sekceVzhledu, aplikace: sekceAplikace }[s]();
   return '<div class="nast-zalozky" role="tablist" aria-label="Části nastavení">' + ZALOZKY.map((z) =>
     '<button type="button" class="chip" role="tab" data-nast-sekce="' + z[0] + '" aria-selected="' + (z[0] === s) + '" aria-pressed="' + (z[0] === s) + '">' + z[1] +
     (z[0] === 'pripojeni' && (staryMotor() || stav.chyby.info) ? ' <i class="tecka"></i>' : '') + '</button>').join('') + '</div>' +
@@ -360,6 +407,28 @@ export function klikNastaveni(el) {
     volej('podpisyUlozit', { podpisy: { osobni: cti('osobni'), pracovni: cti('pracovni') } })
       .then((posta) => { if (stav.info) stav.info.posta = posta; uloziste.pis('asistent.info', stav.info); toast('Podpis uložen ✓'); obnovPanel('nastaveni'); })
       .catch((e) => { el.disabled = false; toast(e.message, true); });
+    return true;
+  }
+  if (akce === 'zdravi-klic' || akce === 'zdravi-klic-novy') {
+    const novy = akce === 'zdravi-klic-novy';
+    (novy ? potvrd('Vyrobit nový klíč?', { text: 'Starý přestane platit – ve zkratce ho pak vyměň.', ano: 'Vyrobit' }) : Promise.resolve(true)).then((ano) => {
+      if (!ano) return;
+      volej('zdraviKlic', { novy }).then((d) => { n.klicZdravi = d.klic; obnovPanel('nastaveni'); }).catch((e) => toast(e.message, true));
+    });
+    return true;
+  }
+  if (akce === 'zdravi-klic-kopirovat') {
+    const pole = panel.querySelector('[data-klic-zdravi]');
+    const hotovo = () => toast('Klíč zkopírovaný – vlož ho do zkratky do pole klic');
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(pole.value).then(hotovo, () => { pole.select(); toast('Označeno – zkopíruj'); });
+    else { pole.select(); toast('Označeno – zkopíruj'); }
+    return true;
+  }
+  if (akce === 'whoop-odpojit') {
+    potvrd('Odpojit WHOOP?', { text: 'Motor zapomene přístup; uložená data zůstanou na tvém Disku.', ano: 'Odpojit' }).then((ano) => {
+      if (!ano) return;
+      volej('whoopOdpojit').then((w) => { if (stav.zdravi) stav.zdravi.whoop = w; obnovPanel('nastaveni'); zmeneno(); toast('WHOOP odpojen'); }).catch((e) => toast(e.message, true));
+    });
     return true;
   }
   if (akce === 'pridat-kalendar') {

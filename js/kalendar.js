@@ -3,7 +3,7 @@
 // Nová událost: tlačítko, „+ Přidat“ u dne, klepnutí do volné hodiny v týdnu (formulář v udalost.js).
 // Data z motoru po měsících (mřížka 6 týdnů), uložená i v zařízení pro okamžitý start.
 
-import { stav, zmeneno } from './stav.js';
+import { stav, zmeneno, hooky } from './stav.js';
 import { volej } from './api.js';
 import {
   esc, pulnoc, pridejDny, rozdilDni, zacatekTydne, hhmm, trvani, datumDlouhe, denNadpis, velkePrvni,
@@ -493,6 +493,7 @@ function detailHtml(u) {
       (u.hoste.length > 6 ? ' a další ' + (u.hoste.length - 6) : '') + '</span></p>';
   }
   if (u.popis) h += '<div class="udalost-popis">' + sOdkazy(u.popis) + '</div>';
+  if (hooky.detailUdalosti) h += hooky.detailUdalosti(u); // trénink z WHOOP ve stejném čase
   return h + '</div>';
 }
 

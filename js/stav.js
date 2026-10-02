@@ -13,6 +13,7 @@ export const stav = {
   posta: null,
   pocasi: null,             // přehled ČHMÚ z motoru (výstrahy, řeky, předpovědi)
   kontakty: null,           // komu jsem psal (našeptávač adres)
+  zdravi: null,             // přehled WHOOP + Apple Zdraví z motoru
   stitkyGmailu: null,       // štítky Gmailu [{ nazev, neprectenych }]
   stitekPosty: '',          // vybraný štítek ('' = Doručená pošta)
   postaStitku: {},          // název štítku → { vlakna, nacita, chyba, kdy }
@@ -42,6 +43,9 @@ export const stav = {
     chyby: {}
   }
 };
+
+/** Háčky mezi moduly bez kruhových importů (např. Zdraví přidá čísla z WHOOP do detailu zápasu v kalendáři). */
+export const hooky = {};
 
 let posluchac = null;
 export function priZmene(fn) { posluchac = fn; }

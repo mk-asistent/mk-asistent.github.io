@@ -164,10 +164,11 @@ function prostredi() {
     s.getFoldersByName = (n) => { const x = s.deti[n]; let hotovo = !x; return { hasNext: () => !hotovo, next: () => { hotovo = true; return x; } }; };
     s.getFolders = () => iterator(Object.values(s.deti));
     s.getFiles = () => iterator(s.soubory.filter((x) => !x.vKosi));
+    s.getFilesByName = (n) => iterator(s.soubory.filter((x) => !x.vKosi && x.getName() === n));
     s.createFolder = (n) => (s.deti[n] = slozka(n, s));
     s.createFile = (n, obsah) => {
       let rodicSouboru = s;
-      const f = { vKosi: false, getId: () => 'soubor-' + n, getName: () => n, getBlob: () => ({ getDataAsString: () => obsah }),
+      const f = { vKosi: false, getId: () => 'soubor-' + nazev + '-' + n, getName: () => n, getBlob: () => ({ getDataAsString: () => obsah }),
         getDateCreated: () => new Date(), getLastUpdated: () => new Date(), getParents: () => iterator([rodicSouboru]),
         setContent: (t) => { obsah = t; return f; },
         moveTo: (cil) => { rodicSouboru.soubory = rodicSouboru.soubory.filter((x) => x !== f); cil.soubory.push(f); rodicSouboru = cil; return f; },
@@ -190,6 +191,7 @@ function prostredi() {
       setProperty: (k, v) => vlastnosti.set(k, String(v)), deleteProperty: (k) => vlastnosti.delete(k)
     }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (t) => ({ text: t, setMimeType() { return this; } }) },
+    HtmlService: { createHtmlOutput: (h) => ({ html: h, setTitle() { return this; } }) },
     CacheService: { getScriptCache: () => ({
       get: (k) => (cache.has(k) ? cache.get(k) : null),
       put: (k, v, s) => { cache.set(k, String(v)); ttl.set(k, s); },
@@ -215,12 +217,43 @@ function prostredi() {
     UrlFetchApp: { fetch: (url, moznosti) => {
       log.stazeno++;
       if (url.indexOf('chmi.cz') >= 0) return odpovedChmu(url, moznosti);
+      if (url.indexOf('api.prod.whoop.com') >= 0) return odpovedWhoop(url, moznosti || {});
       return { getResponseCode: () => (url.indexOf('chyba') >= 0 ? 404 : 200), getContentText: () => (url.indexOf('rozpis') >= 0 ? rozpis : ICS) };
     } },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     Logger: { log() {} },
     Intl
   };
+  // WHOOP: token (výměna kódu, obnova s rotací refresh tokenu) a API v2 po stránkách
+  const whoop = { platny: 'a1', refresh: 'r1', volani: [], data: null, chyba401: false };
+  const odpovedWhoop = (url, moznosti) => {
+    whoop.volani.push(url.replace('https://api.prod.whoop.com', ''));
+    const json = (kod, telo) => ({ getResponseCode: () => kod, getContentText: () => JSON.stringify(telo), getAllHeaders: () => ({}) });
+    if (url === 'https://api.prod.whoop.com/oauth/oauth2/token') {
+      const f = moznosti.payload;
+      assert.strictEqual(moznosti.method, 'post');
+      assert.deepStrictEqual([f.client_id, f.client_secret], ['klient-id', 'klient-tajne']);
+      if (f.grant_type === 'authorization_code') {
+        assert.strictEqual(f.redirect_uri, 'https://script.google.com/macros/s/MOTOR/exec');
+        return f.code === 'dobry-kod' ? json(200, { access_token: 'a1', refresh_token: 'r1', expires_in: 3600 }) : json(400, { error: 'invalid_grant' });
+      }
+      if (f.grant_type === 'refresh_token' && f.refresh_token === whoop.refresh) {
+        whoop.platny = 'a2'; whoop.refresh = 'r2';
+        return json(200, { access_token: 'a2', refresh_token: 'r2', expires_in: 3600 });
+      }
+      return json(400, { error: 'invalid_grant' });
+    }
+    if (moznosti && moznosti.method === 'delete') return json(204, {});
+    if (whoop.chyba401 || (moznosti.headers || {}).Authorization !== 'Bearer ' + whoop.platny) return json(401, {});
+    const m = /\/developer\/v2\/([a-z/]+)\?(.*)$/.exec(url);
+    const druh = m[1].split('/').pop();
+    const dotaz = Object.fromEntries(m[2].split('&').map((x) => x.split('=').map(decodeURIComponent)));
+    const zaznamy = (whoop.data || {})[druh] || [];
+    // dvě stránky: první záznam, pak zbytek
+    if (!dotaz.nextToken && zaznamy.length > 1) return json(200, { records: zaznamy.slice(0, 1), next_token: 'str2' });
+    return json(200, { records: dotaz.nextToken ? zaznamy.slice(1) : zaznamy });
+  };
+
   // ČHMÚ: skutečné (zkrácené) soubory z apps-script/test/chmu, ETag → 304 jako na serveru ČHMÚ
   const chmu = { cap: 'cap_cerven.xml', chyby: {}, dotazy: [], neukazano: 0 };
   const souborChmu = (url) => {
@@ -263,7 +296,7 @@ function prostredi() {
   const volej = (akce, data = {}, klic = KLIC) => surovy(JSON.stringify({ klic, akce, ...data }));
   // záznamy z izolovaného prostředí převést na běžné objekty (jinak je deepStrictEqual odmítne)
   const posledniOdeslano = () => JSON.parse(JSON.stringify(log.odeslano.pop()));
-  return { volej, surovy, vlastnosti, cache, ttl, log, posledniOdeslano, ctx, zprava, vlakno, vlakna, kalendare, chmu, nastavCas, schranka, vsechnySoubory,
+  return { volej, surovy, vlastnosti, cache, ttl, log, posledniOdeslano, ctx, zprava, vlakno, vlakna, kalendare, chmu, nastavCas, schranka, vsechnySoubory, whoop,
     nastavAliasy: (a) => { aliasy = a; }, stitkyVlaken, nastavStitkyGmailu: (o) => { stitkyGmailu = o; }, nastavAktualizace: (a) => { aktualizace = a; }, nastavRozpis: (t) => { rozpis = t; },
     nastavOdeslana: (a) => { odeslana = a; }, nastavStarsi: (osobni, pracovni) => { starsi = { osobni, pracovni: pracovni || [] }; } };
 }
@@ -977,6 +1010,125 @@ test('kontakty ze odeslané pošty (jméno, adresa, počet) a podpisy osobní / 
   assert.deepStrictEqual(json(o.data.podpisy), { osobni: 'Michal', pracovni: 'S pozdravem\nMichal\nFirma' });
   assert.deepStrictEqual(json(p.volej('info').data.posta.podpisy), { osobni: 'Michal', pracovni: 'S pozdravem\nMichal\nFirma' });
   assert.strictEqual(p.volej('podpisyUlozit', { podpisy: { osobni: 'x'.repeat(2001) } }).ok, false);
+});
+
+// ---------------------------------------------------------------- zdraví: WHOOP + Apple Zdraví
+
+const WHOOP_VZOR = {
+  sleep: [
+    { id: 's1', cycle_id: 101, start: '2026-10-01T21:10:00.000Z', end: '2026-10-02T05:05:00.000Z', timezone_offset: '+02:00', nap: false, score_state: 'SCORED',
+      score: { stage_summary: { total_in_bed_time_milli: 28500000, total_awake_time_milli: 1500000, total_light_sleep_time_milli: 13000000,
+        total_slow_wave_sleep_time_milli: 6500000, total_rem_sleep_time_milli: 7000000, sleep_cycle_count: 5, disturbance_count: 8 },
+      sleep_needed: { baseline_milli: 27000000, need_from_sleep_debt_milli: 1200000, need_from_recent_strain_milli: 600000, need_from_recent_nap_milli: 0 },
+      respiratory_rate: 15.2, sleep_performance_percentage: 91, sleep_consistency_percentage: 83, sleep_efficiency_percentage: 94.1 } },
+    { id: 's0', cycle_id: 100, start: '2026-10-01T12:00:00.000Z', end: '2026-10-01T12:30:00.000Z', timezone_offset: '+02:00', nap: true, score_state: 'SCORED', score: {} }
+  ],
+  recovery: [{ cycle_id: 101, sleep_id: 's1', created_at: '2026-10-02T05:40:00.000Z', score_state: 'SCORED',
+    score: { user_calibrating: false, recovery_score: 72, resting_heart_rate: 49, hrv_rmssd_milli: 84.34, spo2_percentage: 96.4, skin_temp_celsius: 33.9 } }],
+  cycle: [{ id: 101, start: '2026-10-01T21:10:00.000Z', end: null, timezone_offset: '+02:00', score_state: 'SCORED',
+    score: { strain: 9.44, kilojoule: 8000, average_heart_rate: 70, max_heart_rate: 150 }, step_count: 6012 }],
+  workout: [{ id: 'w1', start: '2026-10-01T14:00:00.000Z', end: '2026-10-01T15:45:00.000Z', timezone_offset: '+02:00', sport_name: 'Soccer', score_state: 'SCORED',
+    score: { strain: 15.8, average_heart_rate: 152, max_heart_rate: 191, kilojoule: 4210.5, percent_recorded: 100,
+      zone_durations: { zone_zero_milli: 240000, zone_one_milli: 600000, zone_two_milli: 1500000, zone_three_milli: 1800000, zone_four_milli: 1200000, zone_five_milli: 360000 } } }]
+};
+
+function zdraviProstredi() {
+  const p = prostredi();
+  p.vlastnosti.set('WHOOP_CLIENT_ID', 'klient-id');
+  p.vlastnosti.set('WHOOP_CLIENT_SECRET', 'klient-tajne');
+  p.vlastnosti.set('WHOOP_REDIRECT_URI', 'https://script.google.com/macros/s/MOTOR/exec');
+  p.whoop.data = JSON.parse(JSON.stringify(WHOOP_VZOR));
+  p.nastavCas(Date.parse('2026-10-02T08:00:00Z'));
+  return p;
+}
+
+test('zdraví: propojení WHOOP – odkaz se state, návrat do doGet (špatný state odmítnut), tokeny a první synchronizace', () => {
+  const bez = prostredi();
+  assert.ok(/WHOOP_CLIENT_ID/.test(bez.volej('whoopPropojit').chyba));
+  const p = zdraviProstredi();
+  const o = p.volej('whoopPropojit');
+  assert.strictEqual(o.ok, true, o.chyba);
+  const u = new URL(o.data.odkaz);
+  assert.strictEqual(u.origin + u.pathname, 'https://api.prod.whoop.com/oauth/oauth2/auth');
+  assert.deepStrictEqual([u.searchParams.get('response_type'), u.searchParams.get('client_id'), u.searchParams.get('redirect_uri')],
+    ['code', 'klient-id', 'https://script.google.com/macros/s/MOTOR/exec']);
+  assert.ok(/offline/.test(u.searchParams.get('scope')) && u.searchParams.get('state').length >= 32);
+  // cizí state → nic
+  let h = p.ctx.doGet({ parameter: { code: 'dobry-kod', state: 'cizi-state-12345678' } }).html;
+  assert.ok(/nepropojen/.test(h) && !p.vlastnosti.has('WHOOP_TOKEN'));
+  // správně → tokeny + data za 30 dní
+  h = p.ctx.doGet({ parameter: { code: 'dobry-kod', state: u.searchParams.get('state') } }).html;
+  assert.ok(/WHOOP propojen/.test(h), h);
+  assert.strictEqual(JSON.parse(p.vlastnosti.get('WHOOP_TOKEN')).refresh_token, 'r1');
+  assert.ok(p.whoop.volani.some((x) => x.indexOf('/developer/v2/activity/sleep?limit=25&start=') === 0));
+  assert.ok(p.whoop.volani.some((x) => /nextToken=str2/.test(x)), 'druhá stránka');
+  // state jde použít jen jednou
+  h = p.ctx.doGet({ parameter: { code: 'dobry-kod', state: u.searchParams.get('state') } }).html;
+  assert.ok(/nepropojen/.test(h));
+  // běžný doGet beze změny
+  assert.strictEqual(p.ctx.doGet({ parameter: {} }).text, 'Asistent – motor běží.');
+});
+
+test('zdraví: přehled po dnech (den probuzení), recovery přes spánek, zátěž cyklu, tréninky; obnova tokenu s rotací; 401 odpojí', () => {
+  const p = zdraviProstredi();
+  p.vlastnosti.set('WHOOP_TOKEN', JSON.stringify({ access_token: 'a1', refresh_token: 'r1', expiresAt: Date.parse('2026-10-02T09:00:00Z') }));
+  let o = p.volej('zdravi');
+  assert.strictEqual(o.ok, true, o.chyba);
+  const d = o.data.dny.find((x) => x.den === '2026-10-02');
+  assert.ok(d && d.whoop, JSON.stringify(o.data.dny));
+  assert.deepStrictEqual(json(d.whoop.pripravenost), { skore: 72, hrv: 84.3, klidovyTep: 49, spo2: 96.4, teplota: 33.9, kalibrace: false });
+  assert.strictEqual(d.whoop.spanek.celkem, 26500000);
+  assert.deepStrictEqual([d.whoop.spanek.vykon, d.whoop.spanek.potreba, d.whoop.spanek.efektivita], [91, 28800000, 94.1]);
+  assert.deepStrictEqual(json(d.whoop.zatez), { probiha: true, kroky: 6012, zatez: 9.4, kcal: 1912, tepPrumer: 70, tepMax: 150 });
+  assert.deepStrictEqual(json(o.data.treninky.map((t) => [t.den, t.sport, t.zatez, t.kcal, t.zony.join(',')])),
+    [['2026-10-01', 'soccer', 15.8, 1006, '4,10,25,30,20,6']]);
+  assert.strictEqual(o.data.whoop.propojeno, true);
+  // podruhé do 30 minut se WHOOP nevolá; znovu = vynutit; prošlý token → obnova a nový refresh token hned uložený
+  const pocet = p.whoop.volani.length;
+  p.volej('zdravi');
+  assert.strictEqual(p.whoop.volani.length, pocet);
+  p.nastavCas(Date.parse('2026-10-02T09:30:00Z'));
+  o = p.volej('zdravi', { znovu: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(JSON.parse(p.vlastnosti.get('WHOOP_TOKEN')).refresh_token, 'r2');
+  assert.ok(p.whoop.volani.indexOf('/oauth/oauth2/token') >= 0);
+  // WHOOP odvolal přístup → 401 → odpojeno, chyba v přehledu, uložená data zůstanou
+  p.whoop.chyba401 = true;
+  o = p.volej('zdravi', { znovu: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual([o.data.whoop.propojeno, /propoj znovu/.test(o.data.whoop.sync.chyba)], [false, true]);
+  assert.ok(o.data.dny.some((x) => x.den === '2026-10-02' && x.whoop.pripravenost));
+});
+
+test('zdraví: zkratka Apple Zdraví – vlastní klíč, česká čísla a data, spánek přes půlnoc, data zůstanou vedle WHOOP', () => {
+  const p = zdraviProstredi();
+  assert.deepStrictEqual(p.volej('zdraviApple', { kroky: '2026-10-01T00:00:00+02:00=11 873' }, 'spatny'), { ok: false, chyba: 'klic' });
+  assert.deepStrictEqual(p.volej('zdraviApple', { kroky: '…' }, KLIC), { ok: false, chyba: 'klic' }); // hlavní klíč tu neplatí
+  const k = p.volej('zdraviKlic').data.klic;
+  assert.ok(k && k.length >= 32);
+  const o = p.volej('zdraviApple', {
+    verze: '1',
+    kroky: '2026-10-01T00:00:00+02:00=11\u00a0873;2026-10-02T00:00:00+02:00=512',
+    energie: '1. 10. 2026=612,4', vzdalenost: '2026-10-01T00:00:00+02:00=8,47', vo2max: '2026-09-28T10:00:00+02:00=41,2',
+    klidovy_tep: '2026-10-01T00:00:00+02:00=55', hrv: '2026-10-01T00:00:00+02:00=48,36',
+    spanek: '2026-10-01T22:50:00+02:00|2026-10-01T23:40:00+02:00|Jádro;2026-10-01T23:40:00+02:00|2026-10-02T00:30:00+02:00|Hluboký;' +
+      '2026-10-02T00:30:00+02:00|2026-10-02T00:40:00+02:00|Vzhůru;2026-10-02T00:40:00+02:00|2026-10-02T06:10:00+02:00|REM;' +
+      '2026-10-01T22:40:00+02:00|2026-10-02T06:20:00+02:00|V posteli'
+  }, k);
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(o.data.ulozeno, 3);
+  const z = p.volej('zdravi').data;
+  const den1 = z.dny.find((x) => x.den === '2026-10-01').apple;
+  assert.deepStrictEqual([den1.kroky, den1.energie, den1.vzdalenost, den1.klidovyTep, den1.hrv], [11873, 612, 8.47, 55, 48.4]);
+  const den2 = z.dny.find((x) => x.den === '2026-10-02').apple;
+  assert.deepStrictEqual([den2.kroky, den2.spanek.celkem / 6e4, den2.spanek.hluboky / 6e4, den2.spanek.bdeni / 6e4], [512, 430, 50, 10]);
+  assert.strictEqual(z.dny.find((x) => x.den === '2026-09-28').apple.vo2max, 41.2);
+  assert.ok(z.apple.kdy > 0);
+  // soubor na Disku: CLAUDE_SCHRANKA/ZDRAVI/2026-10.json (+ září kvůli VO2max)
+  const zdravi = p.schranka.deti.ZDRAVI;
+  assert.deepStrictEqual(zdravi.soubory.map((x) => x.getName()).sort(), ['2026-09.json', '2026-10.json']);
+  // prázdná zpráva ze zkratky → srozumitelná chyba
+  assert.ok(/žádná data/.test(p.volej('zdraviApple', { verze: '1' }, k).chyba));
 });
 
 // ---------------------------------------------------------------- počasí (ČHMÚ)

@@ -20,6 +20,8 @@
  *   Kalendář  – zobrazené kalendáře Google (vlastní i zápis: nová událost, úprava, smazání, opakování, připomenutí,
  *               import zápasů z rozpisu) + kalendáře z iPhonu (iCloud, soukromý odkaz webcal://…, jen čtení)
  *   Počasí    – ČHMÚ (otevřená data): výstrahy pro ORP, vodní stav řeky, krátká předpověď kraje; místo ve vlastnosti POCASI
+ *   Zdraví    – WHOOP (API v2, OAuth – návrat přes doGet) + Apple Zdraví ze zkratky v iPhonu (akce zdraviApple, klíč
+ *               ZDRAVI_KLIC); data po měsících v CLAUDE_SCHRANKA/ZDRAVI; upozornění přes ntfy (NTFY_TEMA, kazdouHodinu)
  *
  * Postup nasazení: README.md v kořeni repozitáře.
  */
@@ -45,7 +47,10 @@ const BARVY_UDALOSTI_GOOGLE = {
 
 // ---------------------------------------------------------------- vstup
 
-function doGet() {
+function doGet(e) {
+  const prm = (e && e.parameter) || {};
+  // návrat ze souhlasu WHOOP (OAuth): /exec?code=…&state=… nebo ?error=…
+  if (prm.state && (prm.code || prm.error)) return whoopNavrat_(prm);
   return ContentService.createTextOutput('Asistent – motor běží.');
 }
 
@@ -57,6 +62,13 @@ function doPost(e) {
       data = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     } catch (chyba) {
       throw new Error('Nečitelný požadavek.');
+    }
+    // zkratka Zdraví v iPhonu má vlastní klíč jen pro zápis dat (hlavní klíč otevírá poštu)
+    if (data.akce === 'zdraviApple') {
+      const klicZdravi = PropertiesService.getScriptProperties().getProperty('ZDRAVI_KLIC');
+      vystup = klicZdravi && typeof data.klic === 'string' && data.klic === klicZdravi
+        ? { ok: true, data: zapisApple_(data) } : { ok: false, chyba: 'klic' };
+      return ContentService.createTextOutput(JSON.stringify(vystup)).setMimeType(ContentService.MimeType.JSON);
     }
     const klic = klicApi_();
     if (!klic) throw new Error('Motor není nastavený – v editoru spusť funkci nastavApi.');
@@ -107,7 +119,11 @@ const AKCE = {
   stitky: function (d) { return stitkyGmailu_(!!d.znovu); },
   postaStitek: function (d) { return postaStitku_(d.nazev); },
   kontakty: function () { return kontakty_(); },
-  podpisyUlozit: function (d) { return ulozPodpisy_(d.podpisy); }
+  podpisyUlozit: function (d) { return ulozPodpisy_(d.podpisy); },
+  zdravi: function (d) { return zdravi_(!!d.znovu); },
+  whoopPropojit: function () { return whoopPropojit_(); },
+  whoopOdpojit: function () { return whoopOdpojit_(); },
+  zdraviKlic: function (d) { return zdraviKlic_(!!d.novy); }
 };
 
 // ---------------------------------------------------------------- nastavení (spouští se ručně v editoru)
@@ -2689,6 +2705,468 @@ const CHMU_ = (function () {
   return { vystrahy: vystrahy, aktualni: aktualni, slucDuplicity: slucDuplicity, hydroMeta: hydroMeta, reka: reka,
     predpoved: predpoved, nejnovejsi: nejnovejsi, prehled: prehled, rada: rada, denPraha: denPraha, teploty: teploty };
 })();
+
+// ---------------------------------------------------------------- Zdraví: WHOOP (API v2) + Apple Zdraví (zkratka v iPhonu)
+//
+// WHOOP: Michal si na developer-dashboard.whoop.com založí vlastní aplikaci (Sandbox, jen pro sebe) a do vlastností
+// skriptu vloží WHOOP_CLIENT_ID, WHOOP_CLIENT_SECRET a WHOOP_REDIRECT_URI (= adresa /exec tohoto motoru). Propojení:
+// aplikace → akce whoopPropojit (odkaz na souhlas WHOOP) → WHOOP vrátí prohlížeč na /exec?code=…&state=… (doGet).
+// Tokeny (WHOOP_TOKEN) spravuje motor; refresh token se při každé obnově mění → obnova pod zámkem, nový hned uložit.
+// Apple Zdraví: zkratka v iPhonu (spouští ji otevření aplikace WHOOP – zamčený iPhone data Zdraví nepustí) posílá
+// denní hodnoty za 7 dní; má vlastní klíč ZDRAVI_KLIC jen pro zápis (hlavní klíč otevírá poštu, do zkratky nepatří).
+// Data po dnech: Disk / CLAUDE_SCHRANKA / ZDRAVI / RRRR-MM.json – soukromé, nikdy do gitu. Přehled pro aplikaci: akce zdravi.
+
+const WHOOP_ = {
+  auth: 'https://api.prod.whoop.com/oauth/oauth2/auth',
+  token: 'https://api.prod.whoop.com/oauth/oauth2/token',
+  api: 'https://api.prod.whoop.com/developer',
+  scope: 'offline read:recovery read:cycles read:sleep read:workout read:body_measurement'
+};
+const ZDRAVI_DNI = 30;          // přehled v aplikaci
+const ZDRAVI_SYNC_MIN = 30;     // WHOOP se při otevření aplikace dotahuje nejvýš jednou za 30 minut
+
+function vlastnosti_() { return PropertiesService.getScriptProperties(); }
+
+/** Stav propojení pro aplikaci (bez tokenů). */
+function whoopStav_() {
+  const p = vlastnosti_();
+  let sync = {};
+  try { sync = JSON.parse(p.getProperty('WHOOP_SYNC') || '{}') || {}; } catch (chyba) { sync = {}; }
+  return {
+    nastaveno: !!(p.getProperty('WHOOP_CLIENT_ID') && p.getProperty('WHOOP_CLIENT_SECRET') && p.getProperty('WHOOP_REDIRECT_URI')),
+    propojeno: !!p.getProperty('WHOOP_TOKEN'),
+    sync: { kdy: sync.kdy || 0, chyba: sync.chyba || '' }
+  };
+}
+
+/** Odkaz na souhlas WHOOP (akce whoopPropojit). state brání podstrčení cizího kódu. */
+function whoopPropojit_() {
+  const p = vlastnosti_();
+  if (!whoopStav_().nastaveno) {
+    throw new Error('Chybí nastavení WHOOP ve vlastnostech skriptu (WHOOP_CLIENT_ID, WHOOP_CLIENT_SECRET, WHOOP_REDIRECT_URI) – návod: Nastavení → Zdraví.');
+  }
+  const state = Utilities.getUuid().replace(/-/g, '');
+  CacheService.getScriptCache().put('WHOOP_STATE', state, 900);
+  const q = { response_type: 'code', client_id: p.getProperty('WHOOP_CLIENT_ID'), redirect_uri: p.getProperty('WHOOP_REDIRECT_URI'),
+    scope: WHOOP_.scope, state: state };
+  return { odkaz: WHOOP_.auth + '?' + Object.keys(q).map(function (k) { return k + '=' + encodeURIComponent(q[k]); }).join('&') };
+}
+
+/** Návrat z WHOOP (doGet s code a state): vymění kód za tokeny, první synchronizace za 30 dní. */
+function whoopNavrat_(prm) {
+  const cache = CacheService.getScriptCache();
+  let zprava;
+  if (prm.error) zprava = ['WHOOP nepropojen', 'Souhlas nebyl udělen (' + String(prm.error).slice(0, 60) + '). Zkus to znovu z aplikace.'];
+  else if (!prm.code || !prm.state || prm.state !== cache.get('WHOOP_STATE')) zprava = ['WHOOP nepropojen', 'Odkaz vypršel nebo není platný. Spusť propojení znovu z aplikace.'];
+  else {
+    cache.remove('WHOOP_STATE');
+    try {
+      ulozWhoopToken_(whoopToken_({ grant_type: 'authorization_code', code: prm.code, redirect_uri: vlastnosti_().getProperty('WHOOP_REDIRECT_URI') }));
+      try { whoopSync_(ZDRAVI_DNI); } catch (chyba) { /* data se dotáhnou při dalším otevření */ }
+      zprava = ['WHOOP propojen ✓', 'Okno můžeš zavřít a vrátit se do Asistenta – data jsou v sekci Zdraví.'];
+    } catch (chyba) {
+      zprava = ['WHOOP nepropojen', String(chyba.message || chyba)];
+    }
+  }
+  return HtmlService.createHtmlOutput('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<div style="font:16px/1.5 -apple-system,Segoe UI,sans-serif;max-width:420px;margin:15vh auto;padding:24px;text-align:center">' +
+    '<h2 style="margin:0 0 8px">' + escHtml_(zprava[0]) + '</h2><p style="color:#555">' + escHtml_(zprava[1]) + '</p></div>').setTitle('Asistent – WHOOP');
+}
+
+function whoopToken_(formular) {
+  const p = vlastnosti_();
+  formular.client_id = p.getProperty('WHOOP_CLIENT_ID');
+  formular.client_secret = p.getProperty('WHOOP_CLIENT_SECRET');
+  const r = UrlFetchApp.fetch(WHOOP_.token, { method: 'post', payload: formular, muteHttpExceptions: true });
+  const kod = r.getResponseCode();
+  if (kod !== 200) {
+    // obnova odmítnutá (změna hesla, odvolaný souhlas) → odpojit, aplikace nabídne nové propojení
+    if (formular.grant_type === 'refresh_token' && (kod === 400 || kod === 401)) p.deleteProperty('WHOOP_TOKEN');
+    throw new Error('WHOOP odmítl přihlášení (HTTP ' + kod + ')' + (formular.grant_type === 'refresh_token' ? ' – propoj znovu.' : '.'));
+  }
+  return JSON.parse(r.getContentText()); // tělo obsahuje tokeny – nikdy nelogovat
+}
+
+function ulozWhoopToken_(t) {
+  vlastnosti_().setProperty('WHOOP_TOKEN', JSON.stringify({
+    access_token: t.access_token, refresh_token: t.refresh_token, expiresAt: Date.now() + (Number(t.expires_in) || 3600) * 1000
+  }));
+}
+
+/** Platný přístupový token; obnova pod zámkem (refresh token se mění – dvě souběžné obnovy by se pobily). */
+function whoopPristup_() {
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(30000);
+  try {
+    const t = JSON.parse(vlastnosti_().getProperty('WHOOP_TOKEN') || 'null');
+    if (!t) throw new Error('WHOOP není propojený.');
+    if (Date.now() < t.expiresAt - 120000) return t.access_token;
+    const novy = whoopToken_({ grant_type: 'refresh_token', refresh_token: t.refresh_token, scope: 'offline' });
+    ulozWhoopToken_(novy);
+    return novy.access_token;
+  } finally {
+    zamek.releaseLock();
+  }
+}
+
+/** GET na WHOOP API; kolekce projde po stránkách (limit 25, nejvýš 12 stránek). */
+function whoopGet_(cesta, dotaz) {
+  const vse = [];
+  let dalsi = null, stran = 0;
+  const pristup = whoopPristup_();
+  do {
+    const q = Object.assign({}, dotaz || {}, dalsi ? { nextToken: dalsi } : {});
+    const qs = Object.keys(q).map(function (k) { return k + '=' + encodeURIComponent(q[k]); }).join('&');
+    const r = UrlFetchApp.fetch(WHOOP_.api + cesta + (qs ? '?' + qs : ''), { headers: { Authorization: 'Bearer ' + pristup }, muteHttpExceptions: true });
+    const kod = r.getResponseCode();
+    if (kod === 401) { vlastnosti_().deleteProperty('WHOOP_TOKEN'); throw new Error('WHOOP přístup vypršel – propoj znovu.'); }
+    if (kod !== 200) throw new Error('WHOOP ' + cesta + ': HTTP ' + kod);
+    const j = JSON.parse(r.getContentText());
+    if (!j.records) return j;
+    Array.prototype.push.apply(vse, j.records);
+    dalsi = j.next_token || null;
+  } while (dalsi && ++stran < 12);
+  return vse;
+}
+
+/** Stáhne z WHOOP posledních n dní a uloží po dnech. Chybu zapíše do WHOOP_SYNC (aplikace ji ukáže) a vyhodí dál. */
+function whoopSync_(dni) {
+  const od = new Date(Date.now() - dni * 864e5).toISOString();
+  try {
+    const spanky = whoopGet_('/v2/activity/sleep', { limit: 25, start: od });
+    const recovery = whoopGet_('/v2/recovery', { limit: 25, start: od });
+    const cykly = whoopGet_('/v2/cycle', { limit: 25, start: od });
+    const treninky = whoopGet_('/v2/activity/workout', { limit: 25, start: new Date(Date.now() - (dni + 3) * 864e5).toISOString() });
+    const z = ZDRAVI_.zWhoop(spanky, recovery, cykly, treninky);
+    ulozZdravi_(z.dny, 'whoop', z.treninky);
+    vlastnosti_().setProperty('WHOOP_SYNC', JSON.stringify({ kdy: Date.now(), chyba: '' }));
+    return z;
+  } catch (chyba) {
+    vlastnosti_().setProperty('WHOOP_SYNC', JSON.stringify({ kdy: whoopStav_().sync.kdy, chyba: String(chyba.message || chyba).slice(0, 200) }));
+    throw chyba;
+  }
+}
+
+function whoopOdpojit_() {
+  try {
+    UrlFetchApp.fetch(WHOOP_.api + '/v2/user/access', { method: 'delete', headers: { Authorization: 'Bearer ' + whoopPristup_() }, muteHttpExceptions: true });
+  } catch (chyba) { /* i bez odvolání u WHOOP se tokeny smažou */ }
+  vlastnosti_().deleteProperty('WHOOP_TOKEN');
+  vlastnosti_().deleteProperty('WHOOP_SYNC');
+  return whoopStav_();
+}
+
+// ---- Apple Zdraví ze zkratky
+
+/** Klíč pro zkratku (jen zápis dat Zdraví). Vytvoří ho, když chybí; novy = vyrobit jiný (starý přestane platit). */
+function zdraviKlic_(novy) {
+  const p = vlastnosti_();
+  let k = p.getProperty('ZDRAVI_KLIC');
+  if (!k || novy) {
+    k = Utilities.getUuid().replace(/-/g, '');
+    p.setProperty('ZDRAVI_KLIC', k);
+  }
+  return { klic: k };
+}
+
+/** Akce zdraviApple (volá zkratka s ZDRAVI_KLIC): denní hodnoty za pár dní → přepíše po dnech. */
+function zapisApple_(d) {
+  const dny = ZDRAVI_.zApple(d);
+  const pocet = Object.keys(dny).length;
+  if (!pocet) throw new Error('Ve zprávě ze zkratky nejsou žádná data (zkontroluj proměnné v Načíst obsah URL).');
+  ulozZdravi_(dny, 'apple', null);
+  vlastnosti_().setProperty('APPLE_SYNC', String(Date.now()));
+  // zkratku spouští otevření aplikace WHOOP → rovnou čerstvý WHOOP
+  try { if (whoopStav_().propojeno) whoopSync_(3); } catch (chyba) { /* stačí Apple */ }
+  return { ulozeno: pocet };
+}
+
+// ---- úložiště po měsících na Disku
+
+function slozkaZdravi_() { return podslozka_(koren_(), 'ZDRAVI'); }
+
+function nactiMesicZdravi_(slozka, mesic) {
+  const it = slozka.getFilesByName(mesic + '.json');
+  if (!it.hasNext()) return { soubor: null, data: { dny: {}, treninky: {} } };
+  const soubor = it.next();
+  let data = null;
+  try { data = JSON.parse(soubor.getBlob().getDataAsString('UTF-8')); } catch (chyba) { data = null; }
+  return { soubor: soubor, data: data && data.dny ? data : { dny: {}, treninky: {} } };
+}
+
+/** Uloží dny (zdroj whoop | apple) a tréninky do souborů po měsících; pod zámkem (zkratka a aplikace naráz). */
+function ulozZdravi_(dny, zdroj, treninky) {
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(30000);
+  try {
+    const slozka = slozkaZdravi_();
+    const mesice = {};
+    const mesic = function (den) {
+      const m = den.slice(0, 7);
+      if (!mesice[m]) mesice[m] = nactiMesicZdravi_(slozka, m);
+      return mesice[m].data;
+    };
+    Object.keys(dny).forEach(function (den) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(den)) return;
+      const m = mesic(den);
+      const zaznam = m.dny[den] = m.dny[den] || {};
+      zaznam[zdroj] = Object.assign({}, zaznam[zdroj], dny[den]);
+    });
+    (treninky || []).forEach(function (t) {
+      if (!t.den) return;
+      mesic(t.den).treninky[t.id] = t;
+    });
+    Object.keys(mesice).forEach(function (m) {
+      const x = mesice[m];
+      x.data.aktualizovano = Date.now();
+      const obsah = JSON.stringify(x.data);
+      if (x.soubor) x.soubor.setContent(obsah); else slozka.createFile(m + '.json', obsah, MimeType.PLAIN_TEXT);
+    });
+  } finally {
+    zamek.releaseLock();
+  }
+}
+
+/** Akce zdravi: přehled za 30 dní; WHOOP se předtím dotáhne, když je propojený a data jsou starší než 30 minut. */
+function zdravi_(znovu) {
+  const whoop = whoopStav_();
+  let chybaSync = '';
+  if (whoop.propojeno && (znovu || Date.now() - whoop.sync.kdy > ZDRAVI_SYNC_MIN * 60000)) {
+    try { whoopSync_(whoop.sync.kdy ? 5 : ZDRAVI_DNI); } catch (chyba) { chybaSync = String(chyba.message || chyba); }
+  }
+  const slozka = slozkaZdravi_();
+  const ted = Date.now();
+  const tento = Utilities.formatDate(new Date(ted), CASOVE_PASMO, 'yyyy-MM');
+  const minuly = Utilities.formatDate(new Date(ted - (ZDRAVI_DNI + 1) * 864e5), CASOVE_PASMO, 'yyyy-MM');
+  const soubory = (minuly === tento ? [tento] : [minuly, tento]).map(function (m) { return nactiMesicZdravi_(slozka, m).data; });
+  const p = ZDRAVI_.prehled(soubory, ted, ZDRAVI_DNI);
+  p.whoop = whoopStav_();
+  if (chybaSync) p.whoop.sync.chyba = chybaSync;
+  p.apple = { kdy: Number(vlastnosti_().getProperty('APPLE_SYNC') || 0) };
+  return p;
+}
+
+/** Zpracování dat zdraví – čisté funkce (testuje apps-script/test/motor.test.js). */
+const ZDRAVI_ = (function () {
+  const MIN = 60000;
+  const HOD = 3600000;
+  function posunMs(offset) { // „+02:00“, „-0530“, „Z“
+    const m = /([+-])(\d{2}):?(\d{2})$/.exec(String(offset || ''));
+    return m ? (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3])) * MIN : 0;
+  }
+  function den(ms, offset) { return new Date(ms + posunMs(offset)).toISOString().slice(0, 10); }
+  function mistniDen(iso, offset) { const t = Date.parse(iso); return isNaN(t) ? '' : den(t, offset); }
+  function zaokr(x, des) { if (x == null || !isFinite(x)) return null; const k = Math.pow(10, des || 0); return Math.round(x * k) / k; }
+
+  // -------- WHOOP (den = místní datum probuzení z hlavního spánku; cyklus a recovery přes sleep / cycle id)
+  function zWhoop(spanky, recovery, cykly, treninky) {
+    const dny = {};
+    const dne = function (d) { return (dny[d] = dny[d] || {}); };
+    const denSpanku = {}, denCyklu = {};
+    (spanky || []).forEach(function (s) {
+      if (s.nap) return;
+      const d = mistniDen(s.end || s.start, s.timezone_offset);
+      if (!d) return;
+      denSpanku[s.id] = d;
+      if (s.cycle_id != null) denCyklu[s.cycle_id] = d;
+      if (s.score_state !== 'SCORED' || !s.score) return;
+      const st = s.score.stage_summary || {};
+      const celkem = (st.total_light_sleep_time_milli || 0) + (st.total_slow_wave_sleep_time_milli || 0) + (st.total_rem_sleep_time_milli || 0);
+      if (dne(d).spanek && dne(d).spanek.celkem >= celkem) return; // dva hlavní spánky v jednom dni → delší
+      const potreba = s.score.sleep_needed ? ['baseline_milli', 'need_from_sleep_debt_milli', 'need_from_recent_strain_milli', 'need_from_recent_nap_milli']
+        .reduce(function (a, k) { return a + (s.score.sleep_needed[k] || 0); }, 0) : null;
+      dne(d).spanek = {
+        start: Date.parse(s.start), konec: Date.parse(s.end), celkem: celkem,
+        lehky: st.total_light_sleep_time_milli || 0, hluboky: st.total_slow_wave_sleep_time_milli || 0, rem: st.total_rem_sleep_time_milli || 0,
+        bdeni: st.total_awake_time_milli || 0, probuzeni: st.disturbance_count == null ? null : st.disturbance_count,
+        vykon: zaokr(s.score.sleep_performance_percentage), konzistence: zaokr(s.score.sleep_consistency_percentage),
+        efektivita: zaokr(s.score.sleep_efficiency_percentage, 1), dech: zaokr(s.score.respiratory_rate, 1), potreba: potreba
+      };
+    });
+    (recovery || []).forEach(function (r) {
+      if (r.score_state !== 'SCORED' || !r.score) return;
+      const d = denSpanku[r.sleep_id] || denCyklu[r.cycle_id] || mistniDen(r.created_at, '+00:00');
+      if (!d) return;
+      dne(d).pripravenost = {
+        skore: zaokr(r.score.recovery_score), hrv: zaokr(r.score.hrv_rmssd_milli, 1), klidovyTep: zaokr(r.score.resting_heart_rate),
+        spo2: zaokr(r.score.spo2_percentage, 1), teplota: zaokr(r.score.skin_temp_celsius, 1), kalibrace: !!r.score.user_calibrating
+      };
+    });
+    (cykly || []).forEach(function (c) {
+      const zacatek = Date.parse(c.start);
+      const d = denCyklu[c.id] || (isNaN(zacatek) ? '' : den(zacatek + 12 * HOD, c.timezone_offset));
+      if (!d) return;
+      const z = { probiha: !c.end };
+      if (c.step_count != null) z.kroky = c.step_count;
+      if (c.score_state === 'SCORED' && c.score) {
+        z.zatez = zaokr(c.score.strain, 1);
+        z.kcal = c.score.kilojoule == null ? null : Math.round(c.score.kilojoule / 4.184);
+        z.tepPrumer = c.score.average_heart_rate;
+        z.tepMax = c.score.max_heart_rate;
+      }
+      dne(d).zatez = z;
+    });
+    const tr = (treninky || []).filter(function (w) { return w.score_state === 'SCORED' && w.score; }).map(function (w) {
+      const s = w.score, zony = s.zone_durations || {};
+      return {
+        id: String(w.id), den: mistniDen(w.start, w.timezone_offset), start: Date.parse(w.start), konec: Date.parse(w.end),
+        sport: String(w.sport_name || '').toLowerCase(), zatez: zaokr(s.strain, 1), tepPrumer: s.average_heart_rate, tepMax: s.max_heart_rate,
+        kcal: s.kilojoule == null ? null : Math.round(s.kilojoule / 4.184), vzdalenost: s.distance_meter == null ? null : Math.round(s.distance_meter),
+        zony: ['zone_zero_milli', 'zone_one_milli', 'zone_two_milli', 'zone_three_milli', 'zone_four_milli', 'zone_five_milli']
+          .map(function (k) { return Math.round((zony[k] || 0) / MIN); })
+      };
+    });
+    return { dny: dny, treninky: tr };
+  }
+
+  // -------- Apple Zdraví ze zkratky (texty „datum=hodnota;…“, čísla s desetinnou čárkou a mezerami)
+  function cisloCz(s) {
+    if (s == null) return null;
+    const n = parseFloat(String(s).replace(/[\s  ]/g, '').replace(',', '.'));
+    return isFinite(n) ? n : null;
+  }
+  /** Datum z textu zkratky: ISO „2026-10-01T…“ nebo české „1. 10. 2026“ → „2026-10-01“ */
+  function datumZTextu(s) {
+    const iso = /(\d{4})-(\d{2})-(\d{2})/.exec(s);
+    if (iso) return iso[1] + '-' + iso[2] + '-' + iso[3];
+    const cz = /(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/.exec(s);
+    return cz ? cz[3] + '-' + ('0' + cz[2]).slice(-2) + '-' + ('0' + cz[1]).slice(-2) : '';
+  }
+  function denniHodnoty(text) {
+    const out = {};
+    String(text || '').split(/[;\n]+/).forEach(function (kus) {
+      const i = kus.lastIndexOf('=');
+      if (i < 0) return;
+      const d = datumZTextu(kus.slice(0, i));
+      const n = cisloCz(kus.slice(i + 1));
+      if (d && n != null) out[d] = n;
+    });
+    return out;
+  }
+  function typSpanku(s) {
+    const t = String(s || '').toLowerCase();
+    if (/posteli|in ?bed/.test(t)) return 'vPosteli';
+    if (/bdě|bde|vzhůru|vzhuru|awake/.test(t)) return 'bdeni';
+    if (/hlubok|deep/.test(t)) return 'hluboky';
+    if (/rem/.test(t)) return 'rem';
+    if (/jádr|jadr|core|základ|zaklad/.test(t)) return 'jadro';
+    if (/spí|span|spán|asleep|sleep/.test(t)) return 'spanek';
+    return '';
+  }
+  /** Úseky spánku „začátek|konec|fáze;…“ → noci podle dne probuzení (konec + 6 h, ať se noc přes půlnoc nerozdělí). */
+  function spanekApple(text) {
+    const noci = {};
+    String(text || '').split(/[;\n]+/).forEach(function (kus) {
+      const c = kus.split('|');
+      if (c.length < 3) return;
+      const z = Date.parse(c[0].trim()), k = Date.parse(c[1].trim());
+      const typ = typSpanku(c[2]);
+      if (isNaN(z) || isNaN(k) || k <= z || !typ || typ === 'vPosteli') return;
+      const d = den(k + 6 * HOD, (/([+-]\d{2}:?\d{2})\s*$/.exec(c[1].trim()) || [])[1] || '+00:00');
+      const n = noci[d] = noci[d] || { celkem: 0, jadro: 0, hluboky: 0, rem: 0, bdeni: 0, start: null, konec: null };
+      if (typ === 'bdeni') { n.bdeni += k - z; return; }
+      n.celkem += k - z;
+      if (typ !== 'spanek') n[typ] += k - z;
+      n.start = n.start == null ? z : Math.min(n.start, z);
+      n.konec = Math.max(n.konec || 0, k);
+    });
+    return noci;
+  }
+  const POLE_APPLE = { kroky: 'kroky', energie: 'energie', cviceni: 'cviceni', stani: 'stani', vzdalenost: 'vzdalenost',
+    klidovy_tep: 'klidovyTep', hrv: 'hrv', vo2max: 'vo2max' };
+  function zApple(d) {
+    const dny = {};
+    Object.keys(POLE_APPLE).forEach(function (pole) {
+      const hodnoty = denniHodnoty(d[pole]);
+      Object.keys(hodnoty).forEach(function (x) {
+        (dny[x] = dny[x] || {})[POLE_APPLE[pole]] = pole === 'vzdalenost' ? zaokr(hodnoty[x], 2) : zaokr(hodnoty[x], pole === 'vo2max' || pole === 'hrv' ? 1 : 0);
+      });
+    });
+    const noci = spanekApple(d.spanek);
+    Object.keys(noci).forEach(function (x) { (dny[x] = dny[x] || {}).spanek = noci[x]; });
+    return dny;
+  }
+
+  // -------- přehled pro aplikaci
+  function prehled(soubory, ted, dni) {
+    const dny = {}, treninky = {};
+    soubory.forEach(function (s) {
+      Object.keys(s.dny || {}).forEach(function (x) { dny[x] = Object.assign({}, dny[x], s.dny[x]); });
+      Object.keys(s.treninky || {}).forEach(function (id) { treninky[id] = s.treninky[id]; });
+    });
+    const hranice = new Date(ted - dni * 864e5).toISOString().slice(0, 10);
+    return {
+      vytvoreno: ted,
+      dny: Object.keys(dny).filter(function (x) { return x >= hranice; }).sort().map(function (x) { return Object.assign({ den: x }, dny[x]); }),
+      treninky: Object.keys(treninky).map(function (id) { return treninky[id]; })
+        .filter(function (t) { return t.den >= hranice; }).sort(function (a, b) { return b.start - a.start; })
+    };
+  }
+
+  return { zWhoop: zWhoop, zApple: zApple, prehled: prehled, cisloCz: cisloCz, spanekApple: spanekApple, mistniDen: mistniDen };
+})();
+
+// ---------------------------------------------------------------- upozornění do iPhonu (ntfy, nepovinné)
+//
+// Když je ve vlastnostech skriptu NTFY_TEMA (náhodné jméno – kdo ho zná, čte), motor pošle krátké upozornění přes ntfy.sh
+// (aplikace ntfy v iPhonu, téma odebírat). Spouští ho funkce kazdouHodinu (spouštěč nastaví Michal v editoru: Spouštěče).
+
+function upozorni_(nadpis, text, tagy, priorita) {
+  const tema = vlastnosti_().getProperty('NTFY_TEMA');
+  if (!tema) return false;
+  const r = UrlFetchApp.fetch('https://ntfy.sh/', { method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+    payload: JSON.stringify({ topic: tema, title: nadpis, message: text, tags: tagy || [], priority: priorita || 3,
+      click: vlastnosti_().getProperty('ADRESA_APLIKACE') || 'https://mk-asistent.github.io/' }) });
+  return r.getResponseCode() === 200;
+}
+
+/** Spouštěč každou hodinu: WHOOP (nová připravenost ráno), výstrahy ČHMÚ (oranžová a vyšší). */
+function kazdouHodinu() {
+  const p = vlastnosti_();
+  if (whoopStav_().propojeno) {
+    try {
+      const z = whoopSync_(3);
+      const dnes = Utilities.formatDate(new Date(), CASOVE_PASMO, 'yyyy-MM-dd');
+      const d = z.dny[dnes];
+      if (d && d.pripravenost && p.getProperty('OHLASENO_ZDRAVI') !== dnes) {
+        const sk = d.pripravenost.skore;
+        const spanek = d.spanek ? Math.floor(d.spanek.celkem / 36e5) + ' h ' + Math.round((d.spanek.celkem % 36e5) / 6e4) + ' min' : '';
+        if (upozorni_('Připravenost ' + sk + ' %', [spanek ? 'Spánek ' + spanek : '', d.pripravenost.hrv ? 'HRV ' + d.pripravenost.hrv + ' ms' : '']
+          .filter(Boolean).join(' · '), [sk >= 67 ? 'green_circle' : sk >= 34 ? 'yellow_circle' : 'red_circle'], 3)) {
+          p.setProperty('OHLASENO_ZDRAVI', dnes);
+        }
+      }
+    } catch (chyba) { /* zkusí se za hodinu */ }
+  }
+  try {
+    const pocasi = pocasi_(true);
+    const ohlasene = JSON.parse(p.getProperty('OHLASENE_VYSTRAHY') || '{}');
+    const ted = Date.now();
+    const nove = {};
+    pocasi.vystrahy.filter(function (v) { return ['oranzova', 'cervena', 'fialova'].indexOf(v.uroven) >= 0 || v.typ === 'povoden'; })
+      .forEach(function (v) {
+        const k = v.nazev + '|' + v.od;
+        nove[k] = v.do || ted + 2 * 864e5;
+        if (ohlasene[k]) return;
+        upozorni_('⚠ ' + v.nazev, v.text || pocasi.souhrn, [v.uroven === 'oranzova' ? 'orange_circle' : 'red_circle'], 4);
+      });
+    Object.keys(ohlasene).forEach(function (k) { if (ohlasene[k] > ted && !nove[k]) nove[k] = ohlasene[k]; });
+    p.setProperty('OHLASENE_VYSTRAHY', JSON.stringify(nove).slice(0, 8000));
+  } catch (chyba) { /* příště */ }
+}
+
+/** Spustit jednou v editoru (▶): vyrobí téma pro upozornění a vypíše ho do protokolu (vloží se do aplikace ntfy). */
+function nastavUpozorneni() {
+  const p = vlastnosti_();
+  let tema = p.getProperty('NTFY_TEMA');
+  if (!tema) {
+    tema = 'asistent-' + Utilities.getUuid().replace(/-/g, '').slice(0, 24);
+    p.setProperty('NTFY_TEMA', tema);
+  }
+  Logger.log('Téma pro aplikaci ntfy (server ntfy.sh): ' + tema);
+  Logger.log('Pak: Spouštěče (budík vlevo) → Přidat spouštěč → kazdouHodinu → Časový → Hodinový časovač → Každou hodinu.');
+  upozorni_('Asistent', 'Upozornění fungují ✓', ['white_check_mark'], 3);
+}
 
 // ---------------------------------------------------------------- mezipaměť (CacheService, po kusech)
 
