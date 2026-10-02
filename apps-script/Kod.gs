@@ -11,11 +11,13 @@
  *
  * Data:
  *   Schránka  – Můj disk / CLAUDE_SCHRANKA / NOVE, CEKA, HOTOVO/RRRR-MM (soubory .md, skill asistent-schranka)
- *   Pošta     – Gmail: doručené za 14 dní bez Reklam/Sociálních sítí/Fór; čtení, odpověď, přeposlání, archiv.
+ *   Pošta     – Gmail: doručené za 30 dní bez Reklam/Sociálních sítí/Fór; čtení, odpověď, přeposlání, archiv;
+ *               každá konverzace má stav (hoří, čeká na tebe, otázka, čekáš na ně, řeší se, informace).
  *               Dva účty: osobní (Gmail) a pracovní (vlastnost PRACOVNI_ADRESA). Pracovní pošta se do Gmailu
  *               dostane přeposíláním kopií od poskytovatele; odpovídá se z ní přes „Odesílat poštu jako“ v Gmailu.
  *               Náhradní zdroj bez přeposílání: CLAUDE_SCHRANKA/POSTA_FIREMNI.json (souhrny, zapisuje skript na PC).
- *   Kalendář  – zobrazené kalendáře Google + kalendáře z iPhonu (iCloud, soukromý odkaz webcal://…, jen čtení)
+ *   Kalendář  – zobrazené kalendáře Google (vlastní i zápis: nová událost, úprava, smazání, opakování, připomenutí,
+ *               import zápasů z rozpisu) + kalendáře z iPhonu (iCloud, soukromý odkaz webcal://…, jen čtení)
  *
  * Postup nasazení: README.md v kořeni repozitáře.
  */
@@ -83,7 +85,11 @@ const AKCE = {
   kalendare: function () { return seznamKalendaru_(); },
   kalendarPridat: function (d) { return pridejKalendar_(d.nazev, d.odkaz, d.barva); },
   kalendarUpravit: function (d) { return upravKalendar_(d.id, d); },
-  kalendarOdebrat: function (d) { return odeberKalendar_(d.id); }
+  kalendarOdebrat: function (d) { return odeberKalendar_(d.id); },
+  kalendarZalozit: function (d) { return zalozKalendar_(d.nazev, d.barva); },
+  udalostUlozit: function (d) { return ulozUdalost_(d); },
+  udalostSmazat: function (d) { return smazUdalost_(d.kalendarId, d.udalost, !!d.cela); },
+  zapasyImport: function (d) { return importujZapasy_(d); }
 };
 
 // ---------------------------------------------------------------- nastavení (spouští se ručně v editoru)
@@ -808,7 +814,8 @@ function seznamKalendaru_() {
   const google = CalendarApp.getAllCalendars()
     .filter(function (k) { return !k.isHidden() && k.isSelected(); })
     .map(function (k) {
-      return { id: k.getId(), nazev: k.getName(), barva: k.getColor(), zdroj: 'google', skryty: skryte.indexOf(k.getId()) >= 0 };
+      return { id: k.getId(), nazev: k.getName(), barva: k.getColor(), zdroj: 'google', skryty: skryte.indexOf(k.getId()) >= 0,
+        zapis: vlastniKalendar_(k) };
     });
   const ics = icsKalendare_().map(function (k) {
     // odkaz se do aplikace nevrací – je to tajemství jako klíč
@@ -855,6 +862,198 @@ function upravKalendar_(id, d) {
 function odeberKalendar_(id) {
   ulozIcs_(icsKalendare_().filter(function (k) { return k.id !== id; }));
   return seznamKalendaru_();
+}
+
+// ---------------------------------------------------------------- Kalendář – zápis
+// Zapisuje se jen do vlastních kalendářů Google. Kalendáře z iPhonu (iCloud) jdou přes soukromý odkaz jen číst –
+// zápis do iCloudu by chtěl CalDAV s heslem pro aplikace, což Apps Script neumí (chybí metody PROPFIND/REPORT).
+// Na iPhonu se kalendáře Google ukážou vedle iCloudu, když se v Nastavení → Kalendář přidá účet Google.
+
+const NAZEV_KALENDARE_ZAPASU = 'Zápasy';
+const BARVA_KALENDARE_ZAPASU = '#2e7a4d';
+const MAX_DELKA_UDALOSTI = 62 * 864e5;
+
+function vlastniKalendar_(kal) {
+  try { return kal.isOwnedByMe(); } catch (chyba) { return false; }
+}
+
+function zapisovatelnyKalendar_(id) {
+  const kal = id ? CalendarApp.getCalendarById(String(id)) : CalendarApp.getDefaultCalendar();
+  if (!kal) throw new Error('Kalendář nenalezen – obnov kalendář v aplikaci.');
+  if (!vlastniKalendar_(kal)) throw new Error('Do kalendáře „' + kal.getName() + '“ zapisovat nejde – vyber jiný.');
+  return kal;
+}
+
+/** Nový vlastní kalendář Google (např. „Zápasy“); když už stejně pojmenovaný existuje, vrátí ten. */
+function zalozKalendar_(nazev, barva) {
+  nazev = String(nazev || '').trim().slice(0, 60);
+  if (!nazev) throw new Error('Doplň název kalendáře.');
+  let kal = CalendarApp.getCalendarsByName(nazev).filter(vlastniKalendar_)[0];
+  if (!kal) {
+    kal = CalendarApp.createCalendar(nazev);
+    if (platnaBarva_(barva)) kal.setColor(barva);
+  }
+  kal.setHidden(false);
+  kal.setSelected(true);
+  zvysVerziKalendaru_();
+  return { id: kal.getId(), kalendare: seznamKalendaru_() };
+}
+
+/** Událost podle id z aplikace („iCalUID|začátek v ms“) – i jeden výskyt opakované události. */
+function najdiUdalost_(kal, udalost) {
+  const s = String(udalost || '');
+  const i = s.lastIndexOf('|');
+  const ical = i > 0 ? s.slice(0, i) : s;
+  const zacatek = Number(s.slice(i + 1));
+  if (!ical || !(zacatek > 0)) throw new Error('Neplatná událost.');
+  const nalezena = kal.getEvents(new Date(zacatek - 864e5), new Date(zacatek + 2 * 864e5)).filter(function (u) {
+    return u.getId() === ical && (u.isAllDayEvent() ? u.getAllDayStartDate() : u.getStartTime()).getTime() === zacatek;
+  })[0];
+  if (!nalezena) throw new Error('Událost už neexistuje – obnov kalendář.');
+  return nalezena;
+}
+
+/** Připomenutí v minutách před začátkem (pole); bez pole se nechá výchozí nastavení kalendáře. */
+function nastavPripomenuti_(u, minuty) {
+  if (!Array.isArray(minuty)) return;
+  u.removeAllReminders();
+  minuty.slice(0, 5).forEach(function (m) {
+    m = Math.round(Number(m));
+    if (m >= 0 && m <= 40320) u.addPopupReminder(m);
+  });
+}
+
+/**
+ * Nová nebo upravená událost. d = { kalendarId, udalost? (id pro úpravu), nazev, celodenni, zacatek, konec (ms; u celodenní
+ * půlnoc prvního dne a půlnoc po posledním dni), misto, popis, pripomenuti: [min], barva ('1'–'11'), tydne, tydneDo ('RRRR-MM-DD') }
+ */
+function ulozUdalost_(d) {
+  const kal = zapisovatelnyKalendar_(d.kalendarId);
+  const nazev = String(d.nazev || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  if (!nazev) throw new Error('Doplň název události.');
+  const zacatek = Number(d.zacatek), konec = Number(d.konec);
+  if (!(zacatek > 0) || !(konec > zacatek)) throw new Error('Konec musí být po začátku.');
+  if (konec - zacatek > MAX_DELKA_UDALOSTI) throw new Error('Událost je moc dlouhá (nejvýš dva měsíce).');
+  const celodenni = !!d.celodenni;
+  const jedenDen = konec - zacatek <= 25 * 36e5; // celodenní přes změnu času má 23 nebo 25 hodin
+  const moznosti = { location: String(d.misto || '').slice(0, 300), description: String(d.popis || '').slice(0, 5000) };
+  let u;
+  if (d.udalost) {
+    u = najdiUdalost_(kal, d.udalost);
+    u.setTitle(nazev);
+    if (celodenni) {
+      if (jedenDen) u.setAllDayDate(new Date(zacatek)); else u.setAllDayDates(new Date(zacatek), new Date(konec));
+    } else {
+      u.setTime(new Date(zacatek), new Date(konec));
+    }
+    u.setLocation(moznosti.location);
+    u.setDescription(moznosti.description);
+  } else if (d.tydne) {
+    // opakování každý týden (třeba trénink), případně do data včetně
+    const pravidlo = CalendarApp.newRecurrence().addWeeklyRule();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(d.tydneDo || ''))) {
+      pravidlo.until(Utilities.parseDate(d.tydneDo + ' 23:59', CASOVE_PASMO, 'yyyy-MM-dd HH:mm'));
+    }
+    u = celodenni ? kal.createAllDayEventSeries(nazev, new Date(zacatek), pravidlo, moznosti)
+      : kal.createEventSeries(nazev, new Date(zacatek), new Date(konec), pravidlo, moznosti);
+  } else if (celodenni) {
+    u = jedenDen ? kal.createAllDayEvent(nazev, new Date(zacatek), moznosti)
+      : kal.createAllDayEvent(nazev, new Date(zacatek), new Date(konec), moznosti);
+  } else {
+    u = kal.createEvent(nazev, new Date(zacatek), new Date(konec), moznosti);
+  }
+  nastavPripomenuti_(u, d.pripomenuti);
+  if (BARVY_UDALOSTI_GOOGLE[String(d.barva || '')]) u.setColor(String(d.barva));
+  zvysVerziKalendaru_();
+  return { id: u.getId(), kalendarId: kal.getId() };
+}
+
+/** Smazání události (u opakované jen tohoto výskytu, s cela = true celé řady). */
+function smazUdalost_(kalendarId, udalost, cela) {
+  const kal = zapisovatelnyKalendar_(kalendarId);
+  const u = najdiUdalost_(kal, udalost);
+  if (cela && u.isRecurringEvent()) u.getEventSeries().deleteEventSeries();
+  else u.deleteEvent();
+  zvysVerziKalendaru_();
+  return true;
+}
+
+/**
+ * Zápasy z rozpisu (veřejný soubor .js nebo .json s řádky { id, date, time, venue, opponent }) do kalendáře „Zápasy“.
+ * Každá událost si ve štítku pamatuje id zápasu → opakovaný import jen upraví změněné, nic nezdvojí ani nesmaže.
+ * d = { odkaz, tym (např. „dorost“), domaci (např. „Vnorovy“), soutez?, kalendarId?, vcetneOdehranych? }
+ */
+function importujZapasy_(d) {
+  const odkaz = String(d.odkaz || '').trim();
+  if (!/^https:\/\/[^\s/]+\/\S+$/i.test(odkaz)) throw new Error('Odkaz na rozpis musí začínat https://');
+  const tym = String(d.tym || '').trim().slice(0, 40);
+  const domaci = String(d.domaci || '').trim().slice(0, 60);
+  if (!domaci) throw new Error('Chybí název domácího týmu.');
+  const odpoved = UrlFetchApp.fetch(odkaz, { muteHttpExceptions: true, followRedirects: true });
+  if (odpoved.getResponseCode() !== 200) throw new Error('Rozpis nejde stáhnout (HTTP ' + odpoved.getResponseCode() + ').');
+  const zapasy = rozpisZapasu_(odpoved.getContentText('UTF-8').slice(0, 500000));
+  if (!zapasy.length) throw new Error('V rozpisu jsem nenašel žádné zápasy.');
+
+  const kal = d.kalendarId ? zapisovatelnyKalendar_(d.kalendarId)
+    : CalendarApp.getCalendarById(zalozKalendar_(NAZEV_KALENDARE_ZAPASU, BARVA_KALENDARE_ZAPASU).id);
+  const dnes = Utilities.parseDate(Utilities.formatDate(new Date(), CASOVE_PASMO, 'yyyy-MM-dd') + ' 00:00', CASOVE_PASMO, 'yyyy-MM-dd HH:mm').getTime();
+  const predpona = (tym || 'zapas').toLowerCase().replace(/[^a-z0-9á-ž]+/g, '-') + ':';
+  const vybrane = zapasy.map(function (z) {
+    const zacatek = Utilities.parseDate(z.datum + ' ' + z.cas, CASOVE_PASMO, 'yyyy-MM-dd HH:mm').getTime();
+    return Object.assign({}, z, { zacatek: zacatek, konec: zacatek + 2 * 36e5 });
+  }).filter(function (z) { return d.vcetneOdehranych || z.zacatek >= dnes; });
+
+  // už importované zápasy podle štítku
+  const existujici = {};
+  if (vybrane.length) {
+    const od = Math.min.apply(null, vybrane.map(function (z) { return z.zacatek; })) - 40 * 864e5;
+    const doDne = Math.max.apply(null, vybrane.map(function (z) { return z.konec; })) + 40 * 864e5;
+    kal.getEvents(new Date(od), new Date(doDne)).forEach(function (u) {
+      const stitek = u.getTag('asistent');
+      if (stitek && stitek.indexOf(predpona) === 0) existujici[stitek] = u;
+    });
+  }
+  const vysledek = { pridano: 0, upraveno: 0, beze_zmeny: 0, kalendar: kal.getName(), kalendarId: kal.getId() };
+  vybrane.forEach(function (z) {
+    const nazev = '⚽ ' + (z.doma ? domaci + ' – ' + z.souper : z.souper + ' – ' + domaci) + (tym ? ' (' + tym + ')' : '');
+    const misto = z.doma ? domaci + ', hřiště' : z.souper;
+    const popis = [d.soutez ? String(d.soutez).slice(0, 120) : '', z.doma ? 'Doma' : 'Venku', 'Z rozpisu: ' + odkaz].filter(Boolean).join('\n');
+    const stitek = predpona + z.id;
+    const u = existujici[stitek];
+    if (u) {
+      const zmena = u.getTitle() !== nazev || u.getStartTime().getTime() !== z.zacatek || u.getLocation() !== misto;
+      if (zmena) {
+        u.setTitle(nazev);
+        u.setTime(new Date(z.zacatek), new Date(z.konec));
+        u.setLocation(misto);
+        vysledek.upraveno++;
+      } else {
+        vysledek.beze_zmeny++;
+      }
+      return;
+    }
+    const nova = kal.createEvent(nazev, new Date(z.zacatek), new Date(z.konec), { location: misto, description: popis });
+    nova.setTag('asistent', stitek);
+    nastavPripomenuti_(nova, [24 * 60, 120]);
+    vysledek.pridano++;
+  });
+  zvysVerziKalendaru_();
+  return vysledek;
+}
+
+/** Řádky rozpisu z textu souboru: { id, datum 'RRRR-MM-DD', cas 'H:MM', doma, souper } – bez spouštění kódu. */
+function rozpisZapasu_(text) {
+  const pole = function (blok, nazev) {
+    const m = new RegExp('(?:^|[\\s,{])["\']?' + nazev + '["\']?\\s*:\\s*["\']([^"\']*)["\']').exec(blok);
+    return m ? m[1].trim() : '';
+  };
+  const vysledek = [];
+  (text.match(/\{[^{}]*\}/g) || []).forEach(function (blok) {
+    const z = { id: pole(blok, 'id'), datum: pole(blok, 'date'), cas: pole(blok, 'time'), misto: pole(blok, 'venue'), souper: pole(blok, 'opponent') };
+    if (!z.id || !/^\d{4}-\d{2}-\d{2}$/.test(z.datum) || !/^\d{1,2}:\d{2}$/.test(z.cas) || !z.souper) return;
+    vysledek.push({ id: z.id.slice(0, 60), datum: z.datum, cas: z.cas, doma: !/venku|away/i.test(z.misto), souper: z.souper.slice(0, 80) });
+  });
+  return vysledek;
 }
 
 function icsKalendare_() {
