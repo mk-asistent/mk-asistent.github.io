@@ -12,6 +12,9 @@ const kopie = (o) => JSON.parse(JSON.stringify(o));
 
 const schranka = {
   nove: [
+    // diktát, který aplikace pozná sama (Rozpoznáno: událost) – „zítra“ od chvíle diktátu
+    { id: 'n3', slozka: 'NOVE', kdy: ted - 0.2 * H, odkud: 'iPhone', typ: '', stav: '', shrnuti: '', termin: '',
+      text: 'Zítra v 18 večeře s rodiči u Martina. Vzít víno.', vlakno: [] },
     { id: 'n1', slozka: 'NOVE', kdy: ted - 0.4 * H, odkud: 'iPhone', typ: '', stav: '', shrnuti: '', termin: '',
       text: 'Zjisti, jestli jde z ArcGIS Pro exportovat půdorys rovnou do PDF s legendou po patrech, ať to nemusím skládat ručně.', vlakno: [] },
     { id: 'n2', slozka: 'NOVE', kdy: ted - 3 * H, odkud: 'aplikace', typ: '', stav: '', shrnuti: '', termin: '',
