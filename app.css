@@ -524,6 +524,66 @@ button.legenda-radek { width: 100%; background: none; border: 0; text-align: lef
 .fotbal-panel .karta-text, .nast-sekce .karta-text { margin: 2px 0 6px; }
 .fotbal-volby { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
 .fotbal-volby .chip svg { width: 14px; height: 14px; }
+/* stránka Fotbal: tým, další zápas, výsledky (góly, karty), zbývající zápasy | tabulka, střelci */
+.fotbal-stranka { display: flex; flex-direction: column; gap: 12px; }
+.fotbal-vyber .chip--tym { gap: 7px; }
+.fotbal-vyber .chip--tym::before { content: ""; width: 8px; height: 8px; border-radius: 3px; background: var(--b); flex: none; }
+.fotbal-souhrn { margin: -2px 2px 0; font-size: 13px; color: var(--text-soft); }
+.fotbal-mrizka { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 1000px) { .fotbal-mrizka { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); } }
+.fotbal-sloupec { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.fotbal-pad { padding: 0 16px 12px; }
+.dalsi-zapas { display: flex; flex-direction: column; gap: 3px; padding: 2px 16px 14px; }
+.dalsi-zapas b { font-size: 18px; font-weight: 700; letter-spacing: -.01em; }
+.dalsi-zapas span { font-size: 13px; color: var(--text-soft); }
+.dalsi-zapas small { font-size: 12px; color: var(--oranz); }
+.zapasy-seznam { list-style: none; margin: 0; padding: 0 0 6px; }
+.zapas-radek + .zapas-radek { border-top: 1px solid var(--line-soft); }
+.zapas-hlava { width: 100%; display: grid; grid-template-columns: 62px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 16px; background: none; border: 0; text-align: left; color: inherit; font: inherit; }
+button.zapas-hlava { cursor: pointer; }
+button.zapas-hlava:hover { background: var(--bg-soft); }
+.zapas-kdy { display: flex; flex-direction: column; font-size: 12.5px; line-height: 1.25; }
+.zapas-kdy small { font-size: 11.5px; color: var(--dim); }
+.zapas-tymy { min-width: 0; font-size: 13.5px; line-height: 1.3; }
+.zapas-tymy .nas { font-weight: 700; }
+.zapas-tymy small { display: flex; align-items: center; gap: 4px; margin-top: 2px; font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zapas-tymy small svg { width: 12px; height: 12px; flex: none; }
+.zapas-misto { font-size: 12px; color: var(--dim); }
+.zapas-radek.otevreny { background: var(--bg-soft); }
+.zapas-detail { display: flex; flex-direction: column; gap: 6px; padding: 0 16px 14px 88px; }
+.zapas-detail h4 { margin: 6px 0 0; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.zapas-meta { margin: 0; font-size: 12.5px; color: var(--text-soft); }
+.zapas-udalosti { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.zapas-udalosti li { display: grid; grid-template-columns: 30px 16px minmax(0, 1fr) auto; gap: 6px; align-items: center; font-size: 13px; color: var(--text-soft); }
+.zapas-udalosti li.nas { color: var(--text); font-weight: 600; }
+.zapas-udalosti svg { width: 14px; height: 14px; }
+.zapas-udalosti .min { font-size: 12px; color: var(--dim); text-align: right; font-weight: 500; }
+.zapas-udalosti .strana { font-size: 11.5px; font-weight: 400; color: var(--dim); }
+.karta { display: inline-block; width: 9px; height: 12px; border-radius: 2px; background: #f2c230; vertical-align: -1px; }
+.karta--c { background: #e5484d; }
+.odkaz-ven { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--accent); text-decoration: none; }
+.odkaz-ven:hover { text-decoration: underline; }
+.odkaz-ven svg { width: 13px; height: 13px; }
+.fotbal-odkazy { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 16px 14px; }
+.tabulka-obal { overflow-x: auto; }
+.fotbal-tabulka { width: 100%; border-collapse: collapse; font-size: 13px; }
+.fotbal-tabulka th { padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 650; color: var(--dim); text-align: right; }
+.fotbal-tabulka td { padding: 7px 8px; border-bottom: 1px solid var(--line-soft); text-align: right; white-space: nowrap; }
+.fotbal-tabulka .klub { width: 100%; text-align: left; white-space: normal; }
+.fotbal-tabulka th:first-child, .fotbal-tabulka td:first-child { padding-left: 16px; color: var(--dim); }
+.fotbal-tabulka th:last-child, .fotbal-tabulka td:last-child { padding-right: 16px; }
+.fotbal-tabulka tr.nas td { background: var(--limetka-tint); color: var(--text); font-weight: 650; }
+.fotbal-statistiky { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 18px; padding: 0 16px 14px; }
+.fotbal-statistiky h4 { margin: 0 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.fotbal-statistiky ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.fotbal-statistiky li { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.fotbal-statistiky li > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fotbal-statistiky p { margin: 4px 0 0; }
+.karty-pocet { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@media (max-width: 759px) {
+    .fotbal-tabulka .vrp { display: none; }
+    .zapas-detail { padding-left: 16px; }
+}
 .kal-druhy { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .kal-druhy::-webkit-scrollbar { display: none; }
 /* předpověď ČHMÚ u dnů v kalendáři */

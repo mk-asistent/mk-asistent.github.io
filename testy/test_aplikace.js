@@ -80,7 +80,12 @@ const motor = {
     tymy: [{ klic: 'A', nazev: 'A-tým', barva: '#2e7a4d' }, { klic: 'B', nazev: 'B-tým', barva: '#0f7c8c' }, { klic: 'dorost', nazev: 'Dorost', barva: '#a8620c' }],
     zapasy: [zapasFotbal('A', -6, 16, 'FK Agro Vnorovy', 'TJ Lysovice', '1:3'), zapasFotbal('A', 2, 15, 'FK Šardice', 'FK Agro Vnorovy', ''),
       zapasFotbal('B', -5, 15, 'Vnorovy B', 'Nová Lhota', '8:0'), zapasFotbal('dorost', -5, 10, 'FC Kyjov 1919', 'FK Agro Vnorovy', '4:1'),
-      zapasFotbal('dorost', 3, 12, 'FK Agro Vnorovy', 'TJ Sokol Těšany', '')] } }),
+      zapasFotbal('dorost', 3, 12, 'FK Agro Vnorovy', 'TJ Sokol Těšany', '')],
+    // tabulky a detail zápasu (vymyšlení hráči) – stránka Fotbal
+    tabulky: { A: { celkem: [{ poradi: 1, klub: 'FK Šardice', z: 9, v: 8, r: 1, p: 0, skore: '30:8', body: 25 }, { poradi: 2, klub: 'FK Agro Vnorovy', z: 9, v: 3, r: 1, p: 5, skore: '16:20', body: 10 }],
+      doma: [{ poradi: 1, klub: 'FK Agro Vnorovy', z: 4, v: 3, r: 0, p: 1, skore: '9:5', body: 9 }], venku: [], aktualizovano: new Date(ted).toISOString() } },
+    detaily: { 'A-6': { polocas: '0:2', goly: [{ min: 23, hrac: 'Horák Pavel', strana: 'hoste', pozn: '' }, { min: 67, hrac: 'Svoboda Tomáš', strana: 'domaci', pozn: '' }],
+      karty: [{ min: 35, hrac: 'Dvořák Martin', barva: 'zluta', strana: 'domaci' }], divaku: 160 } } } }),
   fotbalKalendar: (d) => ({ pridano: 2, upraveno: 0, beze_zmeny: 0, kalendare: {}, kalendareSeznam: KALENDARE }),
   stitky: () => [{ nazev: 'Fotbal', neprectenych: 1 }, { nazev: 'Účty', neprectenych: 0 }],
   postaStitek: (d) => ({ nazev: d.nazev, vlakna: d.nazev === 'Fotbal' ? [vlaknoSouhrn.v1, { id: 'v8', ucet: 'osobni', stav: 'resi', od: 'Rozhodčí', predmet: 'Zápis o utkání', ukazka: 'Zápis v příloze.', kdy: ted - 200 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Fotbal'] }] : [], ted }),
@@ -680,6 +685,34 @@ async function novaStranka(prohlizec, v, motiv) {
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
   });
+
+  // ---------- stránka Fotbal: tabulka (náš řádek), výsledek s góly a kartami, střelci, přepnutí týmu; telefon z karty na Dnes
+  for (const v of [VELIKOSTI[3], VELIKOSTI[0]]) {
+    await test(v.nazev + ': Fotbal – tabulka, detail zápasu s góly a kartami, střelci', async () => {
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, v);
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-fotbal:not([hidden]) [data-cil="fotbal"]');
+      await page.click(v.sirka >= 760 ? '#rail [data-cil="fotbal"]' : '#dl-fotbal [data-cil="fotbal"]');
+      await page.waitForSelector('#p-fotbal .fotbal-tabulka tr.nas');
+      jistota(/FK Agro Vnorovy|Vnorovy/.test(await page.textContent('#p-fotbal .fotbal-tabulka tr.nas')), 'náš řádek v tabulce');
+      jistota(/2. místo/.test(await page.textContent('#p-fotbal .fotbal-souhrn')), 'souhrn místa: ' + await page.textContent('#p-fotbal .fotbal-souhrn'));
+      jistota(/Svoboda T./.test(await page.textContent('#p-fotbal .zapasy-seznam')), 'střelec u výsledku');
+      jistota(/Svoboda Tomáš/.test(await page.textContent('#p-fotbal .fotbal-statistiky')), 'střelci týmu');
+      await page.click('#p-fotbal [data-fotbal-zapas="A-6"]');
+      await page.waitForSelector('#p-fotbal .zapas-detail .zapas-udalosti');
+      const det = await page.textContent('#p-fotbal .zapas-detail');
+      jistota(/Horák Pavel/.test(det) && /Dvořák Martin/.test(det) && /Poločas 0:2/.test(det), 'detail zápasu: ' + det);
+      await page.click('#p-fotbal [data-fotbal-tabulka="doma"]');
+      await page.waitForFunction(() => /9:5/.test(document.querySelector('#p-fotbal .fotbal-tabulka').textContent));
+      jistota(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, 'Fotbal přetéká');
+      await page.screenshot({ path: path.join(VYSTUP, v.nazev + '_fotbal.png'), fullPage: true });
+      await page.click('#p-fotbal [data-fotbal-vyber="dorost"]');
+      await page.waitForFunction(() => /Těšany/.test(document.querySelector('#p-fotbal').textContent));
+      jistota(/Tabulka ještě není stažená/.test(await page.textContent('#p-fotbal')), 'dorost bez tabulky');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    });
+  }
 
   // ---------- Co je nového: po návratu ukáže, co přibylo (tady nová pošta, která čeká), Ukázat vede do Pošty
   await test('okno Co je nového po návratu do aplikace', async () => {

@@ -18,7 +18,7 @@ import * as zdravi from './zdravi.js';
 import * as fotbal from './fotbal.js';
 import { vstupAdresy, klavesaAdresy } from './adresy.js';
 
-const SEKCE = [['dnes', 'Dnes'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář'], ['zdravi', 'Zdraví']];
+const SEKCE = [['dnes', 'Dnes'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář'], ['zdravi', 'Zdraví'], ['fotbal', 'Fotbal']];
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
 const TELEFON = window.matchMedia('(max-width: 759px)');
 const $ = (id) => document.getElementById(id);
@@ -88,6 +88,7 @@ function vykresli() {
   else if (stav.pohled === 'schranka') schranka.vykresliSchranku(el);
   else if (stav.pohled === 'posta') posta.vykresliPostu(el);
   else if (stav.pohled === 'zdravi') zdravi.vykresliZdravi(el);
+  else if (stav.pohled === 'fotbal') fotbal.vykresliFotbal(el);
   else kal.vykresliKalendar(el);
   zkontrolujNovinky(p);
 }
@@ -145,7 +146,7 @@ function vykresliRail(p) {
     '<button type="button" class="rail__logo" data-cil="dnes" title="Dnes – hlavní stránka" aria-label="Asistent – hlavní stránka">' +
       '<span class="znak">' + IKONY.dnes + '</span><div><b>Asistent</b><small>osobní přehled</small></div></button>' +
     '<div class="rail__sekce">Hlavní</div>' +
-    SEKCE.map((s) => tl('data-cil="' + s[0] + '"', s[1], IKONY[s[0]], odznakSekce(s[0], p), stav.pohled === s[0])).join('') +
+    SEKCE.filter((s) => s[0] !== 'fotbal' || umiMotor('fotbal')).map((s) => tl('data-cil="' + s[0] + '"', s[1], IKONY[s[0]], odznakSekce(s[0], p), stav.pohled === s[0])).join('') +
     '<div class="rail__spodek"><div class="rail__sekce">Účet</div>' +
       tl('data-otevri-nastaveni', 'Nastavení', IKONY.nastaveni, 0, false) +
       '<div class="rail__ja" title="' + esc(ucet) + '">' +
@@ -183,6 +184,9 @@ function vykresliHlavu(p) {
   } else if (stav.pohled === 'posta') {
     pod = stav.posta ? p.pozornost.length + ' ' + tvar(p.pozornost.length, 'konverzace čeká', 'konverzace čekají', 'konverzací čeká') + ' na tebe' +
       (p.hori ? ' · ' + p.hori + ' hoří' : '') + ' · ' + (posta.maPracovni() ? 'osobní a pracovní' : 'osobní Gmail') : 'Načítám…';
+  } else if (stav.pohled === 'fotbal') {
+    const f = stav.fotbal && stav.fotbal.data;
+    pod = f ? esc(f.klub || '') + ' · zápasy, tabulky, střelci' : 'Zápasy z fotbal.cz';
   } else if (stav.pohled === 'zdravi') {
     const z = stav.zdravi;
     pod = 'WHOOP a Apple Watch' + (z && z.whoop && z.whoop.sync && z.whoop.sync.kdy ? ' · aktualizováno ' + esc(kdyKratce(z.whoop.sync.kdy)) : '');
@@ -553,7 +557,7 @@ document.addEventListener('keydown', (e) => {
   if (pise(e) || e.ctrlKey || e.metaKey || e.altKey) return;
   // jednoduché klávesy (PC, iPad s klávesnicí)
   if (e.key === '/') { e.preventDefault(); hledat.otevriHledani(); return; }
-  if (!horniPanel() && /^[1-5]$/.test(e.key)) { prejdi(SEKCE[Number(e.key) - 1][0]); return; }
+  if (!horniPanel() && /^[1-6]$/.test(e.key)) { prejdi(SEKCE[Number(e.key) - 1][0]); return; }
   if (!horniPanel() && stav.pohled === 'kalendar' && e.key.toLowerCase() === 'n') { udalost.otevriFormular({ den: stav.kal.vybrany }); return; }
   if (posta.klavesaPosta(e)) e.preventDefault();
 });

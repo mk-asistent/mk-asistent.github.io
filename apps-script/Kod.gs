@@ -66,7 +66,7 @@ function doPost(e) {
     }
     // zkratka Zdraví v iPhonu má vlastní klíč jen pro zápis dat (hlavní klíč otevírá poštu)
     if (data.akce === 'zdraviApple') {
-      const klicZdravi = PropertiesService.getScriptProperties().getProperty('ZDRAVI_KLIC');
+      const klicZdravi = klicZdravi_();
       vystup = klicZdravi && typeof data.klic === 'string' && data.klic === klicZdravi
         ? { ok: true, data: zapisApple_(data) } : { ok: false, chyba: 'klic' };
       return ContentService.createTextOutput(JSON.stringify(vystup)).setMimeType(ContentService.MimeType.JSON);
@@ -125,7 +125,7 @@ const AKCE = {
   whoopPropojit: function () { return whoopPropojit_(); },
   whoopOdpojit: function () { return whoopOdpojit_(); },
   zdraviKlic: function (d) { return zdraviKlic_(!!d.novy); },
-  fotbal: function () { return fotbal_(); },
+  fotbal: function (d) { return fotbal_(d); },
   fotbalKalendar: function (d) { return fotbalDoKalendare_(d.tymy); }
 };
 
@@ -1751,15 +1751,31 @@ function fotbalData_() {
   return data;
 }
 
-/** Akce fotbal: zápasy a týmy pro aplikaci; když se data od posledního převodu změnila, rovnou obnoví kalendáře. */
-function fotbal_() {
+/**
+ * Akce fotbal: zápasy a týmy pro aplikaci; když se data od posledního převodu změnila, rovnou obnoví kalendáře.
+ * d.plne = i tabulky soutěží a detaily všech zápasů (stránka Fotbal); jinak jen detail posledního zápasu týmu (Dnes).
+ */
+function fotbal_(d) {
   const data = fotbalData_();
   const n = fotbalNastaveni_();
   let kalendar = null;
   if (data && n.tymy.length && otiskFotbalu_(data, n.tymy) !== n.otisk) {
     try { kalendar = fotbalDoKalendare_(n.tymy); } catch (chyba) { kalendar = { chyba: String(chyba.message || chyba) }; }
   }
-  return { data: data, vKalendari: n.tymy, kalendar: kalendar };
+  return { data: data && !(d && d.plne) ? fotbalLehce_(data) : data, vKalendari: n.tymy, kalendar: kalendar };
+}
+
+/** Bez tabulek a starších detailů (kratší odpověď pro Dnes): u každého týmu jen detail posledního odehraného zápasu. */
+function fotbalLehce_(data) {
+  const vysledek = {};
+  Object.keys(data).forEach(function (k) { if (k !== 'tabulky' && k !== 'detaily') vysledek[k] = data[k]; });
+  const detaily = data.detaily || {};
+  const posledni = {};
+  data.zapasy.forEach(function (z) { if (z.vysledek && detaily[z.id]) posledni[z.tym] = z.id; }); // zápasy jsou seřazené podle času
+  vysledek.detaily = {};
+  Object.keys(posledni).forEach(function (t) { vysledek.detaily[posledni[t]] = detaily[posledni[t]]; });
+  vysledek.maTabulky = !!(data.tabulky && Object.keys(data.tabulky).length);
+  return vysledek;
 }
 
 function otiskFotbalu_(data, tymy) {
@@ -3018,8 +3034,20 @@ function zdraviKlic_(novy) {
   if (!k || novy) {
     k = Utilities.getUuid().replace(/-/g, '');
     p.setProperty('ZDRAVI_KLIC', k);
+    CacheService.getScriptCache().remove('ZDRAVI_KLIC'); // starý klíč hned přestane platit
   }
   return { klic: k };
+}
+
+/** Klíč zkratky z mezipaměti (6 h) – požadavky s cizím klíčem nevyčerpají kvótu čtení vlastností (jako klicApi_). */
+function klicZdravi_() {
+  const cache = CacheService.getScriptCache();
+  let k = cache.get('ZDRAVI_KLIC');
+  if (!k) {
+    k = PropertiesService.getScriptProperties().getProperty('ZDRAVI_KLIC');
+    if (k) cache.put('ZDRAVI_KLIC', k, 21600);
+  }
+  return k;
 }
 
 /** Akce zdraviApple (volá zkratka s ZDRAVI_KLIC): denní hodnoty za pár dní → přepíše po dnech. */

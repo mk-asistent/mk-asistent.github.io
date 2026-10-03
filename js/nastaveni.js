@@ -189,7 +189,17 @@ function sekcePosty() {
     '<div><button type="button" class="btn btn--ghost" data-nast="ulozit-postu">Uložit</button></div></div>';
   if (p.pracovniAdresa) {
     h += '<p class="nast-stav ' + (p.lzeOdesilatZPracovni ? 'ok' : 'chyba') + '"><i></i>' +
-      (p.lzeOdesilatZPracovni ? 'Odpovědi na pracovní poštu půjdou z pracovní adresy.' : 'Z pracovní adresy zatím odesílat nejde.') + '</p>';
+      (p.lzeOdesilatZPracovni ? 'Odpovědi na pracovní poštu půjdou z pracovní adresy.' : 'Z pracovní adresy zatím odesílat nejde – Gmail ji nemá v „Odesílat poštu jako“.') + '</p>';
+    // odesílání z pracovní adresy = alias v Gmailu (ověřený); motor ho jen přečte, nastavit ho musí Michal (heslo k pracovní schránce)
+    if (!p.lzeOdesilatZPracovni) {
+      h += '<ol class="napoveda kroky"><li>Gmail na počítači → ozubené kolo → <b>Zobrazit všechna nastavení</b> → <b>Účty a import</b> → ' +
+        'Odesílat poštu jako → <b>Přidat další e-mailovou adresu</b>.</li>' +
+        '<li>Jméno a adresa <b>' + esc(p.pracovniAdresa) + '</b> → Další → SMTP server <b>wes1-smtp.wedos.net</b>, port <b>587</b> (TLS), ' +
+        'uživatelské jméno = celá adresa, heslo k pracovní schránce (zadáš jen ty).</li>' +
+        '<li>Gmail pošle <b>ověřovací kód</b> na pracovní adresu – přijde přes přeposílání z WEDOSu; kód zadej nebo klikni na odkaz.</li>' +
+        '<li>Pak tady <b>Zkontrolovat znovu</b>.</li></ol>' +
+        '<div class="akce"><button type="button" class="btn btn--ghost" data-nast="znovu-info">Zkontrolovat znovu</button></div>';
+    }
   }
   h += '<details class="napoveda"><summary>Jak dostat pracovní poštu do aplikace</summary><ol>' +
     '<li>WEDOS WebMail → Nastavení → Filtry → Vytvořit: Všechny zprávy, akce <b>Přeposlat zprávu na</b> tvůj Gmail a tlačítkem + druhá akce ' +
@@ -389,6 +399,14 @@ export function klikNastaveni(el) {
     uloziste.klice('asistent.data.').concat(uloziste.klice('asistent.koncept.')).forEach((k) => uloziste.smaz(k));
     toast('Uložená data smazána');
     setTimeout(() => location.reload(), 600);
+    return true;
+  }
+  if (akce === 'znovu-info') {
+    el.disabled = true;
+    nactiInfo().then(() => {
+      const p = (stav.info && stav.info.posta) || {};
+      toast(p.lzeOdesilatZPracovni ? 'Pracovní adresa funguje ✓' : 'Gmail ji pořád nemá – zkontroluj ověření adresy', !p.lzeOdesilatZPracovni);
+    });
     return true;
   }
   if (akce === 'ulozit-postu') {

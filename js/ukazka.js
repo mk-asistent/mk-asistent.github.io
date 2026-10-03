@@ -195,6 +195,39 @@ const fotbalUkazka = {
     fotbalZapas('dorost', pristiSobota + 1, 12.25, 'FK Agro Vnorovy', 'TJ Sokol Těšany', '', 'Vnorovy')
   ]
 };
+// tabulky a detaily odehraných zápasů – hráči jsou VYMYŠLENÍ (skutečná jména z fotbal.cz do veřejného repa nepatří)
+(function () {
+  const tab = (radky) => radky.map((r, i) => ({ poradi: i + 1, klub: r[0], z: r[1], v: r[2], r: r[3], p: r[4], skore: r[5], body: r[6] }));
+  const tabulky = {
+    A: [['FK Šardice', 9, 8, 1, 0, '30:8', 25], ['TJ Lysovice', 9, 7, 0, 2, '33:14', 21], ['FK Mutěnice', 9, 6, 1, 2, '18:10', 19], ['FK Milotice', 9, 5, 2, 2, '15:9', 17],
+      ['FC Kyjov 1919', 9, 4, 3, 2, '14:12', 15], ['FK Baník Dubňany', 9, 4, 1, 4, '15:16', 13], ['FK Agro Vnorovy', 9, 3, 1, 5, '16:20', 10], ['FK Židlochovice', 9, 3, 0, 6, '18:22', 9],
+      ['SK Vojkovice', 9, 2, 1, 6, '12:21', 7], ['TJ START Brno', 9, 1, 2, 6, '8:30', 5]],
+    B: [['Veselí n. Moravou B', 8, 6, 1, 1, '21:8', 19], ['Vnorovy B', 8, 6, 0, 2, '35:12', 18], ['Lipov', 8, 4, 1, 3, '17:15', 13], ['Petrov', 8, 4, 0, 4, '16:14', 12],
+      ['Kozojídky', 8, 3, 1, 4, '13:16', 10], ['Suchov', 8, 2, 1, 5, '14:24', 7], ['Nová Lhota', 8, 0, 0, 8, '3:40', 0]],
+    dorost: [['TJ Sokol Těšany', 9, 7, 1, 1, '22:7', 22], ['FC Kyjov 1919', 9, 7, 0, 2, '35:12', 21], ['TJ Sokol Lanžhot', 9, 5, 2, 2, '20:13', 17], ['FK Agro Vnorovy', 9, 4, 1, 4, '19:18', 13],
+      ['TJ Slavoj Rohatec', 9, 4, 0, 5, '21:24', 12], ['FK Hodonín B', 9, 3, 1, 5, '25:21', 10], ['Dubňany/Mutěnice', 9, 1, 1, 7, '9:28', 4]]
+  };
+  fotbalUkazka.tabulky = {};
+  Object.keys(tabulky).forEach((k) => {
+    const celkem = tab(tabulky[k]);
+    // doma / venku v ukázce zhruba polovina zápasů (jen aby se dalo přepínat)
+    const pul = (r, i) => ({ poradi: i + 1, klub: r.klub, z: Math.ceil(r.z / 2), v: Math.ceil(r.v / 2), r: Math.floor(r.r / 2), p: Math.floor(r.p / 2), skore: r.skore, body: Math.ceil(r.body / 2) });
+    fotbalUkazka.tabulky[k] = { celkem, doma: celkem.map(pul), venku: celkem.slice().reverse().map(pul), aktualizovano: fotbalUkazka.aktualizovano };
+  });
+  const g = (min, hrac, strana, pozn) => ({ min, hrac, strana, pozn: pozn || '' });
+  const k = (min, hrac, barva, strana) => ({ min, hrac, barva, strana });
+  const detaily = {
+    A: { polocas: '0:2', goly: [g(23, 'Horák Pavel', 'hoste'), g(41, 'Horák Pavel', 'hoste'), g(67, 'Svoboda Tomáš', 'domaci'), g(80, 'Beneš Ondřej', 'hoste', 'penalta')],
+      karty: [k(35, 'Dvořák Martin', 'zluta', 'domaci'), k(72, 'Král Lukáš', 'zluta', 'hoste')], divaku: 160 },
+    B: { polocas: '4:0', goly: [g(5, 'Procházka Adam', 'domaci'), g(18, 'Procházka Adam', 'domaci'), g(27, 'Veselý Jakub', 'domaci'), g(44, 'Marek Filip', 'domaci'),
+      g(52, 'Procházka Adam', 'domaci'), g(60, 'Pokorný Vít', 'domaci'), g(77, 'Veselý Jakub', 'domaci'), g(88, 'Kučera Daniel', 'domaci')], karty: [], divaku: 45 },
+    dorost: { polocas: '2:1', goly: [g(15, 'Černý Matěj', 'domaci'), g(33, 'Bartoš Šimon', 'hoste'), g(40, 'Mach Vojtěch', 'domaci'), g(70, 'Mach Vojtěch', 'domaci'), g(86, 'Hájek Adam', 'domaci')],
+      karty: [k(61, 'Zeman Tobiáš', 'zluta', 'hoste'), k(83, 'Zeman Tobiáš', 'cervena', 'hoste')], divaku: 40 }
+  };
+  fotbalUkazka.detaily = {};
+  fotbalUkazka.zapasy.filter((z) => z.vysledek).forEach((z) => { if (detaily[z.tym]) fotbalUkazka.detaily[z.id] = detaily[z.tym]; });
+  fotbalUkazka.tymy.forEach((t) => { t.url = 'https://www.fotbal.cz/souteze/'; t.urlTabulka = 'https://www.fotbal.cz/souteze/'; });
+})();
 let fotbalVKalendari = ['dorost'];
 
 /** Zdraví v ukázce: 30 dní připravenosti, spánku a zátěže; zápas v sobotu, trénink út a čt (sedí s kalendářem), posilovna v pondělí. */

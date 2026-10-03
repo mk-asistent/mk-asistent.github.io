@@ -57,9 +57,12 @@ export const IKONY = {
   dest: s('<path d="M17.5 15.5H7.5a4.5 4.5 0 1 1 1-8.9 6 6 0 0 1 11.3 2.4 3.3 3.3 0 0 1-2.3 6.5z"/><path d="M8 18.5l-1 2.5M12.5 18.5l-1 2.5M17 18.5l-1 2.5"/>'),
   bourka: s('<path d="M17.5 15.5h-1M8 15.5h-.5a4.5 4.5 0 1 1 1-8.9 6 6 0 0 1 11.3 2.4 3.3 3.3 0 0 1-1.6 6.2"/><path d="M13 12.5l-3 4.5h4l-2.5 4.5"/>'),
   snih: s('<path d="M17.5 15.5H7.5a4.5 4.5 0 1 1 1-8.9 6 6 0 0 1 11.3 2.4 3.3 3.3 0 0 1-2.3 6.5z"/><path d="M8 19h.01M12 21h.01M16 19h.01M10 23h.01M14 23h.01"/>'),
-  mlha: s('<path d="M7.5 11.5a4.5 4.5 0 0 1 9 0"/><path d="M3 14.5h18M5 18h14M8 21.5h8"/>')
+  mlha: s('<path d="M7.5 11.5a4.5 4.5 0 0 1 9 0"/><path d="M3 14.5h18M5 18h14M8 21.5h8"/>'),
+  tabulka: s('<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9 4.5v15"/>'),
+  doplnky: s('<rect x="3" y="9" width="18" height="6" rx="3" transform="rotate(-35 12 12)"/><path d="M9.6 8.6l4.8 6.8"/>')
 };
 // ikona počasí podle klíče z motoru (slunce, polojasno, oblacno, dest, bourka, snih, mlha)
 IKONY.zdravi = IKONY.srdce;
+IKONY.fotbal = IKONY.zapas;
 
 export function ikonaPocasi(klic) { return IKONY[klic] || IKONY.polojasno; }
