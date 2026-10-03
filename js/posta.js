@@ -174,7 +174,8 @@ export function zpravaRadekHtml(m, ukazUcet) {
       '<span class="radek-hora">' + (m.neprectena ? '<span class="tecka" aria-label="nepřečtené"></span>' : '') +
         '<span class="radek-titul orez-1">' + esc(m.od) + '</span><span class="radek-cas cisla">' + esc(kdyKratce(m.kdy)) + '</span></span>' +
       '<span class="radek-predmet orez-1">' + esc(m.predmet) + (m.pocet > 1 ? ' <span class="pocet">' + m.pocet + '</span>' : '') + '</span>' +
-      '<span class="radek-pod orez-2">' + stavTag(m) + ' ' + stitekUctu + stitkyHtml(m) + esc(m.ukazka || '') + '</span>' +
+      '<span class="radek-pod orez-2">' + stavTag(m) + ' ' + (m.navrh ? '<span class="tag tag--limetka">' + IKONY.claude + 'Návrh odpovědi</span> ' : '') +
+        stitekUctu + stitkyHtml(m) + esc(m.ukazka || '') + '</span>' +
     '</span></button></li>';
 }
 
@@ -305,7 +306,8 @@ function vlaknoHtml(id) {
   if (stitky || gmail) h += '<div class="vlakno-stitky">' + stitky + gmail + '</div>';
   // proč je konverzace v tomhle stavu (ladění pravidel) a co s ní teď udělat
   if (souhrn && souhrn.duvod) h += '<p class="duvod">Proč: <b>' + esc(souhrn.duvod) + '</b></p>';
-  if (souhrn && !souhrn.zPc) h += dalsiKrokHtml(souhrn);
+  if (d && d.navrhOdpovedi) h += navrhOdpovediHtml(d.navrhOdpovedi);
+  else if (souhrn && !souhrn.zPc) h += dalsiKrokHtml(souhrn);
   if (d) {
     // nejnovější nahoře (Michal 2. 10.), rozbalená; starší pod ní sbalené
     h += d.zpravy.slice().reverse().map((z, i) => zpravaHtml(z, i === 0 || !!stav.rozbaleneZpravy[z.id])).join('');
@@ -369,6 +371,15 @@ function kdyTerminu(t) {
 function jakDlouho(t) {
   const r = -rozdilDni(t);
   return r <= 0 ? 'od dneška' : r === 1 ? 'od včera' : 'už ' + r + ' ' + (r < 5 ? 'dny' : 'dní');
+}
+
+/** Návrh odpovědi od Clauda (naplánovaná úloha nad POSTA_K_ODPOVEDI.json): použít = psaní s textem návrhu a podpisem. */
+function navrhOdpovediHtml(n) {
+  return '<div class="dalsi-krok navrh-odpovedi"><small>' + IKONY.claude + 'Claude navrhuje odpověď</small>' +
+    '<div class="navrh-odpovedi__text">' + esc(n.text) + '</div>' + (n.poznamka ? '<span>' + esc(n.poznamka) + '</span>' : '') +
+    '<div class="navrh-odpovedi__akce"><button type="button" class="btn btn--sm" data-navrh-odpovedi="pouzit">' + IKONY.odpovedet + '<span>Použít a upravit</span></button>' +
+    '<button type="button" class="btn btn--sm btn--ghost" data-navrh-odpovedi="zahodit">Zahodit</button></div>' +
+    '<p>Nic se neodešle, dokud to v psaní neodešleš ty.</p></div>';
 }
 
 /** Limetková karta „Další krok“ (vzor PriorAuth): co s konverzací udělat teď, podle stavu a termínu. */
@@ -710,6 +721,22 @@ async function ulozPripominku(tlacitko) {
 
 export function klikPosta(el) {
   if (el.dataset.vlakno) { otevriVlakno(el.dataset.vlakno); return true; }
+  if (el.dataset.navrhOdpovedi) {
+    const id = stav.otevreneVlakno;
+    const d = id && stav.vlakna[id] && stav.vlakna[id].data;
+    if (!d || !d.navrhOdpovedi) return true;
+    if (el.dataset.navrhOdpovedi === 'pouzit') { otevriPsani('odpoved', { text: d.navrhOdpovedi.text, prepsat: true }); return true; }
+    el.disabled = true;
+    volej('navrhZahodit', { id }).then(() => {
+      delete d.navrhOdpovedi;
+      if (stav.vlakna[id]) stav.vlakna[id].verze = Date.now(); // detail se překresluje podle verze
+      const s = najdiSouhrn(id);
+      if (s) s.navrh = false;
+      toast('Návrh zahozen');
+      zmeneno();
+    }).catch((e) => { el.disabled = false; toast(e.message, true); });
+    return true;
+  }
   if (el.dataset.filtrPosty) {
     stav.filtrPosty = el.dataset.filtrPosty;
     uloziste.pis('asistent.filtrPosty', stav.filtrPosty);

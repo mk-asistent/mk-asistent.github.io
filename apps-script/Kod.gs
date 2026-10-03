@@ -126,7 +126,10 @@ const AKCE = {
   whoopOdpojit: function () { return whoopOdpojit_(); },
   zdraviKlic: function (d) { return zdraviKlic_(!!d.novy); },
   fotbal: function (d) { return fotbal_(d); },
-  fotbalKalendar: function (d) { return fotbalDoKalendare_(d.tymy); }
+  fotbalKalendar: function (d) { return fotbalDoKalendare_(d.tymy); },
+  dochazka: function (d) { return dochazka_(!!d.znovu); },
+  navrhZahodit: function (d) { return zahoditNavrh_(d.id); },
+  navrhyNastavit: function (d) { return nastavNavrhy_(d.rezim); }
 };
 
 // ---------------------------------------------------------------- nastavení (spouští se ručně v editoru)
@@ -425,7 +428,7 @@ function aliasPracovni_(prac) {
 /** Stav pošty pro Nastavení v aplikaci: pracovní adresa a jestli z ní jde odesílat. */
 function nastaveniPosty_() {
   const prac = pracovniAdresa_();
-  return { osobniAdresa: mojeAdresa_(), pracovniAdresa: prac, lzeOdesilatZPracovni: !!prac && !!aliasPracovni_(prac), podpisy: podpisy_() };
+  return { osobniAdresa: mojeAdresa_(), pracovniAdresa: prac, lzeOdesilatZPracovni: !!prac && !!aliasPracovni_(prac), podpisy: podpisy_(), navrhyOdpovedi: rezimNavrhu_() };
 }
 
 function nastavPostu_(adresa) {
@@ -457,8 +460,8 @@ function nactiPostu_(znovu) {
   const starsi = 'in:inbox older_than:' + DNI_POSTY + 'd newer_than:' + DNI_STARSI_POSTY + 'd' + kategorie;
   const nevyrizene = function (v) { return v.stav === 'hori' || v.stav === 'ceka' || v.stav === 'otazka'; };
   const ucet = function (filtr, nazev) {
-    return spojVlakna_(seznamVlaken_(zaklad + filtr, ja, prac, nazev),
-      seznamVlaken_(starsi + filtr, ja, prac, nazev, MAX_STARSICH).filter(nevyrizene));
+    return spojVlakna_(seznamVlaken_(zaklad + filtr, ja, prac, nazev, null, null, true),
+      seznamVlaken_(starsi + filtr, ja, prac, nazev, MAX_STARSICH, null, true).filter(nevyrizene));
   };
   const pracovni = prac ? ucet(' ' + filtrPracovni_(prac), 'pracovni') : [];
   // hledání jde po zprávách – vlákno s osobní i pracovní zprávou by bylo dvakrát; patří k pracovní
@@ -466,6 +469,19 @@ function nactiPostu_(znovu) {
   pracovni.forEach(function (v) { vPracovni[v.id] = true; });
   const osobni = ucet(prac ? ' -to:' + prac + ' -cc:' + prac + ' -deliveredto:' + prac : '', 'osobni')
     .filter(function (v) { return !vPracovni[v.id]; });
+  // podklady pro návrhy odpovědí od Clauda (jen na Disk, do aplikace nejdou) + značka „návrh“ u konverzace
+  const kOdpovedi = [];
+  let navrhy = {};
+  try { navrhy = nactiNavrhy_(); } catch (chyba) { navrhy = {}; }
+  osobni.concat(pracovni).forEach(function (v) {
+    if (v._odpoved) {
+      kOdpovedi.push({ id: v.id, zpravaId: v._odpoved.zpravaId, ucet: v.ucet, stav: v.stav, od: v.od, odAdresa: v.odAdresa, predmet: v.predmet, kdy: v.kdy, text: v._odpoved.text });
+      const n = navrhy[v.id];
+      if (n && n.zpravaId === v._odpoved.zpravaId && n.text) v.navrh = true;
+    }
+    delete v._odpoved;
+  });
+  try { ulozPostuKOdpovedi_(kOdpovedi); } catch (chyba) { /* pošta se ukáže i bez podkladů */ }
   const vysledek = {
     osobni: osobni,
     pracovni: pracovni,
@@ -475,6 +491,81 @@ function nactiPostu_(znovu) {
   };
   ulozDoCache_('posta', vysledek, 90);
   return vysledek;
+}
+
+// ---------------------------------------------------------------- Návrhy odpovědí od Clauda
+// Motor zapíše konverzace, které čekají na Michalovu odpověď, do CLAUDE_SCHRANKA/POSTA_K_ODPOVEDI.json (jen na Disk).
+// Naplánovaná úloha Clauda k nim napíše návrh do CLAUDE_SCHRANKA/ODPOVEDI/<id vlákna>.json; aplikace návrh ukáže
+// v konverzaci – Michal ho upraví a odešle sám. Nastavení NAVRHY_ODPOVEDI: obe (výchozí) | osobni | vypnuto.
+
+const MAX_K_ODPOVEDI = 15;
+
+function rezimNavrhu_() {
+  const r = vlastnosti_().getProperty('NAVRHY_ODPOVEDI') || 'obe';
+  return ['obe', 'osobni', 'vypnuto'].indexOf(r) >= 0 ? r : 'obe';
+}
+
+function nastavNavrhy_(rezim) {
+  if (['obe', 'osobni', 'vypnuto'].indexOf(rezim) < 0) throw new Error('Neplatné nastavení návrhů.');
+  vlastnosti_().setProperty('NAVRHY_ODPOVEDI', rezim);
+  vlastnosti_().deleteProperty('ODPOVEDI_OTISK'); // příště se podklady zapíšou znovu (i prázdné)
+  smazCache_('posta');
+  return nastaveniPosty_();
+}
+
+/** Podklady pro Clauda – zapíše se jen při změně (otisk ve vlastnostech), ať se Disk zbytečně nemění. */
+function ulozPostuKOdpovedi_(seznam) {
+  const rezim = rezimNavrhu_();
+  const vybrane = rezim === 'vypnuto' ? [] : seznam.filter(function (v) { return rezim === 'obe' || v.ucet === 'osobni'; })
+    .sort(function (a, b) { return b.kdy - a.kdy; }).slice(0, MAX_K_ODPOVEDI);
+  const otisk = md5_(rezim + '|' + JSON.stringify(vybrane.map(function (v) { return [v.id, v.zpravaId]; })));
+  const p = vlastnosti_();
+  if (p.getProperty('ODPOVEDI_OTISK') === otisk) return false;
+  const obsah = JSON.stringify({ vytvoreno: new Date(Date.now()).toISOString(), rezim: rezim, vlakna: vybrane }, null, 1);
+  const koren = koren_();
+  const it = koren.getFilesByName('POSTA_K_ODPOVEDI.json');
+  if (it.hasNext()) it.next().setContent(obsah); else koren.createFile('POSTA_K_ODPOVEDI.json', obsah, 'application/json');
+  p.setProperty('ODPOVEDI_OTISK', otisk);
+  return true;
+}
+
+function slozkaNavrhu_() { return podslozka_(koren_(), 'ODPOVEDI'); }
+
+/** Návrhy od Clauda: id vlákna → { zpravaId, text, kdy, poznamka, souborId }. */
+function nactiNavrhy_() {
+  const vysledek = {};
+  const it = slozkaNavrhu_().getFiles();
+  while (it.hasNext()) {
+    const f = it.next();
+    const m = /^(.+)\.json$/.exec(f.getName());
+    if (!m) continue;
+    try {
+      const n = JSON.parse(f.getBlob().getDataAsString('UTF-8'));
+      if (n && n.text) vysledek[m[1]] = { zpravaId: String(n.zpravaId || ''), text: String(n.text).slice(0, 8000), kdy: n.kdy || '', poznamka: String(n.poznamka || '').slice(0, 500), souborId: f.getId() };
+    } catch (chyba) { /* rozbitý návrh přeskočit */ }
+  }
+  return vysledek;
+}
+
+/** Návrh k vláknu (jen když odpovídá poslední zprávě, na kterou se odpovídá), jinak null. */
+function navrhKVlaknu_(id, zpravaId) {
+  const it = slozkaNavrhu_().getFilesByName(String(id) + '.json');
+  if (!it.hasNext()) return null;
+  try {
+    const n = JSON.parse(it.next().getBlob().getDataAsString('UTF-8'));
+    if (!n || !n.text || String(n.zpravaId || '') !== String(zpravaId)) return null;
+    return { zpravaId: String(n.zpravaId), text: String(n.text).slice(0, 8000), kdy: n.kdy || '', poznamka: String(n.poznamka || '').slice(0, 500) };
+  } catch (chyba) { return null; }
+}
+
+/** Zahodit návrh (Michal ho nechce / odpověděl) – soubor do koše na Disku. */
+function zahoditNavrh_(id) {
+  if (!/^[0-9a-zA-Z_-]{1,40}$/.test(String(id || ''))) throw new Error('Neplatné id konverzace.');
+  const it = slozkaNavrhu_().getFilesByName(String(id) + '.json');
+  let n = 0;
+  while (it.hasNext()) { it.next().setTrashed(true); n++; }
+  smazCache_('posta');
+  return { smazano: n };
 }
 
 /** Dva seznamy vláken dohromady bez duplicit (podle id), v původním pořadí. */
@@ -491,7 +582,7 @@ function spojVlakna_(prvni, druhe) {
  * Souhrny vláken pro seznam v aplikaci. Vlákna z dotazu do Gmailu, nebo už načtená (predem – např. vlákna štítku);
  * dotaz pak slouží jen k poznání oznámení (kategorie Aktualizace).
  */
-function seznamVlaken_(dotaz, ja, prac, ucet, max, predem) {
+function seznamVlaken_(dotaz, ja, prac, ucet, max, predem, sPodklady) {
   const vlakna = predem || GmailApp.search(dotaz, 0, max || MAX_VLAKEN);
   const zpravy = GmailApp.getMessagesForThreads(vlakna);
   const oznameni = dotaz ? oznameniVlakna_(dotaz) : {};
@@ -519,7 +610,9 @@ function seznamVlaken_(dotaz, ja, prac, ucet, max, predem) {
     const s = stavADuvod_(posledni, odeMe, vlakno, !!oznameni[vlakno.getId()], ted, seznam.some(odeMne), znami);
     const cekas = s.stav === 'cekas';
     const ukazka = posledni.getPlainBody().replace(/\s+/g, ' ').trim().slice(0, 180);
-    return {
+    // čeká na odpověď → podklad pro návrh od Clauda (nactiPostu_ ho odebere a zapíše do POSTA_K_ODPOVEDI.json)
+    const kOdpovedi = !!sPodklady && !odeMe && !!odesilatel && (s.stav === 'hori' || s.stav === 'ceka' || s.stav === 'otazka');
+    const polozka = {
       id: vlakno.getId(),
       // u hledání účet předem neznáme – stačí adresy zpráv (přeposlaná pracovní pošta má pracovní adresu v Komu/Kopie)
       ucet: ucet || (prac && seznam.some(function (m) {
@@ -545,6 +638,8 @@ function seznamVlaken_(dotaz, ja, prac, ucet, max, predem) {
       poTerminu: !!s.termin && s.termin.ms < ted,
       cekasOd: cekas ? posledni.getDate().getTime() : null
     };
+    if (kOdpovedi) polozka._odpoved = { zpravaId: odesilatel.getId(), text: vlastniText_(odesilatel) };
+    return polozka;
   });
 }
 
@@ -1047,6 +1142,11 @@ function nactiVlakno_(id, precist) {
       return zprava;
     })
   };
+  // návrh odpovědi od Clauda k poslední zprávě, na kterou se odpovídá (cizí)
+  const cizi = data.zpravy.filter(function (z) { return !z.odeMe; }).pop();
+  if (cizi && cizi === data.zpravy[data.zpravy.length - 1]) {
+    try { const n = navrhKVlaknu_(data.id, cizi.id); if (n) data.navrhOdpovedi = n; } catch (chyba) { /* bez návrhu */ }
+  }
   if (precist && vlakno.isUnread()) {
     vlakno.markRead();
     smazCache_('posta');
@@ -1114,6 +1214,7 @@ function odeslatHned_(d) {
     const odeMe = [ja, prac].indexOf(adresa_(zprava.getFrom())) >= 0;
     // odpověď na vlastní zprávu by šla mně – pokračování patří původním adresátům
     if (d.rezim === 'vsem' || odeMe) zprava.replyAll(text, moznosti); else zprava.reply(text, moznosti);
+    try { zahoditNavrh_(zprava.getThread().getId()); } catch (chyba) { /* návrh nemusí existovat */ }
   } else if (d.rezim === 'preposlat') {
     preposlat_(zprava_(d.id), adresy_(d.komu), text, prac);
   } else if (d.rezim === 'novy') {
@@ -1781,6 +1882,74 @@ function fotbalLehce_(data) {
 function otiskFotbalu_(data, tymy) {
   return md5_(tymy.join(',') + '|' + JSON.stringify(data.zapasy.map(function (z) { return [z.id, z.zacatek, z.misto, z.vysledek, z.domaci, z.hoste]; })));
 }
+
+// ---------------------------------------------------------------- Docházka dorostu (Týmuj → web dorostu → tady)
+// Web dorostu má synchronizaci z Týmuj (GitHub Actions) a ukládá docházku do Firestore (dokument dochazka/dorost).
+// Adresa dokumentu: vlastnost DOCHAZKA_URL, nebo se odvodí z core.js webu dorostu (vlastnost DOCHAZKA_WEB).
+// Ven jde jen souhrn: počty u akce + jména chybějících; texty omluv (můžou být zdravotní) se nepředávají.
+
+const DOCHAZKA_WEB_VYCHOZI = 'https://kocismichal.github.io/dorost';
+
+function dochazkaUrl_() {
+  const p = vlastnosti_();
+  const url = p.getProperty('DOCHAZKA_URL');
+  if (url) return url;
+  const web = (p.getProperty('DOCHAZKA_WEB') || DOCHAZKA_WEB_VYCHOZI).replace(/\/+$/, '');
+  const core = UrlFetchApp.fetch(web + '/assets/js/core.js', { muteHttpExceptions: true });
+  if (core.getResponseCode() !== 200) throw new Error('Web dorostu neodpovídá (' + core.getResponseCode() + ').');
+  const t = core.getContentText();
+  const projekt = (/projectId:\s*"([^"]+)"/.exec(t) || [])[1];
+  const app = (/APP_ID\s*=\s*"([^"]+)"/.exec(t) || [])[1];
+  if (!projekt || !app) throw new Error('V core.js webu dorostu chybí projectId / APP_ID.');
+  return 'https://firestore.googleapis.com/v1/projects/' + projekt + '/databases/(default)/documents/artifacts/' + app + '/public/data/dochazka/dorost';
+}
+
+/** Akce dochazka: souhrn akcí za 8 týdnů (z mezipaměti 30 min). */
+function dochazka_(znovu) {
+  const KLIC = 'dochazka:souhrn';
+  if (!znovu) { const c = nactiZCache_(KLIC); if (c) return c; }
+  const r = UrlFetchApp.fetch(dochazkaUrl_(), { muteHttpExceptions: true });
+  if (r.getResponseCode() !== 200) throw new Error('Docházka z webu dorostu není dostupná (' + r.getResponseCode() + ').');
+  const doc = JSON.parse(r.getContentText());
+  const pole = doc.fields || {};
+  const data = JSON.parse((pole.data && pole.data.stringValue) || '{}');
+  const ted = Date.now();
+  const souhrn = DOCHAZKA_.souhrn(data, ted - 56 * 864e5, ted + 864e5);
+  souhrn.aktualizovano = (pole.aktualizovano && (pole.aktualizovano.timestampValue || pole.aktualizovano.stringValue)) || data.aktualizovano || '';
+  souhrn.chyba = (pole.chyba && pole.chyba.stringValue) || '';
+  ulozDoCache_(KLIC, souhrn, 1800);
+  return souhrn;
+}
+
+/** Čisté funkce docházky (testuje motor.test.js). Odpovědi Týmuj: G jde, N nejde (s komentářem = omluva), M možná, '' bez odpovědi. */
+const DOCHAZKA_ = (function () {
+  function souhrn(data, od, doMs) {
+    const jmena = {};
+    (data.hraci || []).forEach(function (h) { jmena[h.id] = h.jmeno || ''; });
+    const udalosti = (data.udalosti || []).filter(function (u) {
+      const t = Date.parse(u.zacatek);
+      return t >= od && t < doMs;
+    }).map(function (u) {
+      const p = { prislo: 0, omluveno: 0, neomluveno: 0, mozna: 0, bez: 0, pozvano: 0 };
+      const omluveni = [], neomluveni = [];
+      Object.keys(u.ucast || {}).forEach(function (id) {
+        const o = u.ucast[id] || [];
+        const odpoved = o[0] || '';
+        p.pozvano++;
+        if (odpoved === 'G') p.prislo++;
+        else if (odpoved === 'N') {
+          if (String(o[1] || '').trim()) { p.omluveno++; omluveni.push(jmena[id] || '?'); } else { p.neomluveno++; neomluveni.push(jmena[id] || '?'); }
+        } else if (odpoved === 'M') p.mozna++;
+        else p.bez++;
+      });
+      const abc = function (a, b) { return a.localeCompare(b, 'cs'); };
+      return { zacatek: u.zacatek, druh: u.druh || '', nazev: u.nazev || '', zruseno: !!u.zruseno, venku: !!u.venku, pocty: p,
+        omluveni: omluveni.sort(abc), neomluveni: neomluveni.sort(abc) };
+    });
+    return { udalosti: udalosti };
+  }
+  return { souhrn: souhrn };
+})();
 
 /** „FK Agro Vnorovy“ → „Vnorovy“, „TJ Sokol Těšany“ → „Těšany“, „FK Hodonín "B"“ → „Hodonín B“ */
 function kratkyKlub_(n) {
@@ -3124,7 +3293,23 @@ function zdravi_(znovu) {
   p.whoop = whoopStav_();
   if (chybaSync) p.whoop.sync.chyba = chybaSync;
   p.apple = { kdy: Number(vlastnosti_().getProperty('APPLE_SYNC') || 0) };
+  p.rezim = zdraviRezim_();
   return p;
+}
+
+/**
+ * Režim doplňků (CLAUDE_SCHRANKA/ZDRAVI_REZIM.json – jen na Michalově Disku, do repa nepatří): co brát kdy,
+ * dny tréninku, týmy, jejichž zápas je „den zápasu“, poslední kofein. Aplikace z toho skládá „Doplňky dnes“. Chybí → null.
+ */
+function zdraviRezim_() {
+  const it = koren_().getFilesByName('ZDRAVI_REZIM.json');
+  if (!it.hasNext()) return null;
+  try {
+    const r = JSON.parse(it.next().getBlob().getDataAsString('UTF-8'));
+    return r && Array.isArray(r.polozky) ? r : null;
+  } catch (chyba) {
+    return { chyba: 'ZDRAVI_REZIM.json není platný JSON.', polozky: [] };
+  }
 }
 
 /** Zpracování dat zdraví – čisté funkce (testuje apps-script/test/motor.test.js). */
@@ -3309,6 +3494,7 @@ function kazdouHodinu() {
   const hodina = Number(Utilities.formatDate(new Date(Date.now()), CASOVE_PASMO, 'H'));
   try { if (hodina >= 6 && hodina <= 22) horiVPoste_(); } catch (chyba) { /* příště */ }
   try { ranniSouhrn_(hodina); } catch (chyba) { /* příště */ }
+  try { nedelniPrehled_(hodina); } catch (chyba) { /* příště */ }
   if (whoopStav_().propojeno) {
     try {
       const z = whoopSync_(3);
@@ -3360,6 +3546,73 @@ function horiVPoste_() {
   if (upozorni_('🔥 Hoří v poště', text, ['fire'], 4)) neohlasene.forEach(function (v) { ohlasene.push(v.id); });
   p.setProperty('OHLASENA_POSTA', JSON.stringify(ohlasene.slice(-60)));
 }
+
+/**
+ * Nedělní přehled příštího týdne (neděle 19–21 h, jednou za týden): počty událostí po dnech, zápasy našich týmů,
+ * úkoly s termínem, předpověď ČHMÚ. Přes ntfy (cizí server) bez názvů událostí a textů úkolů – jen počty a časy.
+ */
+function nedelniPrehled_(hodina) {
+  const p = vlastnosti_();
+  const ted = new Date(Date.now());
+  if (Utilities.formatDate(ted, CASOVE_PASMO, 'u') !== '7' || hodina < 19 || hodina > 21) return;
+  const tyden = Utilities.formatDate(ted, CASOVE_PASMO, 'yyyy-MM-dd');
+  if (p.getProperty('OHLASENO_TYDEN') === tyden) return;
+  const pondeli = Utilities.parseDate(tyden + ' 00:00', CASOVE_PASMO, 'yyyy-MM-dd HH:mm').getTime() + 864e5;
+  const vstup = { od: pondeli, udalosti: [], zapasy: [], terminy: [], predpovedi: [], vystrahy: [] };
+  try { vstup.udalosti = nactiKalendar_(pondeli, pondeli + 7 * 864e5, false).udalosti; } catch (chyba) { /* bez kalendáře */ }
+  try {
+    const f = fotbalData_();
+    if (f) {
+      const nazvy = {};
+      (f.tymy || []).forEach(function (t) { nazvy[t.klic] = t.nazev; });
+      vstup.zapasy = f.zapasy.map(function (z) { return { zacatek: Date.parse(z.zacatek), tym: nazvy[z.tym] || z.tym, doma: z.doma }; });
+    }
+  } catch (chyba) { /* bez fotbalu */ }
+  try { vstup.terminy = nactiSchranku_().ceka.map(function (x) { return x.termin; }).filter(Boolean); } catch (chyba) { /* bez schránky */ }
+  try {
+    const poc = pocasi_(false);
+    vstup.predpovedi = poc.predpovedi;
+    vstup.vystrahy = poc.vystrahy.filter(function (v) { return v.typ !== 'vyhled'; });
+  } catch (chyba) { /* bez počasí */ }
+  if (upozorni_('Příští týden', TYDEN_.text(vstup), ['calendar'], 3)) p.setProperty('OHLASENO_TYDEN', tyden);
+}
+
+/** Text nedělního přehledu – čistá funkce (testuje motor.test.js). Časy v Praze. */
+const TYDEN_ = (function () {
+  const DNY = ['Ne', 'Po', 'Út', 'St', 'Čt', 'Pá', 'So'];
+  function datum(ms) { return Utilities.formatDate(new Date(ms), CASOVE_PASMO, 'yyyy-MM-dd'); }
+  function denTydne(ms) { return Number(Utilities.formatDate(new Date(ms), CASOVE_PASMO, 'u')) % 7; }
+  function cas(ms) { return Utilities.formatDate(new Date(ms), CASOVE_PASMO, 'H:mm'); }
+  function text(v) {
+    const radky = [];
+    const do_ = v.od + 7 * 864e5;
+    const dny = [];
+    for (let i = 0; i < 7; i++) dny.push(datum(v.od + i * 864e5 + 12 * 36e5));
+    // události po dnech (bez zápasů – ty mají vlastní řádek)
+    const pocty = {};
+    (v.udalosti || []).filter(function (u) { return !/^⚽/.test(u.nazev || '') && u.zacatek < do_ && u.konec > v.od; }).forEach(function (u) {
+      const d = datum(Math.max(u.zacatek, v.od));
+      if (dny.indexOf(d) >= 0) pocty[d] = (pocty[d] || 0) + 1;
+    });
+    const celkem = Object.keys(pocty).reduce(function (s, k) { return s + pocty[k]; }, 0);
+    radky.push(celkem ? 'Kalendář: ' + celkem + ' (' + dny.filter(function (d) { return pocty[d]; }).map(function (d) {
+      return DNY[denTydne(Date.parse(d + 'T12:00:00Z'))] + ' ' + pocty[d];
+    }).join(', ') + ')' : 'Kalendář: volný týden');
+    const zapasy = (v.zapasy || []).filter(function (z) { return z.zacatek >= v.od && z.zacatek < do_; }).sort(function (a, b) { return a.zacatek - b.zacatek; });
+    if (zapasy.length) radky.push('Zápasy: ' + zapasy.map(function (z) { return DNY[denTydne(z.zacatek)] + ' ' + cas(z.zacatek) + ' ' + z.tym + (z.doma ? ' doma' : ' venku'); }).join(' · '));
+    const posledni = datum(do_ - 12 * 36e5);
+    const terminy = (v.terminy || []).filter(function (t) { return t <= posledni; }).sort();
+    if (terminy.length) {
+      const prosle = terminy.filter(function (t) { return t < dny[0]; }).length;
+      radky.push('Úkoly s termínem: ' + terminy.length + (prosle ? ' (po termínu ' + prosle + ')' : ', první ' + DNY[denTydne(Date.parse(terminy[0] + 'T12:00:00Z'))]));
+    }
+    const pred = (v.predpovedi || []).filter(function (x) { return dny.indexOf(x.den) >= 0 && x.tMax; });
+    if (pred.length) radky.push('Počasí: ' + pred.map(function (x) { return DNY[denTydne(Date.parse(x.den + 'T12:00:00Z'))] + ' ' + x.tMax[1] + ' °C' + (x.ikona === 'dest' || x.ikona === 'bourka' || x.ikona === 'snih' ? ' ' + ({ dest: 'déšť', bourka: 'bouřky', snih: 'sníh' })[x.ikona] : ''); }).join(' · '));
+    if ((v.vystrahy || []).length) radky.push('⚠ ' + v.vystrahy.map(function (x) { return x.nazev; }).filter(function (n, i, a) { return a.indexOf(n) === i; }).join(', '));
+    return radky.join('\n');
+  }
+  return { text: text };
+})();
 
 /** Ranní souhrn (jednou denně): po probuzení s připraveností z WHOOP, nejpozději v 8 h i bez ní. */
 function ranniSouhrn_(hodina) {

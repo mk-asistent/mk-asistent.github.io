@@ -142,6 +142,7 @@ function prostredi() {
     const zn = (posun < 0 ? '-' : '+') + pad(Math.floor(Math.abs(posun) / 60)) + pad(Math.abs(posun) % 60);
     if (vzor === 'Z') return zn;
     if (vzor === 'H') return String(c.hour % 24);
+    if (vzor === 'u') return String(new Date(Date.UTC(+c.year, c.month - 1, +c.day)).getUTCDay() || 7); // 1 = pondělí … 7 = neděle
     return vzor.replace("'T'", 'T').replace('yyyy', c.year).replace('MM', pad(c.month)).replace('dd', pad(c.day))
       .replace('HH', pad(c.hour % 24)).replace('mm', pad(c.minute)).replace('ss', pad(c.second))
       .replace('XXX', zn.slice(0, 3) + ':' + zn.slice(3)).replace(/^d\. M\./, c.day + '. ' + c.month + '.').replace('H:', (c.hour % 24) + ':');
@@ -1330,6 +1331,71 @@ test('počasí: povodeň z CAP (profil, vývoj) a hladina nad 2. SPA z měření
   const r = json(C.reka(stanice, meta, Date.parse('2026-10-02T19:20:00Z')));
   assert.deepStrictEqual([r.typ, r.uroven, r.spa, r.stav], ['povoden', 'oranzova', 2, '2. SPA – pohotovost']);
   assert.deepStrictEqual(json(C.teploty('Nejnižší teploty −2 až −6 °C')), [-6, -2]);
+});
+
+test('nedělní přehled: události po dnech bez zápasů, zápasy týmů, úkoly s termínem, počasí – bez názvů', () => {
+  const p = prostredi();
+  const T = vm.runInContext('TYDEN_', p.ctx);
+  const po = Date.parse('2026-10-05T00:00:00+02:00'); // pondělí
+  const h = (den, hod) => po + den * 864e5 + hod * 36e5;
+  const text = T.text({ od: po,
+    udalosti: [{ nazev: 'Porada', zacatek: h(0, 8), konec: h(0, 9) }, { nazev: 'Zubař', zacatek: h(0, 14), konec: h(0, 15) },
+      { nazev: 'Školení', zacatek: h(3, 10), konec: h(3, 12) }, { nazev: '⚽ Vnorovy – Šardice', zacatek: h(5, 15), konec: h(5, 17) },
+      { nazev: 'Mimo týden', zacatek: h(8, 10), konec: h(8, 11) }],
+    zapasy: [{ zacatek: h(5, 15), tym: 'A-tým', doma: false }, { zacatek: h(6, 12.25), tym: 'Dorost', doma: true }, { zacatek: h(-2, 10), tym: 'B-tým', doma: true }],
+    terminy: ['2026-10-01', '2026-10-07', '2026-10-30'],
+    predpovedi: [{ den: '2026-10-05', tMax: [17, 20], ikona: 'polojasno' }, { den: '2026-10-06', tMax: [14, 16], ikona: 'dest' }, { den: '2026-10-04', tMax: [20, 22], ikona: 'slunce' }],
+    vystrahy: [] });
+  assert.strictEqual(text, 'Kalendář: 3 (Po 2, Čt 1)\nZápasy: So 15:00 A-tým venku · Ne 12:15 Dorost doma\nÚkoly s termínem: 2 (po termínu 1)\nPočasí: Po 20 °C · Út 16 °C déšť');
+  assert.ok(!/Porada|Zubař|Školení/.test(text), 'žádné názvy událostí přes cizí server');
+});
+
+test('docházka: souhrn akcí (přišlo, omluveno s komentářem, neomluveno, možná), jména bez textů omluv, jen v rozsahu', () => {
+  const p = prostredi();
+  const D = vm.runInContext('DOCHAZKA_', p.ctx);
+  const data = { hraci: [{ id: '1', jmeno: 'Hráč A' }, { id: '2', jmeno: 'Hráč B' }, { id: '3', jmeno: 'Hráč C' }, { id: '4', jmeno: 'Hráč D' }, { id: '5', jmeno: 'Hráč E' }],
+    udalosti: [{ id: 1, zacatek: '2026-10-01T17:30:00+02:00', nazev: 'ČT - DOROST', druh: 'T_CT', zruseno: false, venku: false,
+      ucast: { 1: ['G', ''], 2: ['G', ''], 3: ['N', 'nemoc'], 4: ['N', ''], 5: ['M', ''] } },
+    { id: 2, zacatek: '2026-06-01T17:30:00+02:00', druh: 'T_PO', ucast: { 1: ['G', ''] } }] };
+  const s = json(D.souhrn(data, Date.parse('2026-09-01T00:00:00Z'), Date.parse('2026-10-05T00:00:00Z')));
+  assert.strictEqual(s.udalosti.length, 1);
+  const u = s.udalosti[0];
+  assert.deepStrictEqual(u.pocty, { prislo: 2, omluveno: 1, neomluveno: 1, mozna: 1, bez: 0, pozvano: 5 });
+  assert.deepStrictEqual([u.omluveni, u.neomluveni, u.druh], [['Hráč C'], ['Hráč D'], 'T_CT']);
+  assert.ok(!/nemoc/.test(JSON.stringify(s)), 'texty omluv se nepředávají');
+});
+
+test('návrhy odpovědí: podklady pro Clauda na Disk, návrh u konverzace a v detailu, zahodit, vypnout', () => {
+  const p = prostredi();
+  let o = p.volej('posta', { znovu: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  const ceka = o.data.osobni.find((v) => v.stav === 'ceka');
+  assert.ok(ceka, 'vlákno čekající na odpověď');
+  assert.ok(!('_odpoved' in ceka), 'podklad nejde do aplikace');
+  const podklad = () => p.schranka.soubory.find((f) => f.getName() === 'POSTA_K_ODPOVEDI.json' && !f.vKosi);
+  assert.ok(podklad(), 'podklady zapsané');
+  const data = JSON.parse(podklad().getBlob().getDataAsString());
+  const v = data.vlakna.find((x) => x.id === ceka.id);
+  assert.ok(v && v.zpravaId && v.text && v.ucet === 'osobni', 'vlákno v podkladech: ' + JSON.stringify(data.vlakna));
+  const zapisu = p.log.soubory.filter((x) => x.n === 'POSTA_K_ODPOVEDI.json').length;
+  p.volej('posta', { znovu: true });
+  assert.strictEqual(p.log.soubory.filter((x) => x.n === 'POSTA_K_ODPOVEDI.json').length, zapisu, 'beze změny se nezapisuje znovu');
+  // Claude napsal návrh → značka v seznamu, text v detailu
+  p.schranka.deti.ODPOVEDI.createFile(ceka.id + '.json', JSON.stringify({ vlakno: ceka.id, zpravaId: v.zpravaId, text: 'Ahoj, beru to.', kdy: '2026-10-03T08:00:00+02:00' }));
+  o = p.volej('posta', { znovu: true });
+  assert.strictEqual(o.data.osobni.find((x) => x.id === ceka.id).navrh, true);
+  const vl = p.volej('vlakno', { id: ceka.id, precist: false });
+  assert.strictEqual(vl.data.navrhOdpovedi && vl.data.navrhOdpovedi.text, 'Ahoj, beru to.');
+  // návrh k jiné (starší) zprávě se neukáže
+  p.schranka.deti.ODPOVEDI.soubory[0].setContent(JSON.stringify({ zpravaId: 'jina', text: 'staré' }));
+  assert.ok(!p.volej('vlakno', { id: ceka.id, precist: false }).data.navrhOdpovedi, 'návrh k jiné zprávě');
+  assert.strictEqual(p.volej('navrhZahodit', { id: ceka.id }).data.smazano, 1);
+  assert.strictEqual(p.volej('navrhZahodit', { id: '../x' }).ok, false);
+  // vypnuto → prázdné podklady, info ví o nastavení
+  assert.strictEqual(p.volej('navrhyNastavit', { rezim: 'vypnuto' }).data.navrhyOdpovedi, 'vypnuto');
+  p.volej('posta', { znovu: true });
+  assert.strictEqual(JSON.parse(podklad().getBlob().getDataAsString()).vlakna.length, 0);
+  assert.strictEqual(p.volej('navrhyNastavit', { rezim: 'nesmysl' }).ok, false);
 });
 
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

@@ -218,6 +218,14 @@ function sekcePosty() {
     (p.pracovniAdresa ? '<label><span class="label">Pracovní · ' + esc(p.pracovniAdresa) + '</span><textarea class="field" rows="5" data-nast-podpis="pracovni" ' +
       'placeholder="S pozdravem&#10;&#10;' + esc(jmeno || 'Jméno Příjmení') + '&#10;pozice · firma&#10;telefon · web">' + esc(podpisy.pracovni || '') + '</textarea></label>' : '') +
     '<div class="akce"><button type="button" class="btn btn--primary" data-nast="ulozit-podpisy"' + (staryMotor() ? ' disabled' : '') + '>Uložit podpis</button></div>';
+  // návrhy odpovědí od Clauda: motor dá konverzace „čeká na tebe“ na Disk, naplánovaná úloha k nim napíše návrh
+  if (umiMotor('navrhyNastavit')) {
+    const r = p.navrhyOdpovedi || 'obe';
+    h += '<h3>Návrhy odpovědí od Clauda</h3><p class="napoveda">U konverzací, které čekají na tvou odpověď, připraví Claude návrh (naplánovaná úloha ' +
+      '„Návrhy odpovědí“). Text e-mailů jde jen přes tvůj Disk a Clauda; odesíláš vždycky ty.</p>' +
+      '<div class="segment" role="group" aria-label="Návrhy odpovědí">' + [['obe', 'Osobní i pracovní'], ['osobni', 'Jen osobní'], ['vypnuto', 'Vypnuto']].map((x) =>
+        '<button type="button" class="chip" data-nast-navrhy="' + x[0] + '" aria-pressed="' + (r === x[0]) + '">' + x[1] + '</button>').join('') + '</div>';
+  }
   return h + '</section>';
 }
 
@@ -370,6 +378,13 @@ export function klikNastaveni(el) {
     obnovPanel('nastaveni');
     const telo = panel && elementPanelu('nastaveni').querySelector('.panel-telo');
     if (telo) telo.scrollTop = 0;
+    return true;
+  }
+  if (el.dataset.nastNavrhy) {
+    el.disabled = true;
+    volej('navrhyNastavit', { rezim: el.dataset.nastNavrhy })
+      .then((posta) => { if (stav.info) stav.info.posta = posta; uloziste.pis('asistent.info', stav.info); toast('Uloženo ✓'); obnovPanel('nastaveni'); })
+      .catch((e) => { el.disabled = false; toast(e.message, true); });
     return true;
   }
   if (akce === 'zmenit-pripojeni') { n.upravaPripojeni = true; obnovPanel('nastaveni'); return true; }

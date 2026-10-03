@@ -426,7 +426,8 @@ function casovaOsaHtml(dny) {
       const vyska = Math.max((hodinyOd(p.k, d) - hodinyOd(p.z, d)) * HODINA - 2, 22);
       h += '<button type="button" class="cas-udalost' + (p.u.konec < Date.now() ? ' probehla' : '') + '" data-udalost="' + esc(p.u.id) + '" style="top:' + nahore + 'px;height:' + vyska + 'px;' +
         'left:calc(' + p.sloupec + ' * 100% / ' + p.sloupcu + ');width:calc(100% / ' + p.sloupcu + ' - 3px);--b:' + esc(p.u.barva) + '">' +
-        '<b>' + esc(p.u.nazev) + '</b><small class="cisla">' + hhmm(p.u.zacatek) + '–' + hhmm(p.u.konec) + (p.u.misto ? ' · ' + esc(p.u.misto) : '') + '</small></button>';
+        '<b>' + esc(p.u.nazev) + '</b><small class="cisla">' + hhmm(p.u.zacatek) + '–' + hhmm(p.u.konec) + (p.u.misto ? ' · ' + esc(p.u.misto) : '') +
+        (hooky.dochazkaKratce && hooky.dochazkaKratce(p.u) ? ' · ' + IKONY.lide + hooky.dochazkaKratce(p.u) : '') + '</small></button>';
     });
     if (d === dnes) h += '<div class="cas-ted" style="top:' + (hodinyOd(Date.now(), d) * HODINA) + 'px"></div>';
     h += '</div>';
@@ -532,6 +533,7 @@ function detailHtml(u) {
   if (pr && u.konec > Date.now()) h += '<p class="udalost-radek">' + ikonaPocasi(pr.ikona) + '<span>' + esc(pr.uvod) + (teplota(pr) ? ', ' + esc(teplota(pr)) : '') +
     (pr.srazky ? ' · srážky ' + esc(pr.srazky) : '') + ' <small class="muted">ČHMÚ</small></span></p>';
   if (hooky.detailUdalosti) h += hooky.detailUdalosti(u); // trénink z WHOOP ve stejném čase
+  if (hooky.dochazkaUdalosti) h += hooky.dochazkaUdalosti(u); // docházka dorostu z Týmuj
   return h + '</div>';
 }
 

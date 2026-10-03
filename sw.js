@@ -8,7 +8,7 @@ const SOUBORY = [
   './', 'index.html', 'app.css', 'manifest.webmanifest',
   'js/app.js', 'js/api.js', 'js/pomocne.js', 'js/stav.js', 'js/ui.js', 'js/ikony.js', 'js/panely.js',
   'js/schranka.js', 'js/posta.js', 'js/kalendar.js', 'js/nastaveni.js', 'js/ukazka.js', 'js/grafy.js', 'js/hledat.js', 'js/udalost.js',
-  'js/pocasi.js', 'js/zdravi.js', 'js/adresy.js', 'js/fotbal.js', 'js/rozbor.js',
+  'js/pocasi.js', 'js/zdravi.js', 'js/adresy.js', 'js/fotbal.js', 'js/rozbor.js', 'js/dochazka.js',
   'ikony/ikona-192.png', 'ikony/apple-touch-icon.png'
 ];
 

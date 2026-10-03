@@ -584,6 +584,28 @@ button.zapas-hlava:hover { background: var(--bg-soft); }
     .fotbal-tabulka .vrp { display: none; }
     .zapas-detail { padding-left: 16px; }
 }
+/* návrh odpovědi od Clauda v konverzaci */
+.navrh-odpovedi__text { white-space: pre-wrap; font-size: 13.5px; line-height: 1.5; padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, .55); color: var(--na-limetce); max-height: 240px; overflow: auto; }
+.navrh-odpovedi__akce { display: flex; flex-wrap: wrap; gap: 8px; }
+.dalsi-krok.navrh-odpovedi .navrh-odpovedi__akce .btn--ghost { background: transparent; border-color: rgba(23, 32, 15, .25); color: var(--na-limetce); }
+.navrh-odpovedi p { margin: 0; font-size: 11.5px; opacity: .7; }
+/* docházka dorostu z Týmuj v detailu události */
+.dochazka-detail { display: flex; flex-direction: column; gap: 2px; }
+.dochazka-chybi { color: var(--danger); }
+.dochazka-jmena { margin: 0 0 0 26px; font-size: 12.5px; color: var(--text-soft); }
+.cas-udalost small svg { width: 11px; height: 11px; vertical-align: -1px; margin-right: 2px; }
+/* Doplňky dnes (režim z Disku): odškrtávací seznam */
+.doplnky { list-style: none; margin: 0; padding: 2px 8px 6px; display: flex; flex-direction: column; gap: 2px; }
+.doplnek { width: 100%; display: flex; align-items: center; gap: 10px; padding: 7px 8px; border: 0; border-radius: 12px; background: none; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.doplnek:hover { background: var(--bg-soft); }
+.doplnek .zaskrt { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; border: 1.5px solid var(--line); color: transparent; }
+.doplnek .zaskrt svg { width: 14px; height: 14px; }
+.doplnek[aria-pressed="true"] .zaskrt { background: var(--limetka); border-color: var(--limetka); color: var(--na-limetce); }
+.doplnek > span { display: flex; flex-direction: column; min-width: 0; }
+.doplnek b { font-size: 13.5px; font-weight: 600; }
+.doplnek small { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doplnek[aria-pressed="true"] b { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--dim); }
+.doplnky-pozn { margin: 0; padding: 0 16px 12px; font-size: 12px; color: var(--muted); }
 .kal-druhy { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .kal-druhy::-webkit-scrollbar { display: none; }
 /* předpověď ČHMÚ u dnů v kalendáři */

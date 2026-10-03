@@ -53,12 +53,16 @@ const schranka = {
   ]
 };
 
+// návrhy odpovědí od Clauda (v ukázce jeden – na dotaz svazu)
+const navrhyOdpovedi = { t4: { zpravaId: 'z-t4', text: 'Dobrý den,\n\nneděle 10:15 nám vyhovuje, autobus objednáme o hodinu dřív.\n\nDěkuji',
+  kdy: new Date(ted - H).toISOString(), poznamka: '' } };
+let rezimNavrhu = 'obe';
 const posta = {
   osobni: [
     { id: 't1', ucet: 'osobni', stav: 'ceka', od: 'Trenér dorostu', predmet: 'Sobotní zápas – sraz v 8:30', ukazka: 'Ahoj, sraz je výjimečně dřív, autobus jede z náměstí. Vezměte si prosím oba dresy.', kdy: ted - 1.2 * H, neprectena: true, pocet: 2, odkaz: '#', stitky: ['Fotbal', 'Fotbal/Dorost'] },
     { id: 't2', ucet: 'osobni', stav: 'info', od: 'Banka', predmet: 'Výpis z účtu za září', ukazka: 'Váš výpis je připraven v internetovém bankovnictví.', kdy: ted - 5 * H, neprectena: true, pocet: 1, odkaz: '#', stitky: ['Účty'] },
     { id: 't3', ucet: 'osobni', stav: 'info', od: 'Google', predmet: 'Bezpečnostní upozornění', ukazka: 'Nové přihlášení na zařízení Windows.', kdy: ted - 28 * H, neprectena: false, pocet: 1, odkaz: '#' },
-    { id: 't4', ucet: 'osobni', stav: 'otazka', od: 'Fotbalový svaz', predmet: 'Změna termínu utkání dorostu', ukazka: 'Utkání 10. kola se přesouvá na neděli 10:15. Stihnete to i s autobusem?', kdy: ted - 75 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Fotbal'] }
+    { id: 't4', ucet: 'osobni', stav: 'otazka', navrh: true, od: 'Fotbalový svaz', predmet: 'Změna termínu utkání dorostu', ukazka: 'Utkání 10. kola se přesouvá na neděli 10:15. Stihnete to i s autobusem?', kdy: ted - 75 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Fotbal'] }
   ],
   pracovni: [
     { id: 'p1', ucet: 'pracovni', stav: 'hori', od: 'Investor – stavba', predmet: 'Předávací protokol 2. NP', ukazka: 'Dobrý den, posílám protokol k připomínkám – potřebuji je nejpozději zítra, předání je ve středu.', kdy: ted - 2 * H, neprectena: true, pocet: 1, odkaz: '#' },
@@ -265,7 +269,15 @@ function zdraviUkazka() {
     if (posilovna) pridej('weightlifting', 19, 0, 60, 7.8, 112, 151);
   }
   return { vytvoreno: Date.now(), dny: dnyZ, treninky: treninky.sort((a, b) => b.start - a.start),
-    whoop: { nastaveno: true, propojeno: true, sync: { kdy: Date.now() - 12 * 6e4, chyba: '' } }, apple: { kdy: Date.now() - 3 * H } };
+    whoop: { nastaveno: true, propojeno: true, sync: { kdy: Date.now() - 12 * 6e4, chyba: '' } }, apple: { kdy: Date.now() - 3 * H },
+    // obecný ukázkový režim doplňků (skutečný je jen v ZDRAVI_REZIM.json na Disku)
+    rezim: { kofeinDo: '14:00', treninkDny: [2, 4], zapasTymy: ['dorost'], polozky: [
+      { id: 'multivitamin', nazev: 'Multivitamin', davka: '1 tbl po snídani', kdy: 'rano' },
+      { id: 'kreatin', nazev: 'Kreatin', davka: '5 g ke snídani', kdy: 'rano' },
+      { id: 'omega3', nazev: 'Omega-3', davka: '2 tob k jídlu', kdy: 'obed' },
+      { id: 'protein', nazev: 'Protein', davka: 'po zátěži', kdy: 'po', jen: 'zatez' },
+      { id: 'elektrolyty', nazev: 'Elektrolyty', davka: 'během zápasu', kdy: 'zapas', jen: 'zapas' },
+      { id: 'horcik', nazev: 'Hořčík', davka: '1 kps večer', kdy: 'vecer' }] } };
 }
 
 function najdiPolozku(id) {
@@ -279,7 +291,7 @@ function najdiPolozku(id) {
 
 const akce = {
   info: () => ({ verze: 'ukázka', ucet: 'ja@example.com', skupinyHostu: kopie(skupinyHostu),
-    posta: { osobniAdresa: 'ja@example.com', pracovniAdresa: posta.pracovniAdresa, lzeOdesilatZPracovni: true, podpisy: kopie(podpisy) }, kalendare }),
+    posta: { osobniAdresa: 'ja@example.com', pracovniAdresa: posta.pracovniAdresa, lzeOdesilatZPracovni: true, podpisy: kopie(podpisy), navrhyOdpovedi: rezimNavrhu }, kalendare }),
   nastavPostu: (d) => { posta.pracovniAdresa = String(d.pracovniAdresa || '').trim(); return akce.info().posta; },
   schranka: () => Object.assign(kopie(schranka), { ted: Date.now() }),
   poznamka: (d) => {
@@ -306,8 +318,11 @@ const akce = {
     const v = zpravyVlaken[d.id];
     if (!v) throw new Error('Zpráva nenalezena.');
     [posta.osobni, posta.pracovni].forEach((s) => s.forEach((m) => { if (m.id === d.id) m.neprectena = false; }));
-    return kopie(Object.assign({ id: d.id, odkaz: '#', vDorucenych: true, skryto: 0 }, v));
+    const navrh = navrhyOdpovedi[d.id] ? { navrhOdpovedi: navrhyOdpovedi[d.id] } : {};
+    return kopie(Object.assign({ id: d.id, odkaz: '#', vDorucenych: true, skryto: 0 }, v, navrh));
   },
+  navrhZahodit: (d) => { const n = navrhyOdpovedi[d.id] ? 1 : 0; delete navrhyOdpovedi[d.id]; [posta.osobni, posta.pracovni].forEach((s) => s.forEach((m) => { if (m.id === d.id) m.navrh = false; })); return { smazano: n }; },
+  navrhyNastavit: (d) => { rezimNavrhu = d.rezim; return akce.info().posta; },
   odeslat: (d) => {
     if (!String(d.text || '').trim()) throw new Error('Prázdná zpráva.');
     if ((d.rezim === 'preposlat' || d.rezim === 'novy') && !/@/.test(d.komu || '')) throw new Error('Chybí adresát.');
@@ -416,6 +431,23 @@ const akce = {
   kontakty: () => kopie(kontakty),
   podpisyUlozit: (d) => { Object.assign(podpisy, { osobni: String((d.podpisy || {}).osobni || ''), pracovni: String((d.podpisy || {}).pracovni || '') }); return akce.info().posta; },
   fotbal: () => kopie({ data: fotbalUkazka, vKalendari: fotbalVKalendari, kalendar: null }),
+  // docházka dorostu (Týmuj) – tréninky út a čt za 8 týdnů, hráči vymyšlení
+  dochazka: () => {
+    const jmena = ['Novák J.', 'Svoboda P.', 'Dvořák T.', 'Černý M.', 'Procházka A.', 'Kučera D.', 'Veselý J.', 'Horák P.', 'Marek F.', 'Pokorný V.'];
+    const udalosti = [];
+    for (let i = 56; i >= 1; i--) {
+      const t = pridejDny(dnes, -i);
+      const dt = new Date(t).getDay();
+      if (dt !== 2 && dt !== 4) continue;
+      const x = (k) => { const v = Math.sin(i * 7.31 + k) * 10000; return v - Math.floor(v); };
+      const neomluveni = x(1) > 0.6 ? [jmena[Math.floor(x(2) * jmena.length)]] : [];
+      const omluveni = jmena.filter((j, k) => x(k + 3) > 0.85 && neomluveni.indexOf(j) < 0).slice(0, 3);
+      udalosti.push({ zacatek: new Date(t + 17 * H).toISOString(), druh: dt === 2 ? 'T_UT' : 'T_CT', nazev: (dt === 2 ? 'ÚT' : 'ČT') + ' - DOROST', zruseno: false, venku: false,
+        pocty: { prislo: 21 - omluveni.length - neomluveni.length, omluveno: omluveni.length, neomluveno: neomluveni.length, mozna: 0, bez: 0, pozvano: 21 },
+        omluveni, neomluveni });
+    }
+    return { udalosti, aktualizovano: new Date(ted - 6 * H).toISOString(), chyba: '' };
+  },
   fotbalKalendar: (d) => {
     fotbalVKalendari = (d.tymy || []).filter((t) => fotbalUkazka.tymy.some((x) => x.klic === t));
     return { pridano: fotbalVKalendari.length * 3, upraveno: 0, beze_zmeny: 0, kalendare: {}, kalendareSeznam: kopie(kalendare) };

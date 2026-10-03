@@ -263,7 +263,8 @@ export function vykresliZdravi(el) {
     kpi('Kroky', IKONY.aktivita, kroky != null ? cisloCz(kroky) : '–', '',
       '<span class="orez-1">' + ((dnes.apple && dnes.apple.kroky) != null ? 'Apple Watch · dnes' : zatez && zatez.kroky != null ? 'WHOOP · dnes' : 'bez dat') + '</span>', 'data-zdravi-skoc="apple"') +
     '</div>';
-  h += '<div class="zdravi-mrizka-karet">' +
+  const doplnky = kartaDoplnkuHtml();
+  h += '<div class="zdravi-mrizka-karet">' + (doplnky ? '<section class="card dlazdice zd-doplnky">' + doplnky + '</section>' : '') +
     '<section class="card dlazdice zd-graf">' + hlavickaKarty(IKONY.srdce, 'Posledních 14 dní') +
       '<div class="dlazdice__telo"><p class="zdravi-legenda"><i class="graf14__sl--zelena"></i>připravenost <i class="graf14__tecka"></i>zátěž (0–21)</p>' + graf14(plny) + '</div></section>' +
     '<section class="card dlazdice zd-spanek" id="zd-spanek">' + hlavickaKarty(IKONY.spanek, 'Spánek' + (d ? ' · ' + esc(denPopis(d.den)) : '')) +
@@ -280,9 +281,65 @@ export function vykresliZdravi(el) {
   el.innerHTML = h;
 }
 
+// ---------------------------------------------------------------- Doplňky dnes (režim z ZDRAVI_REZIM.json na Disku)
+
+const KDY = [['rano', 'Ráno'], ['obed', 'K obědu'], ['pred', 'Před tréninkem'], ['zapas', 'Zápas'], ['po', 'Po zátěži'], ['vecer', 'Večer']];
+const VZATO = 'asistent.doplnky.';
+
+/** Zápas dnes? Z dat fotbal.cz (týmy v rezim.zapasTymy) nebo ze zápasu v kalendáři. → čas výkopu (ms) nebo null */
+function zapasDnes(rezim) {
+  const dnes = isoDatum(Date.now());
+  const tymy = rezim.zapasTymy || [];
+  const f = stav.fotbal && stav.fotbal.data;
+  const z = f && (f.zapasy || []).find((x) => tymy.indexOf(x.tym) >= 0 && isoDatum(Date.parse(x.zacatek)) === dnes);
+  if (z) return Date.parse(z.zacatek);
+  const od = pulnoc(Date.now());
+  const u = udalostiVRozsahu(od, pridejDny(od, 1)).find((x) => jeZapas(x) && !x.celodenni);
+  return u ? u.zacatek : null;
+}
+
+/** Co dnes brát: položky režimu podle dne (trénink, zápas) a stav odškrtnutí na tomhle zařízení. */
+export function doplnkyDnes() {
+  const rezim = stav.zdravi && stav.zdravi.rezim;
+  if (!rezim || !Array.isArray(rezim.polozky) || !rezim.polozky.length) return null;
+  const vykop = zapasDnes(rezim);
+  const trenink = (rezim.treninkDny || []).indexOf(new Date().getDay()) >= 0;
+  const plati = (p) => !p.jen || (p.jen === 'zapas' && vykop) || (p.jen === 'trenink' && trenink) || (p.jen === 'zatez' && (trenink || vykop));
+  const vzato = uloziste.cti(VZATO + isoDatum(Date.now())) || {};
+  const polozky = rezim.polozky.filter(plati).map((p) => Object.assign({ vzato: !!vzato[p.id] }, p))
+    .sort((a, b) => KDY.findIndex((k) => k[0] === a.kdy) - KDY.findIndex((k) => k[0] === b.kdy));
+  return { polozky, vykop, trenink, kofeinDo: rezim.kofeinDo || '', chyba: rezim.chyba || '' };
+}
+
+export function kartaDoplnkuHtml() {
+  const d = doplnkyDnes();
+  if (!d) return '';
+  const zbyva = d.polozky.filter((p) => !p.vzato).length;
+  const nazevKdy = (k) => (KDY.find((x) => x[0] === k) || [k, k])[1];
+  const den = d.vykop ? 'den zápasu · výkop ' + hhmm(d.vykop) : d.trenink ? 'tréninkový den' : '';
+  const kofein = !d.vykop && d.kofeinDo && new Date().getHours() < 18 ? 'Kofein naposledy ve ' + d.kofeinDo + '.' : '';
+  return hlavickaKarty(IKONY.doplnky, 'Doplňky dnes', '<span class="muted small">' + (zbyva ? 'zbývá ' + zbyva : 'vše ✓') + '</span>') +
+    (d.chyba ? '<p class="pruh pruh-varovani">' + esc(d.chyba) + '</p>' : '') +
+    '<ul class="doplnky">' + d.polozky.map((p) => '<li><button type="button" class="doplnek" data-doplnek="' + esc(p.id) + '" aria-pressed="' + p.vzato + '">' +
+      '<i class="zaskrt" aria-hidden="true">' + IKONY.fajfka + '</i><span><b>' + esc(p.nazev) + '</b><small>' + esc(nazevKdy(p.kdy)) + (p.davka ? ' · ' + esc(p.davka) : '') + '</small></span></button></li>').join('') + '</ul>' +
+    (den || kofein ? '<p class="doplnky-pozn">' + [den ? velkym(den) : '', kofein].filter(Boolean).join(' · ') + '</p>' : '');
+}
+
+function velkym(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
 // ---------------------------------------------------------------- ovládání
 
 export function klikZdravi(el) {
+  if (el.dataset.doplnek) {
+    const klic = VZATO + isoDatum(Date.now());
+    const vzato = uloziste.cti(klic) || {};
+    vzato[el.dataset.doplnek] = !vzato[el.dataset.doplnek];
+    uloziste.pis(klic, vzato);
+    // staré dny pryč (jen posledních 7)
+    uloziste.klice(VZATO).filter((k) => k < VZATO + isoDatum(pridejDny(pulnoc(Date.now()), -7))).forEach((k) => uloziste.smaz(k));
+    zmeneno();
+    return true;
+  }
   const akce = el.dataset.zdravi;
   if (akce === 'znovu') { nactiZdravi(true); return true; }
   if (akce === 'propojit') {

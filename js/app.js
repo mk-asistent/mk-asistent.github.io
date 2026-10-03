@@ -16,6 +16,7 @@ import * as udalost from './udalost.js';
 import * as pocasi from './pocasi.js';
 import * as zdravi from './zdravi.js';
 import * as fotbal from './fotbal.js';
+import * as dochazka from './dochazka.js';
 import { vstupAdresy, klavesaAdresy } from './adresy.js';
 
 const SEKCE = [['dnes', 'Dnes'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář'], ['zdravi', 'Zdraví'], ['fotbal', 'Fotbal']];
@@ -35,6 +36,7 @@ function start() {
   pocasi.nactiZUloziste();
   zdravi.nactiZUloziste();
   fotbal.nactiZUloziste();
+  dochazka.nactiZUloziste();
   if (!SEKCE.some((s) => s[0] === stav.pohled)) stav.pohled = 'dnes';
   kal.pripravGesta($('p-kalendar'));
   priZmene(vykresli);
@@ -76,6 +78,7 @@ function vykresli() {
   pocasi.dotahni();
   zdravi.dotahni();
   fotbal.dotahni();
+  if (stav.pohled === 'kalendar') dochazka.dotahni();
   const p = pocty();
   document.querySelectorAll('[data-pohled]').forEach((el) => { el.hidden = el.dataset.pohled !== stav.pohled; });
   vykresliRail(p);
@@ -381,6 +384,7 @@ function vykresliDnes(el, p) {
       '<div class="dnes-mrizka" id="dnes-obsah">' +
       '<section class="card dlazdice dl-pozornost" id="dl-pozornost"></section>' +
       '<div class="dnes-vpravo"><section class="card dlazdice dl-tyden" id="dl-tyden"></section>' +
+      '<section class="card dlazdice dl-doplnky" id="dl-doplnky" hidden></section>' +
       '<section class="card dlazdice dl-fotbal" id="dl-fotbal" hidden></section>' +
       '<section class="card dlazdice dl-zapis">' + hlavickaKarty(IKONY.claude, 'Poznámka pro Clauda') +
         schranka.zapisHtml(true) + '<div id="dl-schranka-mini"></div><div class="dlazdice__telo" id="dl-zapis-seznam"></div></section></div>' +
@@ -394,6 +398,9 @@ function vykresliDnes(el, p) {
     el.querySelector('#dl-pozornost').innerHTML = kartaPozornosti(p);
   }
   el.querySelector('#dl-tyden').innerHTML = kartaTydne();
+  const doplnkyHtml = umiMotor('zdravi') ? zdravi.kartaDoplnkuHtml() : '';
+  el.querySelector('#dl-doplnky').hidden = !doplnkyHtml;
+  el.querySelector('#dl-doplnky').innerHTML = doplnkyHtml;
   const fotbalHtml = fotbal.maData() ? fotbal.kartaDnesHtml() : '';
   el.querySelector('#dl-fotbal').hidden = !fotbalHtml;
   el.querySelector('#dl-fotbal').innerHTML = fotbalHtml;

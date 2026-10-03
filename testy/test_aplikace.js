@@ -28,7 +28,7 @@ const H = 36e5;
 const den = (n, h = 0) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + n); return d.getTime() + h * H; };
 const iso = (t) => { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 const vlaknoSouhrn = {
-  v1: { id: 'v1', ucet: 'osobni', stav: 'otazka', od: 'Trenér', predmet: 'Sraz v sobotu', ukazka: 'Ahoj, sraz v 8:30. Stihneš to?', kdy: ted - H, neprectena: true, pocet: 1, odkaz: '#', stitky: ['Fotbal'] },
+  v1: { id: 'v1', ucet: 'osobni', stav: 'otazka', navrh: true, od: 'Trenér', predmet: 'Sraz v sobotu', ukazka: 'Ahoj, sraz v 8:30. Stihneš to?', kdy: ted - H, neprectena: true, pocet: 1, odkaz: '#', stitky: ['Fotbal'] },
   v2: { id: 'v2', ucet: 'pracovni', stav: 'cekas', od: 'Investor', predmet: 'Protokol', ukazka: 'Posílám protokol.', kdy: ted - 2 * H, neprectena: false, pocet: 2, odkaz: '#' }
 };
 const KALENDARE = [{ id: 'g1', nazev: 'Osobní', barva: '#2f6bff', zdroj: 'google', skryty: false, zapis: true, druh: 'osobni' },
@@ -45,6 +45,7 @@ const motor = {
     hotovo: [], ted: Date.now() }),
   posta: () => ({ osobni: [vlaknoSouhrn.v1], pracovni: [vlaknoSouhrn.v2], pracovniAdresa: 'prace@firma.test', firemni: null, ted: Date.now() }),
   vlakno: (d) => ({ id: d.id, predmet: d.id === 'v1' ? 'Sraz v sobotu' : 'Protokol', odkaz: '#', vDorucenych: true, skryto: 0, ucet: d.id === 'v1' ? 'osobni' : 'pracovni',
+    navrhOdpovedi: d.id === 'v1' && !navrhZahozen ? { zpravaId: 'm-v1', text: 'Ahoj, budu tam v 8:15.', kdy: new Date(ted).toISOString(), poznamka: '' } : undefined,
     zpravy: (d.id === 'v1' ? [{ id: 'm-starsi', od: 'Já', odAdresa: 'tester@example.com', odeMe: true, komu: 'trener@klub.test', kopie: '', kdy: ted - 30 * H, predmet: 'Sraz',
       text: 'Kdy je sraz?', html: '', prilohy: [] }] : []).concat([{ id: 'm-' + d.id, od: 'Trenér', odAdresa: 'trener@klub.test', odeMe: false, komu: 'tester@example.com', kopie: '', kdy: ted - H, predmet: 'Sraz',
       text: 'Ahoj, sraz v 8:30.', html: d.id === 'v2' ? '<p>Protokol <img src="https://sledovani.example/pixel.gif" width="1" height="1"></p>' : '', prilohy: [] }]) }),
@@ -53,6 +54,7 @@ const motor = {
     { id: 'u3|' + den(0, 23), nazev: 'Pozdní hovor', zacatek: den(0, 23), konec: den(0, 23.5), celodenni: false, misto: '', popis: '', kalendar: 'Osobní', kalendarId: 'g1', barva: '#2f6bff', zdroj: 'google', opakovana: false },
     { id: 'u2|' + den(1), nazev: 'Narozeniny', zacatek: den(1), konec: den(2), celodenni: true, misto: '', popis: '', kalendar: 'Rodina', kalendarId: 'ics-1', barva: '#e2860a', zdroj: 'icloud' },
     // osobní událost vždy v budoucnu (testy výpisu týdne nesmí záviset na tom, kolik je hodin)
+    { id: 'u5|' + den(-1, 17), nazev: 'Trénink dorostu', zacatek: den(-1, 17), konec: den(-1, 18.5), celodenni: false, misto: 'hřiště', popis: '', kalendar: 'Osobní', kalendarId: 'g1', barva: '#2f6bff', zdroj: 'google', opakovana: true },
     { id: 'u4|' + den(2, 10), nazev: 'Schůzka', zacatek: den(2, 10), konec: den(2, 11), celodenni: false, misto: '', popis: '', kalendar: 'Osobní', kalendarId: 'g1', barva: '#2f6bff', zdroj: 'google', opakovana: false }
   ].filter((u) => u.zacatek < d.do && u.konec > d.od), chyby: [], od: d.od, do: d.do, ted }),
   kalendare: () => KALENDARE,
@@ -61,6 +63,7 @@ const motor = {
   udalostSmazat: () => true,
   zapasyImport: () => ({ pridano: 3, upraveno: 0, beze_zmeny: 0, kalendar: 'Zápasy', kalendarId: 'zapasy@group.test' }),
   odeslat: () => true,
+  navrhZahodit: () => { navrhZahozen = true; return { smazano: 1 }; },
   oznacit: () => true,
   hledat: (d) => ({ dotaz: d.dotaz, vlakna: [Object.assign({}, vlaknoSouhrn.v2, { id: 'v9', predmet: 'Starý protokol', kdy: ted - 90 * 24 * H })] }),
   pripomenout: (d) => ({ id: 'c9', slozka: 'CEKA', kdy: Date.now(), odkud: 'aplikace (pošta)', typ: 'ukol-michal', stav: 'tvuj-ukol', shrnuti: 'Odpovědět: Sraz v sobotu (Trenér)',
@@ -74,7 +77,9 @@ const motor = {
         spanek: { start: den(0, -1), konec: den(0, 6), celkem: 6.5 * H, hluboky: 1.4 * H, rem: 1.6 * H, lehky: 3.5 * H, bdeni: 0.3 * H, vykon: 91, potreba: 8 * H },
         zatez: { probiha: true, zatez: 6.2, kroky: 4000 } } }],
     treninky: [{ id: 'w1', den: iso(ted), start: den(0, 9), konec: den(0, 10), sport: 'soccer', zatez: 11.5, tepPrumer: 140, tepMax: 180, kcal: 700, zony: [1, 5, 20, 20, 10, 4] }],
-    whoop: { nastaveno: true, propojeno: true, sync: { kdy: ted, chyba: '' } }, apple: { kdy: ted } }),
+    whoop: { nastaveno: true, propojeno: true, sync: { kdy: ted, chyba: '' } }, apple: { kdy: ted },
+    rezim: { kofeinDo: '14:00', treninkDny: [], zapasTymy: ['A'], polozky: [{ id: 'kreatin', nazev: 'Kreatin', davka: '5 g', kdy: 'rano' },
+      { id: 'kofein', nazev: 'Kofein', davka: 'před výkopem', kdy: 'zapas', jen: 'zapas' }, { id: 'horcik', nazev: 'Hořčík', davka: 'večer', kdy: 'vecer' }] } }),
   zdraviKlic: () => ({ klic: 'testovaci-klic-zdravi' }),
   fotbal: () => ({ vKalendari: [], kalendar: null, data: { verze: 1, aktualizovano: new Date(ted).toISOString(), klub: 'FK Agro Vnorovy',
     tymy: [{ klic: 'A', nazev: 'A-tým', barva: '#2e7a4d' }, { klic: 'B', nazev: 'B-tým', barva: '#0f7c8c' }, { klic: 'dorost', nazev: 'Dorost', barva: '#a8620c' }],
@@ -86,6 +91,8 @@ const motor = {
       doma: [{ poradi: 1, klub: 'FK Agro Vnorovy', z: 4, v: 3, r: 0, p: 1, skore: '9:5', body: 9 }], venku: [], aktualizovano: new Date(ted).toISOString() } },
     detaily: { 'A-6': { polocas: '0:2', goly: [{ min: 23, hrac: 'Horák Pavel', strana: 'hoste', pozn: '' }, { min: 67, hrac: 'Svoboda Tomáš', strana: 'domaci', pozn: '' }],
       karty: [{ min: 35, hrac: 'Dvořák Martin', barva: 'zluta', strana: 'domaci' }], divaku: 160 } } } }),
+  dochazka: () => ({ udalosti: [{ zacatek: new Date(den(-1, 17)).toISOString(), druh: 'T_CT', nazev: 'ČT - DOROST', zruseno: false, venku: false,
+    pocty: { prislo: 18, omluveno: 2, neomluveno: 1, mozna: 0, bez: 0, pozvano: 21 }, omluveni: ['Hráč A', 'Hráč B'], neomluveni: ['Hráč C'] }], aktualizovano: new Date(ted).toISOString(), chyba: '' }),
   fotbalKalendar: (d) => ({ pridano: 2, upraveno: 0, beze_zmeny: 0, kalendare: {}, kalendareSeznam: KALENDARE }),
   stitky: () => [{ nazev: 'Fotbal', neprectenych: 1 }, { nazev: 'Účty', neprectenych: 0 }],
   postaStitek: (d) => ({ nazev: d.nazev, vlakna: d.nazev === 'Fotbal' ? [vlaknoSouhrn.v1, { id: 'v8', ucet: 'osobni', stav: 'resi', od: 'Rozhodčí', predmet: 'Zápis o utkání', ukazka: 'Zápis v příloze.', kdy: ted - 200 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Fotbal'] }] : [], ted }),
@@ -98,6 +105,7 @@ const motor = {
       tMax: [20 + i, 24 + i], tMin: i ? [8, 11] : null, srazky: '', vitr: '', jevy: [], ikona: ['slunce', 'bourka', 'polojasno', 'dest'][i], uroven: 'info', vydano: ted })) })
 };
 const volano = [];
+let navrhZahozen = false;
 
 async function pripravMotor(page) {
   await page.route(MOTOR, async (route) => {
@@ -713,6 +721,62 @@ async function novaStranka(prohlizec, v, motiv) {
       await ctx.close();
     });
   }
+
+  // ---------- Doplňky dnes: z režimu motoru, zápasové jen v den zápasu, odškrtnutí vydrží obnovení stránky
+  await test('Doplňky dnes na Dnes: dnešní položky, zápasové jen v den zápasu, odškrtnutí zůstane', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.waitForSelector('#dl-doplnky:not([hidden]) [data-doplnek="kreatin"]');
+    jistota(!(await page.locator('#dl-doplnky [data-doplnek="kofein"]').count()), 'kofein jen v den zápasu');
+    jistota(await page.locator('#dl-doplnky [data-doplnek]').count() === 2, 'dvě položky na dnešek');
+    await page.click('#dl-doplnky [data-doplnek="kreatin"]');
+    await page.waitForSelector('#dl-doplnky [data-doplnek="kreatin"][aria-pressed="true"]');
+    jistota(/zbývá 1/.test(await page.textContent('#dl-doplnky')), 'počet zbývajících');
+    await page.reload();
+    await page.waitForSelector('#dl-doplnky [data-doplnek="kreatin"][aria-pressed="true"]');
+    await page.locator('#dl-doplnky').screenshot({ path: path.join(VYSTUP, 'pc_doplnky.png') });
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  // ---------- docházka dorostu (Týmuj) u tréninku v kalendáři: v týdnu „18/21“, v detailu počty a jména bez omluvy
+  await test('docházka dorostu u tréninku v kalendáři (týden i detail)', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.click('#rail [data-cil="kalendar"]');
+    await page.click('[data-kal-pohled="tyden"]');
+    // včerejší trénink může být v minulém týdnu (pondělí) – pak o týden zpět
+    if (new Date().getDay() === 1) await page.click('[data-kal="predchozi"]');
+    await page.waitForFunction(() => ((document.querySelector('.cas-udalost[data-udalost^="u5|"]') || {}).textContent || '').indexOf('18/21') >= 0);
+    await page.click('.cas-udalost[data-udalost^="u5|"]');
+    await page.waitForSelector('[data-panel="udalost"] .dochazka-detail');
+    const t = await page.textContent('[data-panel="udalost"] .dochazka-detail');
+    jistota(/přišlo 18 z 21/.test(t) && /neomluveno 1/.test(t) && /Bez omluvy: Hráč C/.test(t), 'detail docházky: ' + t);
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  // ---------- návrh odpovědi od Clauda v konverzaci: štítek v seznamu, karta, Použít → psaní s textem a podpisem, Zahodit
+  await test('pošta: návrh odpovědi od Clauda – použít a zahodit', async () => {
+    navrhZahozen = false;
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.click('#rail [data-cil="posta"]');
+    await page.waitForFunction(() => /Návrh odpovědi/.test((document.querySelector('#posta-seznam [data-vlakno="v1"]') || {}).textContent || ''));
+    await page.click('#posta-seznam [data-vlakno="v1"]');
+    await page.waitForSelector('#posta-detail .navrh-odpovedi');
+    jistota(/budu tam v 8:15/.test(await page.textContent('#posta-detail .navrh-odpovedi')), 'text návrhu');
+    await page.click('#posta-detail [data-navrh-odpovedi="pouzit"]');
+    await page.waitForSelector('[data-panel="psani"] [data-psani-text]');
+    jistota(await page.inputValue('[data-panel="psani"] [data-psani-text]') === 'Ahoj, budu tam v 8:15.\n\nMichal', 'psaní s návrhem a podpisem: ' + JSON.stringify(await page.inputValue('[data-panel="psani"] [data-psani-text]')));
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-panel="psani"]', { state: 'detached' });
+    await page.click('#posta-detail [data-navrh-odpovedi="zahodit"]');
+    await page.waitForSelector('#posta-detail .navrh-odpovedi', { state: 'detached' });
+    jistota(volano.some((d) => d.akce === 'navrhZahodit' && d.id === 'v1'), 'zahození nedorazilo');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
 
   // ---------- Co je nového: po návratu ukáže, co přibylo (tady nová pošta, která čeká), Ukázat vede do Pošty
   await test('okno Co je nového po návratu do aplikace', async () => {
