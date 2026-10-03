@@ -2,7 +2,7 @@
 // Data ČHMÚ jsou otevřená (CC BY 4.0) – zdroj se uvádí v detailu.
 
 import { stav, zmeneno, umiMotor } from './stav.js';
-import { volej } from './api.js';
+import { volej, jeDemo } from './api.js';
 import { esc, uloziste, hhmm, dm, DNY_KR, rozdilDni, pulnoc, pridejDny, isoDatum, kdyKratce } from './pomocne.js';
 import { IKONY, ikonaPocasi } from './ikony.js';
 import { okno } from './ui.js';
@@ -21,12 +21,53 @@ export function nactiZUloziste() {
   if (v && v.data) stav.pocasi = v.data;
 }
 
+// ---------------------------------------------------------------- poloha (zapíná se v Nastavení → Počasí, na každém zařízení zvlášť)
+const POLOHA = 'asistent.pocasi.poloha';
+export function polohaZapnuta() { return uloziste.cti(POLOHA) === true; }
+export function nastavPolohu(zapnuto) { uloziste.pis(POLOHA, !!zapnuto); stav.pocasiTed = null; stav.chybaPolohy = ''; return nactiPocasi(true); }
+
+/** Poloha z telefonu zaokrouhlená na 0,01° (~1 km); null = vypnuto, nepovoleno nebo nezjištěno. */
+function zjistiPolohu() {
+  if (jeDemo() || !polohaZapnuta() || !navigator.geolocation) return Promise.resolve(null); // ukázka polohu nezjišťuje
+  return new Promise((hotovo) => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { stav.chybaPolohy = ''; hotovo({ lat: Math.round(pos.coords.latitude * 100) / 100, lon: Math.round(pos.coords.longitude * 100) / 100 }); },
+      (e) => { stav.chybaPolohy = e && e.code === 1 ? 'Poloha není povolená – povol ji pro tuhle stránku v prohlížeči / v Nastavení iPhonu.' : 'Polohu se nepodařilo zjistit.'; hotovo(null); },
+      { maximumAge: 30 * 60e3, timeout: 10e3, enableHighAccuracy: false });
+  });
+}
+
+// WMO kód počasí (Open-Meteo) → ikona aplikace
+function ikonaWmo(k) {
+  return k === 0 ? 'slunce' : k <= 2 ? 'polojasno' : k === 3 ? 'oblacno' : k <= 48 ? 'mlha' : (k <= 67 || (k >= 80 && k <= 82)) ? 'dest'
+    : (k <= 77 || k === 85 || k === 86) ? 'snih' : k >= 95 ? 'bourka' : 'oblacno';
+}
+
+/** Teď a příštích 12 hodin pro polohu – Open-Meteo (model ČHMÚ ALADIN), přímo z telefonu, bez klíče. */
+function nactiTed(p) {
+  const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + p.lat + '&longitude=' + p.lon + '&models=chmi_aladin_seamless' +
+    '&current=temperature_2m,weather_code,precipitation,wind_speed_10m&hourly=temperature_2m,precipitation_probability,precipitation,weather_code' +
+    '&forecast_hours=12&timezone=Europe%2FPrague&wind_speed_unit=ms';
+  return fetch(url).then((r) => (r.ok ? r.json() : null)).then((j) => {
+    if (!j || !j.current) return;
+    const h = j.hourly || {};
+    stav.pocasiTed = { kdy: Date.now(), teplota: Math.round(j.current.temperature_2m), ikona: ikonaWmo(j.current.weather_code), srazky: j.current.precipitation,
+      vitr: j.current.wind_speed_10m, hodiny: (h.time || []).map((t, i) => ({ t: Date.parse(t), teplota: Math.round(h.temperature_2m[i]), ikona: ikonaWmo(h.weather_code[i]),
+        pst: h.precipitation_probability ? h.precipitation_probability[i] : null, mm: h.precipitation ? h.precipitation[i] : 0 })) };
+    zmeneno();
+  }).catch(() => { /* bez „teď“ – přehled ČHMÚ zůstává */ });
+}
+
+/** „Teď“ jen když je čerstvé (2 h). */
+export function ted() { const t = stav.pocasiTed; return t && Date.now() - t.kdy < 2 * 36e5 ? t : null; }
+
 export function nactiPocasi(znovu) {
   if (!umiMotor('pocasi') || stav.nacita.pocasi) return Promise.resolve();
   stav.nacita.pocasi = true;
   stav.chyby.pocasi = null;
   zmeneno();
-  return volej('pocasi', { znovu: !!znovu })
+  return zjistiPolohu()
+    .then((poloha) => { if (poloha) nactiTed(poloha); return volej('pocasi', { znovu: !!znovu, poloha }); })
     .then((data) => { stav.pocasi = data; uloziste.pis(ULOZISTE, { data, kdy: Date.now() }); })
     .catch((e) => { stav.chyby.pocasi = e; })
     .then(() => { stav.nacita.pocasi = false; zmeneno(); });
@@ -143,9 +184,15 @@ export function kartaPocasi() {
   } else {
     pod = '<span class="orez-1">' + esc(p ? p.uvod || 'bez výstrah' : 'bez výstrah ČHMÚ') + '</span>';
   }
+  const tt = ted();
+  const misto = stav.pocasi && stav.pocasi.podlePolohy && stav.pocasi.misto ? ' · ' + stav.pocasi.misto : '';
+  if (tt) {
+    if (!v.length) pod = '<span class="orez-1">' + esc((t ? (np.kdy === 'zítra' ? 'zítra ' : 'dnes ') + (t[0] === t[1] ? t[0] : t[0] + '–' + t[1]) + ' °C · ' : '') + (p ? p.uvod || '' : '')) + '</span>';
+    return { ikona: ikonaPocasi(tt.ikona), nazev: 'Teď' + misto, hodnota: String(tt.teplota), jednotka: '°C', pod };
+  }
   return {
     ikona: p ? ikonaPocasi(p.ikona) : IKONY.polojasno,
-    nazev: 'Počasí' + (np && np.kdy === 'zítra' ? ' zítra' : ''),
+    nazev: 'Počasí' + (np && np.kdy === 'zítra' ? ' zítra' : '') + misto,
     hodnota: t ? (t[0] === t[1] ? String(t[0]) : t[0] + '–' + t[1]) : '–',
     jednotka: t ? '°C' : '',
     pod
@@ -162,6 +209,13 @@ export function ukazDetail() {
   const v = vystrahy();
   const vh = vyhledy();
   let h = '';
+  const tt = ted();
+  if (tt && tt.hodiny.length) {
+    h += '<h3 class="okno__mezinadpis">Příštích 12 hodin' + (p.podlePolohy ? ' · ' + esc(p.misto) : '') + '</h3><div class="pocasi-hodiny">' + tt.hodiny.map((x) =>
+      '<span><small>' + hhmm(x.t) + '</small><i>' + ikonaPocasi(x.ikona) + '</i><b class="cisla">' + x.teplota + '°</b>' +
+      (x.pst != null && x.pst >= 20 ? '<em>' + x.pst + ' %</em>' : x.mm >= 0.2 ? '<em>' + String(x.mm).replace('.', ',') + ' mm</em>' : '<em></em>') + '</span>').join('') + '</div>';
+  }
+  if (stav.chybaPolohy && polohaZapnuta()) h += '<p class="pocasi-chyba">' + esc(stav.chybaPolohy) + ' Ukazuju výchozí místo.</p>';
   if (v.length) {
     h += '<h3 class="okno__mezinadpis">Výstrahy</h3><ul class="pocasi-seznam">' + v.map((x) =>
       '<li class="pocasi-vystraha pocasi-vystraha--' + esc(x.uroven) + '"><b>' + esc(nazevVystrahy(x)) + '</b>' +
@@ -189,7 +243,7 @@ export function ukazDetail() {
       (r.maxPredpoved != null && r.maxPredpoved !== r.hladina ? ' Předpověď nejvýš ' + r.maxPredpoved + ' cm (' + esc(kdyKratce(r.kdyMax)) + ').' : '') + '</p></li>').join('') + '</ul>';
   }
   if (p.chyby && p.chyby.length) h += '<p class="pocasi-chyba">Nepodařilo se načíst: ' + esc(p.chyby.join(', ')) + '.</p>';
-  h += '<p class="pocasi-zdroj">Zdroj: ČHMÚ · aktualizováno ' + esc(kdyKratce(p.vytvoreno)) +
+  h += '<p class="pocasi-zdroj">Zdroj: ČHMÚ' + (tt ? ' · hodiny: Open-Meteo (model ČHMÚ ALADIN)' : '') + ' · aktualizováno ' + esc(kdyKratce(p.vytvoreno)) +
     ' · <a href="https://vystrahy-cr.chmi.cz/" target="_blank" rel="noopener noreferrer">výstrahy</a>' +
     ' · <a href="https://www.chmi.cz/" target="_blank" rel="noopener noreferrer">chmi.cz</a></p>';
   const np = nejblizsiPredpoved();

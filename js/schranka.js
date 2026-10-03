@@ -4,7 +4,7 @@
 
 import { stav, zmeneno, prejdi, umiMotor } from './stav.js';
 import { volej } from './api.js';
-import { esc, kdyKratce, prvniRadek, dm, hhmm, rozdilDni, terminDatum, DNY_KR, uloziste, odstin } from './pomocne.js';
+import { esc, kdyKratce, prvniRadek, dm, hhmm, rozdilDni, terminDatum, DNY_KR, uloziste, odstin, sOdkazy } from './pomocne.js';
 import { toast, toastAkce, kostra, chybaHtml, prizpusobVysku, okno, potvrd } from './ui.js';
 import { IKONY } from './ikony.js';
 import { otevriFormular } from './udalost.js';
@@ -163,17 +163,19 @@ export function polozkaHtml(p, kompaktni) {
     h += '<div class="detail">';
     if (p.navrh) h += navrhHtml(p, p.navrh);
     else if (mistni) h += navrhHtml(p, mistni, true);
-    h += '<div class="bublina b-michal"><span class="kdo">Ty · ' + esc(dm(p.kdy) + ' ' + hhmm(p.kdy)) + (p.odkud ? ' · ' + esc(p.odkud) : '') + '</span>' + esc(p.text) + '</div>';
+    h += '<div class="bublina b-michal"><span class="kdo">Ty · ' + esc(dm(p.kdy) + ' ' + hhmm(p.kdy)) + (p.odkud ? ' · ' + esc(p.odkud) : '') + '</span>' + sOdkazy(p.text) + '</div>';
     p.vlakno.forEach((v) => {
       h += '<div class="bublina ' + (v.kdo === 'Claude' ? 'b-claude' : 'b-michal') + '"><span class="kdo">' +
-        (v.kdo === 'Claude' ? 'Claude' : 'Ty') + (v.kdy ? ' · ' + esc(v.kdy) : '') + '</span>' + esc(v.text) + '</div>';
+        (v.kdo === 'Claude' ? 'Claude' : 'Ty') + (v.kdy ? ' · ' + esc(v.kdy) : '') + '</span>' + (v.kdo === 'Claude' ? textClauda(v.text) : sOdkazy(v.text)) + '</div>';
     });
     if (sk === 'rozhodni') {
       h += '<textarea class="odpoved" data-odpoved="' + esc(p.id) + '" rows="2" placeholder="Odpověď pro Clauda…"></textarea>' +
         '<div class="akce"><button type="button" class="btn btn--ghost" data-polozka="udelej" data-id="' + esc(p.id) + '">Udělej to</button>' +
         '<button type="button" class="btn btn--primary" data-polozka="odpoved" data-id="' + esc(p.id) + '">Odeslat odpověď</button></div>';
     } else if (sk === 'ukol') {
-      h += '<div class="akce"><button type="button" class="btn btn--primary" data-polozka="hotovo" data-id="' + esc(p.id) + '">Hotovo</button></div>';
+      h += '<div class="akce">' + (umiMotor('polozkaTermin') ? '<button type="button" class="btn btn--ghost" data-polozka-akce="odlozit" data-id="' + esc(p.id) + '">' +
+        IKONY.pripomenout + '<span>' + (p.termin ? 'Změnit termín' : 'Termín') + '</span></button>' : '') +
+        '<button type="button" class="btn btn--primary" data-polozka="hotovo" data-id="' + esc(p.id) + '">Hotovo</button></div>';
     } else if (sk === 'napad') {
       h += '<div class="akce"><button type="button" class="btn btn--ghost" data-polozka="zahodit" data-id="' + esc(p.id) + '">Zahodit</button>' +
         '<button type="button" class="btn btn--primary" data-polozka="udelej" data-id="' + esc(p.id) + '">Udělej to</button></div>';
@@ -189,6 +191,14 @@ export function polozkaHtml(p, kompaktni) {
     h += '</div>';
   }
   return h + '</li>';
+}
+
+/** Claudova odpověď: odkazy klikací, **tučně**, `kód`, řádky „- “ jako odrážky (text je napřed escapovaný). */
+function textClauda(t) {
+  return sOdkazy(t)
+    .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/^[ \t]*[-*] /gm, '• ');
 }
 
 /** Pole pro zápis poznámky – vytváří se jednou, překreslování ho nemaže. */
@@ -255,14 +265,24 @@ export function vykresliSchranku(el) {
   el.querySelector('#schranka-filtry').innerHTML = filtryHtml(pocty);
 
   let h = stav.chyby.schranka ? '<p class="pruh pruh-varovani">' + esc(stav.chyby.schranka.message) + ' Ukazuju naposledy načtené.</p>' : '';
+  // čeká u Clauda déle než 3 h a Claude schránku dlouho nezpracoval → naplánovaná úloha neběží (PC vypnuté / uspané)
+  const nejstarsi = sk.nove.length ? Math.min.apply(null, sk.nove.map((p) => p.kdy)) : null;
+  const zpracovano = stav.schranka.zpracovano;
+  if (nejstarsi && Date.now() - nejstarsi > 3 * 36e5 && (!zpracovano || zpracovano < nejstarsi)) {
+    h += '<p class="pruh pruh-varovani">U Clauda čeká ' + sk.nove.length + ' ' + (sk.nove.length === 1 ? 'poznámka' : sk.nove.length < 5 ? 'poznámky' : 'poznámek') +
+      ' déle než 3 hodiny' + (zpracovano ? ' – naposledy zpracováno ' + esc(kdyKratce(zpracovano)) : '') + '. Běží PC s Claudem?</p>';
+  }
   let neco = false;
   SKUPINY.forEach((s) => {
     const pol = sk[s[0]];
     if (!pol.length || (stav.filtrSchranky !== 'vse' && stav.filtrSchranky !== s[0])) return;
     neco = true;
+    // vyřízené ve „Vše“ jen posledních 5 (schránka roste) – zbytek na klepnutí nebo ve filtru Vyřízeno
+    const sbalit = s[0] === 'hotovo' && stav.filtrSchranky === 'vse' && !stav.hotovoVse && pol.length > 5;
     h += '<section class="skupina"><h2 class="skupina-nadpis" id="sk-' + s[0] + '"><i class="znacka" style="--b:' + s[2] + '"></i>' + s[1] +
       '<span class="pocet cisla">' + pol.length + '</span></h2>' +
-      '<div class="card"><ul class="seznam">' + pol.map((p) => polozkaHtml(p, false)).join('') + '</ul></div></section>';
+      '<div class="card"><ul class="seznam">' + (sbalit ? pol.slice(0, 5) : pol).map((p) => polozkaHtml(p, false)).join('') + '</ul>' +
+      (sbalit ? '<button type="button" class="agenda__vic" data-hotovo-vse>Ukázat všech ' + pol.length + ' vyřízených</button>' : '') + '</div></section>';
   });
   if (!neco) h += '<div class="card"><div class="prazdne">' + (stav.filtrSchranky === 'vse' ? 'Schránka je prázdná. Nadiktuj první poznámku.' : 'Tady nic není.') + '</div></div>';
   obsah.innerHTML = h;
@@ -279,6 +299,7 @@ export function klikSchranka(el) {
   if (el.dataset.filtrSchranky && el.closest('#p-schranka')) { stav.filtrSchranky = el.dataset.filtrSchranky; zmeneno(); return true; }
   if (el.dataset.temaSchranky !== undefined && el.closest('#p-schranka')) { stav.temaSchranky = el.dataset.temaSchranky; zmeneno(); return true; }
   if (el.dataset.polozkaAkce) { upravPolozku(el.dataset.polozkaAkce, el.dataset.id); return true; }
+  if (el.hasAttribute('data-hotovo-vse')) { stav.hotovoVse = true; zmeneno(); return true; }
   if (el.dataset.navrh) { pouzijNavrh(el.dataset.navrh); return true; }
   if (el.dataset.navrhMistni) { pouzijNavrh(el.dataset.navrhMistni, true); return true; }
   if (el.hasAttribute('data-zapis-navrh')) { pouzijRychlyNavrh(el.closest('.zapis')); return true; }
@@ -418,6 +439,15 @@ async function upravPolozku(jak, id) {
         volby: TEMATA.map((t) => [t[0], t[1], t[2]]).concat([['', 'Bez tématu']]), vybrana: p.tema || '', ano: 'Zavřít', ne: null });
       if (typeof tema !== 'string') return;
       nahrad(await volej('polozka', { id, jak: 'tema', text: tema }));
+    } else if (jak === 'odlozit') {
+      const dnes = new Date(); dnes.setHours(12, 0, 0, 0);
+      const za = (n) => { const d = new Date(dnes); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+      const doPondeli = ((8 - dnes.getDay()) % 7) || 7;
+      const volba = await okno({ ikona: IKONY.pripomenout, nadpis: p.termin ? 'Změnit termín' : 'Termín úkolu', text: 'Úkol se v přehledu seřadí podle termínu a v den termínu se ukáže nahoře.',
+        volby: [[za(0), 'Dnes'], [za(1), 'Zítra'], [za(3), 'Za 3 dny'], [za(doPondeli), 'Příští pondělí'], [za(7), 'Za týden'], ['', 'Bez termínu']], vybrana: p.termin || null, ano: 'Zavřít', ne: null });
+      if (typeof volba !== 'string') return;
+      nahrad(await volej('polozka', { id, jak: 'termin', text: volba }));
+      toast(volba ? 'Termín ' + terminDatum(volba) : 'Termín zrušen');
     } else if (jak === 'smazat') {
       if (!(await potvrd('Smazat poznámku?', { ton: 'nebezpeci', ikona: IKONY.smazat, ano: 'Smazat',
         text: 'Přesune se do koše na Disku Google – 30 dní ji tam jde obnovit.' }))) return;

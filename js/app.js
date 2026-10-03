@@ -183,7 +183,8 @@ function vykresliHlavu(p) {
       pod += ' · ' + (n ? n + ' ' + tvar(n, 'věc čeká', 'věci čekají', 'věcí čeká') + ' na tebe' : 'nic na tebe nečeká');
     }
   } else if (stav.pohled === 'schranka') {
-    pod = stav.schranka ? p.ceka.length + ' čeká na tebe · ' + p.uClauda.length + ' u Clauda' : 'Načítám…';
+    pod = stav.schranka ? p.ceka.length + ' čeká na tebe · ' + p.uClauda.length + ' u Clauda' +
+      (stav.schranka.zpracovano ? ' · Claude naposledy ' + esc(kdyKratce(stav.schranka.zpracovano)) : '') : 'Načítám…';
   } else if (stav.pohled === 'posta') {
     pod = stav.posta ? p.pozornost.length + ' ' + tvar(p.pozornost.length, 'konverzace čeká', 'konverzace čekají', 'konverzací čeká') + ' na tebe' +
       (p.hori ? ' · ' + p.hori + ' hoří' : '') + ' · ' + (posta.maPracovni() ? 'osobní a pracovní' : 'osobní Gmail') : 'Načítám…';

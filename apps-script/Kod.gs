@@ -27,7 +27,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-03.1';
+const VERZE = '2026-10-03.2';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -89,7 +89,7 @@ function doPost(e) {
 }
 
 // co motor umí uvnitř akcí (aplikace podle toho ukáže nová tlačítka i u starší verze motoru je schová)
-const SCHOPNOSTI = ['polozkaUpravy'];
+const SCHOPNOSTI = ['polozkaUpravy', 'polozkaTermin'];
 
 const AKCE = {
   info: function () {
@@ -116,7 +116,7 @@ const AKCE = {
   udalostUlozit: function (d) { return ulozUdalost_(d); },
   udalostSmazat: function (d) { return smazUdalost_(d.kalendarId, d.udalost, !!d.cela); },
   zapasyImport: function (d) { return importujZapasy_(d); },
-  pocasi: function (d) { return pocasi_(!!d.znovu); },
+  pocasi: function (d) { return pocasi_(!!d.znovu, d.poloha || null); }, // bez polohy z aplikace = výchozí místo
   stitky: function (d) { return stitkyGmailu_(!!d.znovu); },
   postaStitek: function (d) { return postaStitku_(d.nazev); },
   kontakty: function () { return kontakty_(); },
@@ -198,7 +198,10 @@ function nactiSchranku_() {
   hotovo.sort(function (a, b) { return b.getLastUpdated() - a.getLastUpdated(); });
   hotovo = hotovo.slice(0, MAX_VYRIZENYCH).map(function (f) { return polozka_(f, 'HOTOVO'); });
 
-  return { nove: nove, ceka: ceka, hotovo: hotovo, ted: Date.now() };
+  // kdy Claude naposledy zpracoval schránku (obnovil PREHLED.md) – aplikace pozná, že úloha neběží (PC vypnuté)
+  const prehled = koren.getFilesByName('PREHLED.md');
+  const zpracovano = prehled.hasNext() ? prehled.next().getLastUpdated().getTime() : null;
+  return { nove: nove, ceka: ceka, hotovo: hotovo, zpracovano: zpracovano, ted: Date.now() };
 }
 
 /** Poznámka napsaná nebo nadiktovaná přímo v aplikaci. */
@@ -242,8 +245,9 @@ function upravPolozku_(id, akce, text) {
       return true;
     }
     const puvodni = soubor.getBlob().getDataAsString('UTF-8').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
-    if (akce === 'nadpis' || akce === 'tema') {
+    if (akce === 'nadpis' || akce === 'tema' || akce === 'termin') {
       let hodnota = String(text || '').replace(/\s+/g, ' ').trim();
+      if (akce === 'termin' && hodnota && !/^\d{4}-\d{2}-\d{2}$/.test(hodnota)) throw new Error('Termín musí být RRRR-MM-DD.');
       if (akce === 'nadpis' && hodnota.length > 120) throw new Error('Nadpis je moc dlouhý (nejvýš 120 znaků).');
       if (akce === 'tema') {
         hodnota = hodnota.toLowerCase();
@@ -2559,23 +2563,98 @@ function mistoPocasi_() {
   try { return nastaveniPocasi_().misto; } catch (chyba) { return ''; }
 }
 
-/** Přehled pro aplikaci; znovu = obejít hotový přehled (stahuje se dál podmíněně). */
-function pocasi_(znovu) {
+/**
+ * Přehled pro aplikaci; znovu = obejít hotový přehled (stahuje se dál podmíněně).
+ * poloha = {lat, lon} z telefonu (aplikace ji pošle jen se zapnutým „Počasí podle polohy“) → výstrahy pro ORP v místě,
+ * nejbližší řeka a předpověď kraje; bez polohy (nebo mimo ČR) místo z POCASI. Upozornění bez polohy použijí
+ * poslední polohu z aplikace, když není starší než den.
+ */
+function pocasi_(znovu, poloha) {
+  let p = polohaPocasi_(poloha);
+  if (p) vlastnosti_().setProperty('POCASI_POLOHA', JSON.stringify({ lat: p.lat, lon: p.lon, kdy: Date.now() }));
+  else if (poloha === undefined) p = posledniPoloha_(); // upozornění: poslední poloha z aplikace (nejvýš den stará)
+  else if (vlastnosti_().getProperty('POCASI_POLOHA')) vlastnosti_().deleteProperty('POCASI_POLOHA'); // poloha vypnutá
+  let n = null, chybaPolohy = '';
+  if (p) { try { n = nastaveniZPolohy_(p); } catch (chyba) { chybaPolohy = String(chyba.message || chyba); } }
+  if (!n) n = nastaveniPocasi_();
+  const klic = n.poloha ? 'pocasi:prehled:' + klicMista_(n) : 'pocasi:prehled';
   if (!znovu) {
-    const hotovo = nactiZCache_('pocasi:prehled');
+    const hotovo = nactiZCache_(klic);
     if (hotovo) return hotovo;
   }
-  const n = nastaveniPocasi_();
   const ted = Date.now();
   const chyby = [];
+  if (chybaPolohy) chyby.push('poloha (' + chybaPolohy + ') – ukazuju výchozí místo');
   let cap = [], reky = [], predpovedi = [];
   try { cap = vystrahyChmu_(n); } catch (chyba) { chyby.push('výstrahy (' + chyba.message + ')'); }
   try { reky = rekyChmu_(n, ted); } catch (chyba) { chyby.push('vodní stavy (' + chyba.message + ')'); }
   try { predpovedi = predpovediChmu_(n); } catch (chyba) { chyby.push('předpověď (' + chyba.message + ')'); }
   const prehled = CHMU_.prehled({ cap: cap, reky: reky, predpovedi: predpovedi }, ted, n);
+  if (n.poloha) prehled.podlePolohy = true;
   if (chyby.length) prehled.chyby = chyby;
-  ulozDoCache_('pocasi:prehled', prehled, chyby.length ? 300 : POCASI_SEKUND);
+  ulozDoCache_(klic, prehled, chyby.length ? 300 : POCASI_SEKUND);
   return prehled;
+}
+
+// ---- počasí podle polohy: ORP z ČÚZK (RÚIAN), kód výstrah CISORP, kraj předpovědi, nejbližší vodoměrné stanice
+const CUZK_RUIAN = 'https://ags.cuzk.cz/arcgis/rest/services/RUIAN/Prohlizeci_sluzba_nad_daty_RUIAN/MapServer/';
+// kód ORP v RÚIAN → kód CISORP ve výstrahách ČHMÚ (ČSÚ číselník 65; Praha je ve výstrahách 1100)
+const RUIAN_CISORP = {19:1100,27:2101,35:2125,43:2126,51:2102,60:2108,78:2109,86:2124,94:2110,108:2106,116:2112,124:2104,132:2111,141:2114,159:2117,167:2115,175:2116,183:2113,191:2118,205:2119,213:2103,221:2122,230:2105,248:2107,256:2120,264:2121,272:2123,281:3101,299:3102,302:3103,311:3104,329:3105,337:3106,345:3107,353:3108,361:3109,370:3110,388:3111,396:3112,400:3113,418:3114,426:3115,434:3116,442:3117,451:3201,469:3202,477:3203,485:3204,493:3205,507:3206,515:3207,523:3208,531:3209,540:3210,558:3211,566:3212,574:3213,582:3214,591:3215,604:4101,612:4102,621:4103,639:4104,647:4105,655:4106,663:4107,671:4201,680:4202,698:4203,701:4204,710:4205,728:4206,736:4207,744:4208,752:4209,761:4210,779:4211,787:4212,795:4213,809:4214,817:4215,825:4216,833:5101,841:5102,850:5103,868:5104,876:5105,884:5106,892:5107,906:5108,914:5109,922:5110,931:5201,949:5202,957:5203,965:5204,973:5205,981:5206,990:5207,1007:5208,1015:5209,1023:5210,1031:5211,1040:5212,1058:5213,1066:5214,1074:5215,1082:5301,1091:5302,1104:5303,1112:5304,1121:5305,1139:5306,1147:5307,1155:5308,1163:5309,1171:5310,1180:5311,1198:5312,1201:5313,1210:5314,1228:5315,1236:6101,1244:6102,1252:6103,1261:6104,1279:6105,1287:6106,1295:6107,1309:6108,1317:6203,1325:6201,1333:6202,1341:6204,1350:6205,1368:6206,1376:6207,1384:6208,1392:6209,1406:6210,1414:6211,1422:6212,1431:6213,1449:6214,1457:6215,1465:6216,1473:6217,1481:6219,1490:6218,1503:6220,1511:6221,1520:6109,1538:6110,1546:6111,1554:6112,1562:6113,1571:6114,1589:6115,1597:7101,1601:7102,1619:7103,1627:7104,1635:7105,1643:7106,1651:7107,1660:7108,1678:7109,1686:7110,1694:7111,1708:7112,1716:7113,1724:7201,1732:7202,1741:7203,1759:7204,1767:7205,1775:7206,1783:7207,1791:7208,1805:7209,1813:7210,1821:7211,1830:7212,1848:7213,1856:8101,1864:8102,1872:8103,1881:8104,1899:8105,1902:8106,1911:8107,1929:8108,1937:8109,1945:8110,1953:8111,1961:8112,1970:8113,1988:8114,1996:8115,2003:8116,2011:8117,2020:8118,2038:8119,2046:8120,2054:8121,2062:8122};
+const KRAJ_PREDPOVEDI = { 11: 'RPPH', 21: 'RPSC', 31: 'RPCB', 32: 'RPPL', 41: 'RPKV', 42: 'RPUL', 51: 'RPLB', 52: 'RPHK', 53: 'RPPU',
+  61: 'RPVY', 62: 'RPJM', 71: 'RPOL', 72: 'RPZL', 81: 'RPMS' };
+
+/** Poloha z aplikace zaokrouhlená na 0,01° (~1 km); mimo ČR (nebo nesmysl) → null. */
+function polohaPocasi_(p) {
+  if (!p || typeof p !== 'object') return null;
+  const lat = Math.round(Number(p.lat) * 100) / 100, lon = Math.round(Number(p.lon) * 100) / 100;
+  return lat > 48.5 && lat < 51.1 && lon > 12 && lon < 18.9 ? { lat: lat, lon: lon } : null;
+}
+
+function posledniPoloha_() {
+  try {
+    const p = JSON.parse(vlastnosti_().getProperty('POCASI_POLOHA') || 'null');
+    return p && Date.now() - p.kdy < 864e5 ? polohaPocasi_(p) : null;
+  } catch (chyba) { return null; }
+}
+
+function klicMista_(n) { return Object.keys(n.orp).join(',') + '|' + n.kraj + '|' + (n.stanice || []).join(','); }
+
+function cuzkBod_(vrstva, p) {
+  const r = UrlFetchApp.fetch(CUZK_RUIAN + vrstva + '/query?geometry=' + p.lon + ',' + p.lat +
+    '&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=kod,nazev&returnGeometry=false&f=json', { muteHttpExceptions: true });
+  if (r.getResponseCode() !== 200) throw new Error('ČÚZK neodpovídá (' + r.getResponseCode() + ')');
+  const f = (JSON.parse(r.getContentText()).features || [])[0];
+  return f ? f.attributes : null;
+}
+
+/** Nastavení počasí pro polohu (jako POCASI_VYCHOZI); místa se pamatují ve vlastnosti POCASI_MISTA (posledních 20). */
+function nastaveniZPolohy_(p) {
+  const vl = vlastnosti_();
+  const k = p.lat.toFixed(2) + ',' + p.lon.toFixed(2);
+  let mista = {};
+  try { mista = JSON.parse(vl.getProperty('POCASI_MISTA') || '{}') || {}; } catch (chyba) { mista = {}; }
+  let m = mista[k];
+  if (!m) {
+    const orp = cuzkBod_(14, p);
+    if (!orp || !RUIAN_CISORP[orp.kod]) throw new Error('místo mimo ORP');
+    const obec = cuzkBod_(12, p);
+    const cisorp = RUIAN_CISORP[orp.kod];
+    m = { misto: (obec && obec.nazev) || orp.nazev, orp: [String(cisorp), orp.nazev], kraj: KRAJ_PREDPOVEDI[Math.floor(cisorp / 100)] || POCASI_VYCHOZI.kraj,
+      stanice: nejblizsiStanice_(p), kdy: Date.now() };
+    mista[k] = m;
+    const klice = Object.keys(mista).sort(function (a, b) { return mista[b].kdy - mista[a].kdy; });
+    klice.slice(20).forEach(function (x) { delete mista[x]; });
+    vl.setProperty('POCASI_MISTA', JSON.stringify(mista));
+  }
+  const orpMapa = {};
+  orpMapa[m.orp[0]] = m.orp[1];
+  return { misto: m.misto, orp: orpMapa, stanice: m.stanice, kraj: m.kraj, dny: POCASI_VYCHOZI.dny, poloha: p };
+}
+
+/** Dvě nejbližší vodoměrné stanice s povodňovými stupni (SPA) do 30 km – seznam stanic z meta1.json (podmíněně, 6 h). */
+function nejblizsiStanice_(p) {
+  const stanice = stahniPodminene_(POCASI_URL.hydroMeta, 'pocasi:stanice', function (t) { return CHMU_.staniceSouradnice(t); });
+  return CHMU_.nejblizsi(stanice, p.lat, p.lon, 30, 2);
 }
 
 function hlavickaOdpovedi_(hlavicky, jmeno) {
@@ -2605,20 +2684,20 @@ function stahniPodminene_(url, klic, zpracuj, sekund) {
 function vystrahyChmu_(n) {
   const zpracuj = function (xml) { return CHMU_.vystrahy(xml, n.orp).polozky; };
   try {
-    return stahniPodminene_(POCASI_URL.cap, 'pocasi:cap', zpracuj);
+    return stahniPodminene_(POCASI_URL.cap, 'pocasi:cap' + (n.poloha ? ':' + Object.keys(n.orp).join(',') : ''), zpracuj);
   } catch (chyba) {
     // záloha: archiv na opendata – názvy souborů mají jen DDHHMM, nejnovější určí čas ve výpisu
     const vypis = UrlFetchApp.fetch(POCASI_URL.capArchiv, { muteHttpExceptions: true });
     if (vypis.getResponseCode() !== 200) throw chyba;
     const soubor = CHMU_.nejnovejsi(vypis.getContentText('UTF-8'), /^alert_cap_50_\d{6}\.xml$/);
     if (!soubor) throw chyba;
-    return stahniPodminene_(POCASI_URL.capArchiv + soubor.nazev, 'pocasi:cap2', zpracuj);
+    return stahniPodminene_(POCASI_URL.capArchiv + soubor.nazev, 'pocasi:cap2' + (n.poloha ? ':' + Object.keys(n.orp).join(',') : ''), zpracuj);
   }
 }
 
 function rekyChmu_(n, ted) {
   if (!n.stanice || !n.stanice.length) return [];
-  const meta = stahniPodminene_(POCASI_URL.hydroMeta, 'pocasi:hmeta', function (t) { return CHMU_.hydroMeta(t, n.stanice); });
+  const meta = stahniPodminene_(POCASI_URL.hydroMeta, 'pocasi:hmeta' + (n.poloha ? ':' + n.stanice.join(',') : ''), function (t) { return CHMU_.hydroMeta(t, n.stanice); });
   return n.stanice.map(function (id) {
     // soubor stanice (~20 kB) se drží celý – vyhodnocuje se pokaždé s aktuálním časem
     const text = stahniPodminene_(POCASI_URL.hydroData + encodeURIComponent(id) + '.json', 'pocasi:h:' + id, function (t) { return t; }, 7200);
@@ -2627,7 +2706,8 @@ function rekyChmu_(n, ted) {
 }
 
 function predpovediChmu_(n) {
-  const hotovo = nactiZCache_('pocasi:predpovedi');
+  const klic = 'pocasi:predpovedi' + (n.poloha ? ':' + n.kraj : '');
+  const hotovo = nactiZCache_(klic);
   if (hotovo) return hotovo;
   const vypis = UrlFetchApp.fetch(POCASI_URL.predpovedi, { muteHttpExceptions: true });
   if (vypis.getResponseCode() !== 200) throw new Error('HTTP ' + vypis.getResponseCode());
@@ -2648,7 +2728,7 @@ function predpovediChmu_(n) {
     vysledek.push(p);
   });
   ulozDoCache_('pocasi:psoubory', nove, 21600);
-  ulozDoCache_('pocasi:predpovedi', vysledek, 3600); // výpis znovu nejdřív za hodinu
+  ulozDoCache_(klic, vysledek, 3600); // výpis znovu nejdřív za hodinu
   return vysledek;
 }
 
@@ -2882,6 +2962,24 @@ const CHMU_ = (function () {
     });
     return vysledek;
   }
+  /** meta1.json → [[id, název, tok, lat, lon, maSpa]] (souřadnice WGS84; maSpa = má povodňové stupně). */
+  function staniceSouradnice(text) {
+    const j = typeof text === 'string' ? JSON.parse(text) : text;
+    const d = j.data.data, sloupce = d.header.split(',');
+    const i = function (k) { return sloupce.indexOf(k); };
+    return d.values.map(function (v) {
+      return [v[i('objID')], v[i('STATION_NAME')], v[i('STREAM_NAME')], Number(v[i('GEOGR1')]), Number(v[i('GEOGR2')]), v[i('SPA1H')] != null && v[i('SPA1H')] !== '' ? 1 : 0];
+    }).filter(function (s) { return isFinite(s[3]) && isFinite(s[4]); });
+  }
+  /** Nejbližší stanice s povodňovými stupni do maxKm (vzdušně), nejvýš pocet id. */
+  function nejblizsi(stanice, lat, lon, maxKm, pocet) {
+    const km = function (s) {
+      const dLat = (s[3] - lat) * 111.2, dLon = (s[4] - lon) * 111.2 * Math.cos(lat * Math.PI / 180);
+      return Math.sqrt(dLat * dLat + dLon * dLon);
+    };
+    return stanice.filter(function (s) { return s[5]; }).map(function (s) { return [s[0], km(s)]; })
+      .filter(function (x) { return x[1] <= maxKm; }).sort(function (a, b) { return a[1] - b[1]; }).slice(0, pocet).map(function (x) { return x[0]; });
+  }
   function stupenSpa(h, m) {
     if (h == null || !m) return 0;
     if (m.q50 != null && h >= m.q50) return 4;
@@ -3040,7 +3138,7 @@ const CHMU_ = (function () {
     };
   }
 
-  return { vystrahy: vystrahy, aktualni: aktualni, slucDuplicity: slucDuplicity, hydroMeta: hydroMeta, reka: reka,
+  return { vystrahy: vystrahy, aktualni: aktualni, slucDuplicity: slucDuplicity, hydroMeta: hydroMeta, staniceSouradnice: staniceSouradnice, nejblizsi: nejblizsi, reka: reka,
     predpoved: predpoved, nejnovejsi: nejnovejsi, prehled: prehled, rada: rada, denPraha: denPraha, teploty: teploty };
 })();
 

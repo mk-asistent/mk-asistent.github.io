@@ -219,6 +219,11 @@ function prostredi() {
     UrlFetchApp: { fetch: (url, moznosti) => {
       log.stazeno++;
       if (url.indexOf('chmi.cz') >= 0) return odpovedChmu(url, moznosti);
+      if (url.indexOf('ags.cuzk.cz') >= 0) { // RÚIAN: bod → ORP (vrstva 14) / obec (vrstva 12) – jen okolí Veselí n. M.
+        log.cuzk = (log.cuzk || 0) + 1;
+        const atributy = /MapServer\/14\//.test(url) ? { kod: 1490, nazev: 'Veselí nad Moravou' } : { kod: 586587, nazev: 'Strážnice' };
+        return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ features: [{ attributes: atributy }] }) };
+      }
       if (url.indexOf('api.prod.whoop.com') >= 0) return odpovedWhoop(url, moznosti || {});
       if (url === 'https://ntfy.sh/') { log.ntfy = (log.ntfy || []).concat(JSON.parse(moznosti.payload)); return { getResponseCode: () => 200, getContentText: () => '{}' }; }
       return { getResponseCode: () => (url.indexOf('chyba') >= 0 ? 404 : 200), getContentText: () => (url.indexOf('rozpis') >= 0 ? rozpis : ICS) };
@@ -952,6 +957,14 @@ test('schránka: nadpis a téma v hlavičce, dopsat i k vyřízené (zpět do NO
   assert.strictEqual(p.volej('polozka', { id: polozka.id, jak: 'tema', text: 'nesmysl s mezerou' }).ok, false);
   o = p.volej('polozka', { id: polozka.id, jak: 'nadpis', text: '' });
   assert.strictEqual(o.data.nadpis, '');
+  // termín (Odložit / Změnit termín v aplikaci): RRRR-MM-DD nebo prázdný = bez termínu
+  assert.strictEqual(p.volej('polozka', { id: polozka.id, jak: 'termin', text: '2026-10-09' }).data.termin, '2026-10-09');
+  assert.strictEqual(p.volej('polozka', { id: polozka.id, jak: 'termin', text: 'zítra' }).ok, false);
+  assert.strictEqual(p.volej('polozka', { id: polozka.id, jak: 'termin', text: '' }).data.termin, '');
+  // kdy Claude naposledy zpracoval schránku (PREHLED.md)
+  assert.strictEqual(p.volej('schranka').data.zpracovano, null);
+  p.schranka.createFile('PREHLED.md', '# Schránka – přehled');
+  assert.ok(p.volej('schranka').data.zpracovano > 0, 'čas z PREHLED.md');
   assert.ok(/^---\nkdy: [^\n]+\nodkud: iPhone\n/.test(p.vsechnySoubory[polozka.id].getBlob().getDataAsString()));
   // hotovo s textem (po založení události z návrhu) → HOTOVO/RRRR-MM, text v sekci Michal
   assert.strictEqual(p.volej('polozka', { id: polozka.id, jak: 'hotovo', text: 'Událost založena: Schůzka s Petrem, út 6. 10. 10:00' }).ok, true);
@@ -1331,6 +1344,32 @@ test('počasí: povodeň z CAP (profil, vývoj) a hladina nad 2. SPA z měření
   const r = json(C.reka(stanice, meta, Date.parse('2026-10-02T19:20:00Z')));
   assert.deepStrictEqual([r.typ, r.uroven, r.spa, r.stav], ['povoden', 'oranzova', 2, '2. SPA – pohotovost']);
   assert.deepStrictEqual(json(C.teploty('Nejnižší teploty −2 až −6 °C')), [-6, -2]);
+});
+
+test('počasí podle polohy: ORP z ČÚZK → výstrahy pro CISORP, obec jako místo, nejbližší stanice, místo se pamatuje', () => {
+  const p = prostredi();
+  p.nastavCas(Date.parse('2026-10-02T10:00:00Z'));
+  let o = p.volej('pocasi', { poloha: { lat: 48.9333, lon: 17.2977 } }); // Strážnice
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(o.data.misto, 'Strážnice');
+  assert.strictEqual(o.data.podlePolohy, true);
+  assert.ok(!o.data.chyby, JSON.stringify(o.data.chyby));
+  const mista = JSON.parse(p.vlastnosti.get('POCASI_MISTA'));
+  const m = mista['48.93,17.30'];
+  assert.deepStrictEqual([m.orp, m.kraj], [['6218', 'Veselí nad Moravou'], 'RPJM']);
+  assert.ok(m.stanice.indexOf('0-203-1-421500') >= 0, 'Strážnice/Morava mezi nejbližšími: ' + JSON.stringify(m.stanice));
+  const dotazu = p.log.cuzk;
+  p.volej('pocasi', { poloha: { lat: 48.9301, lon: 17.3002 }, znovu: true }); // stejná dlaždice 0,01° → bez ČÚZK
+  assert.strictEqual(p.log.cuzk, dotazu, 'místo z paměti');
+  // upozornění (bez polohy) použijí poslední polohu z aplikace; aplikace bez polohy → výchozí místo a poloha zapomenuta
+  assert.ok(JSON.parse(p.vlastnosti.get('POCASI_POLOHA')).lat === 48.93);
+  o = p.volej('pocasi', { poloha: null });
+  assert.strictEqual(o.data.misto, 'Veselí nad Moravou');
+  assert.ok(!p.vlastnosti.has('POCASI_POLOHA'), 'vypnutá poloha se zapomene');
+  // mimo ČR → výchozí místo
+  assert.strictEqual(p.volej('pocasi', { poloha: { lat: 52.5, lon: 13.4 } }).data.misto, 'Veselí nad Moravou');
+  const C = vm.runInContext('CHMU_', p.ctx);
+  assert.deepStrictEqual(json(C.nejblizsi([['a', 'A', 'x', 49, 17, 1], ['b', 'B', 'x', 49.1, 17, 1], ['c', 'C', 'x', 49.01, 17, 0], ['d', 'D', 'x', 50, 17, 1]], 49, 17, 30, 2)), ['a', 'b']);
 });
 
 test('nedělní přehled: události po dnech bez zápasů, zápasy týmů, úkoly s termínem, počasí – bez názvů', () => {

@@ -11,6 +11,7 @@ import { nactiPostu } from './posta.js';
 import { zapasyHtml } from './udalost.js';
 import { tymyHtml as fotbalTymyHtml } from './fotbal.js';
 import { DRUHY } from './kalendar.js';
+import * as pocasi from './pocasi.js';
 
 export const VERZE_APLIKACE = '2026-10-03';
 
@@ -292,7 +293,13 @@ function sekcePocasi() {
   const misto = (stav.info && stav.info.pocasi && stav.info.pocasi.misto) || (stav.pocasi && stav.pocasi.misto);
   let h = '<section class="card nast-sekce" data-sekce="pocasi"><h3>Počasí · ČHMÚ</h3>';
   if (staryMotor()) return h + '<p>Počasí ukáže nová verze motoru.</p>' + novaVerzeMotoruHtml() + '</section>';
-  h += '<p>Místo: <b>' + esc(misto || (jeDemo() ? 'Veselí nad Moravou (ukázka)' : '—')) + '</b></p>' +
+  const zap = pocasi.polohaZapnuta();
+  h += '<label class="prepinac-radek"><span><b>Podle mé polohy</b><small>na tomhle zařízení – výstrahy pro obec, kde jsi, nejbližší řeka, předpověď kraje a teplota teď</small></span>' +
+    '<span class="prepinac"><input type="checkbox" data-nast-poloha' + (zap ? ' checked' : '') + '><span></span></span></label>' +
+    (zap && stav.chybaPolohy ? '<p class="nast-stav chyba"><i></i>' + esc(stav.chybaPolohy) + '</p>' : '') +
+    '<p class="napoveda">Poloha (zaokrouhlená na ~1 km) jde jen tvému motoru, mapové službě ČÚZK (kód obce) a Open-Meteo (teplota teď). ' +
+    'Motor si pamatuje poslední místo pro ranní upozornění – po vypnutí ho zapomene.</p>' +
+    '<p>Místo: <b>' + esc(misto || (jeDemo() ? 'Veselí nad Moravou (ukázka)' : '—')) + '</b>' + (stav.pocasi && stav.pocasi.podlePolohy ? ' <span class="tag">podle polohy</span>' : '') + '</p>' +
     '<p class="napoveda">Na Dnes je jen to důležité: výstrahy ČHMÚ pro tvoje místo (bouřky, vedro, mráz, povodně, smog), povodňový stupeň ' +
     'na řece a krátká předpověď kraje na dnes až tři dny. Klepnutím na kartu Počasí se otevře celý přehled.</p>' +
     '<details class="napoveda"><summary>Jak změnit místo</summary><ol>' +
@@ -524,6 +531,14 @@ export function zmenaNastaveni(e) {
   }
   if (t.dataset && t.dataset.nastKalDruh) {
     volej('kalendarUpravit', { id: t.dataset.nastKalDruh, druh: t.value }).then(poZmeneKalendaru).catch((chyba) => toast(chyba.message, true));
+    return true;
+  }
+  if (t.matches && t.matches('[data-nast-poloha]')) {
+    // první zapnutí = iPhone / prohlížeč se zeptá na povolení polohy
+    pocasi.nastavPolohu(t.checked).then(() => {
+      toast(t.checked ? (stav.chybaPolohy ? stav.chybaPolohy : 'Počasí podle polohy: ' + ((stav.pocasi && stav.pocasi.misto) || 'zapnuto')) : 'Počasí zase pro výchozí místo', !!(t.checked && stav.chybaPolohy));
+      if (jeOtevreny('nastaveni')) obnovPanel('nastaveni');
+    });
     return true;
   }
   if (!t.dataset || !t.dataset.nastKalZobrazit) return false;

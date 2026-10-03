@@ -584,6 +584,13 @@ button.zapas-hlava:hover { background: var(--bg-soft); }
     .fotbal-tabulka .vrp { display: none; }
     .zapas-detail { padding-left: 16px; }
 }
+/* počasí: příštích 12 hodin (Open-Meteo) */
+.pocasi-hodiny { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; padding: 2px 0 6px; }
+.pocasi-hodiny > span { flex: none; width: 46px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0; border-radius: 12px; background: var(--bg-soft); }
+.pocasi-hodiny small { font-size: 11px; color: var(--dim); }
+.pocasi-hodiny i svg { width: 20px; height: 20px; color: var(--text-soft); }
+.pocasi-hodiny b { font-size: 13px; }
+.pocasi-hodiny em { min-height: 14px; font-style: normal; font-size: 10.5px; color: var(--accent); }
 /* návrh odpovědi od Clauda v konverzaci */
 .navrh-odpovedi__text { white-space: pre-wrap; font-size: 13.5px; line-height: 1.5; padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, .55); color: var(--na-limetce); max-height: 240px; overflow: auto; }
 .navrh-odpovedi__akce { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -670,6 +677,8 @@ li.aktivni > .radek { background: var(--sand); box-shadow: inset 3px 0 0 var(--a
 .bublina .kdo { display: block; font-size: 11px; font-weight: 650; color: var(--muted); margin-bottom: 2px; }
 .b-michal { align-self: flex-end; background: var(--sand); border-bottom-right-radius: 4px; }
 .b-claude { align-self: flex-start; background: var(--surface); border-bottom-left-radius: 4px; }
+.bublina code { font-size: 12px; background: var(--bg-soft); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+.bublina a { color: var(--accent); }
 .akce { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .akce--vedlejsi { justify-content: flex-start; gap: 6px; padding-top: 2px; border-top: 1px dashed var(--line); padding-top: 10px; }
 .akce--vedlejsi .btn { color: var(--muted); }

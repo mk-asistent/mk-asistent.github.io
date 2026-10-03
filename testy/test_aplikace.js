@@ -36,7 +36,7 @@ const KALENDARE = [{ id: 'g1', nazev: 'Osobní', barva: '#2f6bff', zdroj: 'googl
 const zapasFotbal = (tym, dni, h, domaci, hoste, vysledek) => ({ id: tym + dni, tym, zacatek: new Date(den(dni, h)).toISOString(), domaci, hoste,
   doma: /Vnorovy/.test(domaci), misto: '', vysledek, stav: vysledek ? 'odehrano' : 'naplanovano', url: '#' });
 const motor = {
-  info: () => ({ verze: 'test', akce: Object.keys(motor).concat(['polozkaUpravy']), ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false, podpisy: { osobni: 'Michal', pracovni: '' } },
+  info: () => ({ verze: 'test', akce: Object.keys(motor).concat(['polozkaUpravy', 'polozkaTermin']), ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false, podpisy: { osobni: 'Michal', pracovni: '' } },
     kalendare: KALENDARE, skupinyHostu: [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@x.test', 'rodic2@x.test'] }] }),
   schranka: () => ({ nove: [{ id: 'n1', slozka: 'NOVE', kdy: ted - H, odkud: 'iPhone', typ: '', stav: '', shrnuti: '', termin: '', text: 'Zkušební poznámka z iPhonu', vlakno: [] }],
     ceka: [{ id: 'c1', slozka: 'CEKA', kdy: ted - 5 * H, odkud: 'iPhone', typ: 'ukol-michal', stav: 'tvuj-ukol', shrnuti: 'Zavolat kvůli lešení', termin: '', text: 'Připomeň mi zavolat.', vlakno: [] },
@@ -68,7 +68,7 @@ const motor = {
   hledat: (d) => ({ dotaz: d.dotaz, vlakna: [Object.assign({}, vlaknoSouhrn.v2, { id: 'v9', predmet: 'Starý protokol', kdy: ted - 90 * 24 * H })] }),
   pripomenout: (d) => ({ id: 'c9', slozka: 'CEKA', kdy: Date.now(), odkud: 'aplikace (pošta)', typ: 'ukol-michal', stav: 'tvuj-ukol', shrnuti: 'Odpovědět: Sraz v sobotu (Trenér)',
     termin: d.termin, text: 'Připomenutí e-mailu.', vlakno: [] }),
-  polozka: (d) => (d.jak === 'nadpis' || d.jak === 'tema' ? Object.assign(motor.schranka().ceka.find((x) => x.id === d.id), { [d.jak]: d.text }) : true),
+  polozka: (d) => (d.jak === 'nadpis' || d.jak === 'tema' || d.jak === 'termin' ? Object.assign(motor.schranka().ceka.find((x) => x.id === d.id), { [d.jak]: d.text }) : true),
   poznamka: (d) => ({ id: 'n' + Date.now(), slozka: 'NOVE', kdy: Date.now(), odkud: 'aplikace', typ: '', stav: '', shrnuti: '', termin: '', text: d.text, vlakno: [] }),
   zdravi: () => ({ vytvoreno: ted, dny: [
       { den: iso(den(-1, 12)), whoop: { pripravenost: { skore: 55, hrv: 70, klidovyTep: 52 }, zatez: { zatez: 12.1, kroky: 9000 } },
@@ -98,7 +98,7 @@ const motor = {
   postaStitek: (d) => ({ nazev: d.nazev, vlakna: d.nazev === 'Fotbal' ? [vlaknoSouhrn.v1, { id: 'v8', ucet: 'osobni', stav: 'resi', od: 'Rozhodčí', predmet: 'Zápis o utkání', ukazka: 'Zápis v příloze.', kdy: ted - 200 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Fotbal'] }] : [], ted }),
   kontakty: () => [{ j: 'Trenér', a: 'trener@klub.test', n: 5 }, { j: 'Investor', a: 'info@stavba.test', n: 2 }],
   podpisyUlozit: (d) => ({ osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false, podpisy: d.podpisy }),
-  pocasi: () => ({ vytvoreno: Date.now(), misto: 'Veselí nad Moravou', souhrn: 'Silné bouřky', zdroj: 'ČHMÚ',
+  pocasi: (d) => ({ vytvoreno: Date.now(), misto: d && d.poloha ? 'Strážnice' : 'Veselí nad Moravou', podlePolohy: !!(d && d.poloha), souhrn: 'Silné bouřky', zdroj: 'ČHMÚ',
     vystrahy: [{ typ: 'vystraha', uroven: 'zluta', nazev: 'Silné bouřky', od: den(1, 14), do: den(1, 22), celyKraj: true, text: 'Je třeba dbát na bezpečnost.', popis: '' }],
     reky: [{ typ: 'hladina', uroven: 'zelena', nazev: 'Morava – Strážnice', stav: 'bez povodně', kdy: ted - H, hladina: 82, trend: 'ustálená', spa: 0, spaPredpoved: 0, maxPredpoved: 82, kdyMax: ted, spa1: 530, text: 'Hladina 82 cm, ustálená.' }],
     predpovedi: [0, 1, 2, 3].map((i) => ({ nazev: 'Předpověď', od: den(i, 0), do: den(i + 1, 0), den: iso(den(i, 12)), oblast: 'Jihomoravský kraj', uvod: ['Jasno', 'Bouřky', 'Polojasno', 'Déšť'][i],
@@ -776,6 +776,72 @@ async function novaStranka(prohlizec, v, motiv) {
     jistota(volano.some((d) => d.akce === 'navrhZahodit' && d.id === 'v1'), 'zahození nedorazilo');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
+  });
+
+  // ---------- počasí podle polohy: zapnout v Nastavení → poloha (zaokrouhlená) do motoru, „Teď“ z Open-Meteo na Dnes
+  await test('počasí podle polohy: přepínač, poloha do motoru, teď z Open-Meteo', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await ctx.grantPermissions(['geolocation']);
+    await ctx.setGeolocation({ latitude: 48.93312, longitude: 17.29765 });
+    let meteo = 0;
+    await page.route('https://api.open-meteo.com/**', (route) => {
+      meteo++;
+      const hodiny = Array.from({ length: 12 }, (_, k) => { const d = new Date(Date.now() + k * 36e5); d.setMinutes(0, 0, 0); return d.toISOString().slice(0, 13) + ':00'; });
+      route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({
+        current: { temperature_2m: 12.4, weather_code: 61, precipitation: 0.3, wind_speed_10m: 2.1 },
+        hourly: { time: hodiny, temperature_2m: hodiny.map(() => 12), weather_code: hodiny.map(() => 61), precipitation_probability: hodiny.map(() => 70), precipitation: hodiny.map(() => 0.4) } }) });
+    });
+    await page.goto(WEB);
+    await page.click('#rail [data-otevri-nastaveni]');
+    await page.click('[data-panel="nastaveni"] [data-nast-sekce="pocasi"]');
+    await page.click('[data-panel="nastaveni"] .prepinac-radek:has([data-nast-poloha])');
+    await page.waitForFunction(() => /podle polohy/.test((document.querySelector('[data-panel="nastaveni"] [data-sekce="pocasi"]') || {}).textContent || ''));
+    const dotaz = volano.filter((d) => d.akce === 'pocasi' && d.poloha).pop();
+    jistota(dotaz && dotaz.poloha.lat === 48.93 && dotaz.poloha.lon === 17.3, 'poloha do motoru zaokrouhlená: ' + JSON.stringify(dotaz && dotaz.poloha));
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => /Teď · Strážnice/.test((document.getElementById('dnes-kpi') || {}).textContent || ''));
+    jistota(/12/.test(await page.textContent('#dnes-kpi .kpi')), 'teplota teď');
+    jistota(meteo >= 1, 'Open-Meteo se nezavolalo');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  // ---------- schránka: termín u tvého úkolu, Claudova odpověď s odkazem a formátem, upozornění na nezpracovanou schránku
+  await test('schránka: termín úkolu, odpověď Clauda s odkazem, upozornění na nezpracovanou schránku', async () => {
+    const puvodni = motor.schranka;
+    motor.schranka = () => {
+      const x = puvodni();
+      x.zpracovano = ted - 10 * H;
+      x.nove[0].kdy = ted - 5 * H; // čeká u Clauda 5 h, Claude naposledy před 10 h
+      x.hotovo = [{ id: 'h1', slozka: 'HOTOVO', kdy: ted - 30 * H, odkud: 'iPhone', typ: 'dotaz', stav: '', shrnuti: 'Kde je návod', termin: '', text: 'Kde je návod k AutoCADu?',
+        vlakno: [{ kdo: 'Claude', kdy: '2026-10-02 10:00', text: 'Návod je na **webu 2.0**:\n- https://example.com/navod\n- `D:\\CAD_MK`' }] }];
+      return x;
+    };
+    try {
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="schranka"]');
+      await page.waitForSelector('#p-schranka [data-polozka-id="c1"]');
+      jistota(/déle než 3 hodiny/.test(await page.textContent('#p-schranka')), 'upozornění na nezpracovanou schránku');
+      jistota(/Claude naposledy/.test(await page.textContent('#hlava')), 'čas zpracování v hlavičce');
+      // termín u tvého úkolu
+      await page.click('#p-schranka [data-prepni="c1"]');
+      await page.click('#p-schranka [data-polozka-akce="odlozit"][data-id="c1"]');
+      await page.waitForSelector('.okno-pozadi.videt [data-okno-volba]');
+      await page.click('.okno-pozadi [data-okno-volba]:nth-of-type(2)'); // Zítra
+      await page.waitForFunction(() => document.querySelector('#toast') && /Termín/.test(document.querySelector('#toast').textContent));
+      const zitra = new Date(); zitra.setDate(zitra.getDate() + 1);
+      const iso = zitra.getFullYear() + '-' + String(zitra.getMonth() + 1).padStart(2, '0') + '-' + String(zitra.getDate()).padStart(2, '0');
+      jistota(volano.some((d) => d.akce === 'polozka' && d.id === 'c1' && d.jak === 'termin' && d.text === iso), 'termín do motoru: ' + JSON.stringify(volano.filter((d) => d.jak === 'termin')));
+      // Claudova odpověď: odkaz klikací, tučně, odrážky
+      await page.click('#p-schranka [data-prepni="h1"]');
+      await page.waitForSelector('#p-schranka .b-claude a[href="https://example.com/navod"]');
+      jistota(await page.locator('#p-schranka .b-claude b').count() === 1 && /• /.test(await page.textContent('#p-schranka .b-claude')), 'formát odpovědi');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    } finally {
+      motor.schranka = puvodni;
+    }
   });
 
   // ---------- Co je nového: po návratu ukáže, co přibylo (tady nová pošta, která čeká), Ukázat vede do Pošty
