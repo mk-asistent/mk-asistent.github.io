@@ -23,8 +23,9 @@ v aplikaci) – nikdy v tomhle repozitáři. Vzhled: styl „Fixtrack“, na tel
 Každá věc jen jednou: nahoře **výstrahy ČHMÚ** (jen když nějaká platí), karty **Počasí**, **Připravenost** (WHOOP),
 **Další zápas** a **Nepřečtené**, pod tím jeden seznam **Vyžaduje pozornost** (úkoly, rozhodnutí, návrhy od Clauda
 i pošta seřazené podle naléhavosti), vpravo **týden jako krátký výpis**, **Fotbal** (poslední výsledek a další zápas
-každého týmu) a **poznámka pro Clauda** s malým přehledem schránky a odpověďmi Clauda. Po návratu do aplikace okno
-**Co je nového** (hoří, nová pošta, odpovědi Clauda, nové výstrahy).
+každého týmu, šipka na stránku Fotbal), **Doplňky dnes** (odškrtávací seznam podle režimu z Disku – zápasové jen v den
+zápasu, kofein do 14:00) a **poznámka pro Clauda** s malým přehledem schránky a odpověďmi Clauda. Po návratu do aplikace
+okno **Co je nového** (hoří, nová pošta, odpovědi Clauda, nové výstrahy).
 
 ## Schránka
 Poznámky z iPhonu (zkratka „Pro Clauda“) i z aplikace; Claude je zpracovává každou půlhodinu (skill `asistent-schranka`).
@@ -39,6 +40,11 @@ hned nabídne **Do kalendáře** / **Napsat e-mail** (`js/rozbor.js`, čeština 
 nebo odeslání e-mailu se poznámka smaže; **Uložit** ji pořád pošle do schránky. Stejně tak diktát z iPhonu, který
 Claude ještě nezpracoval: u položky je štítek **Rozpoznáno: událost** a v detailu **Založit událost** („zítra“ se počítá
 od chvíle diktátu). Po uložení se k položce připíše „Událost založena: …“ a Claude vyřídí jen zbytek diktátu.
+
+V hlavičce je, kdy Claude schránku naposledy zpracoval (podle `PREHLED.md`); když u Clauda něco čeká přes 3 hodiny a
+schránka se mezitím nezpracovala, ukáže se upozornění (naplánovaná úloha běží jen na zapnutém PC). U tvého úkolu jde
+nastavit **Termín** (dnes, zítra, za 3 dny, příští pondělí, za týden, bez termínu). Claudovy odpovědi mají klikací
+odkazy, **tučné** písmo a odrážky. Vyřízené jsou ve „Vše“ sbalené na posledních 5.
 
 ## Pošta jako případy
 Nápad převzatý z poštovního klienta [Mailer](https://www.fastmailer.one/) (pravidla jsou vlastní): každá konverzace
@@ -57,7 +63,13 @@ v Doručené poště má stav, který motor určí hned a bez AI:
 Ve vlákně je **nejnovější zpráva nahoře**. **Štítky Gmailu** jsou u konverzací a nahoře jde vybrat štítek (i archivované
 konverzace). **Podpis** (osobní / pracovní) se vloží do psaní; v poli Komu i u hostů události **našeptává** lidi,
 kterým jsi psal. Hledání v celé poště rozumí českým filtrům (`od:`, `předmět:`, `má:přílohu`, `po:1.10.2026`…).
-Klávesy na PC: `j`/`k`, `e` hotovo, `h` připomenout, `r` odpovědět, `a` všem, `f` přeposlat, `c` nový, `/` hledat, `1`–`5` sekce.
+Klávesy na PC: `j`/`k`, `e` hotovo, `h` připomenout, `r` odpovědět, `a` všem, `f` přeposlat, `c` nový, `/` hledat, `1`–`6` sekce.
+
+**Návrhy odpovědí od Clauda:** motor zapíše konverzace, které čekají na odpověď (hoří, čeká na tebe, otázka), do
+`CLAUDE_SCHRANKA/POSTA_K_ODPOVEDI.json` (jen při změně, nejvýš 15). Naplánovaná úloha „Návrhy odpovědí“ (skill
+`asistent-posta-odpovedi`, každou hodinu 7–21 h) k nim napíše návrh do `CLAUDE_SCHRANKA/ODPOVEDI/<id>.json`. V seznamu
+je štítek **Návrh odpovědi**, v konverzaci karta **Použít a upravit** (psaní s textem a podpisem) / **Zahodit**. Odesílá
+vždy Michal; po odeslání odpovědi se návrh zahodí sám. Nastavení → Pošta: osobní i pracovní / jen osobní / vypnuto.
 
 ## Kalendář
 - **Čtení:** zobrazené kalendáře Google + kalendáře z iPhonu (iCloud) přes soukromý odkaz (Nastavení → Kalendáře).
@@ -69,12 +81,28 @@ Klávesy na PC: `j`/`k`, `e` hotovo, `h` připomenout, `r` odpovědět, `a` vše
   Chromu (`CLAUDE_PRACOVNI\NASTROJE\asistent\fotbal_cz`) do `CLAUDE_SCHRANKA/FOTBAL.json`. V Kalendáři (pravý panel)
   nebo v Nastavení se zapnou týmy → zápasy v kalendářích „⚽ A-tým / B-tým / Dorost“ (štítek s id zápasu – přeložení
   a výsledek se přepíšou, nic se nezdvojí). Ruční zápas: šablona Zápas ve formuláři.
+- **Docházka dorostu (Týmuj):** u proběhlých tréninků a zápasů dorostu je v týdnu „18/21“ a v detailu počty (přišlo,
+  omluveno, neomluveno) a jména bez omluvy. Zdroj: synchronizace Týmuj na webu dorostu (Firestore), motor čte souhrn
+  (akce `dochazka`, 30 min v mezipaměti); texty omluv se do aplikace nepředávají.
+
+## Fotbal
+Stránka **Fotbal** (levý pruh, na telefonu šipka v kartě Fotbal na Dnes): přepínač týmů, souhrn místa v tabulce,
+**další zápas**, **výsledky** s góly (minuta, střelec, vlastní góly, penalty) a kartami po rozkliknutí, **zbývající
+zápasy**, **tabulka** celkem / doma / venku s naším řádkem, **střelci a karty** týmu za sezónu a odkazy na celou tabulku
+a celé rozlosování na fotbal.cz. Data: `FOTBAL.json` verze 2 (tabulky + detaily zápasů) z nástroje
+`NASTROJE\asistent\fotbal_cz` (naplánovaná úloha „asistent-fotbal“ v Michalově Chromu; detaily jen nových zápasů).
 
 ## Počasí (ČHMÚ)
 Motor čte otevřená data ČHMÚ (CC BY 4.0): výstrahy CAP pro ORP, vodní stav řeky s povodňovými stupni a textovou
 předpověď kraje na dnes až 3 dny. Stahuje šetrně (ETag → 304, výpis předpovědí jednou za hodinu), přehled drží 15 minut.
 Místo: vlastnost skriptu `POCASI` (JSON, např. `{"misto":"Hodonín","orp":{"6206":"Hodonín"},"stanice":[],"kraj":"RPJM"}`);
 bez ní Veselí nad Moravou.
+
+**Podle polohy** (Nastavení → Počasí, na každém zařízení zvlášť): aplikace pošle polohu zaokrouhlenou na 0,01° (~1 km),
+motor z ní přes RÚIAN (ČÚZK) zjistí ORP a obec, vezme výstrahy pro ten ORP, předpověď kraje a dvě nejbližší vodoměrné
+stanice s povodňovými stupni (místa si pamatuje ve `POCASI_MISTA`). Teplotu teď a příštích 12 hodin bere telefon přímo
+z **Open-Meteo** (model ČHMÚ ALADIN, bez klíče). Ranní upozornění použijí poslední polohu (nejvýš den starou); po vypnutí
+se zapomene.
 
 ## Zdraví (WHOOP + Apple Watch)
 - **WHOOP** (API v2, OAuth): vlastní aplikace na developer-dashboard.whoop.com (Sandbox, jen pro sebe; Privacy Policy URL
@@ -85,8 +113,13 @@ bez ní Veselí nad Moravou.
   Nastavení → Zdraví). Postup krok za krokem je přímo v aplikaci.
 - Data po měsících v `CLAUDE_SCHRANKA/ZDRAVI/RRRR-MM.json` (soukromý Disk, nikdy do gitu). Trénink se spáruje s událostí
   v kalendáři (zápas, trénink) a čísla z WHOOP jsou i v detailu zápasu.
+- **Doplňky:** režim v `CLAUDE_SCHRANKA/ZDRAVI_REZIM.json` (položky s časem dne, `jen`: trenink / zapas / zatez,
+  `treninkDny`, `zapasTymy`, `kofeinDo`) – motor ho posílá se Zdravím, aplikace z něj skládá Doplňky dnes; odškrtnutí
+  se pamatuje v zařízení. Skutečný režim je jen na Disku (zdravotní údaje do repa nepatří).
 - **Upozornění (nepovinné):** v editoru spustit `nastavUpozorneni` (téma pro aplikaci ntfy) a přidat spouštěč
-  `kazdouHodinu` (hodinový) → ráno připravenost, oranžové a vyšší výstrahy ČHMÚ.
+  `kazdouHodinu` (hodinový) → ráno souhrn a připravenost, oranžové a vyšší výstrahy ČHMÚ, hoří v poště (jen počty)
+  a v neděli 19–21 h **přehled příštího týdne** (počty událostí po dnech, zápasy týmů, úkoly s termínem, předpověď) –
+  přes ntfy jdou jen počty a časy, žádné názvy událostí ani texty.
 
 ## Nasazení motoru
 
@@ -109,6 +142,9 @@ Vlastnosti skriptu (⚙ → Vlastnosti skriptu) – všechny nepovinné kromě k
 | `WHOOP_CLIENT_ID`, `WHOOP_CLIENT_SECRET`, `WHOOP_REDIRECT_URI` | propojení s WHOOP (zadá Michal sám) |
 | `ZDRAVI_KLIC` | klíč zkratky Zdraví (vytvoří aplikace v Nastavení → Zdraví) |
 | `NTFY_TEMA` | upozornění do iPhonu (vytvoří `nastavUpozorneni`) |
+| `NAVRHY_ODPOVEDI` | návrhy odpovědí: obe / osobni / vypnuto (nastavuje aplikace) |
+| `DOCHAZKA_URL`, `DOCHAZKA_WEB` | odkud číst docházku dorostu (výchozí: odvodí se z webu dorostu) |
+| `POCASI_MISTA`, `POCASI_POLOHA` | místa podle polohy a poslední poloha pro upozornění (spravuje motor) |
 | `FOTBAL`, `DRUHY_KALENDARU`, `ICS_KALENDARE`, `SKRYTE_KALENDARE`, … | spravuje motor sám |
 
 ## Instalace aplikace
@@ -127,8 +163,12 @@ poštu oddělí a odpovídá z adresy, na kterou zpráva přišla.
 - **Klíč je heslo k poště.** Při ztrátě zařízení: v editoru motoru spustit `novyKlic`.
 - Zkratka Zdraví má **vlastní klíč jen pro zápis** – poštu neotevře. WHOOP secret je jen ve vlastnostech skriptu.
 - HTML e-maily běží v rámečku **bez skriptů**; obrázky z webu se načtou až na klepnutí „Zobrazit“.
-- Repozitář je veřejný: žádné adresy motoru, klíče, odkazy na kalendáře ani osobní údaje. Ukázková data jsou vymyšlená;
-  testovací vzorky ČHMÚ a fotbal.cz jsou veřejná data.
+- Repozitář je veřejný (GitHub Pages zdarma jinak nejde): žádné adresy motoru, klíče, odkazy na kalendáře ani osobní
+  údaje. Ukázková data jsou vymyšlená (i hráči na stránce Fotbal); testovací vzorky ČHMÚ a fotbal.cz jsou veřejná data.
+  Commity mají jen skrytou adresu GitHubu (noreply), ne osobní e-mail.
+- Aplikace smí volat jen motor (`script.google.com`) a Open-Meteo (CSP `connect-src`); nic jiného z ní neodejde.
+- Data, která zůstávají jen na Michalově Disku: schránka, zdraví a režim doplňků, FOTBAL.json (jména hráčů z fotbal.cz),
+  podklady a návrhy odpovědí na poštu.
 
 ## Testy
 ```
