@@ -887,6 +887,11 @@ test('důvod stavu: krátce česky, proč je konverzace tam, kde je', () => {
   assert.strictEqual(duvod({ text: 'Pošlete to prosím do 3. 10.' }), 'termín „do 3. 10.“ – so 3. 10.');
   assert.strictEqual(duvod({ text: 'Účtenka' }, false, true), 'Gmail: Aktualizace');
   assert.strictEqual(duvod({ od: 'Banka <no-reply@banka.test>', text: 'Výpis' }), 'automatická adresa');
+  // mimo kancelář: „v urgentních záležitostech“ nehoří (Outlook česky i anglicky)
+  assert.strictEqual(duvod({ predmet: 'Automatická odpověď: Ubytování', text: 'Jsem mimo kancelář. V urgentních záležitostech volejte recepci.' }),
+    'automatická odpověď (mimo kancelář)');
+  assert.strictEqual(duvod({ predmet: 'Automatic reply: Ubytování', text: 'I am out of office, for urgent matters call reception.' }), 'automatická odpověď (mimo kancelář)');
+  assert.strictEqual(duvod({ predmet: 'Re: Automatizace výkazů', text: 'Pošlete podklady.' }), 'prosba „pošlete“', 'jen začátek předmětu');
   assert.strictEqual(duvod({ text: 'Díky, platí.' }, true), 'tvoje „díky“ na konci');
   assert.strictEqual(duvod({ text: 'Pošlete podklady.' }), 'prosba „pošlete“');
   assert.strictEqual(duvod({ text: 'Jak to vypadá?' }), 'otazník v textu');

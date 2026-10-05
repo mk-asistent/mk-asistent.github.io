@@ -36,7 +36,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.19';
+const VERZE = '2026-10-05.20';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -1021,6 +1021,9 @@ const SLOVA_PROSBA = slova_(['prosím', 'prosíme', 'prosil\\p{L}* bych', 'potř
   'doplň(?:te)?', 'oprav(?:te)?', 'rozhodni', 'rozhodněte', 'odpověz(?:te)?', 'můžeš', 'můžete', 'mohl\\p{L}* (?:bys|byste|bychom)',
   'k připomínkám', 'k vyjádření', 'ke schválení', 'k podpisu', 'k odsouhlasení', 'k objednání']);
 const AUTOMAT = /(no-?reply|do-?not-?reply|notification|notifikace|newsletter|mailer-daemon|postmaster|bounce)/i;
+// automatická odpověď (mimo kancelář, dovolená) – její „v urgentních záležitostech volejte…“ není naléhavost od člověka
+const AUTOODPOVED = new RegExp('^\\s*(?:automatick[áa] odpov[ěe]ď|automatic reply|auto(?:matic)?[- ]?(?:reply|response)|out of (?:the )?office|' +
+  'mimo kancel[áa][řr]|nep[řr][íi]tomnost|abwesenheitsnotiz)' + PISMENO_ZA, 'iu');
 const DIKY = new RegExp('^(díky|dík|děkuj\\p{L}*|ok|okay|super|platí|dobře|jasně|v pořádku|výborně|thanks|thank you)' + PISMENO_ZA + '[^?]{0,40}$', 'iu');
 const DNY_TERMINU = { 'pondělí': 1, 'úterý': 2, 'středy': 3, 'středu': 3, 'čtvrtka': 4, 'čtvrtek': 4, 'pátku': 5, 'pátek': 5,
   'soboty': 6, 'sobotu': 6, 'neděle': 0, 'neděli': 0 };
@@ -1179,6 +1182,7 @@ function stavADuvod_(posledni, odeMe, vlakno, jeOznameni, ted, jsemPsal, znami) 
   }
   if (jeOznameni) return vysledek('info', 'Gmail: Aktualizace');
   if (AUTOMAT.test(String(posledni.getFrom() || ''))) return vysledek('info', 'automatická adresa');
+  if (AUTOODPOVED.test(String(posledni.getSubject() || ''))) return vysledek('info', 'automatická odpověď (mimo kancelář)');
   if (termin && termin.ms >= ted - 864e5 && termin.ms <= ted + 48 * 36e5) {
     return vysledek('hori', 'termín „' + termin.fraze + '“ – ' + termin.den);
   }
