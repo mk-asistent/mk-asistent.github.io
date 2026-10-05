@@ -440,8 +440,10 @@ function sekceZdravi() {
     '(ráno stejně koukáš na připravenost). Zkratka má vlastní klíč – umí jen zapsat data Zdraví, poštu neotevře.</p>' +
     (n.klicZdravi ? '<label><span class="label">Klíč pro zkratku (pole „klic“)</span><input class="field kod-pripojeni" data-klic-zdravi readonly value="' + esc(n.klicZdravi) + '"></label>' +
       '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="zdravi-klic-novy">Vyrobit nový</button>' +
+      '<button type="button" class="btn btn--ghost btn--sm" data-nast="kopirovat-adresu">Kopírovat adresu motoru</button>' +
       '<button type="button" class="btn btn--primary btn--sm" data-nast="zdravi-klic-kopirovat">Kopírovat klíč</button></div>'
-      : '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="zdravi-klic">Ukázat klíč pro zkratku</button></div>') +
+      : '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="kopirovat-adresu">Kopírovat adresu motoru</button>' +
+        '<button type="button" class="btn btn--ghost btn--sm" data-nast="zdravi-klic">Ukázat klíč pro zkratku</button></div>') +
     detail('zkratka-zdravi') + '<summary>Jak udělat zkratku „Zdraví do Asistenta“</summary><ol class="kroky">' +
     '<li>Aplikace <b>Zkratky</b> → <b>+</b> → název <code>Zdraví do Asistenta</code>. Pro každý údaj (Kroky, Aktivní energie, Minuty cvičení, ' +
       'Hodiny stání, Klidová tepová frekvence, Variabilita srdečního tepu, Kardiovaskulární kondice, Vzdálenost chůze a běhu): ' +
