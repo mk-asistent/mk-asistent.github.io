@@ -196,7 +196,7 @@ function prostredi() {
   const tabulky = {};
   const listTabulky = (nazev, radky) => {
     const b = radky.map((r) => r.slice());
-    const formaty = {}, vzorce = {}, odkazy = {};
+    const formaty = {}, vzorce = {}, odkazy = {}, styly = {}, sirky = {};
     let validace = null;
     const sirka = () => Math.max(1, ...b.map((r) => r.length));
     const zajisti = (r, c) => { while (b.length < r) b.push([]); while (b[r - 1].length < c) b[r - 1].push(''); };
@@ -222,17 +222,26 @@ function prostredi() {
         return { getText: () => text, getLinkUrl: () => (o && o.od === 0 && o.do === text.length ? o.odkaz : null),
           getRuns: () => (o ? [{ getLinkUrl: () => null }, { getLinkUrl: () => o.odkaz }] : [{ getLinkUrl: () => null }]) };
       })),
-      getDataValidation: () => validace
+      getDataValidation: () => validace,
+      setValues: (v) => { v.forEach((radek, i) => radek.forEach((x, j) => { zajisti(r + i, c + j); b[r - 1 + i][c - 1 + j] = x; })); return rozsah(r, c, nr, nc); },
+      setWrap: () => rozsah(r, c, nr, nc), setVerticalAlignment: () => rozsah(r, c, nr, nc),
+      setFontWeight: (w) => { styly[r + ':' + nr] = Object.assign({}, styly[r + ':' + nr], { tucne: w === 'bold' }); return rozsah(r, c, nr, nc); },
+      setFontSize: (s) => { styly[r + ':' + nr] = Object.assign({}, styly[r + ':' + nr], { velikost: s }); return rozsah(r, c, nr, nc); },
+      setBackground: (b2) => { styly[r + ':' + nr] = Object.assign({}, styly[r + ':' + nr], { pozadi: b2 }); return rozsah(r, c, nr, nc); }
     });
-    return { getName: () => nazev, getLastColumn: sirka, getRange: rozsah,
+    return { getName: () => nazev, getLastColumn: sirka, getRange: rozsah, getLastRow: () => b.filter((r) => r.some((x) => x !== '' && x != null)).length ? b.length : 0,
+      clear: () => { b.length = 0; }, setColumnWidth: (s, w) => { sirky[s] = w; }, styly, sirky,
       getDataRange: () => ({ getValues: () => b.map((r) => { const x = r.slice(); while (x.length < sirka()) x.push(''); return x; }) }),
       bunky: b, formaty, vzorce, odkazy, nastavValidaci: (v) => { validace = v; } };
   };
   const zalozTabulku = (id, nazev, listy) => {
     const l = {};
     Object.keys(listy).forEach((n) => { l[n] = listTabulky(n, listy[n]); });
+    const poradi = Object.keys(l);
     tabulky[id] = { getName: () => nazev, getUrl: () => 'https://docs.google.com/spreadsheets/d/' + id + '/edit', getId: () => id,
-      getSheetByName: (n) => l[n] || null, listy: l };
+      getSheetByName: (n) => l[n] || null, listy: l, poradi,
+      getSheets: () => poradi.map((n) => l[n]),
+      insertSheet: (n, kam) => { l[n] = listTabulky(n, []); poradi.splice(kam, 0, n); return l[n]; } };
     return tabulky[id];
   };
   let bezPovoleniTabulek = false, ocrText = '', ocrDokumentu = 0;
@@ -1997,6 +2006,30 @@ test('auto: účtenka rovnou do tabulky (stejná fotka nic dvakrát), oprava zá
   assert.ok(f.ok && f.data.obrazek === 'data:image/jpeg;base64,' + Buffer.from('jpeg-data-2').toString('base64'), JSON.stringify(f).slice(0, 160));
   const jiny = p.schranka.createFile('jiny-soubor.txt', 'tajné');
   assert.ok(/není mezi účtenkami/.test(p.volej('autoUctenkaFoto', { id: jiny.getId() }).chyba));
+});
+
+test('auto: péče o auto jako text do vlastního listu za Péče o auto – jiné listy nemění, obsah nepřepíše', () => {
+  const p = prostredi();
+  tabulkaAuta(p);
+  p.vlastnosti.set('AUTO_TABULKA', TAB_AUTO);
+  p.tabulky[TAB_AUTO].listy['Péče o auto'] = { getName: () => 'Péče o auto' };
+  p.tabulky[TAB_AUTO].poradi.push('Péče o auto', 'Zbytek');
+  p.tabulky[TAB_AUTO].listy.Zbytek = { getName: () => 'Zbytek' };
+  const radky = [['PÉČE O AUTO', '', ''], ['PLÁN ÚDRŽBY', 'Kdy', 'Poznámka'], ['Olej + filtr', 'každých 15 000 km nebo 1× ročně', 'termín hlásí auto']];
+  let o = p.volej('autoPeceZapsat', { radky, nadpisy: [0], hlavicky: [1] });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data), { list: 'Péče o auto – text', radku: 3 });
+  const t = p.tabulky[TAB_AUTO];
+  assert.strictEqual(t.poradi[t.poradi.indexOf('Péče o auto') + 1], 'Péče o auto – text', 'list hned za Péče o auto');
+  const l = t.listy['Péče o auto – text'];
+  assert.deepStrictEqual(l.bunky.map((r) => r.slice(0, 3)), radky);
+  assert.deepStrictEqual([l.styly['1:1'].tucne, l.styly['1:1'].velikost, l.styly['2:1'].pozadi], [true, 14, '#e6f0ee']);
+  assert.strictEqual(l.sirky[2], 640);
+  // podruhé nic nepřepíše, s prepsat ano
+  assert.ok(/už obsah má/.test(p.volej('autoPeceZapsat', { radky }).chyba));
+  o = p.volej('autoPeceZapsat', { radky: [['Jen jeden řádek']], prepsat: true });
+  assert.deepStrictEqual([o.ok, l.bunky.length, l.bunky[0][0]], [true, 1, 'Jen jeden řádek']);
+  assert.ok(/Žádný text/.test(p.volej('autoPeceZapsat', { radky: [] }).chyba));
 });
 
 test('auto: čtení účtenek – myčka, servis, částka bez klíčového slova, datum nesmí být v budoucnu', () => {

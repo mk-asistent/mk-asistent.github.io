@@ -36,7 +36,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.12';
+const VERZE = '2026-10-05.13';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -169,6 +169,7 @@ const AKCE = {
   autoUctenka: function (d) { return autoUctenka_(d); },
   autoUpravit: function (d) { return autoUpravit_(d); },
   autoUctenkaFoto: function (d) { return autoUctenkaFoto_(d); },
+  autoPeceZapsat: function (d) { return autoPeceZapsat_(d); },
   // víc čtení v jednom požadavku – aplikace při startu neposílá deset dotazů naráz (ty se pak řadí do fronty)
   davka: function (d) {
     return (Array.isArray(d.polozky) ? d.polozky.slice(0, 12) : []).map(function (p) {
@@ -2564,6 +2565,44 @@ function autoUpravit_(d) {
     zamek.releaseLock();
   }
   return autoData_(ss);
+}
+
+const AUTO_PECE_TEXT = 'Péče o auto – text';
+
+/**
+ * Akce autoPeceZapsat: péče o auto jako text (Michal 5. 10.: obrázky v listu Péče o auto přepsat a doplnit) do vlastního
+ * listu „Péče o auto – text“ hned za ním. Jiné listy nemění; když už list obsah má, nepřepíše ho (jen s prepsat: true).
+ * radky = [štítek, text, poznámka]; nadpisy / hlavicky = indexy řádků (tučně; hlavička tabulky podbarvená).
+ */
+function autoPeceZapsat_(d) {
+  const ss = autoTabulka_();
+  if (!ss) throw new Error('Tabulka auta není propojená.');
+  const radky = (Array.isArray(d.radky) ? d.radky : []).slice(0, 300).map(function (r) {
+    return [0, 1, 2].map(function (i) { return String((r && r[i]) == null ? '' : r[i]).slice(0, 2000); });
+  });
+  if (!radky.length) throw new Error('Žádný text k zápisu.');
+  let list = ss.getSheetByName(AUTO_PECE_TEXT);
+  if (list && list.getLastRow() > 0) {
+    if (!d.prepsat) throw new Error('List „' + AUTO_PECE_TEXT + '“ už obsah má – nic nepřepisuji.');
+    list.clear();
+  }
+  if (!list) {
+    const listy = ss.getSheets();
+    let za = listy.length;
+    listy.forEach(function (l, i) { if (l.getName() === 'Péče o auto') za = i + 1; });
+    list = ss.insertSheet(AUTO_PECE_TEXT, za);
+  }
+  const cely = list.getRange(1, 1, radky.length, 3);
+  cely.setValues(radky);
+  cely.setWrap(true).setVerticalAlignment('top');
+  list.setColumnWidth(1, 210);
+  list.setColumnWidth(2, 640);
+  list.setColumnWidth(3, 400);
+  const indexy = function (pole) { return (Array.isArray(pole) ? pole : []).filter(function (i) { return i >= 0 && i < radky.length; }); };
+  indexy(d.nadpisy).forEach(function (i) { list.getRange(i + 1, 1, 1, 3).setFontWeight('bold').setFontSize(i === 0 ? 14 : 12); });
+  indexy(d.hlavicky).forEach(function (i) { list.getRange(i + 1, 1, 1, 3).setFontWeight('bold').setBackground('#e6f0ee'); });
+  SpreadsheetApp.flush();
+  return { list: AUTO_PECE_TEXT, radku: radky.length };
 }
 
 /** Akce autoUctenkaFoto: fotka účtenky pro náhled v aplikaci – jen soubory ze složky AUTO/uctenky. */
