@@ -1041,6 +1041,24 @@ test('vlákno: dlouhý text a HTML se zkrátí („…“), jiná adresa pro odp
 
 const json = (x) => JSON.parse(JSON.stringify(x));
 
+test('opakovaný požadavek (stejný rid, Google ztratil odpověď): zápis jen jednou, druhý pokus dostane stejnou odpověď', () => {
+  const p = prostredi();
+  p.schranka.createFolder('NOVE');
+  const a = p.volej('poznamka', { text: 'Jednou', rid: 'pozadavek-1234' });
+  assert.strictEqual(a.ok, true, a.chyba);
+  const b = p.volej('poznamka', { text: 'Jednou', rid: 'pozadavek-1234' });
+  assert.deepStrictEqual(b, a);
+  assert.strictEqual(p.schranka.deti.NOVE.soubory.length, 1, 'poznámka jen jednou');
+  // jiný rid = nový zápis; čtení se nepamatuje
+  p.volej('poznamka', { text: 'Podruhé', rid: 'pozadavek-5678' });
+  assert.strictEqual(p.schranka.deti.NOVE.soubory.length, 2);
+  p.volej('info', { rid: 'cteni-12345678' });
+  assert.strictEqual(p.cache.get('RID:cteni-12345678'), undefined);
+  // chyba se nepamatuje – oprava a nový pokus projde
+  assert.strictEqual(p.volej('poznamka', { text: '', rid: 'pozadavek-9999' }).ok, false);
+  assert.strictEqual(p.volej('poznamka', { text: 'Oprava', rid: 'pozadavek-9999' }).ok, true);
+});
+
 test('schránka: nadpis a téma v hlavičce, dopsat i k vyřízené (zpět do NOVE), návrh od Clauda, smazat do koše', () => {
   const p = prostredi();
   const ceka = p.schranka.createFolder('CEKA');
@@ -2033,6 +2051,54 @@ test('auto: péče o auto jako text do vlastního listu za Péče o auto – jin
   o = p.volej('autoPeceZapsat', { radky: [['Jen jeden řádek']], prepsat: true });
   assert.deepStrictEqual([o.ok, l.bunky.length, l.bunky[0][0]], [true, 1, 'Jen jeden řádek']);
   assert.ok(/Žádný text/.test(p.volej('autoPeceZapsat', { radky: [] }).chyba));
+});
+
+test('auto: připomínky – přezutí a zima podle data (hotové podle zápisu), servis a AdBlue z auta, pojištění, dálniční známka', () => {
+  const p = prostredi();
+  const prip = (d, ted) => json(vm.runInContext('AUTO_.pripominky', p.ctx)(d, ted));
+  const ms = (t) => new Date(t).getTime();
+  const naklady = [{ datum: ms('2025-10-03T00:00:00'), kategorie: 'Pojištění', polozka: '', poznamka: 'Roční', castka: 12000 },
+    { datum: ms('2025-04-01T00:00:00'), kategorie: 'Dálniční známka', polozka: '', poznamka: '', castka: null },
+    { datum: ms('2026-10-02T00:00:00'), kategorie: 'Nákup doplňků', polozka: 'Směs do ostřikovačů', poznamka: '', castka: 85 }];
+  const auto = { auta: [{ adblue: 2900, servis: { olejKm: 7700, olejDni: 280, prohlidkaKm: 27700, prohlidkaDni: 697 } }] };
+  let x = prip({ naklady, myskoda: auto }, ms('2026-10-05T12:00:00'));
+  const podle = (id) => x.find((y) => y.id === id) || null;
+  assert.deepStrictEqual([podle('pneu-zimni').stav, podle('pneu-zimni').hotovo, podle('pneu-zimni').klic], ['brzy', false, 'pneu-zimni-2026'], '5. 10.: přezutí brzy');
+  assert.deepStrictEqual([podle('zima').stav, podle('zima').hotovo], ['ted', true], 'zima: směs do ostřikovačů už zapsaná');
+  assert.strictEqual(podle('pneu-letni'), null, 'letní až na jaře');
+  assert.strictEqual(podle('olej'), null, 'olej za 7 700 km – zatím ne');
+  assert.strictEqual(podle('adblue'), null, 'AdBlue 2 900 km – zatím ne');
+  assert.deepStrictEqual([podle('pojisteni').stav, /3\. 10\. 2026/.test(podle('pojisteni').text)], ['ted', true], 'výročí pojištění');
+  assert.ok(podle('znamka').stav === 'ted' && /31\. 3\. 2026/.test(podle('znamka').text), JSON.stringify(podle('znamka')));
+  // 20. 10.: zimní teď; po zápisu „Servis - PNEU“ hotovo; servis podle auta blízko; AdBlue skoro prázdné
+  x = prip({ naklady: naklady.concat([{ datum: ms('2026-10-18T00:00:00'), kategorie: 'Servis - PNEU', polozka: 'Přezutí', poznamka: '', castka: 800 }]),
+    myskoda: { auta: [{ adblue: 800, servis: { olejKm: 1200, olejDni: 200 } }] } }, ms('2026-10-20T12:00:00'));
+  assert.deepStrictEqual([podle('pneu-zimni').stav, podle('pneu-zimni').hotovo], ['ted', true]);
+  assert.deepStrictEqual([podle('olej').stav, podle('adblue').stav], ['ted', 'ted']);
+  // po skončení okna příští rok (16. 11. → zimní 2027 až za rok, letní od března)
+  x = prip({ naklady: [] }, ms('2026-11-16T12:00:00'));
+  assert.strictEqual(podle('pneu-zimni'), null);
+  x = prip({ naklady: [] }, ms('2027-03-01T12:00:00'));
+  assert.deepStrictEqual([podle('pneu-letni').stav, podle('pneu-letni').klic], ['brzy', 'pneu-letni-2027']);
+});
+
+test('upozornění: připomínky k autu jednou denně, každá jen jednou za sezónu', () => {
+  const p = prostredi();
+  tabulkaAuta(p);
+  p.vlastnosti.set('AUTO_TABULKA', TAB_AUTO);
+  p.volej('upozorneniZapnout');
+  p.nastavCas(Date.parse('2026-10-12T09:00:00+02:00'));
+  const pred = p.log.ntfy.length;
+  p.ctx.instagramKazdych10Min();
+  const auto = p.log.ntfy.slice(pred).filter((z) => /^Auto: /.test(z.title));
+  assert.ok(auto.some((z) => /zimní pneumatiky/.test(z.title)), JSON.stringify(auto.map((z) => z.title)));
+  const po = p.log.ntfy.length;
+  p.nastavCas(Date.parse('2026-10-12T09:20:00+02:00'));
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(p.log.ntfy.filter((z, i) => i >= po && /^Auto: /.test(z.title)).length, 0, 'týž den nic');
+  p.nastavCas(Date.parse('2026-10-13T09:00:00+02:00'));
+  p.ctx.instagramKazdych10Min();
+  assert.ok(!p.log.ntfy.slice(po).some((z) => /zimní pneumatiky/.test(z.title)), 'druhý den totéž znovu ne');
 });
 
 test('auto: čtení účtenek – myčka, servis, částka bez klíčového slova, datum nesmí být v budoucnu', () => {

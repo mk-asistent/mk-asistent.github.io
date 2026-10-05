@@ -175,6 +175,8 @@ const motor = {
       tMax: [20 + i, 24 + i], tMin: i ? [8, 11] : null, srazky: '', vitr: '', jevy: [], ikona: ['slunce', 'bourka', 'polojasno', 'dest'][i], uroven: 'info', vydano: ted })) })
 };
 const volano = [];
+let ztratitOdpovedi = 0;          // kolik dalších odpovědí motoru „ztratí Google“ (test opakování)
+const odpovediRid = new Map();    // rid → odpověď (motor opakovaný zápis neprovede)
 let navrhZahozen = false;
 const autoZapisy = [], autoSmazano = [], autoUctenky = [], autoUpravy = [], autoFotky = [];
 const MALA_FOTKA = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -189,6 +191,10 @@ const autoData = {
     { list: 'naklady', radek: 3, datum: den(-130), datumText: '', polozka: '', kategorie: 'Pojištění', castka: 8000, km: null, kdo: 'M', poznamka: 'Roční' },
     { list: 'naklady', radek: 4, datum: den(-40), datumText: '', polozka: 'Myčka', kategorie: 'Myčka', castka: 150, km: null, kdo: 'K', poznamka: '' }],
   kategorie: ['Servis', 'Servis - PNEU', 'STK', 'Pojištění', 'Parkování', 'Myčka', 'Nákup doplňků'],
+  // připomínky jako z motoru (přezutí teď, zima hotová, pojištění brzy)
+  pripominky: [{ id: 'pneu-zimni', klic: 'pneu-zimni-t', nazev: 'Přezout na zimní pneumatiky', text: 'Objednej pneuservis.', od: den(-2), do: den(30), stav: 'ted', hotovo: false },
+    { id: 'zima', klic: 'zima-t', nazev: 'Připravit auto na zimu', text: 'Směs do ostřikovačů.', od: den(-10), do: den(30), stav: 'ted', hotovo: true },
+    { id: 'pojisteni', klic: 'poj-t', nazev: 'Výročí pojištění', text: 'Zkontroluj platbu.', od: den(5), do: den(35), stav: 'brzy', hotovo: false }],
   // jako motor: řádky + indexy tučných (nadpisy); STK uvnitř tabulky není nadpis, i když je velkými písmeny
   pece: { radky: [['PÉČE O AUTO – Testovací auto', '', ''], ['', 'Úvodní věta.', ''], ['PLÁN ÚDRŽBY', 'Kdy', 'Poznámka'],
     ['Olej + filtr', 'každých 15 000 km', 'termín hlásí auto'], ['STK', 'po 4 letech, pak po 2', ''], ['PŘEHLED PODLE KM', 'Co udělat', ''],
@@ -311,9 +317,18 @@ async function pripravMotor(page) {
   await page.route(MOTOR, async (route) => {
     const data = JSON.parse(route.request().postData() || '{}');
     let telo;
-    if (data.klic !== KLIC) telo = { ok: false, chyba: 'klic' };
+    // jako motor: opakovaný požadavek se stejným rid se podruhé neprovede (vrátí výsledek prvního běhu)
+    if (data.rid && odpovediRid.has(data.rid)) telo = odpovediRid.get(data.rid);
+    else if (data.klic !== KLIC) telo = { ok: false, chyba: 'klic' };
     else if (!motor[data.akce]) telo = { ok: false, chyba: 'Neznámá akce.' };
     else { volano.push(data); telo = { ok: true, data: motor[data.akce](data) }; }
+    if (data.rid && telo.ok) odpovediRid.set(data.rid, telo);
+    // jako Google: motor akci provedl, ale odpověď se ztratila a prohlížeč skončil na úvodu motoru (doGet)
+    if (ztratitOdpovedi > 0) {
+      ztratitOdpovedi--;
+      await route.fulfill({ status: 200, contentType: 'text/plain', headers: { 'Access-Control-Allow-Origin': '*' }, body: 'Asistent – motor běží.' });
+      return;
+    }
     await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(telo) });
   });
 }
@@ -363,6 +378,21 @@ async function novaStranka(prohlizec, v, motiv) {
   const WEB = 'http://127.0.0.1:8766/';
   const prohlizec = await chromium.launch();
   console.log('Asistent – test v prohlížeči');
+
+  // ---------- ztracená odpověď motoru: znovu se stejným rid, zápis jen jednou
+  await test('ztracená odpověď motoru (Google vrátí úvod motoru): aplikace to zkusí znovu, zápis jen jednou', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.waitForSelector('#p-dnes .card');
+    const pred = volano.filter((d) => d.akce === 'poznamka').length;
+    ztratitOdpovedi = 2;
+    const v = await page.evaluate(() => import('/js/api.js').then((m) => m.volej('poznamka', { text: 'Zkouška ztracené odpovědi' })).then(() => 'ok', (e) => e.message));
+    jistota(v === 'ok', 'po opakování projde: ' + v);
+    jistota(volano.filter((d) => d.akce === 'poznamka').length === pred + 1, 'poznámka zapsaná jednou');
+    ztratitOdpovedi = 0;
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
 
   // ---------- service worker: VERZE podle obsahu (jinak by se změna k nikomu nedostala); záchrana při prázdné obrazovce
   await test('sw.js: VERZE odpovídá obsahu souborů aplikace', async () => {
@@ -1354,13 +1384,26 @@ async function novaStranka(prohlizec, v, motiv) {
     jistota(/Výměna oleje\s*za 7 700 km nebo za 280 dní/.test((await page.textContent('.auto-servis')).replace(/\s+/g, ' ')), 'servis podle auta');
     jistota(/Myčka/.test(await page.textContent('.auto-kategorie')) && /Katka/.test(await page.textContent('.auto-platili')), 'kategorie a kdo platil');
     jistota(await page.locator('.auto-cara circle').count() === 5, 'graf ceny nafty');
-    // karta Péče o auto z listu v tabulce: plán a přehled rozbalené, rady na klepnutí
-    const pece = (await page.textContent('.auto-pece')).replace(/\s+/g, ' ');
-    jistota(/Plán údržby/.test(pece) && /každých 15 000 km/.test(pece) && /Jednou za půl roku/.test(pece), 'péče o auto: ' + pece.slice(0, 200));
-    const oddily = await page.$$eval('.auto-pece summary', (s) => s.map((x) => x.textContent.trim()));
-    jistota(JSON.stringify(oddily) === JSON.stringify(['Plán údržby', 'Přehled podle km', 'Automat DSG', 'Mytí – postup (ideálně každé 2–3 týdny)', 'Jednou za půl roku']),
-      'oddíly péče: ' + JSON.stringify(oddily));
-    jistota(await page.locator('.auto-pece details[open]').count() === 2, 'rozbalené jen první dva');
+    // Co řešit nahoře: přezutí teď (do …), zima hotová, pojištění brzy
+    const resit = (await page.textContent('.auto-resit')).replace(/\s+/g, ' ');
+    jistota(/Přezout na zimní pneumatiky/.test(resit) && /do \d+\. \d+\./.test(resit) && /✓ hotovo/.test(resit) && /Výročí pojištění/.test(resit), 'co řešit: ' + resit);
+    // Péče o auto z lišty: panel s oddíly (kdy přezouvat, servis podle auta, list z tabulky), přehled podle km jako osa
+    await page.click('.auto-akce [data-auto-pece]');
+    await page.waitForSelector('[data-panel="auto-pece"] .pece');
+    const oddily = await page.$$eval('[data-panel="auto-pece"] .pece-oddil > summary > span:nth-child(2)', (s) => s.map((x) => x.textContent.trim()));
+    jistota(JSON.stringify(oddily) === JSON.stringify(['Co řešit', 'Kdy přezouvat', 'Servis podle auta', 'Plán údržby', 'Přehled podle km', 'Automat DSG',
+      'Mytí – postup (ideálně každé 2–3 týdny)', 'Jednou za půl roku']), 'oddíly péče: ' + JSON.stringify(oddily));
+    const osa = (await page.textContent('[data-panel="auto-pece"] .pece-osa')).replace(/\s+/g, ' ');
+    jistota(/teď 13 600 km/.test(osa) && /15 000 km/.test(osa) && /za 1 400 km/.test(osa), 'osa km: ' + osa);
+    jistota(/pod 7 °C/.test(await page.textContent('[data-panel="auto-pece"] .pece-kola')), 'kdy přezouvat');
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_auto_pece.png') });
+    await page.click('[data-panel="auto-pece"] [data-zavrit-panel]');
+    await page.waitForFunction(() => !document.querySelector('[data-panel="auto-pece"]'));
+    // výdaje po měsících: rok u prvního sloupce a u ledna, klepnutí = rozpis
+    const popisky = await page.$$eval('.auto-sloupec small', (s) => s.map((x) => x.textContent));
+    jistota(popisky.length <= 13 && /\d{4}$/.test(popisky[0]), 'měsíce s rokem: ' + JSON.stringify(popisky));
+    await page.click('.auto-sloupec:last-child');
+    await page.waitForFunction(() => /\d{4}: /.test(document.getElementById('toast').textContent));
     // auto hlásí tankování, které v tabulce chybí (to před měsícem v tabulce je)
     const hlaseni = (await page.textContent('.auto-hlaseni')).replace(/\s+/g, ' ');
     jistota(/asi 36,4 l/.test(hlaseni) && !/asi 39 l/.test(hlaseni), 'hlášení z auta: ' + hlaseni);
@@ -1453,6 +1496,11 @@ async function novaStranka(prohlizec, v, motiv) {
     const dve = autoUctenky.slice(predUctenkami);
     jistota(dve.length === 2 && dve[0].otisk !== dve[1].otisk, 'dvě účtenky, každá s vlastním otiskem: ' + JSON.stringify(dve));
     await page.waitForFunction(() => document.querySelectorAll('.auto-zapisy .auto-zapis--palivo').length === 8);
+    // Dnes → Vyžaduje pozornost: přezutí (teď), hotová zima ani pojištění „brzy“ ne
+    await page.click('#rail [data-cil="dnes"]');
+    await page.waitForSelector('.auto-dnes');
+    const dnesAuto = await page.$$eval('.auto-dnes', (s) => s.map((x) => x.textContent.replace(/\s+/g, ' ')));
+    jistota(dnesAuto.length === 1 && /Přezout na zimní/.test(dnesAuto[0]), 'auto na Dnes: ' + JSON.stringify(dnesAuto));
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
   });

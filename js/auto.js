@@ -7,7 +7,7 @@
 
 import { stav, zmeneno, umiMotor } from './stav.js';
 import { volej } from './api.js';
-import { esc, uloziste, dm, isoDatum, kdyKratce, MESICE_1 } from './pomocne.js';
+import { esc, uloziste, dm, isoDatum, kdyKratce, MESICE_1, velkePrvni } from './pomocne.js';
 import { kostra, chybaHtml, toast, toastAkce, potvrd, segment, hlavickaKarty } from './ui.js';
 import { IKONY } from './ikony.js';
 import { otevriPanel, zavriPanel, obnovPanel, elementPanelu } from './panely.js';
@@ -113,8 +113,9 @@ export function prehledAuta(d) {
   const mesice = {};
   vse.forEach((z) => {
     if (!z.castka || z.datum == null || jeKoupe(z)) return;
-    const m = mesice[klicMesice(z.datum)] || (mesice[klicMesice(z.datum)] = { palivo: 0, ostatni: 0 });
-    if (z.list === 'tankovani') m.palivo += z.castka; else m.ostatni += z.castka;
+    const m = mesice[klicMesice(z.datum)] || (mesice[klicMesice(z.datum)] = { palivo: 0, ostatni: 0, kat: {} });
+    if (z.list === 'tankovani') m.palivo += z.castka;
+    else { m.ostatni += z.castka; const k = z.kategorie || 'Ostatní'; m.kat[k] = (m.kat[k] || 0) + z.castka; }
   });
   const mesicu = datumStart != null && posledniKm ? (posledniKm.datum - datumStart) / (30.44 * 864e5) : 0;
   return {
@@ -149,8 +150,8 @@ export function vykresliAuto(el) {
   const p = prehledAuta(d);
   let h = '<div class="auto">';
   if (stav.chyby.auto) h += chybaAutaHtml(stav.chyby.auto);
-  h += heroHtml(d, p) + akceHtml() + tankovaniZAutaHtml(d) + '<div class="auto-mrizka">' + cenyHtml(p) + mesiceHtml(p) + kategorieHtml(d, p) + servisHtml(d, p) + '</div>' +
-    zapisyHtml(d) + peceHtml(d) + '</div>';
+  h += heroHtml(d, p) + coResitHtml(d) + akceHtml() + tankovaniZAutaHtml(d) + '<div class="auto-mrizka">' + cenyHtml(p) + mesiceHtml(p) + kategorieHtml(d, p) +
+    servisHtml(d, p) + '</div>' + zapisyHtml(d) + '</div>';
   el.innerHTML = h;
 }
 
@@ -231,7 +232,8 @@ function akceHtml() {
     // popisek s polem pro fotku: klepnutí otevře nabídku iPhonu – Fotky, Vyfotit, Soubory (programové kliknutí iPhone neotevře;
     // bez capture, ať jde vybrat i starší fotka účtenky z Fotek)
     (umiMotor('autoUctenka') ? '<label class="btn btn--ghost auto-foto">' + IKONY.foto + '<span>Účtenky z fotek</span>' +
-      '<input type="file" accept="image/*" multiple data-auto-foto hidden></label>' : '') + '</div>';
+      '<input type="file" accept="image/*" multiple data-auto-foto hidden></label>' : '') +
+    '<button type="button" class="btn btn--ghost" data-auto-pece>' + IKONY.auto + '<span>Péče o auto</span></button></div>';
 }
 
 /** Cena nafty v čase – čára s tečkami, nejvyšší a nejnižší cena. */
@@ -265,22 +267,44 @@ function cenyHtml(p) {
 }
 
 /** Výdaje po měsících (posledních 12): palivo a ostatní ve sloupcích, bez koupě auta. */
+/**
+ * Výdaje po měsících: souvislá řada posledních 13 měsíců (i prázdné), u ledna a prvního sloupce rok – stejný měsíc
+ * loni je vidět zvlášť (Michal 5. 10.: „neslučuj dohromady roky“). Klepnutí na sloupec = rozpis po kategoriích.
+ */
 function mesiceHtml(p) {
-  const klice = Object.keys(p.mesice).sort().slice(-12);
-  if (!klice.length) return '';
-  const max = Math.max(1, ...klice.map((k) => p.mesice[k].palivo + p.mesice[k].ostatni));
-  const prumer = klice.reduce((s, k) => s + p.mesice[k].palivo + p.mesice[k].ostatni, 0) / klice.length;
+  const prvni = Object.keys(p.mesice).sort()[0];
+  if (!prvni) return '';
+  const ted = new Date();
+  const klice = [];
+  for (let i = 12; i >= 0; i--) {
+    const k = klicMesice(new Date(ted.getFullYear(), ted.getMonth() - i, 1).getTime());
+    if (k >= prvni) klice.push(k);
+  }
+  const prazdny = { palivo: 0, ostatni: 0, kat: {} };
+  const m = (k) => p.mesice[k] || prazdny;
+  const max = Math.max(1, ...klice.map((k) => m(k).palivo + m(k).ostatni));
+  const prumer = klice.reduce((s, k) => s + m(k).palivo + m(k).ostatni, 0) / klice.length;
   return '<section class="card auto-graf" data-oblast="auto">' + hlavickaKarty(IKONY.tabulka, 'Výdaje po měsících', '<span class="muted">průměr</span> <b>' +
       kc(prumer) + '</b>') +
-    '<div class="auto-sloupce">' + klice.map((k) => {
-      const m = p.mesice[k], celkem = m.palivo + m.ostatni;
-      const v = (x) => (x ? Math.max(3, Math.round(x / max * 118)) : 0);
-      return '<div class="auto-sloupec" title="' + esc(MESICE_1[Number(k.slice(5)) - 1] + ' ' + k.slice(0, 4) + ': palivo ' + kc(m.palivo) + ', ostatní ' +
-        kc(m.ostatni)) + '"><span class="auto-sloupec__cislo cisla">' + (celkem >= 1000 ? JEDNO.format(celkem / 1000) + ' tis.' : CELE.format(celkem)) + '</span>' +
-        '<span class="auto-sloupec__ostatni" style="height:' + v(m.ostatni) + 'px"></span><span class="auto-sloupec__palivo" style="height:' + v(m.palivo) + 'px"></span>' +
-        '<small>' + esc(MES_KR[Number(k.slice(5)) - 1]) + '</small></div>';
+    '<div class="auto-sloupce">' + klice.map((k, i) => {
+      const x = m(k), celkem = x.palivo + x.ostatni, mes = Number(k.slice(5));
+      const v = (y) => (y ? Math.max(3, Math.round(y / max * 118)) : 0);
+      return '<button type="button" class="auto-sloupec" data-auto-mesic="' + k + '" aria-label="' + esc(MESICE_1[mes - 1] + ' ' + k.slice(0, 4) + ': ' + kc(celkem)) + '">' +
+        '<span class="auto-sloupec__cislo cisla">' + (celkem ? (celkem >= 1000 ? JEDNO.format(celkem / 1000) + ' tis.' : CELE.format(celkem)) : '') + '</span>' +
+        '<span class="auto-sloupec__ostatni" style="height:' + v(x.ostatni) + 'px"></span><span class="auto-sloupec__palivo" style="height:' + v(x.palivo) + 'px"></span>' +
+        '<small>' + esc(MES_KR[mes - 1]) + (i === 0 || mes === 1 ? '<i>' + k.slice(0, 4) + '</i>' : '') + '</small></button>';
     }).join('') + '</div>' +
-    '<div class="auto-legenda"><span><i class="auto-legenda__palivo"></i>Palivo</span><span><i class="auto-legenda__ostatni"></i>Ostatní</span></div></section>';
+    '<div class="auto-legenda"><span><i class="auto-legenda__palivo"></i>Palivo</span><span><i class="auto-legenda__ostatni"></i>Ostatní = vše kromě paliva</span>' +
+    '<span class="muted">klepni na měsíc pro rozpis</span></div></section>';
+}
+
+/** Rozpis měsíce po kategoriích (klepnutí na sloupec). */
+function rozpisMesice(k) {
+  const p = prehledAuta(stav.auto || {});
+  const x = p.mesice[k] || { palivo: 0, ostatni: 0, kat: {} };
+  const casti = (x.palivo ? ['palivo ' + kc(x.palivo)] : [])
+    .concat(Object.keys(x.kat).sort((a, b) => x.kat[b] - x.kat[a]).map((c) => c.toLowerCase() + ' ' + kc(x.kat[c])));
+  toast(velkePrvni(MESICE_1[Number(k.slice(5)) - 1]) + ' ' + k.slice(0, 4) + ': ' + (casti.length ? casti.join(' · ') : 'žádné výdaje'));
 }
 
 function kategorieHtml(d, p) {
@@ -389,17 +413,130 @@ function oddilyPece(pece) {
 /** „AUTOMAT DSG“ → „Automat DSG“: malá písmena kromě zkratek (DSG, STK, DPF, TDI, UV). */
 const nazevOddilu = (t) => (t.charAt(0) + t.slice(1).toLowerCase()).replace(/\b(dsg|stk|dpf|tdi|uv)\b/gi, (z) => z.toUpperCase());
 
-/** Karta Péče o auto: plán údržby a přehled podle km rozbalené, rady (zima, léto, DSG, mytí) na klepnutí. */
-function peceHtml(d) {
-  if (!d.pece) return '';
-  const oddily = oddilyPece(d.pece);
-  if (!oddily.length) return '';
-  return '<section class="card auto-pece" data-oblast="auto">' + hlavickaKarty(IKONY.auto, 'Péče o auto',
-    d.odkaz ? '<a class="odkaz" href="' + esc(d.odkaz) + '" target="_blank" rel="noopener noreferrer">v tabulce</a>' : '') +
-    oddily.map((o, i) => '<details class="auto-pece__oddil"' + (i < 2 ? ' open' : '') + '><summary>' + esc(nazevOddilu(o.nazev)) + '</summary><ul class="auto-pece__seznam">' +
-      o.polozky.map((r) => '<li>' + (r[0] ? '<b>' + esc(r[0]) + '</b>' : '') + '<span>' + esc(r[1]) + '</span>' + (r[2] ? '<small>' + esc(r[2]) + '</small>' : '') + '</li>').join('') +
-      '</ul></details>').join('') +
-    '</section>';
+// ---------------------------------------------------------------- připomínky „Co řešit“ (počítá motor, okna podle dneška)
+
+const SEZONNI_ID = ['pneu-zimni', 'pneu-letni', 'zima', 'jaro'];
+const IKONA_PRIPOMINKY = { 'pneu-zimni': '❄️', 'pneu-letni': '☀️', zima: '🧊', jaro: '🌬️', olej: '🛢️', prohlidka: '🔧', adblue: '💧', pojisteni: '📄', znamka: '🛣️' };
+
+/**
+ * Připomínky z motoru (přezutí, zima, servis podle auta, pojištění, dálniční známka). Sezónní okna se vyhodnotí podle
+ * dneška (data můžou být pár dní stará): teď / brzy (30 dní předem) / po skončení pryč; ostatní, jak je poslal motor.
+ */
+export function pripominky(d) {
+  const ted = Date.now();
+  return (((d || stav.auto) || {}).pripominky || []).map((x) => {
+    if (SEZONNI_ID.indexOf(x.id) < 0) return x;
+    if (ted > x.do + 864e5) return null;
+    const s = ted >= x.od ? 'ted' : x.od - ted <= 30 * 864e5 ? 'brzy' : null;
+    return s ? Object.assign({}, x, { stav: s }) : null;
+  }).filter(Boolean).sort((a, b) => (a.hotovo - b.hotovo) || ((a.stav === 'ted' ? 0 : 1) - (b.stav === 'ted' ? 0 : 1)));
+}
+
+function kdyPripominky(x) {
+  if (x.hotovo) return '✓ hotovo';
+  if (SEZONNI_ID.indexOf(x.id) >= 0) return x.stav === 'ted' ? 'do ' + dm(x.do) : 'od ' + dm(x.od);
+  return x.stav === 'ted' ? 'teď' : 'brzy';
+}
+
+function pripominkaHtml(x) {
+  return '<li class="auto-resit__polozka auto-resit--' + (x.hotovo ? 'hotovo' : x.stav) + '"><span class="auto-resit__ikona" aria-hidden="true">' +
+    (IKONA_PRIPOMINKY[x.id] || '🚗') + '</span><div class="auto-resit__text"><b>' + esc(x.nazev) + '</b><small>' + esc(x.text) + '</small></div>' +
+    '<span class="auto-resit__kdy">' + esc(kdyPripominky(x)) + '</span></li>';
+}
+
+/** Karta Co řešit nahoře na stránce Auto (teď a do 30 dní; hotové v sezóně s fajfkou). */
+function coResitHtml(d) {
+  const x = pripominky(d);
+  if (!x.length) return '';
+  return '<section class="card auto-resit" data-oblast="auto">' + hlavickaKarty(IKONY.kalendar, 'Co řešit',
+    '<button type="button" class="odkaz" data-auto-pece>Péče o auto</button>') + '<ul class="auto-resit__seznam">' + x.map(pripominkaHtml).join('') + '</ul></section>';
+}
+
+/** Dnes → Vyžaduje pozornost: co je u auta potřeba řešit teď (z naposledy načtených dat auta). */
+export function pripominkyDnes() {
+  return pripominky().filter((x) => x.stav === 'ted' && !x.hotovo);
+}
+
+export function pripominkaDnesHtml(x) {
+  return '<li class="auto-dnes"><button type="button" class="auto-dnes__btn" data-cil="auto"><span class="auto-resit__ikona" aria-hidden="true">' +
+    (IKONA_PRIPOMINKY[x.id] || '🚗') + '</span><span class="auto-dnes__text"><b>' + esc(x.nazev) + '</b><small>' + esc(x.text) + '</small></span>' +
+    '<span class="auto-resit__kdy">' + esc(kdyPripominky(x)) + '</span></button></li>';
+}
+
+// ---------------------------------------------------------------- panel Péče o auto (tlačítko na liště stránky Auto)
+
+const IKONA_ODDILU = [[/plán/i, '🗓️'], [/podle km/i, '📍'], [/celková|celý rok/i, '🔧'], [/zima/i, '❄️'], [/léto/i, '☀️'], [/dsg|automat/i, '⚙️'],
+  [/návyk/i, '🧭'], [/jak často/i, '🔁'], [/mytí|mýt/i, '🧽'], [/vyhnout/i, '⚠️'], [/půl roku/i, '💎']];
+const ikonaOddilu = (n) => (IKONA_ODDILU.find((x) => x[0].test(n)) || [null, '📝'])[1];
+
+const KOLA = '<div class="pece-kola"><div class="pece-kola__karta pece-kola--zima"><span aria-hidden="true">❄️</span><b>Na zimní</b>' +
+  '<p>jakmile teploty klesají pod 7 °C – obvykle od poloviny října do poloviny listopadu</p><small>při sněhu a náledí povinné od 1. 11. do 31. 3.</small></div>' +
+  '<div class="pece-kola__karta pece-kola--leto"><span aria-hidden="true">☀️</span><b>Na letní</b><p>až se teploty drží nad 7 °C – obvykle v dubnu</p>' +
+  '<small>pneuservis objednej s předstihem</small></div></div>' +
+  '<ul class="pece-rady"><li>Dezén: zimní vyměnit pod 4 mm (zákonné minimum), letní pod 3 mm (minimum je 1,6 mm).</li>' +
+  '<li>Pneumatiky starší 6–8 let vyměnit, i když mají dezén – rok výroby je v kódu DOT na boku.</li>' +
+  '<li>Při přezutí nech kola vyvážit a dotáhnout, tlak kontroluj 1× měsíčně.</li>' +
+  '<li>Asistent připomene přezutí na zimní od 10. 10. a na letní od 20. 3. (na stránce Auto, na Dnes a upozorněním do iPhonu).</li></ul>';
+
+function oddilHtml(ikona, nazev, obsah, otevreny, pocet) {
+  return '<details class="pece-oddil"' + (otevreny ? ' open' : '') + '><summary><span class="pece-ikona" aria-hidden="true">' + ikona + '</span><span>' + esc(nazev) +
+    '</span>' + (pocet ? '<small>' + pocet + '</small>' : '') + '</summary><div class="pece-obsah">' + obsah + '</div></details>';
+}
+
+function seznamPeceHtml(polozky) {
+  return '<ul class="pece-seznam">' + polozky.map((r) => '<li>' + (r[0] ? '<b>' + esc(r[0]) + '</b>' : '') + '<span>' + esc(r[1]) + '</span>' +
+    (r[2] ? '<small>' + esc(r[2]) + '</small>' : '') + '</li>').join('') + '</ul>';
+}
+
+/** Přehled podle km jako osa: hotové šedě, teď (stav tachometru), další zvýrazněný s „za X km“. */
+function osaKmHtml(oddil, km) {
+  const body = oddil.polozky.filter((r) => /^\d[\d\s ]*km$/i.test(r[0])).map((r) => ({ km: Number(r[0].replace(/\D/g, '')), co: r[1] }));
+  const ostatni = oddil.polozky.filter((r) => !/^\d[\d\s ]*km$/i.test(r[0]));
+  if (!body.length || km == null) return seznamPeceHtml(oddil.polozky);
+  let h = '<ol class="pece-osa">', uzTed = false, dalsi = false;
+  body.forEach((b) => {
+    if (!uzTed && b.km > km) { h += '<li class="pece-osa__ted"><b>teď ' + CELE.format(km) + ' km</b><span>stav tachometru</span></li>'; uzTed = true; }
+    const trida = b.km <= km ? 'hotovo' : !dalsi ? 'dalsi' : 'pozdeji';
+    h += '<li class="pece-osa--' + trida + '"><b>' + CELE.format(b.km) + ' km</b><span>' + esc(b.co) + '</span>' +
+      (trida === 'dalsi' ? '<small>za ' + CELE.format(b.km - km) + ' km</small>' : '') + '</li>';
+    if (trida === 'dalsi') dalsi = true;
+  });
+  if (!uzTed) h += '<li class="pece-osa__ted"><b>teď ' + CELE.format(km) + ' km</b><span>stav tachometru</span></li>';
+  return h + '</ol>' + (ostatni.length ? seznamPeceHtml(ostatni) : '');
+}
+
+function servisZAutaPeceHtml(a) {
+  const s = (a && a.servis) || {};
+  const radek = (nazev, km, dni) => (km == null && dni == null ? '' : '<li><b>' + nazev + '</b><span>za ' +
+    [km != null ? CELE.format(km) + ' km' : '', dni != null ? dni + ' dní' : ''].filter(Boolean).join(' nebo ') + '</span></li>');
+  const h = radek('Výměna oleje', s.olejKm, s.olejDni) + radek('Prohlídka', s.prohlidkaKm, s.prohlidkaDni) +
+    (a && a.adblue != null ? '<li><b>AdBlue</b><span>dojezd ' + CELE.format(a.adblue) + ' km</span></li>' : '');
+  return h ? '<ul class="pece-seznam">' + h + '</ul><p class="napoveda">Z aplikace MyŠkoda – auto počítá servis samo.</p>' : '';
+}
+
+/** Panel Péče o auto: co řešit, kdy přezouvat, servis podle auta, pak oddíly z listu „Péče o auto – text“. */
+function peceHtml() {
+  const d = stav.auto || {};
+  const p = d.nastaveno ? prehledAuta(d) : null;
+  let h = '<div class="pece">';
+  const x = pripominky(d);
+  if (x.length) h += oddilHtml('📌', 'Co řešit', '<ul class="auto-resit__seznam">' + x.map(pripominkaHtml).join('') + '</ul>', true);
+  h += oddilHtml('🛞', 'Kdy přezouvat', KOLA, true);
+  const servis = servisZAutaPeceHtml(p && p.auto);
+  if (servis) h += oddilHtml('🔧', 'Servis podle auta', servis, true);
+  const oddily = d.pece ? oddilyPece(d.pece) : [];
+  oddily.forEach((o) => {
+    const km = /podle km/i.test(o.nazev);
+    h += oddilHtml(ikonaOddilu(o.nazev), nazevOddilu(o.nazev), km ? osaKmHtml(o, p ? p.kmPosledni : null) : seznamPeceHtml(o.polozky),
+      km || /plán/i.test(o.nazev), o.polozky.length);
+  });
+  if (!oddily.length) h += '<p class="napoveda">Rady a plán údržby jsou v tabulce v listu „Péče o auto – text“.</p>';
+  if (d.odkaz) h += '<p class="napoveda"><a class="odkaz" href="' + esc(d.odkaz) + '" target="_blank" rel="noopener noreferrer">Upravit v tabulce</a> – oddíl začíná tučným řádkem.</p>';
+  return h + '</div>';
+}
+
+export function otevriPeci() {
+  otevriPanel({ id: 'auto-pece', trida: 'panel-bocni panel-pece', titul: 'Péče o auto', vykresli: peceHtml });
 }
 
 // ---------------------------------------------------------------- zápis (okno)
@@ -677,6 +814,8 @@ function ukazFotku(src) {
 export function klikAuto(el) {
   if (el.hasAttribute('data-auto-znovu')) { stav.chyby.auto = null; nactiAuto(true); return true; }
   if (el.dataset.autoZapis) { otevriZapis(el.dataset.autoZapis); return true; }
+  if (el.hasAttribute('data-auto-pece')) { otevriPeci(); return true; }
+  if (el.dataset.autoMesic) { rozpisMesice(el.dataset.autoMesic); return true; }
   if (el.dataset.autoUpravit) { const [list, radek] = el.dataset.autoUpravit.split(':'); otevriUpravu(najdiZapis(list, radek)); return true; }
   if (el.hasAttribute('data-az-foto-velka') && f) { ukazFotku(f.foto || f.velka || f.nahled); return true; }
   if (el.hasAttribute('data-az-foto-vedle') && f) { f.fotoVedle = !f.fotoVedle; f.fotoZoom = false; fotkaVedle(); return true; }

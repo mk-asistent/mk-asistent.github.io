@@ -80,7 +80,31 @@ export async function volej(akce, data, jinePripojeni) {
 // akce, které v motoru trvají déle (čtení účtenky přes OCR Disku a zápis do tabulky; Google bývá pomalý)
 const DLOUHE_AKCE = { autoUctenka: 150000, autoUctenkaFoto: 60000, autoUpravit: 60000, autoZapsat: 60000 };
 
+// Google odpověď na POST občas ztratí: prohlížeč pak skončí na úvodu motoru (doGet), nebo na 404 / bez CORS. Motor ale
+// akci provedl – proto pokus znovu se stejným rid: motor zápis podruhé neprovede a vrátí výsledek prvního běhu.
+const UVOD_MOTORU = 'Asistent – motor běží.';
+const POKUSU = 3;
+const pauza = (ms) => new Promise((hotovo) => setTimeout(hotovo, ms));
+const novyRid = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 12));
+
 async function volejPrimo(akce, data, jinePripojeni) {
+  const rid = novyRid();
+  for (let pokus = 1; ; pokus++) {
+    try {
+      return await jedenPokus(akce, Object.assign({}, data, { rid }), jinePripojeni);
+    } catch (e) {
+      if (e.kod !== 'ztracena' || pokus >= POKUSU) {
+        if (e.kod === 'ztracena') {
+          throw new ChybaApi(/není dostupný/.test(e.message) ? e.message : 'Google teď odpovědi motoru ztrácí – zkus to za chvíli (nic se nezapsalo dvakrát).', 'sit');
+        }
+        throw e;
+      }
+      await pauza(pokus === 1 ? 1500 : 4000);
+    }
+  }
+}
+
+async function jedenPokus(akce, data, jinePripojeni) {
   const p = jinePripojeni || pripojeni();
   if (!p) throw new ChybaApi('Aplikace není připojená k motoru.', 'nepripojeno');
   const ovladac = new AbortController();
@@ -97,12 +121,17 @@ async function volejPrimo(akce, data, jinePripojeni) {
     });
   } catch (e) {
     if (e.name === 'AbortError') throw new ChybaApi('Motor dlouho neodpovídá – zkus to za chvíli.', 'sit');
-    throw new ChybaApi(navigator.onLine === false ? 'Jsi offline – ukazuju uložená data.' : 'Motor není dostupný (síť nebo adresa).', 'sit');
+    if (navigator.onLine === false) throw new ChybaApi('Jsi offline – ukazuju uložená data.', 'sit');
+    // odpověď bez CORS (chybová stránka Googlu místo výsledku) – zkusit znovu
+    throw new ChybaApi('Motor není dostupný (síť nebo adresa).', 'ztracena');
   } finally {
     clearTimeout(casovac);
   }
   let json = null, text = '';
   try { text = await odpoved.text(); json = JSON.parse(text); } catch (e) { /* níž */ }
+  if (!json && (text.trim() === UVOD_MOTORU || (odpoved.status === 404 && /googleusercontent\.com/.test(odpoved.url || '')))) {
+    throw new ChybaApi('Odpověď motoru se ztratila.', 'ztracena');
+  }
   if (!json) {
     // co místo dat přišlo (stav a začátek textu bez HTML) – podle toho se pozná přihlášení Googlu, chyba skriptu, špatná adresa
     const ukazka = text.replace(/<(style|script)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);

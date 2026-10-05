@@ -64,14 +64,17 @@ function start() {
 
 function obnovVse(znovu) {
   stav.naposledy = Date.now();
+  // s účtem: poštu, kalendář a reely obnoví server (kopie přijdou živě) – Obnovit pak neposílá motoru deset dotazů
+  // naráz (Google pak odpovědi ztrácí); přímo z motoru jen to, co server nechystá (počasí, zdraví, auto)
+  const primo = znovu && !ucet.zapnuty();
   schranka.nactiSchranku();
-  posta.nactiPostu(znovu);
-  kal.nactiKalendar(znovu);
+  posta.nactiPostu(primo);
+  kal.nactiKalendar(primo);
   nast.nactiInfo();
   pocasi.nactiPocasi(znovu);
   zdravi.nactiZdravi(znovu);
   fotbal.nactiFotbal();
-  reely.nactiReely(znovu);
+  reely.nactiReely(primo);
   if (znovu || stav.pohled === 'auto') auto.nactiAuto(znovu); // tabulku auta jen na její stránce nebo při Obnovit
   // Obnovit = i čerstvé kopie na serveru (třeba hned po nasazení motoru); jinak jen když jsou kopie starší
   if (znovu) ucet.obnovNaServeru(true);
@@ -371,6 +374,8 @@ function pozornost(p) {
     const st = posta.stavZpravy(m);
     polozky.push({ typ: 'posta', x: m, vaha: st === 'hori' ? 1 : m.neprectena ? 4 : 6, kdy: m.kdy });
   });
+  // auto: přezutí, servis, pojištění… (z naposledy načtených dat auta)
+  auto.pripominkyDnes().forEach((x) => polozky.push({ typ: 'auto', x, vaha: 2.5, kdy: x.od || 0 }));
   return polozky.sort((a, b) => (a.vaha - b.vaha) || (b.kdy - a.kdy));
 }
 
@@ -418,8 +423,8 @@ function kartaPozornosti(p) {
   if (!stav.schranka && !stav.posta && !chyby.length) telo += kostra(4);
   else if (!seznam.length) telo += (stav.schranka || stav.posta) ? '<div class="prazdne">Nic nehoří, nic nečeká. Užij si to.</div>' : '';
   else {
-    telo += '<ul class="seznam">' + seznam.slice(0, 10).map((x) => (x.typ === 'schranka'
-      ? schranka.polozkaHtml(x.x, true) : posta.zpravaRadekHtml(x.x, posta.maPracovni()))).join('') + '</ul>';
+    telo += '<ul class="seznam">' + seznam.slice(0, 10).map((x) => (x.typ === 'schranka' ? schranka.polozkaHtml(x.x, true)
+      : x.typ === 'auto' ? auto.pripominkaDnesHtml(x.x) : posta.zpravaRadekHtml(x.x, posta.maPracovni()))).join('') + '</ul>';
   }
   const pata = '<div class="dlazdice__paty">' +
     '<button type="button" class="dlazdice__pata" data-cil="schranka" data-filtr-schranky="vse">' + IKONY.schranka + 'Schránka' +

@@ -36,7 +36,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.15';
+const VERZE = '2026-10-05.16';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -67,7 +67,7 @@ function doGet(e) {
 }
 
 function doPost(e) {
-  let vystup;
+  let vystup, rid = '';
   try {
     let data;
     try {
@@ -103,12 +103,38 @@ function doPost(e) {
       if (typeof data.akce !== 'string' || !Object.prototype.hasOwnProperty.call(AKCE, data.akce)) {
         throw new Error('Neznámá akce.');
       }
+      // Google odpověď na POST občas ztratí (prohlížeč pak skončí na doGet) a aplikace to zkusí znovu se stejným rid:
+      // zápis se podruhé neprovede – vrátí se výsledek prvního běhu (počká, až doběhne)
+      if (CTENI_MOTORU.indexOf(data.akce) < 0 && typeof data.rid === 'string' && /^[\w-]{8,64}$/.test(data.rid)) {
+        rid = 'RID:' + data.rid;
+        const minule = vysledekRid_(rid);
+        if (minule) return ContentService.createTextOutput(minule).setMimeType(ContentService.MimeType.JSON);
+        CacheService.getScriptCache().put(rid, 'BEZI', 300);
+      }
       vystup = { ok: true, data: AKCE[data.akce](data) };
+      if (rid) ulozText_(rid, JSON.stringify(vystup), 600);
     }
   } catch (chyba) {
     vystup = { ok: false, chyba: String((chyba && chyba.message) || chyba) };
+    if (rid) { try { CacheService.getScriptCache().remove(rid); } catch (e2) { /* příště znovu */ } }
   }
   return ContentService.createTextOutput(JSON.stringify(vystup)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// akce, které jen čtou – opakovat je jde bez rizika (bez zapamatované odpovědi)
+const CTENI_MOTORU = ['info', 'schranka', 'posta', 'vlakno', 'hledat', 'kalendar', 'kalendare', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka',
+  'stitky', 'kontakty', 'postaStitek', 'auto', 'upozorneni', 'autoUctenkaFoto', 'davka'];
+
+/** Výsledek dřívějšího běhu téhož požadavku (JSON), nebo null; když ještě běží, počká na něj (nejvýš ~25 s). */
+function vysledekRid_(rid) {
+  const cache = CacheService.getScriptCache();
+  for (let i = 0; i < 25; i++) {
+    const stav = cache.get(rid);
+    if (!stav) return null;
+    if (stav !== 'BEZI') return nactiText_(rid);
+    Utilities.sleep(1000);
+  }
+  return JSON.stringify({ ok: false, chyba: 'Požadavek se ještě zpracovává – za chvíli obnov stránku (nic se nezapíše dvakrát).' });
 }
 
 // co motor umí uvnitř akcí (aplikace podle toho ukáže nová tlačítka i u starší verze motoru je schová)
@@ -2348,6 +2374,10 @@ function auto_() {
 }
 
 function autoData_(ss) {
+  return autoDataSPripominkami_(ss);
+}
+
+function autoDataBez_(ss) {
   const n = autoList_(ss, 'naklady'), t = autoList_(ss, 'tankovani');
   const hn = n.getDataRange().getValues(), ht = t.getDataRange().getValues();
   // odkazy na fotky účtenek v poznámce → aplikace u zápisu ukáže fotku
@@ -2362,6 +2392,13 @@ function autoData_(ss) {
     pece: autoPece_(ss),
     ted: Date.now()
   };
+}
+
+/** Data auta + připomínky „Co řešit“ (sezóna, termíny z tabulky a z auta) – aplikace je ukáže na Auto a na Dnes. */
+function autoDataSPripominkami_(ss) {
+  const d = autoDataBez_(ss);
+  d.pripominky = AUTO_.pripominky(d, Date.now());
+  return d;
 }
 
 /** Stav auta z MyŠkoda (tachometr, nádrž, dojezd, servis) – soubor AUTO/myskoda.json zapisuje domácí PC; bez polohy a VIN. */
@@ -2934,6 +2971,92 @@ const AUTO_ = (function () {
     return { druh: palivo ? 'tankovani' : 'naklad', datum: datumIso, castka: castka, litry: litry, cenaLitr: cenaLitr, kategorie: kategorie, obchod: obchod };
   }
 
+  // sezónní připomínky (měsíc, den) – Michal 5. 10.: „kdy měnit kola a upozornění, kdy to mám začít řešit“
+  const SEZONNI = [
+    { id: 'pneu-zimni', nazev: 'Přezout na zimní pneumatiky', od: [10, 10], do: [11, 15], hotovo: /pneu|p[řr]ezut|p[řr]ezou/i,
+      text: 'Objednej pneuservis. Zimní, jakmile teploty klesají pod 7 °C; při sněhu a náledí jsou od 1. 11. do 31. 3. povinné.' },
+    { id: 'pneu-letni', nazev: 'Přezout na letní pneumatiky', od: [3, 20], do: [4, 30], hotovo: /pneu|p[řr]ezut|p[řr]ezou/i,
+      text: 'Až se teploty drží nad 7 °C (obvykle v dubnu). Objednej pneuservis s předstihem, zimní uskladni.' },
+    { id: 'zima', nazev: 'Připravit auto na zimu', od: [10, 1], do: [11, 15], hotovo: /ost[řr]ikova|st[ěe]ra[čc]/i,
+      text: 'Zimní směs do ostřikovačů, nové stěrače, kontrola baterie a nemrznoucí kapaliny, škrabka a odmrazovač do kufru.' },
+    { id: 'jaro', nazev: 'Klimatizace a pylový filtr', od: [4, 1], do: [5, 31], hotovo: /klimatiz|pylov/i,
+      text: 'Před létem nový pylový filtr; klimatizaci 1× za 2 roky vydezinfikovat a zkontrolovat chladivo.' }
+  ];
+  const DEN = 864e5, PREDEM = 30 * DEN;
+
+  function den(ms) { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); }
+  function datumCz(ms) { const d = new Date(ms); return d.getDate() + '. ' + (d.getMonth() + 1) + '. ' + d.getFullYear(); }
+
+  /**
+   * Připomínky k autu: sezónní okna (letos, po skončení příští rok), servis a AdBlue podle auta (MyŠkoda), výročí
+   * pojištění a konec dálniční známky z Náklady. Každá { id, klic (pro jednorázové upozornění), nazev, text, od, do,
+   * stav: 'ted' | 'brzy', hotovo }. Hotovo = v Náklady je k tomu zápis od začátku okna (−30 dní).
+   */
+  function pripominky(d, ted) {
+    const dnes = den(ted);
+    const ven = [];
+    const naklady = (d && d.naklady) || [];
+    const zapis = function (vzor, od) {
+      return naklady.some(function (z) { return z.datum != null && z.datum >= od && vzor.test([z.kategorie, z.polozka, z.poznamka].join(' ')); });
+    };
+    SEZONNI.forEach(function (s) {
+      let rok = new Date(dnes).getFullYear();
+      let od = new Date(rok, s.od[0] - 1, s.od[1]).getTime(), doo = new Date(rok, s.do[0] - 1, s.do[1]).getTime();
+      if (dnes > doo) { rok++; od = new Date(rok, s.od[0] - 1, s.od[1]).getTime(); doo = new Date(rok, s.do[0] - 1, s.do[1]).getTime(); }
+      if (dnes < od - PREDEM) return;
+      ven.push({ id: s.id, klic: s.id + '-' + rok, nazev: s.nazev, text: s.text, od: od, do: doo, stav: dnes >= od ? 'ted' : 'brzy',
+        hotovo: zapis(s.hotovo, od - PREDEM) });
+    });
+    // servis a AdBlue podle auta
+    const a = d && d.myskoda && Array.isArray(d.myskoda.auta) ? d.myskoda.auta[0] : null;
+    const sv = (a && a.servis) || {};
+    const servis = function (id, nazev, km, dni) {
+      if (km == null && dni == null) return;
+      const ted2 = (km != null && km <= 1500) || (dni != null && dni <= 21);
+      const brzy = (km != null && km <= 4000) || (dni != null && dni <= 60);
+      if (!ted2 && !brzy) return;
+      const kdy = dni != null ? dnes + dni * DEN : null;
+      ven.push({ id: id, klic: id + '-' + (kdy ? new Date(kdy).getFullYear() + '-' + (new Date(kdy).getMonth() + 1) : 'km'), nazev: nazev,
+        text: 'Podle auta za ' + [km != null ? km.toLocaleString('cs-CZ') + ' km' : '', dni != null ? dni + ' dní' : ''].filter(Boolean).join(' nebo ') +
+          ' – objednej servis.', od: dnes, do: kdy || dnes, stav: ted2 ? 'ted' : 'brzy', hotovo: false });
+    };
+    servis('olej', 'Servis – výměna oleje', sv.olejKm, sv.olejDni);
+    servis('prohlidka', 'Servisní prohlídka', sv.prohlidkaKm, sv.prohlidkaDni);
+    if (a && a.adblue != null && a.adblue <= 2500) {
+      ven.push({ id: 'adblue', klic: 'adblue-' + new Date(dnes).getFullYear() + '-' + (new Date(dnes).getMonth() + 1), nazev: 'Doplnit AdBlue',
+        text: 'Dojezd na AdBlue ' + a.adblue.toLocaleString('cs-CZ') + ' km – kup kanystr a dolij.', od: dnes, do: dnes,
+        stav: a.adblue <= 1000 ? 'ted' : 'brzy', hotovo: false });
+    }
+    // výročí pojištění (poslední roční platba + rok) a dálniční známka (platí 365 dní)
+    const posledni = function (vzor) {
+      return naklady.filter(function (z) { return z.datum != null && vzor.test([z.kategorie, z.polozka].join(' ')); })
+        .sort(function (x, y) { return y.datum - x.datum; })[0] || null;
+    };
+    const poj = posledni(/poji[šs]t/i);
+    if (poj) {
+      const vyroci = new Date(poj.datum);
+      vyroci.setFullYear(vyroci.getFullYear() + 1);
+      const v = vyroci.getTime();
+      if (dnes >= v - PREDEM && dnes <= v + 21 * DEN) {
+        ven.push({ id: 'pojisteni', klic: 'pojisteni-' + vyroci.getFullYear(), nazev: 'Výročí pojištění', od: v - PREDEM, do: v, hotovo: false,
+          stav: dnes >= v - 14 * DEN ? 'ted' : 'brzy',
+          text: 'Roční pojištění bylo ' + datumCz(poj.datum) + ' (' + Math.round(poj.castka || 0).toLocaleString('cs-CZ') + ' Kč) – výročí ' +
+            datumCz(v) + '. Zkontroluj platbu, případně porovnej nabídky; zaplacené zapiš do tabulky.' });
+      }
+    }
+    const znamka = posledni(/d[áa]ln[ií][čc]n/i);
+    if (znamka) {
+      const konec = znamka.datum + 364 * DEN;
+      if (dnes >= konec - 45 * DEN) {
+        ven.push({ id: 'znamka', klic: 'znamka-' + new Date(konec).getFullYear(), nazev: 'Dálniční známka', od: konec - 21 * DEN, do: konec, hotovo: false,
+          stav: dnes >= konec - 21 * DEN ? 'ted' : 'brzy',
+          text: dnes > konec ? 'Poslední zapsaná známka platila do ' + datumCz(konec) + '. Kup novou (edalnice.cz) – nebo ji zapiš, jestli už ji máš.'
+            : 'Známka platí do ' + datumCz(konec) + ' – kup novou na edalnice.cz.' });
+      }
+    }
+    return ven;
+  }
+
   /** Návrh z účtenky → zápis pro novyZapis, nebo null, když z účtenky není jasné co (pak okno v aplikaci). */
   function zapisZUctenky(n, uctenka, km) {
     if (!n || !n.datum || !(n.castka > 0)) return null;
@@ -2948,7 +3071,7 @@ const AUTO_ = (function () {
   }
 
   return { sloupce: sloupce, pismeno: pismeno, cislo: cislo, datum: datum, zapisy: zapisy, kategorie: kategorie, platili: platili,
-    volnyRadek: volnyRadek, novyZapis: novyZapis, zUctenky: zUctenky, idUctenky: idUctenky, zapisZUctenky: zapisZUctenky };
+    volnyRadek: volnyRadek, novyZapis: novyZapis, zUctenky: zUctenky, idUctenky: idUctenky, zapisZUctenky: zapisZUctenky, pripominky: pripominky };
 })();
 
 // ---------------------------------------------------------------- Docházka dorostu (Týmuj → web dorostu → tady)
@@ -4748,6 +4871,7 @@ function upozorneniKontrola_() {
   try { if (hodina >= 6 && hodina <= 22) horiVPoste_(); } catch (chyba) { /* příště */ }
   try { ranniSouhrn_(hodina); } catch (chyba) { /* příště */ }
   try { nedelniPrehled_(hodina); } catch (chyba) { /* příště */ }
+  try { if (hodina >= 8 && hodina <= 20) upozorneniAuto_(); } catch (chyba) { /* zítra */ }
   const hodinaWhoop = Utilities.formatDate(new Date(Date.now()), CASOVE_PASMO, 'yyyy-MM-dd H');
   if (p.getProperty('UPOZORNENI_WHOOP') !== hodinaWhoop && whoopStav_().propojeno) {
     p.setProperty('UPOZORNENI_WHOOP', hodinaWhoop);
@@ -4780,6 +4904,29 @@ function upozorneniKontrola_() {
     Object.keys(ohlasene).forEach(function (k) { if (ohlasene[k] > ted && !nove[k]) nove[k] = ohlasene[k]; });
     p.setProperty('OHLASENE_VYSTRAHY', JSON.stringify(nove).slice(0, 8000));
   } catch (chyba) { /* příště */ }
+}
+
+/**
+ * Připomínky k autu do iPhonu (jednou denně, každá jen jednou za sezónu): „začni řešit“ přezutí, přípravu na zimu,
+ * servis podle auta, výročí pojištění, dálniční známku. Čte tabulku auta – proto jen jednou za den.
+ */
+function upozorneniAuto_() {
+  const p = vlastnosti_();
+  const dnes = Utilities.formatDate(new Date(Date.now()), CASOVE_PASMO, 'yyyy-MM-dd');
+  if (p.getProperty('UPOZORNENI_AUTO_DEN') === dnes || !p.getProperty('AUTO_TABULKA')) return;
+  p.setProperty('UPOZORNENI_AUTO_DEN', dnes);
+  const ss = autoTabulka_();
+  if (!ss) return;
+  let ohlasene = {};
+  try { ohlasene = JSON.parse(p.getProperty('OHLASENO_AUTO') || '{}') || {}; } catch (chyba) { ohlasene = {}; }
+  const ted = Date.now();
+  AUTO_.pripominky(autoDataBez_(ss), ted).forEach(function (x) {
+    if (x.stav !== 'ted' || x.hotovo || ohlasene[x.klic]) return;
+    if (upozorni_('Auto: ' + x.nazev, x.text, ['red_car'], 3)) ohlasene[x.klic] = ted;
+  });
+  // staré záznamy pryč (déle než rok)
+  Object.keys(ohlasene).forEach(function (k) { if (ted - ohlasene[k] > 400 * 864e5) delete ohlasene[k]; });
+  p.setProperty('OHLASENO_AUTO', JSON.stringify(ohlasene).slice(0, 8000));
 }
 
 /** Nové konverzace „hoří“ za poslední 2 hodiny (každá jen jednou). */

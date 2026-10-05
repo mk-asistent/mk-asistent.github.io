@@ -16,8 +16,24 @@ function platnePripojeni(p) {
   return !!(p && typeof p.url === 'string' && ADRESA_MOTORU.test(p.url) && typeof p.klic === 'string' && p.klic.length >= 32 && p.klic.length <= 200);
 }
 
-/** Zavolá akci motoru (POST jako aplikace, přesměrování na odpověď sleduje fetch). */
-async function volejMotor(pripojeni, akce, data, fetchFn) {
+// Google odpověď na POST občas ztratí: místo výsledku přijde úvod motoru (doGet) nebo 404 na googleusercontent.com.
+// Server jen čte, takže pokus znovu nic nezdvojí.
+const UVOD_MOTORU = 'Asistent – motor běží.';
+
+/** Zavolá akci motoru (POST jako aplikace, přesměrování na odpověď sleduje fetch); ztracenou odpověď zkusí ještě 2×. */
+async function volejMotor(pripojeni, akce, data, fetchFn, cekat) {
+  const pauzy = cekat || [1500, 4000];
+  for (let pokus = 0; ; pokus++) {
+    try {
+      return await jedenPokus(pripojeni, akce, data, fetchFn);
+    } catch (e) {
+      if (!e.ztracena || pokus >= pauzy.length) throw e;
+      await new Promise((hotovo) => setTimeout(hotovo, pauzy[pokus]));
+    }
+  }
+}
+
+async function jedenPokus(pripojeni, akce, data, fetchFn) {
   const odpoved = await (fetchFn || fetch)(pripojeni.url, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -28,7 +44,11 @@ async function volejMotor(pripojeni, akce, data, fetchFn) {
   const text = await odpoved.text();
   let json = null;
   try { json = JSON.parse(text); } catch (e) { /* níž */ }
-  if (!json) throw new Error('Motor neodpověděl daty (HTTP ' + odpoved.status + ').');
+  if (!json) {
+    const chyba = new Error('Motor neodpověděl daty (HTTP ' + odpoved.status + ').');
+    chyba.ztracena = text.trim() === UVOD_MOTORU || (odpoved.status === 404 && /googleusercontent\.com/.test(odpoved.url || ''));
+    throw chyba;
+  }
   if (json.ok !== true) throw new Error(json.chyba === 'klic' ? 'Klíč motoru nesedí.' : (json.chyba || 'Chyba motoru.'));
   return json.data;
 }
@@ -69,7 +89,7 @@ async function obnov(pripojeni, moznosti) {
   const ted = o.ted || Date.now();
   const data = {}, chyby = [];
   const mesice = [0, 1].map((n) => mrizkaMesice(ted, n));
-  const zDavky = (polozky, idy, parametry) => volejMotor(pripojeni, 'davka', { polozky }, o.fetch).then((vysledky) => {
+  const zDavky = (polozky, idy, parametry) => volejMotor(pripojeni, 'davka', { polozky }, o.fetch, o.cekat).then((vysledky) => {
     idy.forEach((id, i) => {
       const v = vysledky && vysledky[i];
       if (v && v.ok) data[id] = { data: v.data, parametry: parametry ? parametry[i] : null };
@@ -78,7 +98,7 @@ async function obnov(pripojeni, moznosti) {
   });
   const casti = [
     ['dávka', zDavky(DAVKA.map((akce) => ({ akce })), DAVKA)],
-    ['posta', volejMotor(pripojeni, 'posta', {}, o.fetch).then((d) => { data.posta = { data: d, parametry: null }; })],
+    ['posta', volejMotor(pripojeni, 'posta', {}, o.fetch, o.cekat).then((d) => { data.posta = { data: d, parametry: null }; })],
     ['kalendář', zDavky(mesice.map((m) => ({ akce: 'kalendar', od: m.od, do: m.do })), mesice.map((m) => 'kalendar_' + m.klic),
       mesice.map((m) => ({ od: m.od, do: m.do })))]
   ];

@@ -1443,7 +1443,10 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 .auto-cara text { font: 600 12px var(--font); fill: var(--text-soft); }
 .auto-cara .osa-x text { font-weight: 500; fill: var(--muted); }
 .auto-sloupce { display: flex; align-items: flex-end; gap: 6px; height: 168px; padding: 8px 16px 0; }
-.auto-sloupec { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-end; height: 100%; }
+.auto-sloupec { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-end; height: 100%;
+  padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; border-radius: 6px; }
+.auto-sloupec:hover .auto-sloupec__palivo, .auto-sloupec:hover .auto-sloupec__ostatni { filter: brightness(1.08); }
+.auto-sloupec small i { display: block; font-style: normal; font-size: 10px; opacity: .75; }
 .auto-sloupec__cislo { font-size: 10.5px; font-weight: 650; color: var(--text-soft); text-align: center; white-space: nowrap; margin-bottom: 3px; }
 .auto-sloupec__palivo { background: var(--o); border-radius: 0 0 4px 4px; }
 .auto-sloupec__ostatni { background: var(--oranz); border-radius: 4px 4px 0 0; opacity: .85; }
@@ -1488,6 +1491,71 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 .auto-zapis__foto svg { width: 13px; height: 13px; }
 .auto-uctenka__foto { padding: 0; border: 0; background: none; cursor: zoom-in; flex: none; border-radius: 8px; }
 .auto-uctenka .btn { margin-left: auto; flex: none; }
+/* Co řešit (připomínky k autu) – karta na stránce Auto, panel Péče o auto, řádek na Dnes */
+.auto-resit .auto-resit__seznam { padding: 4px 14px 14px; }
+.auto-resit__seznam { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.auto-resit__polozka { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 10px 12px; border-radius: 14px;
+  background: var(--oranz-tint); }
+.auto-resit--brzy { background: color-mix(in srgb, var(--o-auto) 7%, var(--surface)); }
+.auto-resit--hotovo { background: var(--ok-tint); }
+.auto-resit__ikona { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; font-size: 18px; background: var(--surface); flex: none; }
+.auto-resit__text b, .auto-dnes__text b { display: block; font-size: 14px; font-weight: 650; }
+.auto-resit__text small, .auto-dnes__text small { display: block; font-size: 12.5px; color: var(--muted); line-height: 1.4; margin-top: 2px; }
+.auto-resit__kdy { font-size: 12px; font-weight: 700; white-space: nowrap; color: var(--oranz); padding-top: 2px; }
+.auto-resit--brzy .auto-resit__kdy { color: var(--muted); }
+.auto-resit--hotovo .auto-resit__kdy { color: var(--ok); }
+.auto-dnes__btn { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: start; width: 100%; padding: 10px 8px; border: 0;
+  border-radius: 12px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.auto-dnes__btn:hover { background: color-mix(in srgb, var(--o-auto) 6%, transparent); }
+.auto-dnes .auto-resit__ikona { background: var(--oranz-tint); }
+.auto-dnes__text small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* panel Péče o auto */
+.pece { display: flex; flex-direction: column; gap: 12px; padding: 8px 0 24px; }
+.pece-oddil { border: 1px solid color-mix(in srgb, var(--o-auto) 16%, var(--line-soft)); border-radius: 16px; background: var(--surface); overflow: hidden; }
+.pece-oddil > summary { display: flex; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer; font-weight: 650; font-size: 15px; list-style: none; }
+.pece-oddil > summary::-webkit-details-marker { display: none; }
+.pece-oddil > summary > span:nth-child(2) { flex: 1; min-width: 0; }
+.pece-oddil > summary small { color: var(--muted); font-weight: 600; font-size: 12px; }
+.pece-oddil > summary::after { content: ''; width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg);
+  transition: transform .15s; margin: 0 4px 0 2px; flex: none; }
+.pece-oddil[open] > summary::after { transform: rotate(45deg); }
+.pece-ikona { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; font-size: 18px; flex: none;
+  background: color-mix(in srgb, var(--o-auto) 12%, var(--surface)); }
+.pece-obsah { padding: 0 14px 14px; }
+.pece-seznam { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.pece-seznam li { display: grid; grid-template-columns: minmax(0, 150px) minmax(0, 1fr); gap: 2px 12px; padding: 9px 11px; border-radius: 11px;
+  background: color-mix(in srgb, var(--o-auto) 5%, var(--surface)); font-size: 13.5px; line-height: 1.45; }
+.pece-seznam li b { font-weight: 650; }
+.pece-seznam li > span:first-child, .pece-seznam li > span:first-child + small { grid-column: 1 / -1; }
+.pece-seznam li small { grid-column: 2; color: var(--muted); font-size: 12.5px; }
+.pece-kola { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.pece-kola__karta { padding: 12px 14px; border-radius: 14px; }
+.pece-kola--zima { background: color-mix(in srgb, #3b82f6 11%, var(--surface)); }
+.pece-kola--leto { background: color-mix(in srgb, #f59e0b 13%, var(--surface)); }
+.pece-kola__karta > span { font-size: 22px; }
+.pece-kola__karta b { display: block; margin: 4px 0 2px; font-size: 14.5px; }
+.pece-kola__karta p { margin: 0 0 4px; font-size: 13.5px; line-height: 1.4; }
+.pece-kola__karta small { color: var(--muted); font-size: 12px; line-height: 1.35; display: block; }
+.pece-rady { margin: 12px 0 0; padding-left: 18px; display: grid; gap: 5px; font-size: 13px; line-height: 1.45; color: var(--text-soft); }
+.pece-osa { list-style: none; margin: 0 0 8px; padding: 0 0 0 22px; position: relative; display: grid; gap: 10px; }
+.pece-osa::before { content: ''; position: absolute; left: 7px; top: 8px; bottom: 8px; width: 2px; background: var(--line); }
+.pece-osa li { position: relative; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 1px 10px; font-size: 13.5px; line-height: 1.4; }
+.pece-osa li::before { content: ''; position: absolute; left: -20px; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: var(--surface);
+  border: 2px solid var(--line); }
+.pece-osa li small { grid-column: 2; color: var(--o-auto); font-weight: 650; font-size: 12px; }
+.pece-osa--hotovo { color: var(--muted); }
+.pece-osa--hotovo::before { background: var(--line) !important; }
+.pece-osa--dalsi b { color: var(--o-auto); }
+.pece-osa--dalsi::before { background: var(--o-auto) !important; border-color: var(--o-auto) !important; }
+.pece-osa__ted b { color: var(--oranz); }
+.pece-osa__ted span { color: var(--muted); font-size: 12.5px; }
+.pece-osa__ted::before { background: var(--oranz) !important; border-color: var(--oranz) !important; width: 14px !important; height: 14px !important;
+  left: -22px !important; top: 2px !important; }
+@media (max-width: 759px) {
+  .pece-seznam li, .pece-osa li { grid-template-columns: minmax(0, 1fr); }
+  .pece-seznam li small, .pece-osa li small { grid-column: 1; }
+  .pece-kola { grid-template-columns: minmax(0, 1fr); }
+}
 /* karta Péče o auto (list „Péče o auto – text“) */
 .auto-pece { margin-top: 16px; }
 .auto-pece__oddil { border-top: 1px solid color-mix(in srgb, var(--o-auto) 12%, var(--line-soft)); padding: 0 16px; }

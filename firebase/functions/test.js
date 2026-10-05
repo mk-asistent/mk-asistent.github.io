@@ -61,7 +61,16 @@ function motor(odpovedi, zaznam) {
 
   await test('motor: špatný klíč a odpověď, která není JSON, dají srozumitelnou chybu', async () => {
     await assert.rejects(volejMotor(P, 'info', {}, motor(() => ({ ok: false, chyba: 'klic' }), [])), /Klíč motoru nesedí/);
-    await assert.rejects(volejMotor(P, 'info', {}, motor(() => '<html>přihlášení</html>', [])), /neodpověděl daty/);
+    await assert.rejects(volejMotor(P, 'info', {}, motor(() => '<html>přihlášení</html>', []), [0, 0]), /neodpověděl daty/);
+    // Google odpověď ztratil (úvod motoru místo dat) → znovu; podruhé už data
+    const zaznam = [];
+    let kolikrat = 0;
+    const d = await volejMotor(P, 'info', {}, motor(() => (kolikrat++ ? { ok: true, data: { verze: 'x' } } : 'Asistent – motor běží.'), zaznam), [0, 0]);
+    assert.deepStrictEqual([d, zaznam.length], [{ verze: 'x' }, 2]);
+    // pořád ztracená → po 3 pokusech chyba
+    const z2 = [];
+    await assert.rejects(volejMotor(P, 'info', {}, motor(() => 'Asistent – motor běží.', z2), [0, 0]), /neodpověděl daty/);
+    assert.strictEqual(z2.length, 3);
   });
 
   await test('otisk nezávisí na čase vytvoření; server volá jen motor v Apps Scriptu', () => {
