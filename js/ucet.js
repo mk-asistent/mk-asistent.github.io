@@ -13,8 +13,9 @@ import { uloziste } from './pomocne.js';
 
 const SDK = 'https://www.gstatic.com/firebasejs/12.19.0/';
 // veřejná konfigurace webové aplikace Firebase – není tajná, přístup hlídá přihlášení a pravidla (firebase/firestore.rules)
-const KONFIGURACE = { apiKey: '', authDomain: 'asistent-michal.firebaseapp.com', projectId: 'asistent-michal', appId: '' };
-const REGION = 'europe-west3';
+const KONFIGURACE = { apiKey: 'AIzaSyCmDWoFls9B_ciy6Pr-8eqrE7wPAOiSdqo', authDomain: 'asistent-michal.firebaseapp.com', projectId: 'asistent-michal',
+  appId: '1:411060741218:web:4fb0807954c0db35161d3b' };
+const REGION = 'europe-west1';         // funkce v Belgii – vedle databáze (eur3)
 const UCET = 'asistent.ucet';        // { email } – v tomhle zařízení je zapnutý účet (přihlášení drží Firebase)
 const PLATNOST = 'asistent.kopie';   // { zmena: ms, primo: { id: ms } } – co v zařízení proběhlo po kopiích ze serveru
 const MAX_STARI = 30 * 60e3;         // starší kopie = server asi nejede → motor

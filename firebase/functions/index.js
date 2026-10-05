@@ -1,4 +1,4 @@
-// Firebase Functions pro Asistenta (projekt asistent-michal, Frankfurt).
+// Firebase Functions pro Asistenta (projekt asistent-michal; funkce v Belgii europe-west1, databáze eur3 – Evropa).
 //   obnovAsistenta – každých 10 minut (6:00–23:00) připraví data z motoru do Firestore: uzivatele/{uid}/data/{id}
 //   obnovHned      – totéž na požádání z aplikace (při otevření se starými daty a po změně), jen pro přihlášeného
 // Adresu motoru a klíč čte z Firestore (uzivatele/{uid}.pripojeni) – uloží je tam aplikace po přihlášení účtem.
@@ -16,7 +16,7 @@ const { obnov, otisk, platnePripojeni, mrizkaMesice } = require('./obnova');
 
 initializeApp();
 const db = getFirestore();
-const NASTAVENI = { region: 'europe-west3', memory: '256MiB', timeoutSeconds: 120, maxInstances: 2 };
+const NASTAVENI = { region: 'europe-west1', memory: '256MiB', timeoutSeconds: 120, maxInstances: 2 };
 const MAX_DOKUMENT = 1000000;      // bajtů – Firestore unese 1 MiB na dokument
 const NEJDRIV_ZNOVU = 45e3;        // obnovHned častěji nepouští (aplikace ho volá při otevření a po změnách)
 

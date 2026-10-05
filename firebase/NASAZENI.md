@@ -1,6 +1,7 @@
 # Firebase pro Asistenta
 
-Projekt **asistent-michal** (tarif Blaze), databáze i funkce ve Frankfurtu (**europe-west3**).
+Projekt **asistent-michal** (tarif Blaze): databáze Firestore **eur3** (Evropa, Belgie + Nizozemsko), funkce vedle ní
+v **europe-west1** (Belgie – nejblíž databázi, nejlevnější pásmo). Webová aplikace Firebase „Asistent“ (konfigurace v `js/ucet.js`).
 
 | Soubor | Co dělá |
 |---|---|
@@ -18,7 +19,7 @@ nebo když po ní v zařízení proběhla změna či přímé čtení z motoru �
 1. Authentication → Sign-in method → **Email/Password** zapnout.
 2. Authentication → Users → **Add user** (svůj e-mail a dlouhé heslo, jinde nepoužité).
 3. Authentication → Settings → User actions → **vypnout „Enable create (sign-up)“** – nikdo další si účet nezaloží.
-4. Firestore Database → Create database → **europe-west3 (Frankfurt)**, production mode.
+4. Firestore Database → Create database → Evropa (**eur3**, vytvořeno 5. 10.), production mode.
 5. Doporučeno: Google Cloud → Billing → **Budgets & alerts** (rozpočet třeba 50 Kč s upozorněním) – Blaze je placený
    tarif, provoz Asistenta se vejde do bezplatných limitů.
 6. V terminálu `npx firebase-tools login` (přihlášení Googlem v prohlížeči – dělá Michal, Claude ne).
