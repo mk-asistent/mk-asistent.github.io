@@ -403,7 +403,7 @@ export function klavesaZdravi(e) {
 
 // ---------------------------------------------------------------- Doplňky dnes (režim z ZDRAVI_REZIM.json na Disku)
 
-const KDY = [['rano', 'Ráno'], ['obed', 'K obědu'], ['pred', 'Před tréninkem'], ['zapas', 'Zápas'], ['po', 'Po zátěži'], ['vecer', 'Večer']];
+const KDY = [['rano', 'Ráno'], ['svacina', 'Svačina'], ['obed', 'K obědu'], ['pred', 'Před tréninkem'], ['zapas', 'Zápas'], ['po', 'Po zátěži'], ['vecer', 'Večer']];
 const VZATO = 'asistent.doplnky.';
 
 /** Zápas dnes? Z dat fotbal.cz (týmy v rezim.zapasTymy) nebo ze zápasu v kalendáři. → čas výkopu (ms) nebo null */
