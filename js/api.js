@@ -77,11 +77,14 @@ export async function volej(akce, data, jinePripojeni) {
   return volejPrimo(akce, data, p);
 }
 
+// akce, které v motoru trvají déle (čtení účtenky přes OCR Disku a zápis do tabulky; Google bývá pomalý)
+const DLOUHE_AKCE = { autoUctenka: 150000, autoUctenkaFoto: 60000, autoUpravit: 60000, autoZapsat: 60000 };
+
 async function volejPrimo(akce, data, jinePripojeni) {
   const p = jinePripojeni || pripojeni();
   if (!p) throw new ChybaApi('Aplikace není připojená k motoru.', 'nepripojeno');
   const ovladac = new AbortController();
-  const casovac = setTimeout(() => ovladac.abort(), 45000);
+  const casovac = setTimeout(() => ovladac.abort(), DLOUHE_AKCE[akce] || 45000);
   let odpoved;
   try {
     odpoved = await fetch(p.url, {

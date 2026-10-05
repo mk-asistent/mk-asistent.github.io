@@ -546,6 +546,17 @@ const akce = {
     }
     return kopie(autoUkazka);
   },
+  autoUpravit: (d) => {
+    const z = autoUkazka[d.list === 'tankovani' ? 'tankovani' : 'naklady'].find((x) => x.radek === Number(d.radek));
+    if (!z) throw new Error('Zápis v tabulce se mezitím změnil – obnov stránku.');
+    const [r, m, dd] = String(d.datum).split('-').map(Number);
+    Object.assign(z, { datum: new Date(r, m - 1, dd).getTime(), castka: Number(String(d.castka).replace(',', '.')), km: d.km === '' || d.km == null ? null : Number(d.km),
+      kdo: d.kdo === 'K' ? 'K' : 'M', poznamka: d.poznamka || '' });
+    if (z.list === 'tankovani') { z.cenaLitr = Number(String(d.cenaLitr).replace(',', '.')); z.litry = Math.round(z.castka / z.cenaLitr * 100) / 100; }
+    else { z.kategorie = d.kategorie; z.polozka = d.polozka || ''; }
+    return kopie(autoUkazka);
+  },
+  autoUctenkaFoto: () => { throw new Error('V ukázce fotky účtenek nejsou.'); },
   autoSmazat: (d) => {
     const seznam = autoUkazka[d.list === 'tankovani' ? 'tankovani' : 'naklady'];
     if (seznam.length && seznam[seznam.length - 1].radek === Number(d.radek)) seznam.pop();

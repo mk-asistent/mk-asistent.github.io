@@ -142,9 +142,26 @@ const motor = {
   },
   autoUctenka: (d) => {
     if (!/^data:image\/jpeg;base64,/.test(d.obrazek)) throw new Error('Fotka účtenky nepřišla (čekám JPEG).');
-    return { uctenka: 'uctenka-test-123', odkaz: '#', text: '', chybaTextu: '',
+    autoUctenky.push({ zapsat: d.zapsat, otisk: d.otisk });
+    const vysledek = { uctenka: 'uctenka-test-123', odkaz: '#', text: '', chybaTextu: '',
       navrh: { druh: 'tankovani', datum: iso(ted), castka: 1859.63, litry: 42.75, cenaLitr: 43.5, kategorie: null, obchod: 'Pumpa Test' } };
+    if (!d.zapsat) return vysledek;
+    // jako motor: jasná účtenka se rovnou zapíše (s odkazem na fotku)
+    const z = { list: 'tankovani', radek: autoData.tankovani.length + 2, datum: den(0), datumText: '', polozka: 'Tankování', kategorie: 'Palivo',
+      castka: 1859.63, km: null, kdo: 'M', poznamka: 'Pumpa Test', cenaLitr: 43.5, litry: 42.75, uctenka: 'uctenka-test-123' };
+    autoData.tankovani.push(z);
+    return Object.assign(vysledek, { zapsano: { list: 'tankovani', radek: z.radek }, data: JSON.parse(JSON.stringify(autoData)) });
   },
+  autoUpravit: (d) => {
+    autoUpravy.push(d);
+    const z = autoData[d.list].find((x) => x.radek === d.radek);
+    if (!z || z.castka !== d.puvodniCastka) throw new Error('Zápis v tabulce se mezitím změnil – obnov stránku.');
+    const [r, m, dd] = String(d.datum).split('-').map(Number);
+    Object.assign(z, { datum: new Date(r, m - 1, dd).getTime(), castka: d.castka, km: d.km === '' ? null : d.km, kdo: d.kdo, poznamka: d.poznamka || '' });
+    if (d.druh === 'tankovani') { z.cenaLitr = d.cenaLitr; z.litry = Math.round(d.castka / d.cenaLitr * 100) / 100; }
+    return JSON.parse(JSON.stringify(autoData));
+  },
+  autoUctenkaFoto: (d) => { autoFotky.push(d.id); return { obrazek: MALA_FOTKA, nazev: 'uctenka.jpg' }; },
   // dávka čtení jako v motoru: každá položka zvlášť ok / chyba
   davka: (d) => (d.polozky || []).map((p) => { try { volano.push(p); return { ok: true, data: motor[p.akce](p) }; } catch (e) { return { ok: false, chyba: e.message }; } }),
   stitky: () => [{ nazev: 'Fotbal', neprectenych: 1 }, { nazev: 'Účty', neprectenych: 0 }],
@@ -159,13 +176,14 @@ const motor = {
 };
 const volano = [];
 let navrhZahozen = false;
-const autoZapisy = [], autoSmazano = [];
+const autoZapisy = [], autoSmazano = [], autoUctenky = [], autoUpravy = [], autoFotky = [];
+const MALA_FOTKA = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const tank = (dni, castka, km, cena, litry) => ({ list: 'tankovani', datum: den(dni), datumText: '', polozka: 'Tankování', kategorie: 'Palivo', castka, km,
   kdo: 'M', poznamka: 'Pumpa Test', cenaLitr: cena, litry });
 const autoData = {
   nastaveno: true, nazev: 'Testovací auto - Test', odkaz: 'https://docs.google.com/spreadsheets/d/TEST/edit',
   tankovani: [tank(-120, 1500, 10000, 30, 50), tank(-90, 1200, 10800, 30, 40), tank(-60, 1000, 11500, 40, 25), tank(-45, 800, null, 40, 20),
-    tank(-30, 1400, 12900, 35, 40)].map((z, i) => Object.assign(z, { radek: i + 2 })),
+    tank(-30, 1400, 12900, 35, 40)].map((z, i) => Object.assign(z, { radek: i + 2 }, i === 2 ? { uctenka: 'uctenka-starsi-001' } : {})),
   naklady: [
     { list: 'naklady', radek: 2, datum: den(-130), datumText: '', polozka: '', kategorie: 'Koupě auta', castka: 300000, km: 9800, kdo: '', poznamka: 'Nákup auta' },
     { list: 'naklady', radek: 3, datum: den(-130), datumText: '', polozka: '', kategorie: 'Pojištění', castka: 8000, km: null, kdo: 'M', poznamka: 'Roční' },
@@ -339,6 +357,22 @@ async function novaStranka(prohlizec, v, motiv) {
   const WEB = 'http://127.0.0.1:8766/';
   const prohlizec = await chromium.launch();
   console.log('Asistent – test v prohlížeči');
+
+  // ---------- service worker: VERZE podle obsahu (jinak by se změna k nikomu nedostala); záchrana při prázdné obrazovce
+  await test('sw.js: VERZE odpovídá obsahu souborů aplikace', async () => {
+    const v = require('./sw_verze.js').zkontroluj();
+    jistota(v.ok, 'sw.js VERZE ' + v.ma + ' nesedí, má být ' + v.mel + ' → node testy/sw_verze.js --zapsat');
+  });
+  await test('start.js: když se moduly nenačtou (smíchané verze), za 8 s nabídne Načíst znovu', async () => {
+    const ctx = await prohlizec.newContext({ viewport: { width: 390, height: 844 } });
+    const page = await ctx.newPage();
+    // app.js chce export, který starší soubor nemá → modul se nenačte, aplikace nenastartuje
+    await page.route('**/js/app.js', (route) => route.fulfill({ contentType: 'text/javascript', body: "import { neexistuje } from './pomocne.js'; neexistuje();" }));
+    await page.goto(WEB);
+    await page.waitForSelector('.zachrana button', { timeout: 12000 });
+    jistota(/nenačetla/.test(await page.textContent('.zachrana')), 'text záchrany');
+    await ctx.close();
+  });
 
   // ---------- připojení: úvodní obrazovka, špatný klíč, správný klíč
   await test('úvod: kontrola adresy, špatný klíč, pak připojení přes motor', async () => {
@@ -1349,20 +1383,44 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"]'));
     const v = autoZapisy[1] || {};
     jistota(v.druh === 'naklad' && v.kategorie === 'Servis' && v.polozka === 'Výměna oleje' && v.castka === 3450 && v.kdo === 'K', 'výdaj: ' + JSON.stringify(v));
-    // účtenka: fotka → motor → okno s vyplněnými údaji → zápis s odkazem na fotku
+    // účtenka (i z Fotek): fotka → motor ji přečte a rovnou zapíše → v oznámení Upravit → okno s fotkou → změna do tabulky
     await page.setInputFiles('.auto-akce [data-auto-foto]', { name: 'uctenka.png', mimeType: 'image/png', buffer: fs.readFileSync(path.join(KOREN, 'ikony', 'ikona-192.png')) });
+    await page.waitForSelector('#toast.videt .toast__akce');
+    const oznameni = (await page.textContent('#toast')).replace(/\s+/g, ' ');
+    jistota(/Zapsáno z účtenky: tankování 1 860 Kč/.test(oznameni), 'oznámení: ' + oznameni);
+    const u = autoUctenky[autoUctenky.length - 1] || {};
+    jistota(u.zapsat === true && /^[0-9a-f]{24}$/.test(u.otisk || ''), 'účtenka do motoru se zápisem a otiskem: ' + JSON.stringify(u));
+    jistota(autoZapisy.length === 2, 'z účtenky se nezapisuje přes okno');
+    await page.click('#toast .toast__akce');
     await page.waitForSelector('[data-panel="auto-zapis"] .auto-uctenka img');
+    jistota(/Upravit tankování/.test(await page.textContent('[data-panel="auto-zapis"] .panel-titul')), 'okno opravy');
     jistota(await page.inputValue('[data-panel="auto-zapis"] [data-az="castka"]') === '1859,63' && await page.inputValue('[data-panel="auto-zapis"] [data-az="cenaLitr"]') === '43,5', 'údaje z účtenky');
     jistota(await page.inputValue('[data-panel="auto-zapis"] [data-az="poznamka"]') === 'Pumpa Test', 'stanice z účtenky');
+    await page.click('[data-panel="auto-zapis"] [data-az-foto-velka]');
+    await page.waitForSelector('[data-panel="auto-foto"] .auto-foto-velka');
+    await page.click('[data-panel="auto-foto"] [data-zavrit-panel]');
+    await page.waitForFunction(() => !document.querySelector('[data-panel="auto-foto"]'));
+    await page.fill('[data-panel="auto-zapis"] [data-az="castka"]', '1 900');
     await page.screenshot({ path: path.join(VYSTUP, 'pc_auto_uctenka.png') });
     await page.click('[data-panel="auto-zapis"] [data-auto-ulozit]');
     await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"]'));
-    jistota((autoZapisy[2] || {}).uctenka === 'uctenka-test-123' && autoZapisy[2].castka === 1859.63, 'zápis z účtenky: ' + JSON.stringify(autoZapisy[2]));
+    const up = autoUpravy[0] || {};
+    jistota(up.list === 'tankovani' && up.puvodniCastka === 1859.63 && up.castka === 1900 && up.cenaLitr === 43.5 && up.uctenka === 'uctenka-test-123',
+      'oprava do motoru: ' + JSON.stringify(up));
+    await page.waitForFunction(() => /1 900 Kč/.test(document.querySelector('.auto-zapisy').textContent.replace(/\s+/g, ' ')));
+    // starší zápis s fotkou: klepnutí v Zápisech → okno → Zobrazit fotku (z Disku přes motor)
+    await page.click('.auto-zapisy [data-auto-upravit="tankovani:4"]');
+    await page.click('[data-panel="auto-zapis"] [data-az-foto]');
+    await page.waitForSelector('[data-panel="auto-zapis"] .auto-uctenka img');
+    jistota(autoFotky[0] === 'uctenka-starsi-001', 'fotka z Disku: ' + JSON.stringify(autoFotky));
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_auto_oprava_s_fotkou.png') });
+    await page.click('[data-panel="auto-zapis"] [data-zavrit-panel]');
+    await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"]'));
     // smazat poslední zápis (překlep)
     await page.click('[data-auto-smazat^="tankovani:"]');
     await page.click('.okno-pozadi [data-okno="ano"]');
     await page.waitForFunction(() => document.querySelectorAll('.auto-zapisy .auto-zapis--palivo').length === 6);
-    jistota(autoSmazano.length === 1 && autoSmazano[0].list === 'tankovani' && autoSmazano[0].castka === 1859.63, 'smazání: ' + JSON.stringify(autoSmazano));
+    jistota(autoSmazano.length === 1 && autoSmazano[0].list === 'tankovani' && autoSmazano[0].castka === 1900, 'smazání: ' + JSON.stringify(autoSmazano));
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
   });

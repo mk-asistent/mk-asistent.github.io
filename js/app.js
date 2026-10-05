@@ -4,7 +4,7 @@
 import { stav, priZmene, zmeneno, prejdi, umiMotor, staryMotor } from './stav.js';
 import { jePripojeno, jeDemo } from './api.js';
 import { esc, pulnoc, datumDlouhe, hhmm, iniciala, odstin, tvar, velkePrvni, rozdilDni, uloziste, terminDatum, dm, kdyKratce, prvniRadek, DNY_KR } from './pomocne.js';
-import { kostra, chybaHtml, hlavickaKarty, okno } from './ui.js';
+import { kostra, chybaHtml, hlavickaKarty, okno, toastAkce } from './ui.js';
 import { IKONY, ikonaPocasi } from './ikony.js';
 import { zavriPanel, horniPanel, otevriPanel, zavriAPak, jeOtevreny, obnovPanel, elementPanelu } from './panely.js';
 import * as schranka from './schranka.js';
@@ -33,6 +33,8 @@ const $ = (id) => document.getElementById(id);
 // ---------------------------------------------------------------- start
 
 function start() {
+  window.asistentBezi = true; // js/start.js: aplikace nastartovala (žádná záchrana) a rozepsaný text hlídá při nové verzi
+  window.asistentNovaVerze = () => toastAkce('Je tu nová verze aplikace', 'Načíst', () => location.reload());
   $('uvod').hidden = true;
   $('aplikace').hidden = false;
   stav.info = uloziste.cti('asistent.info');
@@ -681,8 +683,4 @@ document.querySelector('#panely .panel-pozadi').addEventListener('click', () => 
 
 nast.aplikujVzhled();
 if (jePripojeno()) start(); else nast.vykresliUvod(start);
-
-// service worker jen na https (GitHub Pages) – v místním náhledu by držel staré soubory
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => { /* aplikace jede i bez něj */ }));
-}
+// service worker, nová verze a záchrana při prázdné obrazovce: js/start.js (běží i bez modulů)

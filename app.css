@@ -1142,6 +1142,10 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 .barva { width: 28px; height: 28px; border-radius: 9px; border: 2px solid var(--surface); background: var(--b); box-shadow: 0 0 0 1px var(--line); }
 .barva[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--text); }
 
+/* js/start.js: aplikace nenastartovala (moduly se nenačetly) – nabídka čistého načtení */
+.zachrana { position: fixed; inset: 0; z-index: 9999; display: grid; place-content: center; gap: 4px; padding: 24px; text-align: center;
+  background: var(--bg, #f5f3ee); color: var(--text, #1d1d1f); font: 15px/1.45 -apple-system, system-ui, sans-serif; }
+.zachrana p { margin: 0 0 8px; max-width: 360px; }
 .uvod { min-height: 100vh; display: grid; place-items: center; padding: calc(24px + env(safe-area-inset-top)) 16px 24px; }
 .uvod-karta { width: min(440px, 100%); padding: 24px; display: flex; flex-direction: column; gap: 14px; box-shadow: var(--shadow-pop); }
 .uvod-logo { display: flex; align-items: center; gap: 12px; }
@@ -1476,6 +1480,15 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 .auto-zapis .kruh { width: 34px; height: 34px; }
 .auto-zapis .kruh svg { width: 16px; height: 16px; }
 .auto-zapis__text { flex: 1; min-width: 0; }
+/* celý řádek zápisu = upravit (klepnutí) */
+.auto-zapis__hlavni { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: inherit;
+  font: inherit; text-align: left; cursor: pointer; border-radius: 10px; }
+.auto-zapis__hlavni:hover .auto-zapis__text b { text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); }
+.auto-zapis__foto { display: inline-grid; place-items: center; vertical-align: -2px; color: var(--muted); }
+.auto-zapis__foto svg { width: 13px; height: 13px; }
+.auto-uctenka__foto { padding: 0; border: 0; background: none; cursor: zoom-in; flex: none; border-radius: 8px; }
+.auto-uctenka .btn { margin-left: auto; flex: none; }
+.auto-foto-velka { display: block; width: 100%; height: auto; border-radius: 12px; background: var(--sand); }
 .auto-zapis__text b { display: block; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auto-zapis__text small { display: block; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auto-zapis__castka { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 650; white-space: nowrap; }

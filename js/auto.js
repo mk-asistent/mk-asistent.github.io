@@ -1,4 +1,6 @@
-// Auto: náklady a tankování z Michalovy tabulky Google (motor: auto, autoZapsat, autoSmazat, autoUctenka, autoNastavit).
+// Auto: náklady a tankování z Michalovy tabulky Google (motor: auto, autoZapsat, autoUpravit, autoSmazat, autoUctenka,
+// autoUctenkaFoto, autoNastavit). Fotka účtenky se rovnou zapíše (když je z ní jasné co) a každý zápis jde upravit
+// i s náhledem fotky – změny jdou do tabulky.
 // Tabulka zůstává hlavní a je i záloha – stránka z ní počítá přehled (najeto, spotřeba, nafta na km, cena nafty, výdaje
 // po měsících a kategoriích, servis podle listu Péče o auto) a nové zápisy, i z vyfocené účtenky, posílá do ní.
 // Čísla jsou jen v tabulce a v zařízení (ukázka má vymyšlená).
@@ -6,7 +8,7 @@
 import { stav, zmeneno, umiMotor } from './stav.js';
 import { volej } from './api.js';
 import { esc, uloziste, dm, isoDatum, kdyKratce, MESICE_1 } from './pomocne.js';
-import { kostra, chybaHtml, toast, potvrd, segment, hlavickaKarty } from './ui.js';
+import { kostra, chybaHtml, toast, toastAkce, potvrd, segment, hlavickaKarty } from './ui.js';
 import { IKONY } from './ikony.js';
 import { otevriPanel, zavriPanel, obnovPanel, elementPanelu } from './panely.js';
 
@@ -332,11 +334,15 @@ function zapisyHtml(d) {
       const pod = [tank ? (z.litry != null ? JEDNO.format(z.litry) + ' l' : '') + (z.cenaLitr ? ' · ' + DVE.format(z.cenaLitr) + ' Kč/l' : '') :
         (z.polozka && z.polozka !== z.kategorie ? z.kategorie : ''), z.km != null ? CELE.format(z.km) + ' km' : '', z.poznamka].filter(Boolean).join(' · ');
       const smazat = posledni[z.list] === z && z.datum != null && z.castka != null && umiMotor('autoSmazat');
-      return '<li class="auto-zapis' + (tank ? ' auto-zapis--palivo' : '') + '"><span class="kruh kruh--' + (tank ? 'auto' : 'oranz') + '">' +
-        (tank ? IKONY.palivo : IKONY.auto) + '</span><div class="auto-zapis__text"><b>' + esc(nazev) + '</b><small>' +
+      const upravit = z.datum != null && z.castka != null && umiMotor('autoUpravit');
+      const obsah = '<span class="kruh kruh--' + (tank ? 'auto' : 'oranz') + '">' +
+        (tank ? IKONY.palivo : IKONY.auto) + '</span><div class="auto-zapis__text"><b>' + esc(nazev) + (z.uctenka ? ' <i class="auto-zapis__foto" title="s fotkou účtenky">' +
+        IKONY.foto + '</i>' : '') + '</b><small>' +
         esc((z.datum != null ? dm(z.datum) + ' ' + new Date(z.datum).getFullYear() : z.datumText) + (pod ? ' · ' + pod : '')) + '</small></div>' +
         '<span class="auto-zapis__castka cisla">' + (z.castka != null ? kc(z.castka) : '—') + (z.kdo ? '<i class="auto-kdo auto-kdo--' + (z.kdo === 'K' ? 'k' : 'm') +
-        '" title="' + (z.kdo === 'K' ? 'Katka' : 'Michal') + '">' + esc(z.kdo) + '</i>' : '') + '</span>' +
+        '" title="' + (z.kdo === 'K' ? 'Katka' : 'Michal') + '">' + esc(z.kdo) + '</i>' : '') + '</span>';
+      return '<li class="auto-zapis' + (tank ? ' auto-zapis--palivo' : '') + '">' +
+        (upravit ? '<button type="button" class="auto-zapis__hlavni" data-auto-upravit="' + esc(z.list + ':' + z.radek) + '" aria-label="Upravit zápis">' + obsah + '</button>' : obsah) +
         (smazat ? '<button type="button" class="btn btn--ikona" data-auto-smazat="' + esc(z.list + ':' + z.radek) + '" aria-label="Smazat zápis (překlep)">' +
           IKONY.smazat + '</button>' : '') + '</li>';
     }).join('') + '</ul>' +
@@ -349,23 +355,29 @@ function zapisyHtml(d) {
 const cisloPole = (x) => (x == null || x === '' ? '' : String(x).replace('.', ','));
 const cislo = (x) => { const t = String(x == null ? '' : x).replace(/[\s ]/g, '').replace(/kč|km/gi, '').replace(',', '.'); return /^\d+(\.\d+)?$/.test(t) ? Number(t) : null; };
 
+/**
+ * Okno zápisu. navrh: údaje z účtenky / hlášení auta, nebo s uprava: { list, radek, puvodniDatum, puvodniCastka } oprava
+ * existujícího řádku (změny jdou do tabulky). nahled / velka = fotka účtenky z telefonu, uctenka = fotka na Disku.
+ */
 export function otevriZapis(druh, navrh) {
   const n = navrh || {};
   const a = zAuta(stav.auto);
-  const kmZAuta = druh !== 'naklad' && a && a.km != null && a.kdy && Date.now() - a.kdy < 3 * 36e5 ? a : null;
+  const kmZAuta = !n.uprava && druh !== 'naklad' && a && a.km != null && a.kdy && Date.now() - a.kdy < 3 * 36e5 ? a : null;
   f = {
     druh: druh === 'naklad' ? 'naklad' : 'tankovani', datum: n.datum || isoDatum(Date.now()), castka: cisloPole(n.castka), cenaLitr: cisloPole(n.cenaLitr),
-    km: n.km != null && n.km !== '' ? String(n.km) : kmZAuta ? String(kmZAuta.km) : '', kmZAuta: n.km != null && n.km !== '' ? 0 : kmZAuta ? kmZAuta.kdy : 0, kdo: 'M', kategorie: n.kategorie || '', polozka: '', poznamka: n.obchod || '', uctenka: n.uctenka || '', nahled: n.nahled || '',
-    chybaTextu: n.chybaTextu || '', zUctenky: !!n.uctenka, ukladam: false
+    km: n.km != null && n.km !== '' ? String(n.km) : kmZAuta ? String(kmZAuta.km) : '', kmZAuta: n.km != null && n.km !== '' ? 0 : kmZAuta ? kmZAuta.kdy : 0,
+    kdo: n.kdo === 'K' ? 'K' : 'M', kategorie: n.kategorie || '', polozka: n.polozka || '', poznamka: n.poznamka != null ? n.poznamka : (n.obchod || ''),
+    uctenka: n.uctenka || '', nahled: n.nahled || '', velka: n.velka || '', foto: '', fotoNacitam: false,
+    chybaTextu: n.chybaTextu || '', zUctenky: !!n.uctenka && !n.uprava, uprava: n.uprava || null, ukladam: false
   };
   const moje = f;
   otevriPanel({
     id: 'auto-zapis', trida: 'panel-okno panel-formular',
-    titul: () => (f.druh === 'tankovani' ? 'Tankování' : 'Výdaj za auto'),
+    titul: () => (f && f.uprava ? 'Upravit ' + (f.druh === 'tankovani' ? 'tankování' : 'výdaj') : f && f.druh === 'naklad' ? 'Výdaj za auto' : 'Tankování'),
     vykresli: zapisHtml,
     paticka: () => '<div class="akce"><button type="button" class="btn btn--ghost" data-zavrit-panel>Zrušit</button>' +
       '<button type="button" class="btn btn--primary" data-auto-ulozit' + (f && f.ukladam ? ' disabled' : '') + '>' + IKONY.fajfka + '<span>' +
-      (f && f.ukladam ? 'Zapisuji…' : 'Zapsat do tabulky') + '</span></button></div>',
+      (f && f.ukladam ? 'Zapisuji…' : f && f.uprava ? 'Uložit změny' : 'Zapsat do tabulky') + '</span></button></div>',
     poOtevreni: (el) => { const pole = el.querySelector(f.castka ? '[data-az="km"]' : '[data-az="castka"]'); if (pole) pole.focus(); },
     priZavreni: () => { if (f === moje) f = null; }
   });
@@ -383,12 +395,17 @@ function zapisHtml() {
   const pole = (klic, popisek, atributy, hodnota, pod) => '<label><span class="label">' + popisek + '</span><input class="field" data-az="' + klic + '" value="' +
     esc(hodnota) + '" autocomplete="off" ' + atributy + '>' + (pod || '') + '</label>';
   let h = '<div class="formular auto-formular">';
-  if (f.nahled) {
-    h += '<div class="auto-uctenka"><img src="' + esc(f.nahled) + '" alt="Vyfocená účtenka"><div><b>Účtenka uložená na Disku</b><small>' +
-      (f.chybaTextu ? 'Text se nepřečetl – vyplň údaje (' + esc(f.chybaTextu) + ').' : 'Údaje z účtenky – zkontroluj je. Do tabulky se připíše odkaz na fotku.') +
-      '</small></div></div>';
+  const obrazek = f.foto || f.nahled;
+  if (obrazek) {
+    h += '<div class="auto-uctenka"><button type="button" class="auto-uctenka__foto" data-az-foto-velka aria-label="Zvětšit fotku účtenky"><img src="' + esc(obrazek) +
+      '" alt="Účtenka"></button><div><b>Účtenka uložená na Disku</b><small>' +
+      (f.chybaTextu ? 'Text se nepřečetl – vyplň údaje (' + esc(f.chybaTextu) + ').' : f.uprava ? 'Klepnutím na fotku ji zvětšíš.' :
+        'Údaje z účtenky – zkontroluj je. Do tabulky se připíše odkaz na fotku.') + '</small></div></div>';
+  } else if (f.uctenka && umiMotor('autoUctenkaFoto')) {
+    h += '<div class="auto-uctenka"><span class="kruh kruh--auto">' + IKONY.foto + '</span><div><b>Zápis má fotku účtenky</b><small>Je uložená na tvém Disku.</small></div>' +
+      '<button type="button" class="btn btn--ghost btn--sm" data-az-foto' + (f.fotoNacitam ? ' disabled' : '') + '>' + (f.fotoNacitam ? 'Načítám…' : 'Zobrazit') + '</button></div>';
   }
-  h += segment([['tankovani', 'Tankování'], ['naklad', 'Výdaj']], f.druh, 'data-az-druh', 'Druh zápisu');
+  h += f.uprava ? '' : segment([['tankovani', 'Tankování'], ['naklad', 'Výdaj']], f.druh, 'data-az-druh', 'Druh zápisu');
   h += '<div class="fmr fmr--2">' + pole('datum', 'Datum', 'type="date"', f.datum) +
     pole('castka', 'Částka (Kč)', 'inputmode="decimal" placeholder="např. 1 520"', f.castka) + '</div>';
   if (f.druh === 'tankovani') {
@@ -427,12 +444,14 @@ async function ulozZapis() {
   f.ukladam = true;
   obnovPanel('auto-zapis');
   try {
-    const data = await volej('autoZapsat', { druh: f.druh, datum: f.datum, castka, cenaLitr: f.druh === 'tankovani' ? cislo(f.cenaLitr) : undefined,
+    const udaje = { druh: f.druh, datum: f.datum, castka, cenaLitr: f.druh === 'tankovani' ? cislo(f.cenaLitr) : undefined,
       km: f.km ? cislo(f.km) : '', kdo: f.kdo, kategorie: f.druh === 'naklad' ? f.kategorie : undefined, polozka: f.polozka, poznamka: f.poznamka,
-      uctenka: f.uctenka || undefined });
+      uctenka: f.uctenka || undefined };
+    const data = f.uprava ? await volej('autoUpravit', Object.assign(udaje, f.uprava)) : await volej('autoZapsat', udaje);
+    const oprava = !!f.uprava;
     uloz(data);
     zavriPanel();
-    toast('Zapsáno do tabulky ✓');
+    toast(oprava ? 'Změna zapsaná do tabulky ✓' : 'Zapsáno do tabulky ✓');
     zmeneno();
   } catch (e) {
     if (!f) return;
@@ -470,16 +489,74 @@ function zmensi(img, max, kvalita) {
   return c.toDataURL('image/jpeg', kvalita);
 }
 
-async function zpracujUctenku(soubor) {
-  toast('Čtu účtenku…');
+/** Otisk fotky (stejná fotka = stejný otisk) – motor podle něj nic nezapíše dvakrát, když se účtenka pošle znovu. */
+async function otiskFotky(dataUrl) {
   try {
-    const img = await nactiObrazek(soubor);
-    const v = await volej('autoUctenka', { obrazek: zmensi(img, 1600, 0.82) });
-    const n = v.navrh || {};
-    otevriZapis(n.druh === 'tankovani' ? 'tankovani' : 'naklad', Object.assign({}, n, { uctenka: v.uctenka, nahled: zmensi(img, 320, 0.7), chybaTextu: v.chybaTextu }));
+    const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(dataUrl));
+    return Array.from(new Uint8Array(h)).slice(0, 12).map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch (e) {
+    return ''; // bez crypto.subtle (ne https) – funguje, jen bez ochrany proti zdvojení
+  }
+}
+
+const popisZapisu = (z) => (z ? (z.list === 'tankovani' ? 'tankování' : (z.kategorie || 'výdaj').toLowerCase()) + ' ' + kc(z.castka) +
+  (z.datum != null ? ' · ' + dm(z.datum) : '') : '');
+
+function najdiZapis(list, radek) {
+  return ((stav.auto || {})[list] || []).find((x) => x.radek === Number(radek)) || null;
+}
+
+/** Oprava zápisu z tabulky (z seznamu nebo hned po zápisu z účtenky). */
+function otevriUpravu(z, foto) {
+  if (!z) return;
+  otevriZapis(z.list === 'tankovani' ? 'tankovani' : 'naklad', Object.assign({
+    uprava: { list: z.list, radek: z.radek, puvodniDatum: z.datum, puvodniCastka: z.castka },
+    datum: isoDatum(z.datum), castka: z.castka, cenaLitr: z.cenaLitr, km: z.km, kdo: z.kdo, kategorie: z.kategorie, polozka: z.polozka,
+    poznamka: z.poznamka || '', uctenka: z.uctenka || ''
+  }, foto || {}));
+}
+
+/**
+ * Fotka účtenky (vyfocená, nebo z Fotek) → motor ji uloží na Disk, přečte a rovnou zapíše do tabulky (Michal 5. 10.) –
+ * pak jde zápis upravit z oznámení. Když z účtenky není jasné co, otevře se okno s předvyplněnými údaji.
+ */
+async function zpracujUctenku(soubor) {
+  toast('Čtu účtenku… (chvíli to trvá)');
+  let img, velka;
+  try {
+    img = await nactiObrazek(soubor);
+    velka = zmensi(img, 1600, 0.82);
   } catch (e) {
     toast(e.message, true);
+    return;
   }
+  const nahled = zmensi(img, 320, 0.7);
+  try {
+    const v = await volej('autoUctenka', { obrazek: velka, otisk: await otiskFotky(velka), zapsat: true });
+    if (v.zapsano && v.data) {
+      uloz(v.data);
+      zmeneno();
+      const z = najdiZapis(v.zapsano.list, v.zapsano.radek);
+      toastAkce('Zapsáno z účtenky: ' + popisZapisu(z), 'Upravit', () => otevriUpravu(najdiZapis(v.zapsano.list, v.zapsano.radek), { nahled, velka }));
+      return;
+    }
+    const n = v.navrh || {};
+    otevriZapis(n.druh === 'tankovani' ? 'tankovani' : 'naklad', Object.assign({}, n, { uctenka: v.uctenka, nahled, velka, chybaTextu: v.chybaTextu }));
+  } catch (e) {
+    if (e.kod === 'sit') {
+      // motor mohl účtenku dočíst a zapsat – za chvíli obnovit; stejnou fotku jde poslat znovu, nic se nezdvojí
+      toast('Účtenka se ještě zpracovává – za chvíli ji uvidíš v zápisech (poslat ji znovu nevadí).', true);
+      setTimeout(() => nactiAuto(true), 40000);
+    } else {
+      toast(e.message, true);
+    }
+  }
+}
+
+/** Fotka účtenky na celou obrazovku (nad oknem zápisu). */
+function ukazFotku(src) {
+  otevriPanel({ id: 'auto-foto', trida: 'panel-okno auto-foto-okno', titul: 'Účtenka',
+    vykresli: () => '<img class="auto-foto-velka" src="' + esc(src) + '" alt="Účtenka">' });
 }
 
 // ---------------------------------------------------------------- ovládání
@@ -487,6 +564,17 @@ async function zpracujUctenku(soubor) {
 export function klikAuto(el) {
   if (el.hasAttribute('data-auto-znovu')) { stav.chyby.auto = null; nactiAuto(true); return true; }
   if (el.dataset.autoZapis) { otevriZapis(el.dataset.autoZapis); return true; }
+  if (el.dataset.autoUpravit) { const [list, radek] = el.dataset.autoUpravit.split(':'); otevriUpravu(najdiZapis(list, radek)); return true; }
+  if (el.hasAttribute('data-az-foto-velka') && f) { ukazFotku(f.foto || f.velka || f.nahled); return true; }
+  if (el.hasAttribute('data-az-foto') && f && f.uctenka && !f.fotoNacitam) {
+    const moje = f;
+    f.fotoNacitam = true;
+    obnovPanel('auto-zapis');
+    volej('autoUctenkaFoto', { id: f.uctenka })
+      .then((v) => { if (f === moje) { f.foto = v.obrazek; f.fotoNacitam = false; obnovPanel('auto-zapis'); } })
+      .catch((e) => { if (f === moje) { f.fotoNacitam = false; obnovPanel('auto-zapis'); } toast(e.message, true); });
+    return true;
+  }
   if (el.dataset.autoZAuta) { const [t, km] = el.dataset.autoZAuta.split('|'); otevriZapis('tankovani', { datum: isoDatum(Number(t)), km }); return true; }
   if (el.hasAttribute('data-auto-vse')) { vseZapisy = !vseZapisy; zmeneno(); return true; }
   if (el.hasAttribute('data-auto-ulozit')) { if (f && !f.ukladam) ulozZapis(); return true; }

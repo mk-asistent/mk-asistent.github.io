@@ -173,7 +173,10 @@ function prostredi() {
       if (n && typeof n === 'object') { obsah = n; n = n.getName(); } // createFile(blob) – fotka účtenky
       let rodicSouboru = s;
       let upraveno = Date.now() + (citacZmen++); // jako Disk: čas úpravy se mění se změnou obsahu (motor podle něj pamatuje poznámky)
-      const f = { vKosi: false, getId: () => 'soubor-' + nazev + '-' + n, getName: () => n, getBlob: () => ({ getDataAsString: () => obsah }),
+      const f = { vKosi: false, getId: () => 'soubor-' + nazev + '-' + n, getName: () => n,
+        getBlob: () => ({ getDataAsString: () => obsah, getBytes: () => (obsah && obsah.getBytes ? obsah.getBytes() : Buffer.from(String(obsah), 'utf8')),
+          getContentType: () => (obsah && obsah.getContentType ? obsah.getContentType() : 'text/plain') }),
+        getDescription: () => f.popis || null, setDescription: (t) => { f.popis = t; return f; },
         getUrl: () => 'https://drive.google.com/file/d/soubor-' + nazev + '-' + n + '/view',
         getDateCreated: () => new Date(), getLastUpdated: () => new Date(upraveno), getParents: () => iterator([rodicSouboru]),
         setContent: (t) => { obsah = t; upraveno = Date.now() + (citacZmen++); return f; },
@@ -211,6 +214,14 @@ function prostredi() {
       setNumberFormat: (f) => { formaty[r + ':' + c] = f; },
       clearContent: () => { zajisti(r, c); b[r - 1][c - 1] = ''; delete vzorce[r + ':' + c]; delete odkazy[r + ':' + c]; },
       setRichTextValue: (t) => { zajisti(r, c); b[r - 1][c - 1] = t.text; odkazy[r + ':' + c] = t; },
+      // jako Tabulky: getLinkUrl celé buňky jen když odkaz pokrývá celý text, jinak po kouscích (getRuns)
+      getRichTextValues: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => {
+        const o = odkazy[(r + i) + ':' + (c + j)];
+        const x = (b[r - 1 + i] || [])[c - 1 + j];
+        const text = x === undefined || x === null ? '' : String(x);
+        return { getText: () => text, getLinkUrl: () => (o && o.od === 0 && o.do === text.length ? o.odkaz : null),
+          getRuns: () => (o ? [{ getLinkUrl: () => null }, { getLinkUrl: () => o.odkaz }] : [{ getLinkUrl: () => null }]) };
+      })),
       getDataValidation: () => validace
     });
     return { getName: () => nazev, getLastColumn: sirka, getRange: rozsah,
@@ -265,6 +276,7 @@ function prostredi() {
       newBlob: (s, typ, jmeno) => ({ getBytes: () => (Array.isArray(s) || Buffer.isBuffer(s) ? Buffer.from(s) : Buffer.from(String(s), 'utf8')),
         getName: () => jmeno || '', getContentType: () => typ || 'text/plain' }),
       base64Decode: (t) => Array.from(Buffer.from(t, 'base64')),
+      base64Encode: (b) => Buffer.from(b).toString('base64'),
       sleep: () => {},
       DigestAlgorithm: { MD5: 'md5' }, Charset: { UTF_8: 'utf8' },
       computeDigest: (alg, text) => Array.from(crypto.createHash('md5').update(text, 'utf8').digest()).map((b) => (b > 127 ? b - 256 : b))
@@ -1941,6 +1953,50 @@ test('auto: účtenka – fotka na Disk (AUTO/uctenky), text přes OCR → návr
   assert.ok(/Drive API/.test(o.data.chybaTextu));
   assert.strictEqual(o.data.navrh.castka, null);
   assert.ok(/JPEG/.test(p.volej('autoUctenka', { obrazek: 'data:image/png;base64,AAAA' }).chyba));
+});
+
+test('auto: účtenka rovnou do tabulky (stejná fotka nic dvakrát), oprava zápisu, fotka k zápisu jen z účtenek', () => {
+  const p = prostredi();
+  tabulkaAuta(p);
+  p.vlastnosti.set('AUTO_TABULKA', TAB_AUTO);
+  p.nastavCas(Date.parse('2026-08-07T15:00:00+02:00'));
+  p.nastavOcr(UCTENKA_NAFTA);
+  const fotka = 'data:image/jpeg;base64,' + Buffer.from('jpeg-data-2').toString('base64');
+  const otisk = 'a1b2c3d4e5f60718293a4b5c';
+  let o = p.volej('autoUctenka', { obrazek: fotka, otisk, zapsat: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.zapsano), { list: 'tankovani', radek: 6 });
+  const z = o.data.data.tankovani.find((x) => x.radek === 6);
+  assert.deepStrictEqual([z.castka, z.cenaLitr, z.poznamka, z.kdo], [1859.63, 43.5, 'ČSAD', 'M']);
+  assert.ok(/uctenka_a1b2c3d4e5f60718293a4b5c\.jpg$/.test(z.uctenka), z.uctenka);
+  // stejná fotka znovu (výpadek spojení) → žádný další soubor ani řádek a OCR se neopakuje
+  const ocr = p.log.ocr.length;
+  o = p.volej('autoUctenka', { obrazek: fotka, otisk, zapsat: true });
+  assert.deepStrictEqual(json(o.data.zapsano), { list: 'tankovani', radek: 6 });
+  assert.strictEqual(p.schranka.deti.AUTO.deti.uctenky.soubory.length, 1);
+  assert.strictEqual(p.log.ocr.length, ocr, 'text z minulého pokusu');
+  assert.strictEqual(o.data.data.tankovani.filter((x) => x.uctenka).length, 1);
+  // nejasná účtenka (bez částky) → nic se nezapíše, aplikace dostane návrh pro okno
+  p.nastavOcr('Děkujeme za nákup');
+  o = p.volej('autoUctenka', { obrazek: 'data:image/jpeg;base64,' + Buffer.from('jina').toString('base64'), otisk: 'ffffeeeeddddccccbbbbaaaa', zapsat: true });
+  assert.deepStrictEqual([o.ok, o.data.zapsano, o.data.navrh.castka], [true, undefined, null]);
+  // oprava zápisu: jiná částka a km → tabulka; odkaz na fotku zůstane, „účtenka“ v poznámce se nezdvojí
+  o = p.volej('autoUpravit', { list: 'tankovani', radek: 6, puvodniDatum: z.datum, puvodniCastka: z.castka, druh: 'tankovani',
+    datum: '2026-08-07', castka: 1900, cenaLitr: 43.5, km: 32100, kdo: 'M', poznamka: 'ČSAD Veselí', uctenka: z.uctenka });
+  assert.strictEqual(o.ok, true, o.chyba);
+  const z2 = o.data.tankovani.find((x) => x.radek === 6);
+  assert.deepStrictEqual([z2.castka, z2.km, z2.poznamka, z2.uctenka, z2.litry], [1900, 32100, 'ČSAD Veselí', z.uctenka, 43.68]);
+  assert.strictEqual(p.tabulky[TAB_AUTO].listy['Tankování'].odkazy['6:9'].text, 'ČSAD Veselí · účtenka');
+  // mezitím jiný stav řádku → odmítnuto; druh se změnit nedá
+  assert.ok(/mezitím změnil/.test(p.volej('autoUpravit', { list: 'tankovani', radek: 6, puvodniDatum: z.datum, puvodniCastka: 1859.63,
+    druh: 'tankovani', datum: '2026-08-07', castka: 1, cenaLitr: 43.5 }).chyba));
+  assert.ok(/Druh zápisu/.test(p.volej('autoUpravit', { list: 'tankovani', radek: 6, puvodniDatum: z.datum, puvodniCastka: 1900,
+    druh: 'naklad', datum: '2026-08-07', castka: 1, kategorie: 'Myčka' }).chyba));
+  // fotka k zápisu: jen soubory ze složky účtenek
+  const f = p.volej('autoUctenkaFoto', { id: z.uctenka });
+  assert.ok(f.ok && f.data.obrazek === 'data:image/jpeg;base64,' + Buffer.from('jpeg-data-2').toString('base64'), JSON.stringify(f).slice(0, 160));
+  const jiny = p.schranka.createFile('jiny-soubor.txt', 'tajné');
+  assert.ok(/není mezi účtenkami/.test(p.volej('autoUctenkaFoto', { id: jiny.getId() }).chyba));
 });
 
 test('auto: čtení účtenek – myčka, servis, částka bez klíčového slova, datum nesmí být v budoucnu', () => {
