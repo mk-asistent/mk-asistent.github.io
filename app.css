@@ -1502,6 +1502,22 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
   .auto-pece__seznam li { grid-template-columns: minmax(0, 1fr); }
   .auto-pece__seznam li small { grid-column: 1; }
 }
+/* okno zápisu s fotkou účtenky vedle (vlevo údaje, vpravo fotka – upravovat podle ní); na telefonu fotka nahoře */
+@media (min-width: 760px) {
+  .panel.panel-okno.auto-s-fotkou { width: min(1180px, 96vw); height: min(90vh, 980px); max-height: none; }
+}
+.auto-zapis-mrizka { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 20px; align-items: start; }
+.auto-zapis-foto { position: sticky; top: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.auto-zapis-foto__lista { display: flex; justify-content: flex-end; gap: 6px; }
+.auto-zapis-foto__okno { overflow: auto; max-height: calc(min(90vh, 980px) - 200px); border-radius: 12px; background: var(--sand); }
+.auto-zapis-foto__obr { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.auto-zapis-foto__obr img { display: block; width: 100%; height: auto; }
+.auto-zapis-foto.zvetseno .auto-zapis-foto__obr { width: 220%; cursor: zoom-out; }
+@media (max-width: 899px) {
+  .auto-zapis-mrizka { grid-template-columns: minmax(0, 1fr); }
+  .auto-zapis-foto { order: -1; position: static; }
+  .auto-zapis-foto__okno { max-height: 45vh; }
+}
 .auto-foto-velka { display: block; width: 100%; height: auto; border-radius: 12px; background: var(--sand); }
 .auto-zapis__text b { display: block; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auto-zapis__text small { display: block; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

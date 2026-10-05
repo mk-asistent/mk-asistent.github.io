@@ -22,6 +22,8 @@ const MAX_ZAPISU = 25;
 
 let f = null;          // rozpracovaný zápis (okno Tankování / Výdaj)
 let frontaUctenek = []; // víc účtenek najednou: ty, které je potřeba doplnit v okně (otevírají se jedna po druhé)
+// na širokém okně fotka účtenky vedle formuláře rovnou (Michal 5. 10.: „vpravo fotka, vlevo editace, upravovat zároveň“)
+const SIROKE = window.matchMedia('(min-width: 900px)');
 let vseZapisy = false; // seznam zápisů rozbalený
 
 const kc = (x) => CELE.format(Math.round(x)) + ' Kč';
@@ -418,6 +420,7 @@ export function otevriZapis(druh, navrh) {
     km: n.km != null && n.km !== '' ? String(n.km) : kmZAuta ? String(kmZAuta.km) : '', kmZAuta: n.km != null && n.km !== '' ? 0 : kmZAuta ? kmZAuta.kdy : 0,
     kdo: n.kdo === 'K' ? 'K' : 'M', kategorie: n.kategorie || '', polozka: n.polozka || '', poznamka: n.poznamka != null ? n.poznamka : (n.obchod || ''),
     uctenka: n.uctenka || '', nahled: n.nahled || '', velka: n.velka || '', foto: '', fotoNacitam: false,
+    fotoVedle: !!(n.velka || n.nahled) && SIROKE.matches, fotoZoom: false,
     chybaTextu: n.chybaTextu || '', zUctenky: !!n.uctenka && !n.uprava, uprava: n.uprava || null, ukladam: false
   };
   const moje = f;
@@ -428,7 +431,11 @@ export function otevriZapis(druh, navrh) {
     paticka: () => '<div class="akce"><button type="button" class="btn btn--ghost" data-zavrit-panel>Zrušit</button>' +
       '<button type="button" class="btn btn--primary" data-auto-ulozit' + (f && f.ukladam ? ' disabled' : '') + '>' + IKONY.fajfka + '<span>' +
       (f && f.ukladam ? 'Zapisuji…' : f && f.uprava ? 'Uložit změny' : 'Zapsat do tabulky') + '</span></button></div>',
-    poOtevreni: (el) => { const pole = el.querySelector(f.castka ? '[data-az="km"]' : '[data-az="castka"]'); if (pole) pole.focus(); },
+    poOtevreni: (el) => {
+      el.classList.toggle('auto-s-fotkou', !!(f && f.fotoVedle));
+      const pole = el.querySelector(f.castka ? '[data-az="km"]' : '[data-az="castka"]');
+      if (pole) pole.focus();
+    },
     priZavreni: () => {
       if (f === moje) f = null;
       if (frontaUctenek.length) setTimeout(dalsiUctenka, 350); // další účtenka k doplnění
@@ -448,12 +455,16 @@ function zapisHtml() {
   const pole = (klic, popisek, atributy, hodnota, pod) => '<label><span class="label">' + popisek + '</span><input class="field" data-az="' + klic + '" value="' +
     esc(hodnota) + '" autocomplete="off" ' + atributy + '>' + (pod || '') + '</label>';
   let h = '<div class="formular auto-formular">';
-  const obrazek = f.foto || f.nahled;
+  const obrazek = f.foto || f.velka || f.nahled;
+  const vedle = !!(obrazek && f.fotoVedle);
   if (obrazek) {
-    h += '<div class="auto-uctenka"><button type="button" class="auto-uctenka__foto" data-az-foto-velka aria-label="Zvětšit fotku účtenky"><img src="' + esc(obrazek) +
-      '" alt="Účtenka"></button><div><b>Účtenka uložená na Disku</b><small>' +
-      (f.chybaTextu ? 'Text se nepřečetl – vyplň údaje (' + esc(f.chybaTextu) + ').' : f.uprava ? 'Klepnutím na fotku ji zvětšíš.' :
-        'Údaje z účtenky – zkontroluj je. Do tabulky se připíše odkaz na fotku.') + '</small></div></div>';
+    h += '<div class="auto-uctenka">' + (vedle ? '<span class="kruh kruh--auto">' + IKONY.foto + '</span>' :
+      '<button type="button" class="auto-uctenka__foto" data-az-foto-vedle aria-label="Ukázat fotku účtenky vedle formuláře"><img src="' +
+      esc(f.nahled || obrazek) + '" alt="Účtenka"></button>') + '<div><b>Účtenka uložená na Disku</b><small>' +
+      (f.chybaTextu ? 'Text se nepřečetl – vyplň údaje (' + esc(f.chybaTextu) + ').' :
+        vedle ? 'Fotka je ' + (SIROKE.matches ? 'vpravo' : 'nahoře') + ' – údaje uprav podle ní.' :
+        f.uprava ? 'Klepni na fotku – ukáže se vedle formuláře.' : 'Údaje z účtenky – zkontroluj je. Do tabulky se připíše odkaz na fotku.') + '</small></div>' +
+      (vedle ? '<button type="button" class="btn btn--ghost btn--sm" data-az-foto-vedle>Skrýt fotku</button>' : '') + '</div>';
   } else if (f.uctenka && umiMotor('autoUctenkaFoto')) {
     h += '<div class="auto-uctenka"><span class="kruh kruh--auto">' + IKONY.foto + '</span><div><b>Zápis má fotku účtenky</b><small>Je uložená na tvém Disku.</small></div>' +
       '<button type="button" class="btn btn--ghost btn--sm" data-az-foto' + (f.fotoNacitam ? ' disabled' : '') + '>' + (f.fotoNacitam ? 'Načítám…' : 'Zobrazit') + '</button></div>';
@@ -483,8 +494,21 @@ function zapisHtml() {
   }
   h += '<div class="formular__radek"><span class="label">Platil</span>' + segment([['M', 'Michal'], ['K', 'Katka']], f.kdo, 'data-az-kdo', 'Kdo platil') + '</div>';
   if (frontaUctenek.length) h += '<p class="napoveda">Po zavření se otevře další účtenka k doplnění (zbývá ' + frontaUctenek.length + ').</p>';
-  h += '<p class="pruh pruh-varovani" data-az-chyba hidden></p>';
-  return h + '</div>';
+  h += '<p class="pruh pruh-varovani" data-az-chyba hidden></p></div>';
+  if (!vedle) return h;
+  // fotka vedle formuláře (na telefonu nad ním): klepnutí do fotky ji zvětší / zmenší, celá obrazovka v liště
+  return '<div class="auto-zapis-mrizka">' + h + '<figure class="auto-zapis-foto' + (f.fotoZoom ? ' zvetseno' : '') + '">' +
+    '<div class="auto-zapis-foto__lista"><button type="button" class="btn btn--ghost btn--sm" data-az-foto-zoom>' + (f.fotoZoom ? 'Zmenšit' : 'Zvětšit') + '</button>' +
+    '<button type="button" class="btn btn--ghost btn--sm" data-az-foto-velka>Celá obrazovka</button></div>' +
+    '<div class="auto-zapis-foto__okno"><button type="button" class="auto-zapis-foto__obr" data-az-foto-zoom aria-label="' + (f.fotoZoom ? 'Zmenšit' : 'Zvětšit') +
+    ' fotku"><img src="' + esc(obrazek) + '" alt="Účtenka"></button></div></figure></div>';
+}
+
+/** Fotka vedle formuláře zapnout / vypnout: okno se rozšíří (třída na panelu přežije překreslení obsahu). */
+function fotkaVedle() {
+  const el = elementPanelu('auto-zapis');
+  if (el) el.classList.toggle('auto-s-fotkou', !!(f && f.fotoVedle && (f.foto || f.velka || f.nahled)));
+  obnovPanel('auto-zapis');
 }
 
 async function ulozZapis() {
@@ -655,12 +679,14 @@ export function klikAuto(el) {
   if (el.dataset.autoZapis) { otevriZapis(el.dataset.autoZapis); return true; }
   if (el.dataset.autoUpravit) { const [list, radek] = el.dataset.autoUpravit.split(':'); otevriUpravu(najdiZapis(list, radek)); return true; }
   if (el.hasAttribute('data-az-foto-velka') && f) { ukazFotku(f.foto || f.velka || f.nahled); return true; }
+  if (el.hasAttribute('data-az-foto-vedle') && f) { f.fotoVedle = !f.fotoVedle; f.fotoZoom = false; fotkaVedle(); return true; }
+  if (el.hasAttribute('data-az-foto-zoom') && f) { f.fotoZoom = !f.fotoZoom; obnovPanel('auto-zapis'); return true; }
   if (el.hasAttribute('data-az-foto') && f && f.uctenka && !f.fotoNacitam) {
     const moje = f;
     f.fotoNacitam = true;
     obnovPanel('auto-zapis');
     volej('autoUctenkaFoto', { id: f.uctenka })
-      .then((v) => { if (f === moje) { f.foto = v.obrazek; f.fotoNacitam = false; obnovPanel('auto-zapis'); } })
+      .then((v) => { if (f === moje) { f.foto = v.obrazek; f.fotoNacitam = false; f.fotoVedle = true; fotkaVedle(); } })
       .catch((e) => { if (f === moje) { f.fotoNacitam = false; obnovPanel('auto-zapis'); } toast(e.message, true); });
     return true;
   }

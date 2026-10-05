@@ -1405,7 +1405,12 @@ async function novaStranka(prohlizec, v, motiv) {
     jistota(u.zapsat === true && /^[0-9a-f]{24}$/.test(u.otisk || ''), 'účtenka do motoru se zápisem a otiskem: ' + JSON.stringify(u));
     jistota(autoZapisy.length === 2, 'z účtenky se nezapisuje přes okno');
     await page.click('#toast .toast__akce');
-    await page.waitForSelector('[data-panel="auto-zapis"] .auto-uctenka img');
+    // na PC fotka rovnou vedle formuláře (vlevo údaje, vpravo fotka)
+    await page.waitForSelector('[data-panel="auto-zapis"].auto-s-fotkou .auto-zapis-foto img');
+    const sloupce = await page.$eval('[data-panel="auto-zapis"] .auto-zapis-mrizka', (m) => getComputedStyle(m).gridTemplateColumns.split(' ').length);
+    jistota(sloupce === 2, 'údaje a fotka vedle sebe: ' + sloupce);
+    await page.click('[data-panel="auto-zapis"] .auto-zapis-foto__obr');
+    jistota(await page.locator('[data-panel="auto-zapis"] .auto-zapis-foto.zvetseno').count() === 1, 'klepnutí fotku zvětší');
     jistota(/Upravit tankování/.test(await page.textContent('[data-panel="auto-zapis"] .panel-titul')), 'okno opravy');
     jistota(await page.inputValue('[data-panel="auto-zapis"] [data-az="castka"]') === '1859,63' && await page.inputValue('[data-panel="auto-zapis"] [data-az="cenaLitr"]') === '43,5', 'údaje z účtenky');
     jistota(await page.inputValue('[data-panel="auto-zapis"] [data-az="poznamka"]') === 'Pumpa Test', 'stanice z účtenky');
@@ -1423,10 +1428,14 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.waitForFunction(() => /1 900 Kč/.test(document.querySelector('.auto-zapisy').textContent.replace(/\s+/g, ' ')));
     // starší zápis s fotkou: klepnutí v Zápisech → okno → Zobrazit fotku (z Disku přes motor)
     await page.click('.auto-zapisy [data-auto-upravit="tankovani:4"]');
+    jistota(!(await page.$('[data-panel="auto-zapis"].auto-s-fotkou')), 'bez načtené fotky úzké okno');
     await page.click('[data-panel="auto-zapis"] [data-az-foto]');
-    await page.waitForSelector('[data-panel="auto-zapis"] .auto-uctenka img');
+    await page.waitForSelector('[data-panel="auto-zapis"].auto-s-fotkou .auto-zapis-foto img');
     jistota(autoFotky[0] === 'uctenka-starsi-001', 'fotka z Disku: ' + JSON.stringify(autoFotky));
     await page.screenshot({ path: path.join(VYSTUP, 'pc_auto_oprava_s_fotkou.png') });
+    // Skrýt fotku → zase úzké okno s náhledem
+    await page.click('[data-panel="auto-zapis"] .auto-uctenka [data-az-foto-vedle]');
+    await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"].auto-s-fotkou') && document.querySelector('[data-panel="auto-zapis"] .auto-uctenka__foto img'));
     await page.click('[data-panel="auto-zapis"] [data-zavrit-panel]');
     await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"]'));
     // smazat poslední zápis (překlep)
