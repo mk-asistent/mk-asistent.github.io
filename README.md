@@ -147,11 +147,15 @@ se zapomene.
 
 ## Instagram – naplánované reely
 Na stránce Reely jde reel **naplánovat na Instagram** (datum a čas, výchozí nejbližší 18:00). Motor ho v ten čas zveřejní
-sám na klubovém účtu přes Instagram API (Meta aplikace „Asistent FK Vnorovy“ ve vývojovém režimu, účet je v ní tester):
+sám na klubovém účtu přes Instagram API (Meta aplikace „Asistent FK Vnorovy“ ve vývojovém režimu, účet je v ní tester).
+V okně plánu jdou **označit účty** (u dorostu předvyplněný `@dorost_agro`, aplikace si pamatuje poslední označení týmu;
+na Instagramu jde o označení osob v reelu – `user_tags`) a **upravit popisek** jen pro tenhle příspěvek (vlastnost
+`REELY_POPISEK:<id>`, po zveřejnění nebo zrušení plánu se smaže; soubor `popisky\*.txt` zůstává jediná pravda):
 - klíč `IG_TOKEN` ve Vlastnostech skriptu (vloží Michal, platí 60 dní, motor ho jednou týdně obnoví), plán `REELY_PLAN`;
 - spouštěč **`instagramKazdych10Min`** (Spouštěče → Minutový časovač → Každých 10 minut) – jeden reel za běh;
 - Instagram si video stahuje z adresy → video na Disku má jen po dobu stahování tajný odkaz (Michal souhlasil 5. 10.),
-  hned potom se sdílení vypne; popisek je přesně ten z `popisky\*.txt`;
+  hned potom se sdílení vypne; video jde beze změny (stejný soubor jako z PC – H.264 1080×1920), přepočítá ho až Instagram;
+- popisek je přesně ten z `popisky\*.txt`, pokud ho Michal v okně plánu neupravil;
 - po vložení klíče jednou spustit `overInstagram` (vypíše účet).
 
 ## Auto (náklady a tankování)
@@ -162,6 +166,9 @@ Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**
   z tabulky) jdou do prvního volného řádku pod posledním zápisem; poslední zápis jde smazat (překlep).
 - **Stav z auta (MyŠkoda)**: domácí PC jednou denně (úloha Windows „Asistent - MySkoda“, 3:30) zapíše
   `CLAUDE_SCHRANKA/AUTO/myskoda.json` – tachometr, nádrž, dojezd, servis (bez polohy a VIN); nástroj `NASTROJE\asistent\myskoda`.
+- **Tankování z auta**: MyŠkoda historii tankování nemá – skript na PC ho pozná z rozdílu dvou čtení
+  (dotankováno = změna nádrže + spotřeba jízd mezi čteními), den a stav km odhadne podle jízd (bez míst). Když v tabulce
+  kolem toho dne tankování chybí, ukáže stránka Auto kartu **Auto hlásí tankování** s tlačítkem Zapsat (předvyplní den a km).
 - **Účtenka**: vyfotit → fotka do `CLAUDE_SCHRANKA/AUTO/uctenky`, text přes OCR Disku → předvyplněný zápis; v tabulce je
   pak u poznámky odkaz „účtenka“ na fotku. Bez potvrzení se nic nezapíše.
 - Tabulka se propojí odkazem na stránce Auto (vlastnost `AUTO_TABULKA`). Motor k tomu potřebuje oprávnění k Tabulkám
@@ -169,13 +176,23 @@ Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**
 
 ## Nasazení motoru
 
+**Automaticky z PC** (od 5. 10. 2026): `python NASTROJE\asistent\motor\nasad_motor.py` – testy motoru → kontrola projektu
+na serveru (žádné cizí soubory, stejná oprávnění) → `clasp push` → nová verze stávajícího nasazení (adresa `…/exec` zůstává)
+→ ověření, že adresa vrací novou verzi (`/exec?verze=1`). ID projektu a nasazení jsou jen v `nastaveni.json` vedle skriptu
+(mimo git). Jednorázově na každém PC: Google Apps Script API zapnuté (script.google.com/home/usersettings) a
+`npx -y @google/clasp@3.4.1 login`. Když přibude oprávnění, skript kód nahraje, ale nasazení počká, až Michal v editoru
+spustí `povolitTabulky` a klikne Povolit (pak skript pustit znovu).
+
+**Ručně** (náhradní cesta, nebo nový projekt):
+
 1. <https://script.google.com> → projekt motoru → `Kód.gs` nahradit obsahem `apps-script/Kod.gs`.
 2. ⚙ Nastavení projektu → **Zobrazit soubor manifestu** → `appsscript.json` = obsah `apps-script/appsscript.json`
    (když přibude oprávnění – naposledy Tabulky a služba Drive API pro auto –, spustit jednou `povolitTabulky` a povolit).
 3. Uložit; u nového projektu spustit **`nastavApi`** → povolit přístup → z protokolu zkopírovat **klíč** (nikam ho neposílat).
 4. **Nasadit → Spravovat nasazení → tužka** → Webová aplikace, Spustit jako **Já**, Kdo má přístup **Kdokoli** →
    Verze **Nová verze** → Nasadit. Adresa (`…/exec`) zůstane stejná.
-5. Kontrola: adresa v anonymním okně napíše „Asistent – motor běží.“; aplikace v Nastavení → Připojení ukáže verzi motoru.
+5. Kontrola: adresa v anonymním okně napíše „Asistent – motor běží.“ (s `?verze=1` jen číslo verze); aplikace v Nastavení →
+   Připojení ukáže verzi motoru.
 
 Aplikace pozná starší motor (bez seznamu akcí) a místo nových funkcí ukáže návod na Novou verzi.
 
@@ -194,7 +211,8 @@ Vlastnosti skriptu (⚙ → Vlastnosti skriptu) – všechny nepovinné kromě k
 | `POCASI_MISTA`, `POCASI_POLOHA` | místa podle polohy a poslední poloha pro upozornění (spravuje motor) |
 | `REELY_STAV` | které reely už jsou na Instagramu (nastavuje aplikace) |
 | `AUTO_TABULKA` | ID tabulky Google s náklady auta (nastaví aplikace odkazem na stránce Auto) |
-| `IG_TOKEN`, `IG_UCET`, `IG_TOKEN_OBNOVA`, `REELY_PLAN` | Instagram: klíč (vloží Michal, motor obnovuje), účet, plán zveřejnění reelů |
+| `IG_TOKEN`, `IG_UCET`, `IG_TOKEN_OBNOVA`, `REELY_PLAN` | Instagram: klíč (vloží Michal, motor obnovuje), účet, plán zveřejnění reelů (čas, označené účty) |
+| `REELY_POPISEK:<id>` | upravený popisek reelu jen pro Instagram (do zveřejnění nebo zrušení plánu) |
 | `FOTBAL`, `DRUHY_KALENDARU`, `ICS_KALENDARE`, `SKRYTE_KALENDARE`, … | spravuje motor sám |
 
 ## Instalace aplikace

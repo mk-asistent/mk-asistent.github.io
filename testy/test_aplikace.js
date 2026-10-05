@@ -171,7 +171,7 @@ const autoData = {
   // stav z auta (MyŠkoda přes domácí PC) – čerstvý, tachometr dál než poslední zápis v tabulce
   myskoda: { aktualizovano: new Date(ted).toISOString(), auta: [{ nazev: 'Testovací', model: 'Testovací auto', km: 13600, kmKdy: new Date(ted - 6e5).toISOString(),
     palivo: 61, dojezd: 510, adblue: 2900, zamceno: 'YES', servis: { olejKm: 7700, olejDni: 280, prohlidkaKm: 27700, prohlidkaDni: 697 } }],
-    tankovani: [{ od: new Date(den(-3, 3.5)).toISOString(), do: new Date(den(-2, 3.5)).toISOString(), km: 13700, litry: 36.4 },
+    tankovani: [{ od: new Date(den(-3, 3.5)).toISOString(), do: new Date(den(-2, 3.5)).toISOString(), den: iso(den(-3)), km: 13700, litry: 36.4 },
       { od: new Date(den(-31, 3.5)).toISOString(), do: new Date(den(-30, 3.5)).toISOString(), km: 12900, litry: 39 }] }
 };
 let reelyZverejneno = {};
@@ -1309,7 +1309,8 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.click('.auto-hlaseni [data-auto-z-auta]');
     await page.waitForSelector('[data-panel="auto-zapis"] [data-az="km"]');
     jistota(await page.inputValue('[data-panel="auto-zapis"] [data-az="km"]') === '13700' &&
-      await page.inputValue('[data-panel="auto-zapis"] [data-az="datum"]') === iso(den(-2)), 'okno z hlášení: km a datum');
+      await page.inputValue('[data-panel="auto-zapis"] [data-az="datum"]') === iso(den(-3)), 'okno z hlášení: km a den podle jízd');
+    jistota(/nejspíš/.test(hlaseni), 'hlášení ukazuje odhadnutý den');
     await page.click('[data-panel="auto-zapis"] [data-zavrit-panel]');
     await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"]'));
     await page.screenshot({ path: path.join(VYSTUP, 'pc_auto.png'), fullPage: true });

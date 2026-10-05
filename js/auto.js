@@ -193,17 +193,20 @@ function zAutaHtml(a) {
     (a.kdy ? ' <span class="muted">· ' + esc(kdyKratce(a.kdy)) + '</span>' : '') + '</p>';
 }
 
-/** Tankování, která poznalo auto (skok nádrže mezi dvěma denními čteními z MyŠkoda) a v tabulce k nim nic není. */
+/** Tankování, která poznalo auto (nádrž a spotřeba mezi dvěma denními čteními z MyŠkoda) a v tabulce k nim nic není. */
 function tankovaniZAutaHtml(d) {
   const zapsana = (d.tankovani || []).filter((z) => z.datum != null).map((z) => z.datum);
-  const chybi = ((d.myskoda && d.myskoda.tankovani) || []).map((x) => ({ od: Date.parse(x.od), do: Date.parse(x.do), km: x.km, litry: x.litry }))
+  // den = odhad podle jízd mezi čteními (skript na PC); bez něj platí jen rozmezí od–do
+  const chybi = ((d.myskoda && d.myskoda.tankovani) || []).map((x) => ({ od: Date.parse(x.od), do: Date.parse(x.do),
+    den: /^\d{4}-\d{2}-\d{2}$/.test(x.den || '') ? Date.parse(x.den + 'T12:00:00') : null, km: x.km, litry: x.litry }))
     .filter((x) => x.od && x.do && !zapsana.some((t) => t >= x.od - 1.5 * 864e5 && t <= x.do + 864e5));
   if (!chybi.length) return '';
   return '<section class="card auto-hlaseni" data-oblast="auto">' + hlavickaKarty(IKONY.palivo, 'Auto hlásí tankování', '<span class="muted">v tabulce chybí</span>') +
     '<ul class="auto-seznam">' + chybi.map((x) => '<li class="auto-zapis auto-zapis--palivo"><span class="kruh kruh--auto">' + IKONY.palivo + '</span>' +
-      '<div class="auto-zapis__text"><b>' + (x.litry ? 'asi ' + JEDNO.format(x.litry) + ' l' : 'Tankování') + '</b><small>mezi ' + esc(dm(x.od)) + ' a ' + esc(dm(x.do)) +
-      (x.km != null ? ' · ' + CELE.format(x.km) + ' km' : '') + '</small></div>' +
-      '<button type="button" class="btn btn--ghost btn--sm" data-auto-z-auta="' + x.do + '|' + (x.km != null ? x.km : '') + '">' + IKONY.plus + '<span>Zapsat</span></button></li>').join('') +
+      '<div class="auto-zapis__text"><b>' + (x.litry ? 'asi ' + JEDNO.format(x.litry) + ' l' : 'Tankování') + '</b><small>' +
+      (x.den ? 'nejspíš ' + esc(dm(x.den)) + ' (čtení ' + esc(dm(x.od)) + ' – ' + esc(dm(x.do)) + ')' : 'mezi ' + esc(dm(x.od)) + ' a ' + esc(dm(x.do))) +
+      (x.km != null ? ' · asi ' + CELE.format(x.km) + ' km' : '') + '</small></div>' +
+      '<button type="button" class="btn btn--ghost btn--sm" data-auto-z-auta="' + (x.den || x.do) + '|' + (x.km != null ? x.km : '') + '">' + IKONY.plus + '<span>Zapsat</span></button></li>').join('') +
     '</ul><p class="napoveda auto-hlaseni__pozn">Auto pozná natankování podle stavu nádrže (čte se jednou denně). Datum a částku doplň podle účtenky.</p></section>';
 }
 

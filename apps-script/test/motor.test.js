@@ -1229,6 +1229,7 @@ test('zdraví: propojení WHOOP – odkaz se state, návrat do doGet (špatný s
   assert.ok(/nepropojen/.test(h));
   // běžný doGet beze změny
   assert.strictEqual(p.ctx.doGet({ parameter: {} }).text, 'Asistent – motor běží.');
+  assert.strictEqual(p.ctx.doGet({ parameter: { verze: '' } }).text, /const VERZE = '([^']+)'/.exec(fs.readFileSync(path.join(__dirname, '..', 'Kod.gs'), 'utf8'))[1], 'verze pro nasazovací skript');
 });
 
 test('zdraví: přehled po dnech (den probuzení), recovery přes spánek, zátěž cyklu, tréninky; obnova tokenu s rotací; 401 odpojí', () => {
@@ -1807,13 +1808,15 @@ test('auto: propojení odkazem, čtení listů (datum i jako text, km s mezerou,
   assert.strictEqual(d.myskoda, null, 'bez souboru z MyŠkoda nic');
   // stav auta z MyŠkoda (soubor z domácího PC) – jen vybrané údaje, poloha ani VIN by neprošly
   p.schranka.createFolder('AUTO').createFile('myskoda.json', JSON.stringify({ aktualizovano: '2026-10-05T13:42:35+02:00',
-    tankovani: [{ od: '2026-10-06T03:30:00+02:00', do: '2026-10-07T03:30:00+02:00', km: 32950, litry: 36.4, misto: 'nic' }], auta: [{ nazev: 'Octavia', model: 'Škoda Octavia Combi',
+    tankovani: [{ od: '2026-10-06T03:30:00+02:00', do: '2026-10-07T03:30:00+02:00', den: '2026-10-06', km: 32950, litry: 36.4, misto: 'nic' },
+      { od: '2026-10-08T03:30:00+02:00', do: '2026-10-09T03:30:00+02:00', den: '<b>', km: 33400, litry: 30 }], auta: [{ nazev: 'Octavia', model: 'Škoda Octavia Combi',
     km: 32810, km_kdy: '2026-10-05T11:32:32+00:00', palivo_pct: 61, dojezd_km: 510, adblue_km: 2900, zamceno: 'YES', vin: 'TMBXXX', poloha: { lat: 49 },
     servis: { olej_km: 7700, olej_dni: 280, prohlidka_km: 27700, prohlidka_dni: 697 } }] }));
   const ms = p.volej('auto').data.myskoda;
   assert.deepStrictEqual(json(ms.auta[0]), { nazev: 'Octavia', model: 'Škoda Octavia Combi', km: 32810, kmKdy: '2026-10-05T11:32:32+00:00', palivo: 61, dojezd: 510,
     adblue: 2900, zamceno: 'YES', servis: { olejKm: 7700, olejDni: 280, prohlidkaKm: 27700, prohlidkaDni: 697 } });
-  assert.deepStrictEqual(json(ms.tankovani), [{ od: '2026-10-06T03:30:00+02:00', do: '2026-10-07T03:30:00+02:00', km: 32950, litry: 36.4 }], 'tankování z auta bez cizích polí');
+  assert.deepStrictEqual(json(ms.tankovani), [{ od: '2026-10-06T03:30:00+02:00', do: '2026-10-07T03:30:00+02:00', den: '2026-10-06', km: 32950, litry: 36.4 },
+    { od: '2026-10-08T03:30:00+02:00', do: '2026-10-09T03:30:00+02:00', den: '', km: 33400, litry: 30 }], 'tankování z auta bez cizích polí, den jen jako datum');
   // odkaz s /u/1/ (víc účtů Googlu v prohlížeči)
   assert.strictEqual(p.volej('autoNastavit', { odkaz: 'https://docs.google.com/spreadsheets/u/1/d/' + TAB_AUTO + '/edit' }).ok, true);
   // kategorie z rozbalovacího seznamu tabulky mají přednost

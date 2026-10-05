@@ -34,7 +34,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.9';
+const VERZE = '2026-10-05.10';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -59,6 +59,8 @@ function doGet(e) {
   const prm = (e && e.parameter) || {};
   // návrat ze souhlasu WHOOP (OAuth): /exec?code=…&state=… nebo ?error=…
   if (prm.state && (prm.code || prm.error)) return whoopNavrat_(prm);
+  // ?verze – nasazovací skript na PC si po nasazení ověří, že běží nová verze (nic tajného)
+  if (prm.verze !== undefined) return ContentService.createTextOutput(VERZE);
   return ContentService.createTextOutput('Asistent – motor běží.');
 }
 
@@ -2352,9 +2354,11 @@ function autoMyskoda_() {
           dojezd: cislo(a.dojezd_km), adblue: cislo(a.adblue_km), zamceno: a.zamceno == null ? null : String(a.zamceno),
           servis: { olejKm: cislo(s.olej_km), olejDni: cislo(s.olej_dni), prohlidkaKm: cislo(s.prohlidka_km), prohlidkaDni: cislo(s.prohlidka_dni) } };
       }),
-      // tankování podle skoku nádrže mezi dvěma čteními (skript na PC čte jednou denně): od–do, stav km, odhad litrů
+      // tankování podle nádrže a spotřeby mezi dvěma čteními (skript na PC čte jednou denně): od–do, den podle jízd,
+      // stav km, odhad litrů
       tankovani: (Array.isArray(d.tankovani) ? d.tankovani : []).slice(-30).map(function (t) {
-        return { od: String(t.od || ''), do: String(t.do || ''), km: cislo(t.km), litry: cislo(t.litry) };
+        return { od: String(t.od || ''), do: String(t.do || ''), den: /^\d{4}-\d{2}-\d{2}$/.test(t.den || '') ? t.den : '',
+          km: cislo(t.km), litry: cislo(t.litry) };
       })
     };
   } catch (chyba) {
