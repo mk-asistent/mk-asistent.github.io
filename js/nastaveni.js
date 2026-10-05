@@ -140,7 +140,7 @@ async function prihlasUctem(koren, tlacitko) {
   try {
     const zUctu = await ucet.prihlas(email, heslo);
     const mistni = jeDemo() ? null : pripojeni();
-    if (mistni && mistni.url && mistni.klic && stav.info && !stav.chyby.info) {
+    if (mistni && mistni.url && mistni.klic && !stav.chyby.info) {
       if (!zUctu || zUctu.url !== mistni.url || zUctu.klic !== mistni.klic) await ucet.ulozPripojeni(mistni);
       return 'ucet';
     }

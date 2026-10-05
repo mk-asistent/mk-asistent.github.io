@@ -17,7 +17,7 @@ const { obnov, otisk, platnePripojeni, mrizkaMesice } = require('./obnova');
 initializeApp();
 const db = getFirestore();
 const NASTAVENI = { region: 'europe-west3', memory: '256MiB', timeoutSeconds: 120, maxInstances: 2 };
-const MAX_DOKUMENT = 900 * 1024;   // Firestore unese 1 MiB na dokument
+const MAX_DOKUMENT = 1000000;      // bajtů – Firestore unese 1 MiB na dokument
 const NEJDRIV_ZNOVU = 45e3;        // obnovHned častěji nepouští (aplikace ho volá při otevření a po změnách)
 
 async function obnovUzivatele(uid, pripojeni) {
@@ -29,7 +29,8 @@ async function obnovUzivatele(uid, pripojeni) {
   const potvrzeno = {}, zmeneno = [];
   idy.forEach((id, i) => {
     const json = JSON.stringify(v.data[id].data);
-    if (json.length > MAX_DOKUMENT) { v.chyby.push(id + ': ' + Math.round(json.length / 1024) + ' kB, na databázi moc'); return; }
+    const velikost = Buffer.byteLength(json, 'utf8');
+    if (velikost > MAX_DOKUMENT) { v.chyby.push(id + ': ' + Math.round(velikost / 1024) + ' kB, na databázi moc'); return; }
     potvrzeno[id] = v.kdy;
     const o = otisk(v.data[id].data);
     if (stare[i].exists && stare[i].get('otisk') === o) return;
