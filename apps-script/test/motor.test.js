@@ -2025,6 +2025,8 @@ test('auto: péče o auto jako text do vlastního listu za Péče o auto – jin
   assert.deepStrictEqual(l.bunky.map((r) => r.slice(0, 3)), radky);
   assert.deepStrictEqual([l.styly['1:1'].tucne, l.styly['1:1'].velikost, l.styly['2:1'].pozadi], [true, 14, '#e6f0ee']);
   assert.strictEqual(l.sirky[2], 640);
+  // aplikace dostane text s daty auta (karta Péče o auto), bez prázdných řádků
+  assert.deepStrictEqual(json(p.volej('auto').data.pece), radky);
   // podruhé nic nepřepíše, s prepsat ano
   assert.ok(/už obsah má/.test(p.volej('autoPeceZapsat', { radky }).chyba));
   o = p.volej('autoPeceZapsat', { radky: [['Jen jeden řádek']], prepsat: true });

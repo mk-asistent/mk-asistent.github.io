@@ -36,7 +36,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.13';
+const VERZE = '2026-10-05.14';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -2359,6 +2359,7 @@ function autoData_(ss) {
     kategorie: AUTO_.kategorie(naklady, autoKategorieZValidace_(n)),
     platili: prehled ? AUTO_.platili(prehled.getDataRange().getValues()) : null,
     myskoda: autoMyskoda_(),
+    pece: autoPece_(ss),
     ted: Date.now()
   };
 }
@@ -2568,6 +2569,20 @@ function autoUpravit_(d) {
 }
 
 const AUTO_PECE_TEXT = 'Péče o auto – text';
+
+/** List „Péče o auto – text“ (plán údržby, rady) pro kartu Péče o auto v aplikaci – jen text, bez prázdných řádků. */
+function autoPece_(ss) {
+  try {
+    const list = ss.getSheetByName(AUTO_PECE_TEXT);
+    if (!list) return null;
+    const radky = list.getDataRange().getValues().slice(0, 300).map(function (r) {
+      return [0, 1, 2].map(function (i) { return String(r[i] == null ? '' : r[i]).trim().slice(0, 600); });
+    }).filter(function (r) { return r[0] || r[1] || r[2]; });
+    return radky.length ? radky : null;
+  } catch (chyba) {
+    return null;
+  }
+}
 
 /**
  * Akce autoPeceZapsat: péče o auto jako text (Michal 5. 10.: obrázky v listu Péče o auto přepsat a doplnit) do vlastního

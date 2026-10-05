@@ -189,6 +189,10 @@ const autoData = {
     { list: 'naklady', radek: 3, datum: den(-130), datumText: '', polozka: '', kategorie: 'Pojištění', castka: 8000, km: null, kdo: 'M', poznamka: 'Roční' },
     { list: 'naklady', radek: 4, datum: den(-40), datumText: '', polozka: 'Myčka', kategorie: 'Myčka', castka: 150, km: null, kdo: 'K', poznamka: '' }],
   kategorie: ['Servis', 'Servis - PNEU', 'STK', 'Pojištění', 'Parkování', 'Myčka', 'Nákup doplňků'],
+  pece: [['PÉČE O AUTO – Testovací auto', '', ''], ['', 'Úvodní věta.', ''], ['PLÁN ÚDRŽBY', 'Kdy', 'Poznámka'],
+    ['Olej + filtr', 'každých 15 000 km', 'termín hlásí auto'], ['PŘEHLED PODLE KM', 'Co udělat', ''], ['15 000 km', 'olej + filtr', ''],
+    ['ZIMA', '', ''], ['', 'Startuj s nohou na brzdě.', ''],
+    ['JEDNOU ZA PŮL ROKU', 'Jaro a podzim: navoskovat, ošetřit plasty a těsnění dveří (dost dlouhý text).', '']],
   platili: { Michal: 11000, Katka: 300150 },
   // stav z auta (MyŠkoda přes domácí PC) – čerstvý, tachometr dál než poslední zápis v tabulce
   myskoda: { aktualizovano: new Date(ted).toISOString(), auta: [{ nazev: 'Testovací', model: 'Testovací auto', km: 13600, kmKdy: new Date(ted - 6e5).toISOString(),
@@ -1348,6 +1352,10 @@ async function novaStranka(prohlizec, v, motiv) {
     jistota(/Výměna oleje\s*za 7 700 km nebo za 280 dní/.test((await page.textContent('.auto-servis')).replace(/\s+/g, ' ')), 'servis podle auta');
     jistota(/Myčka/.test(await page.textContent('.auto-kategorie')) && /Katka/.test(await page.textContent('.auto-platili')), 'kategorie a kdo platil');
     jistota(await page.locator('.auto-cara circle').count() === 5, 'graf ceny nafty');
+    // karta Péče o auto z listu v tabulce: plán a přehled rozbalené, rady na klepnutí
+    const pece = (await page.textContent('.auto-pece')).replace(/\s+/g, ' ');
+    jistota(/Plán údržby/.test(pece) && /každých 15 000 km/.test(pece) && /Jednou za půl roku/.test(pece), 'péče o auto: ' + pece.slice(0, 200));
+    jistota(await page.locator('.auto-pece details[open]').count() === 2 && await page.locator('.auto-pece details').count() === 4, 'oddíly péče');
     // auto hlásí tankování, které v tabulce chybí (to před měsícem v tabulce je)
     const hlaseni = (await page.textContent('.auto-hlaseni')).replace(/\s+/g, ' ');
     jistota(/asi 36,4 l/.test(hlaseni) && !/asi 39 l/.test(hlaseni), 'hlášení z auta: ' + hlaseni);

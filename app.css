@@ -1488,6 +1488,20 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 .auto-zapis__foto svg { width: 13px; height: 13px; }
 .auto-uctenka__foto { padding: 0; border: 0; background: none; cursor: zoom-in; flex: none; border-radius: 8px; }
 .auto-uctenka .btn { margin-left: auto; flex: none; }
+/* karta Péče o auto (list „Péče o auto – text“) */
+.auto-pece { margin-top: 16px; }
+.auto-pece__oddil { border-top: 1px solid color-mix(in srgb, var(--o-auto) 12%, var(--line-soft)); padding: 0 16px; }
+.auto-pece__oddil summary { cursor: pointer; padding: 11px 0; font-weight: 650; font-size: 14px; list-style-position: inside; }
+.auto-pece__seznam { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 7px; }
+.auto-pece__seznam li { display: grid; grid-template-columns: minmax(0, 190px) minmax(0, 1fr); gap: 2px 14px; font-size: 13.5px; line-height: 1.45; }
+.auto-pece__seznam li b { font-weight: 600; }
+.auto-pece__seznam li span:only-child, .auto-pece__seznam li span:first-child { grid-column: 1 / -1; }
+.auto-pece__seznam li small { grid-column: 2; color: var(--muted); font-size: 12.5px; }
+.auto-pece__seznam li span:first-child + small { grid-column: 1 / -1; }
+@media (max-width: 759px) {
+  .auto-pece__seznam li { grid-template-columns: minmax(0, 1fr); }
+  .auto-pece__seznam li small { grid-column: 1; }
+}
 .auto-foto-velka { display: block; width: 100%; height: auto; border-radius: 12px; background: var(--sand); }
 .auto-zapis__text b { display: block; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auto-zapis__text small { display: block; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

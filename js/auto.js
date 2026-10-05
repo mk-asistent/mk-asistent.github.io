@@ -53,12 +53,20 @@ export function nactiAuto(znovu) {
     .then(() => { stav.nacita.auto = false; zmeneno(); });
 }
 
-/** Při překreslení stránky Auto: data ještě nejsou → načíst (jednou za otevření, pak jen Obnovit). */
-let nacteno = false;
+/**
+ * Při překreslení stránky Auto: data ještě nejsou, nebo jsou starší než 2 minuty (zápis z telefonu, Michal 5. 10.:
+ * „na PC nevidím nahrané účtenky z mobilu“) → načíst znovu. Chyba se zkouší až po Obnovit.
+ */
+const AUTO_CERSTVA = 2 * 60e3;
+let nactenoKdy = 0;
 export function dotahni() {
   if (stav.pohled !== 'auto' || !umiMotor('auto') || stav.nacita.auto || stav.chyby.auto) return;
-  if (!nacteno) { nacteno = true; nactiAuto(); }
+  if (Date.now() - nactenoKdy < AUTO_CERSTVA) return;
+  nactenoKdy = Date.now();
+  nactiAuto();
 }
+// návrat do aplikace (telefon z pozadí, jiné okno na PC) na stránce Auto → čerstvá data
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') dotahni(); });
 
 /** Stav auta z MyŠkoda (domácí PC → Disk → motor): první auto a kdy je údaj z auta. */
 function zAuta(d) {
@@ -140,7 +148,7 @@ export function vykresliAuto(el) {
   let h = '<div class="auto">';
   if (stav.chyby.auto) h += chybaAutaHtml(stav.chyby.auto);
   h += heroHtml(d, p) + akceHtml() + tankovaniZAutaHtml(d) + '<div class="auto-mrizka">' + cenyHtml(p) + mesiceHtml(p) + kategorieHtml(d, p) + servisHtml(d, p) + '</div>' +
-    zapisyHtml(d) + '</div>';
+    zapisyHtml(d) + peceHtml(d) + '</div>';
   el.innerHTML = h;
 }
 
@@ -348,6 +356,38 @@ function zapisyHtml(d) {
           IKONY.smazat + '</button>' : '') + '</li>';
     }).join('') + '</ul>' +
     (vse.length > MAX_ZAPISU ? '<button type="button" class="odkaz auto-vse" data-auto-vse>' + (vseZapisy ? 'Méně' : 'Všechny zápisy (' + vse.length + ')') + '</button>' : '') +
+    '</section>';
+}
+
+// ---------------------------------------------------------------- péče o auto (list „Péče o auto – text“ v tabulce)
+
+/** Řádky listu → oddíly: nadpis VELKÝMI PÍSMENY ve sloupci A začíná oddíl (u tabulky s názvy sloupců B a C). */
+function oddilyPece(radky) {
+  const nadpis = (r) => !!r[0] && r[0] === r[0].toUpperCase() && /[A-ZÁ-Ž]{3}/.test(r[0]);
+  const oddily = [];
+  radky.slice(1).forEach((r) => {
+    if (nadpis(r)) {
+      const odd = { nazev: r[0], polozky: [] };
+      if (r[1].length > 30) odd.polozky.push(['', r[1], r[2]]); // nadpis s textem rovnou za ním
+      oddily.push(odd);
+    } else if (oddily.length) {
+      oddily[oddily.length - 1].polozky.push(r);
+    }
+  });
+  return { uvod: radky.slice(1).find((r) => !nadpis(r) && r[1]) || null, oddily: oddily.filter((o) => o.polozky.length) };
+}
+
+/** Karta Péče o auto: plán údržby a přehled podle km rozbalené, rady (zima, léto, DSG, mytí) na klepnutí. */
+function peceHtml(d) {
+  if (!Array.isArray(d.pece) || d.pece.length < 2) return '';
+  const { oddily } = oddilyPece(d.pece);
+  if (!oddily.length) return '';
+  const velke = (t) => t.charAt(0) + t.slice(1).toLowerCase();
+  return '<section class="card auto-pece" data-oblast="auto">' + hlavickaKarty(IKONY.auto, 'Péče o auto',
+    d.odkaz ? '<a class="odkaz" href="' + esc(d.odkaz) + '" target="_blank" rel="noopener noreferrer">v tabulce</a>' : '') +
+    oddily.map((o, i) => '<details class="auto-pece__oddil"' + (i < 2 ? ' open' : '') + '><summary>' + esc(velke(o.nazev)) + '</summary><ul class="auto-pece__seznam">' +
+      o.polozky.map((r) => '<li>' + (r[0] ? '<b>' + esc(r[0]) + '</b>' : '') + '<span>' + esc(r[1]) + '</span>' + (r[2] ? '<small>' + esc(r[2]) + '</small>' : '') + '</li>').join('') +
+      '</ul></details>').join('') +
     '</section>';
 }
 
