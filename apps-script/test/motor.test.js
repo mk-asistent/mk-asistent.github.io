@@ -23,7 +23,7 @@ function prostredi() {
     getReplyTo: () => o.odpovedNa || o.od,
     getHeader: (h) => (h === 'Message-ID' ? '<' + o.id + '@mail.test>' : h === 'Delivered-To' ? (o.dorucenoNa || '') : ''),
     getPlainBody: () => o.text, getBody: () => (o.html != null ? o.html : '<p>' + o.text + '</p>'), getDate: () => new Date(o.kdy),
-    getSubject: () => o.predmet, isInTrash: () => false, isDraft: () => false, isUnread: () => !!o.neprectena,
+    getSubject: () => o.predmet, isInTrash: () => false, isDraft: () => false, isUnread: () => !!o.neprectena, isStarred: () => !!o.hvezdicka,
     getAttachments: () => (o.priloha ? [{ getName: () => 'nabidka.pdf', getSize: () => 12345 }] : []),
     reply: (t, m) => log.odeslano.push({ jak: 'reply', id: o.id, t, m }),
     replyAll: (t, m) => log.odeslano.push({ jak: 'replyAll', id: o.id, t, m }),
@@ -34,8 +34,13 @@ function prostredi() {
     let vDorucenych = true;
     return {
       getLabels: () => { log.getLabels = (log.getLabels || 0) + 1; return (stitkyVlaken[id] || []).map((n) => ({ getName: () => n })); },
-      getId: () => id, getFirstMessageSubject: () => zpravy[0].getSubject(), getLastMessageDate: () => zpravy[zpravy.length - 1].getDate(),
-      isUnread: () => neprectene, isImportant: () => false, hasStarredMessages: () => false, getMessageCount: () => zpravy.length,
+      getId: () => id, getMessageCount: () => zpravy.length, _neprectene: neprectene, // _neprectene: jen pro napodobené hledání is:unread
+      // tyhle stojí každá jedno volání Gmailu – v seznamech se nesmí volat (počítá log.drahe)
+      getFirstMessageSubject: () => { log.drahe = (log.drahe || 0) + 1; return zpravy[0].getSubject(); },
+      getLastMessageDate: () => { log.drahe = (log.drahe || 0) + 1; return zpravy[zpravy.length - 1].getDate(); },
+      isUnread: () => { log.drahe = (log.drahe || 0) + 1; return neprectene; },
+      isImportant: () => { log.drahe = (log.drahe || 0) + 1; return false; },
+      hasStarredMessages: () => { log.drahe = (log.drahe || 0) + 1; return false; },
       getMessages: () => zpravy, isInInbox: () => vDorucenych,
       markRead: () => log.precteno.push(id), markUnread: () => log.neprecteno.push(id),
       moveToArchive: () => { vDorucenych = false; log.archiv.push(id); },
@@ -66,14 +71,14 @@ function prostredi() {
       if (m) return zpravy[m[1]] && zpravy[m[1]].getTo() === PRAC && q.indexOf('{to:' + PRAC) >= 0 ? [vlakna.v2] : [];
       if (q.indexOf('category:updates') >= 0) return aktualizace;
       const kat = /(?:^|\s)category:(promotions|social|forums)\b/.exec(q);
-      if (kat) { const v = kategorieVlaken[kat[1]] || []; return q.indexOf('is:unread') >= 0 ? v.filter((x) => x.isUnread()) : v; }
+      if (kat) { const v = kategorieVlaken[kat[1]] || []; return q.indexOf('is:unread') >= 0 ? v.filter((x) => x._neprectene) : v; }
       if (q.indexOf('in:sent') >= 0) return odeslana;
       if (q.indexOf('older_than:') >= 0) return q.indexOf('{to:') >= 0 ? starsi.pracovni : starsi.osobni;
       return q.indexOf('{to:') >= 0 ? [vlakna.v2] : [vlakna.v1];
     },
     moveThreadToSpam: (v) => { log.spam = v.getId(); },
     moveThreadToInbox: (v) => { log.zeSpamu = (log.zeSpamu || []).concat(v.getId()); v.moveToInbox(); },
-    getMessagesForThreads: (v) => v.map((x) => x.getMessages()),
+    getMessagesForThreads: (v) => { log.nacteniZprav = (log.nacteniZprav || 0) + 1; return v.map((x) => x.getMessages()); },
     getThreadById: (id) => vlakna[id] || null,
     getMessageById: (id) => ({ m1, m2, m3 })[id] || null,
     getAliases: () => aliasy,
@@ -1648,6 +1653,9 @@ test('pošta: záložky jako v Gmailu – Aktualizace v Doručené označené, P
   assert.strictEqual(o.data.osobni.find((v) => v.id === 'v1').aktualizace, true, 'aktualizace označená');
   assert.deepStrictEqual(json(o.data.pocty), { promo: 1, socialni: 0, fora: 0 });
   assert.strictEqual(o.data.prehled, null, 'přehled od Clauda zatím není');
+  // denní limit Gmailu: seznam pošty bez metod vlákna (každá = jedno volání), všechno ze zpráv
+  assert.strictEqual(p.log.drahe || 0, 0, 'drahá volání vlákna v seznamu pošty');
+  assert.deepStrictEqual([o.data.osobni[0].neprectena, o.data.osobni[0].predmet, typeof o.data.osobni[0].kdy], [true, 'Sraz v sobotu', 'number']);
   o = p.volej('postaKategorie', { kategorie: 'promo' });
   assert.strictEqual(o.ok, true, o.chyba);
   assert.deepStrictEqual(o.data.vlakna.map((v) => [v.id, v.od, v.neprectena]), [['p1', 'Slevomat', true], ['p2', 'CK Test', false]]);
@@ -1658,6 +1666,33 @@ test('pošta: záložky jako v Gmailu – Aktualizace v Doručené označené, P
   o = p.volej('postaPrectene', { kategorie: 'promo' });
   assert.deepStrictEqual(json(o.data), { precteno: 1, ids: ['p1'] });
   assert.ok(p.log.precteno.indexOf('p1') >= 0 && p.log.precteno.indexOf('p2') < 0);
+});
+
+test('pošta: beze změny v Doručené (pořadí, nepřečtená, návrhy) vrátí uložený seznam bez načítání zpráv', () => {
+  const p = prostredi();
+  let o = p.volej('posta');
+  assert.strictEqual(o.ok, true, o.chyba);
+  const poprve = p.log.nacteniZprav;
+  assert.ok(poprve > 0, 'poprvé se zprávy načtou');
+  // server za 10 minut: krátká mezipaměť je pryč, Doručená stejná → bez getMessagesForThreads
+  p.cache.delete('posta');
+  o = p.volej('posta');
+  assert.strictEqual(p.log.nacteniZprav, poprve, 'beze změny se zprávy nenačítají');
+  assert.deepStrictEqual(o.data.osobni.map((v) => v.id), ['v1']);
+  // přišla nová zpráva (jiné pořadí vláken) → sestaví se znovu
+  p.cache.delete('posta');
+  p.vlakna.v3 = p.vlakno('v3', [p.zprava({ id: 'm5', od: 'Trenér <trener@klub.test>', predmet: 'Nová zpráva', text: 'Ahoj.', kdy: Date.now(), neprectena: true })], true);
+  const puvodni = p.ctx.GmailApp.search;
+  p.ctx.GmailApp.search = (q, od, max) => (/^in:inbox newer_than:30d/.test(q) && q.indexOf('{to:') < 0 && q.indexOf('category:updates') < 0 ? [p.vlakna.v3, p.vlakna.v1] : puvodni(q, od, max));
+  o = p.volej('posta');
+  assert.ok(p.log.nacteniZprav > poprve, 'změna → zprávy znovu');
+  assert.deepStrictEqual(o.data.osobni.map((v) => v.id), ['v3', 'v1']);
+  // změna z aplikace (archiv) maže i uložený seznam
+  p.ctx.GmailApp.search = puvodni;
+  const pred = p.log.nacteniZprav;
+  p.volej('oznacit', { id: 'v1', jak: 'prectene' });
+  p.volej('posta');
+  assert.ok(p.log.nacteniZprav > pred, 'po změně z aplikace sestavit znovu');
 });
 
 test('pošta: přesun do štítku (skupiny) jako v Gmailu – štítek a pryč z Doručené, jen štítek, odebrat', () => {
@@ -1706,6 +1741,7 @@ test('pošta: podklady pro přehled od Clauda (jednou za 4 hodiny, jen při změ
   p.nastavCas(Date.parse('2026-10-05T13:30:00+02:00'));
   p.ctx.instagramKazdych10Min();
   assert.strictEqual(JSON.parse(soubor().getBlob().getDataAsString()).vytvoreno, d.vytvoreno, 'beze změny se nepřepisuje');
+  assert.strictEqual(p.log.drahe || 0, 0, 'podklady bez drahých metod vlákna');
   // Claude napsal přehled → v Doručené (jen očištěné položky)
   p.schranka.createFile('POSTA_PREHLED.json', JSON.stringify({ vytvoreno: '2026-10-05T09:20:00+02:00', prosel: 2, dulezite: [],
     zajimave: [{ id: 'p1', od: 'Slevomat', predmet: 'Dárek k svátku', proc: 'Kredit 200 Kč – platí do neděle.', kategorie: 'promo' },

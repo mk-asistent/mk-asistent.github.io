@@ -36,7 +36,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.21';
+const VERZE = '2026-10-05.22';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -566,20 +566,47 @@ function nactiPostu_(znovu) {
   // druhé, starší okno: z 30–90 dní jen nevyřízené, ať se nedořešená věc neztratí jen proto, že je starší než měsíc
   const starsi = 'in:inbox older_than:' + DNI_POSTY + 'd newer_than:' + DNI_STARSI_POSTY + 'd' + kategorie;
   const nevyrizene = function (v) { return v.stav === 'hori' || v.stav === 'ceka' || v.stav === 'otazka'; };
-  const ucet = function (filtr, nazev) {
-    return spojVlakna_(seznamVlaken_(zaklad + filtr, ja, prac, nazev, null, null, true),
-      seznamVlaken_(starsi + filtr, ja, prac, nazev, MAX_STARSICH, null, true).filter(nevyrizene));
+  // nejdřív jen dotazy (levné): pořadí vláken, nepřečtená a návrhy od Clauda dají otisk Doručené. Server se ptá
+  // každých 10 minut – beze změny se vrátí uložený seznam a zprávy se nenačítají (denní limit Gmailu, 5. 10.)
+  const hledej = function (dotaz, max) { return { dotaz: dotaz, vlakna: GmailApp.search(dotaz, 0, max || MAX_VLAKEN) }; };
+  const filtrPrac = prac ? ' ' + filtrPracovni_(prac) : null;
+  const filtrOsob = prac ? ' -to:' + prac + ' -cc:' + prac + ' -deliveredto:' + prac : '';
+  const dotazy = {
+    pracovni: filtrPrac == null ? null : [hledej(zaklad + filtrPrac), hledej(starsi + filtrPrac, MAX_STARSICH)],
+    osobni: [hledej(zaklad + filtrOsob), hledej(starsi + filtrOsob, MAX_STARSICH)]
   };
-  const pracovni = prac ? ucet(' ' + filtrPracovni_(prac), 'pracovni') : [];
+  let navrhy = {};
+  try { navrhy = nactiNavrhy_(); } catch (chyba) { navrhy = {}; }
+  const idy = function (h) { return h.vlakna.map(function (v) { return v.getId(); }); };
+  const otisk = md5_(JSON.stringify([prac, dotazy.pracovni ? dotazy.pracovni.map(idy) : null, dotazy.osobni.map(idy),
+    GmailApp.search('in:inbox is:unread newer_than:' + DNI_STARSI_POSTY + 'd', 0, 200).map(function (v) { return v.getId(); }).sort(),
+    Object.keys(navrhy).sort().map(function (k) { return k + ':' + navrhy[k].zpravaId; })]));
+  const doplnPostu = function (v) {
+    v.firemni = nactiFiremni_(); // souhrny z PC (náhradní zdroj, když se pracovní pošta nepřeposílá)
+    v.pocty = null;              // nepřečtené v Promoakcích, Sociálních sítích a Fórech (čísla u záložek)
+    v.prehled = null;            // přehled od Clauda (POSTA_PREHLED.json)
+    try { v.pocty = poctyKategorii_(znovu); } catch (chyba) { /* záložky bez čísel */ }
+    try { v.prehled = nactiPrehledPosty_(); } catch (chyba) { /* bez přehledu */ }
+    v.ted = Date.now();
+    // 5 minut: každá změna z aplikace (odeslání, archiv, přečteno…) mezipaměť maže, Obnovit ji obchází
+    ulozDoCache_('posta', v, 300);
+    return v;
+  };
+  if (!znovu) {
+    const plna = nactiZCache_('posta-plna');
+    if (plna && plna.otisk === otisk && plna.vysledek) return doplnPostu(plna.vysledek);
+  }
+  const ucet = function (h, nazev) {
+    return spojVlakna_(seznamVlaken_(h[0].dotaz, ja, prac, nazev, null, h[0].vlakna, true),
+      seznamVlaken_(h[1].dotaz, ja, prac, nazev, MAX_STARSICH, h[1].vlakna, true).filter(nevyrizene));
+  };
+  const pracovni = dotazy.pracovni ? ucet(dotazy.pracovni, 'pracovni') : [];
   // hledání jde po zprávách – vlákno s osobní i pracovní zprávou by bylo dvakrát; patří k pracovní
   const vPracovni = {};
   pracovni.forEach(function (v) { vPracovni[v.id] = true; });
-  const osobni = ucet(prac ? ' -to:' + prac + ' -cc:' + prac + ' -deliveredto:' + prac : '', 'osobni')
-    .filter(function (v) { return !vPracovni[v.id]; });
+  const osobni = ucet(dotazy.osobni, 'osobni').filter(function (v) { return !vPracovni[v.id]; });
   // podklady pro návrhy odpovědí od Clauda (jen na Disk, do aplikace nejdou) + značka „návrh“ u konverzace
   const kOdpovedi = [];
-  let navrhy = {};
-  try { navrhy = nactiNavrhy_(); } catch (chyba) { navrhy = {}; }
   osobni.concat(pracovni).forEach(function (v) {
     if (v._odpoved) {
       kOdpovedi.push({ id: v.id, zpravaId: v._odpoved.zpravaId, ucet: v.ucet, stav: v.stav, od: v.od, odAdresa: v.odAdresa, predmet: v.predmet, kdy: v.kdy, text: v._odpoved.text });
@@ -589,20 +616,10 @@ function nactiPostu_(znovu) {
     delete v._odpoved;
   });
   try { ulozPostuKOdpovedi_(kOdpovedi); } catch (chyba) { /* pošta se ukáže i bez podkladů */ }
-  const vysledek = {
-    osobni: osobni,
-    pracovni: pracovni,
-    pracovniAdresa: prac,
-    firemni: nactiFiremni_(), // souhrny z PC (náhradní zdroj, když se pracovní pošta nepřeposílá)
-    pocty: null,              // nepřečtené v Promoakcích, Sociálních sítích a Fórech (čísla u záložek)
-    prehled: null,            // přehled od Clauda (POSTA_PREHLED.json)
-    ted: Date.now()
-  };
-  try { vysledek.pocty = poctyKategorii_(znovu); } catch (chyba) { /* záložky bez čísel */ }
-  try { vysledek.prehled = nactiPrehledPosty_(); } catch (chyba) { /* bez přehledu */ }
-  // 5 minut: každá změna z aplikace (odeslání, archiv, přečteno…) mezipaměť maže, Obnovit ji obchází
-  ulozDoCache_('posta', vysledek, 300);
-  return vysledek;
+  const vysledek = { osobni: osobni, pracovni: pracovni, pracovniAdresa: prac };
+  // sestavený seznam s otiskem hodinu – pak se sestaví znovu (termíny „dnes / zítra“ se posouvají)
+  ulozDoCache_('posta-plna', { otisk: otisk, vysledek: vysledek }, 3600);
+  return doplnPostu(vysledek);
 }
 
 // ---------------------------------------------------------------- Návrhy odpovědí od Clauda
@@ -693,6 +710,9 @@ function spojVlakna_(prvni, druhe) {
 /**
  * Souhrny vláken pro seznam v aplikaci. Vlákna z dotazu do Gmailu, nebo už načtená (predem – např. vlákna štítku);
  * dotaz pak slouží jen k poznání oznámení (kategorie Aktualizace).
+ * Denní limit Gmailu (20 000 volání): předmět, datum, nepřečteno a hvězdička se berou ze zpráv načtených jedním
+ * getMessagesForThreads – metody vlákna (isUnread, getLastMessageDate…) jsou každá zvlášť volání a server poštu
+ * obnovuje každých 10 minut (5. 10. to limit vyčerpalo).
  */
 function seznamVlaken_(dotaz, ja, prac, ucet, max, predem, sPodklady) {
   const vlakna = predem || GmailApp.search(dotaz, 0, max || MAX_VLAKEN);
@@ -736,12 +756,11 @@ function seznamVlaken_(dotaz, ja, prac, ucet, max, predem, sPodklady) {
       od: cekas ? 'Čekáš na: ' + jmenaAdresatu_(posledni)
         : odesilatel ? jmeno_(odesilatel.getFrom()) : 'Já → ' + jmeno_(posledni.getTo()),
       odAdresa: odesilatel ? adresa_(odesilatel.getFrom()) : '',
-      predmet: vlakno.getFirstMessageSubject() || '(bez předmětu)',
+      predmet: (zpravy[i][0] && zpravy[i][0].getSubject()) || '(bez předmětu)',
       ukazka: (cekas && prvniRadek_(vlastniText_(posledni))) || ukazka,
-      kdy: vlakno.getLastMessageDate().getTime(),
-      neprectena: vlakno.isUnread(),
-      dulezita: vlakno.isImportant(),
-      hvezdicka: vlakno.hasStarredMessages(),
+      kdy: posledni.getDate().getTime(),
+      neprectena: zpravy[i].some(function (m) { return m.isUnread(); }),
+      hvezdicka: zpravy[i].some(function (m) { return m.isStarred(); }),
       stitky: stitky[i],
       pocet: seznam.length,
       odkaz: odkazGmail_(vlakno.getId()),
@@ -790,7 +809,7 @@ function oznameniVlakna_(dotaz) {
 
 // ---------------------------------------------------------------- Pošta – štítky Gmailu, kontakty, podpisy
 
-const STITKY_SEKUND = 3600; // štítky vlákna se mění zřídka (přidává je hlavně filtr při doručení)
+const STITKY_SEKUND = 21600; // štítky vlákna se mění zřídka (filtr při doručení, přesun z aplikace mezipaměť maže)
 const MAX_VLAKEN_STITKU = 40;
 const MAX_PODPISU = 2000;
 
@@ -890,7 +909,7 @@ function poctyKategorii_(znovu) {
   ['promo', 'socialni', 'fora'].forEach(function (k) {
     pocty[k] = GmailApp.search('in:inbox is:unread category:' + KATEGORIE_GMAILU[k], 0, MAX_POCTU).length;
   });
-  ulozDoCache_('posta-pocty', pocty, 600);
+  ulozDoCache_('posta-pocty', pocty, 1200);
   return pocty;
 }
 
@@ -948,12 +967,13 @@ function ulozPostuKPrehledu_(vynutit) {
     vlakna = vlakna.filter(function (v) { return !videno[v.getId()]; });
     const obsah = vlakna.length ? GmailApp.getMessagesForThreads(vlakna) : [];
     vlakna.forEach(function (v, i) {
-      videno[v.getId()] = true;
       const posledni = obsah[i][obsah[i].length - 1];
+      if (!posledni || (stitek && posledni.getDate().getTime() < ted - 2 * 864e5)) return; // ze štítku jen čerstvé (kategorie hlídá dotaz)
+      videno[v.getId()] = true;
       const z = { id: v.getId(), kategorie: kategorie, od: jmeno_(posledni.getFrom()), odAdresa: adresa_(posledni.getFrom()),
-        predmet: v.getFirstMessageSubject() || '(bez předmětu)',
+        predmet: obsah[i][0].getSubject() || '(bez předmětu)',
         ukazka: cistyText_(String(posledni.getPlainBody() || '').replace(/https?:\/\/\S+/g, '')).slice(0, 300),
-        kdy: v.getLastMessageDate().getTime(), neprectena: v.isUnread() };
+        kdy: posledni.getDate().getTime(), neprectena: obsah[i].some(function (m) { return m.isUnread(); }) };
       if (stitek) z.stitek = stitek;
       zpravy.push(z);
     });
@@ -965,7 +985,7 @@ function ulozPostuKPrehledu_(vynutit) {
   stitkyKPrehledu_().forEach(function (n) {
     const stitek = GmailApp.getUserLabelByName(n);
     if (!stitek) return;
-    pridej(stitek.getThreads(0, MAX_K_PREHLEDU).filter(function (v) { return v.getLastMessageDate().getTime() > ted - 2 * 864e5; }), 'stitek', n);
+    pridej(stitek.getThreads(0, 15), 'stitek', n);
   });
   const otisk = md5_(JSON.stringify(zpravy.map(function (z) { return [z.id, z.kdy]; })));
   if (p.getProperty('PREHLED_POSTY_OTISK') === otisk) return false;
@@ -5401,7 +5421,7 @@ function smazCache_(klic) {
   const cache = CacheService.getScriptCache();
   cache.remove(klic);
   // pošta: s Doručenou i čísla a seznamy kategorií (archiv, přečteno a přesun mění i ty)
-  if (klic === 'posta') ['posta-pocty'].concat(Object.keys(KATEGORIE_GMAILU).map(function (k) { return 'posta-' + k; })).forEach(function (k) { cache.remove(k); });
+  if (klic === 'posta') ['posta-pocty', 'posta-plna'].concat(Object.keys(KATEGORIE_GMAILU).map(function (k) { return 'posta-' + k; })).forEach(function (k) { cache.remove(k); });
 }
 
 function md5_(text) {
