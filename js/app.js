@@ -71,7 +71,9 @@ function obnovVse(znovu) {
   fotbal.nactiFotbal();
   reely.nactiReely(znovu);
   if (znovu || stav.pohled === 'auto') auto.nactiAuto(znovu); // tabulku auta jen na její stránce nebo při Obnovit
-  ucet.obnovStare();
+  // Obnovit = i čerstvé kopie na serveru (třeba hned po nasazení motoru); jinak jen když jsou kopie starší
+  if (znovu) ucet.obnovNaServeru(true);
+  else ucet.obnovStare();
 }
 
 /** Server obnovil kopie (každých 10 min, po změně nebo při otevření) → načíst znovu, čeho se to týká (z kopie, hned). */

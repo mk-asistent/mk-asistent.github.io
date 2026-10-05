@@ -1258,6 +1258,12 @@ async function novaStranka(prohlizec, v, motiv) {
     jistota(volano.some((d) => d.akce === 'posta'), 'stará kopie → pošta z motoru');
     jistota(fbVolano.indexOf('obnovHned') >= 0, 'server nebyl požádán o obnovu');
     jistota(!(await page.isVisible('#posta-seznam :text("Stará kopie")')), 'stará kopie se nesmí ukázat');
+    // tlačítko Obnovit požádá server o nové kopie i tehdy, když jsou čerstvé (třeba hned po nasazení motoru)
+    await page.waitForTimeout(300);
+    fbVolano.length = 0;
+    await page.evaluate(() => document.querySelector('[data-obnovit]').click()); // přes případné otevřené okno
+    for (let i = 0; i < 20 && fbVolano.indexOf('obnovHned') < 0; i++) await page.waitForTimeout(150);
+    jistota(fbVolano.indexOf('obnovHned') >= 0, 'Obnovit nepožádal server o nové kopie');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
   });
