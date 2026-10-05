@@ -84,10 +84,13 @@ async function volejPrimo(akce, data, jinePripojeni) {
   } finally {
     clearTimeout(casovac);
   }
-  let json = null;
-  try { json = await odpoved.json(); } catch (e) { /* níž */ }
+  let json = null, text = '';
+  try { text = await odpoved.text(); json = JSON.parse(text); } catch (e) { /* níž */ }
   if (!json) {
-    throw new ChybaApi('Motor neodpověděl daty – zkontroluj adresu a nasazení s přístupem „Kdokoli“.', 'format');
+    // co místo dat přišlo (stav a začátek textu bez HTML) – podle toho se pozná přihlášení Googlu, chyba skriptu, špatná adresa
+    const ukazka = text.replace(/<(style|script)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
+    throw new ChybaApi('Motor neodpověděl daty (HTTP ' + odpoved.status + (ukazka ? ': „' + ukazka + '“' : ', prázdná odpověď') +
+      ') – zkontroluj adresu a nasazení s přístupem „Kdokoli“.', 'format');
   }
   // Schránka pro Clauda (skript pro diktování z iPhonu) odpovídá {ok: 'ano'|'ne'} – to není motor aplikace
   if (json.ok === 'ano' || json.ok === 'ne') {
