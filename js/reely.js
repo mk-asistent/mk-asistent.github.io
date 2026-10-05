@@ -4,7 +4,7 @@
 
 import { stav, zmeneno, umiMotor, hooky } from './stav.js';
 import { volej } from './api.js';
-import { esc, uloziste, dm, DNY_KR, rozdilDni, zacatekTydne, pridejDny, terminDatum, isoDatum, tvar, kdyKratce, prvniRadek } from './pomocne.js';
+import { esc, uloziste, dm, DNY_KR, rozdilDni, zacatekTydne, pridejDny, terminDatum, isoDatum, tvar, kdyKratce } from './pomocne.js';
 import { IKONY } from './ikony.js';
 import { toast, toastAkce, kostra, chybaHtml, segment } from './ui.js';
 
@@ -12,7 +12,6 @@ const ULOZISTE = 'asistent.data.reely';
 const FILTR = 'asistent.reely.filtr';
 const CERSTVY_DNI = 7; // na Dnes jen reel ze zápasu za poslední týden
 let filtr = uloziste.cti(FILTR) || 'vse';
-const otevrene = {};   // rozbalené popisky
 
 export function nactiZUloziste() {
   const v = uloziste.cti(ULOZISTE);
@@ -75,19 +74,16 @@ function kopirovatHtml(r, popisek) {
 function reelHtml(r) {
   const z = zverejneno(r);
   const t = datumReelu(r);
-  const otevreny = !!otevrene[r.id];
-  const dlouhy = r.popisek.split('\n').length > 4 || r.popisek.length > 220;
   const meta = [DNY_KR[new Date(t).getDay()] + ' ' + dm(t), (r.zapasy[0] || {}).soutez, r.varianta, r.velikost ? Math.round(r.velikost) + ' MB' : ''].filter(Boolean);
   return '<li class="reel' + (z ? ' reel--venku' : '') + '" data-reel="' + esc(r.id) + '">' + nahledHtml(r) +
     '<div class="reel__telo">' +
-      '<div class="reel__stitky">' + r.tymy.map((k) => '<span class="tag tag--seda">' + esc(nazevTymu(k)) + '</span>').join('') +
+      '<div class="reel__hlava"><div class="reel__stitky">' + r.tymy.map((k) => '<span class="tag tag--seda">' + esc(nazevTymu(k)) + '</span>').join('') +
         (z ? '<span class="tag tag--ok">' + IKONY.fajfka + 'na Instagramu od ' + esc(dm(terminDatum(stav.reely.zverejneno[r.id]))) + '</span>'
           : '<span class="tag tag--danger">čeká na Instagram</span>') + '</div>' +
       '<b class="reel__nazev">' + esc(r.nazev) + '</b>' +
-      '<small class="reel__meta">' + esc(meta.join(' · ')) + '</small>' +
-      (r.popisek
-        ? '<div class="reel__popisek' + (otevreny || !dlouhy ? ' cely' : '') + '"><div class="reel__text">' + esc(r.popisek) + '</div></div>' +
-          (dlouhy ? '<button type="button" class="odkaz reel__vic" data-reel-popisek="' + esc(r.id) + '" aria-expanded="' + otevreny + '">' + (otevreny ? 'Méně' : 'Celý popisek') + '</button>' : '')
+      '<small class="reel__meta">' + esc(meta.join(' · ')) + '</small></div>' +
+      // popisek vždy celý (Michal 5. 10.) – před kopírováním ho chce přečíst
+      (r.popisek ? '<div class="reel__popisek">' + esc(r.popisek) + '</div>'
         : '<p class="reel__bez">Popisek zatím není – připíše ho Claude při výrobě reelu.</p>') +
       '<div class="reel__akce">' + kopirovatHtml(r) +
         (r.odkaz ? '<a class="btn btn--ghost" href="' + esc(r.odkaz) + '" target="_blank" rel="noopener noreferrer">' + IKONY.prehrat + '<span>Video</span></a>' : '') +
@@ -152,7 +148,8 @@ export function kartaDnesHtml() {
     '<div class="reel-krok__hlava"><small>' + IKONY.reely + 'Reel k vyvěšení' + (k.length > 1 ? ' · ' + k.length : '') + '</small>' +
       '<button type="button" class="reel-krok__sipka" data-cil="reely" aria-label="Všechny reely" title="Všechny reely">' + IKONY.sipka + '</button></div>' +
     '<div class="reel-krok__obsah">' + nahledHtml(r) +
-      '<div class="reel-krok__text"><b>' + esc(r.nazev) + '</b>' + (r.popisek ? '<q>' + esc(prvniRadek(r.popisek, 110)) + '</q>' : '<q>Popisek zatím není.</q>') + '</div></div>' +
+      '<div class="reel-krok__text"><b>' + esc(r.nazev) + '</b><small>' + esc([r.tymNazev, (r.zapasy[0] || {}).soutez].filter(Boolean).join(' · ')) + '</small></div></div>' +
+    (r.popisek ? '<div class="reel-krok__popisek">' + esc(r.popisek) + '</div>' : '<q>Popisek zatím není.</q>') +
     '<div class="reel-krok__akce">' + kopirovatHtml(r) +
       (r.odkaz ? '<a class="btn btn--ghost" href="' + esc(r.odkaz) + '" target="_blank" rel="noopener noreferrer">' + IKONY.prehrat + '<span>Video</span></a>' : '') + '</div>' +
   '</div>';
@@ -212,7 +209,6 @@ export function klikReely(el) {
     if (r) oznac(r.id, !zverejneno(r));
     return true;
   }
-  if (el.dataset.reelPopisek) { otevrene[el.dataset.reelPopisek] = !otevrene[el.dataset.reelPopisek]; zmeneno(); return true; }
   if (el.dataset.reelyFiltr) { filtr = el.dataset.reelyFiltr; uloziste.pis(FILTR, filtr); zmeneno(); return true; }
   if (el.hasAttribute('data-reely-znovu')) { nactiReely(true); return true; }
   return false;

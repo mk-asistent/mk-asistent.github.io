@@ -607,16 +607,14 @@ a.reel__nahled:hover .reel__play { background: var(--limetka); }
 .reel__delka { position: absolute; left: 6px; bottom: 6px; padding: 1px 6px; border-radius: 6px; background: rgba(0, 0, 0, .62); font-size: 11px; font-weight: 600; }
 .reel__ceka { position: absolute; left: 6px; right: 6px; top: 50%; transform: translateY(-50%); padding: 4px 6px; border-radius: 8px; background: rgba(0, 0, 0, .62); font-size: 11px; font-weight: 600; line-height: 1.25; text-align: center; }
 .reel__telo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.reel__hlava { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .reel__stitky { display: flex; flex-wrap: wrap; gap: 5px; }
 .reel__stitky .tag { gap: 3px; }
 .reel__stitky .tag svg { width: 12px; height: 12px; }
 .reel__nazev { font-size: 15.5px; font-weight: 700; line-height: 1.3; letter-spacing: -.01em; }
 .reel__meta { font-size: 12.5px; color: var(--muted); }
-/* popisek přesně jako na Instagramu (odřádkování, prázdné řádky); sbalený na 4 řádky s vyblednutím */
-.reel__popisek { margin-top: 2px; padding: 9px 11px; border-radius: 12px; background: var(--bg-soft); color: var(--text-soft); font-size: 13.5px; line-height: 1.5; }
-.reel__text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 6em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
-.reel__popisek.cely .reel__text { max-height: none; -webkit-mask-image: none; mask-image: none; }
-.reel__vic { align-self: flex-start; font-size: 12.5px; }
+/* popisek vždy celý a přesně jako na Instagramu (odřádkování, prázdné řádky, emoji) */
+.reel__popisek { margin-top: 2px; padding: 9px 11px; border-radius: 12px; background: var(--bg-soft); color: var(--text-soft); font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .reel__bez { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
 .reel__akce { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .reel__akce .btn { border-radius: 999px; }
@@ -627,18 +625,23 @@ a.reel__nahled:hover .reel__play { background: var(--limetka); }
 .reel-krok__hlava { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .reel-krok__sipka { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .6); color: var(--na-limetce); }
 .reel-krok__sipka svg { width: 15px; height: 15px; }
-.reel-krok__obsah { display: flex; align-items: flex-start; gap: 12px; }
+.reel-krok__obsah { display: flex; align-items: center; gap: 12px; }
 .reel-krok .reel__nahled { width: 64px; border-radius: 10px; }
 .reel-krok .reel__play { width: 30px; height: 30px; margin: -15px 0 0 -15px; }
 .reel-krok .reel__play svg { width: 12px; height: 12px; }
 .reel-krok__text { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .reel-krok__text b { font-size: 16px; }
-.reel-krok__text q { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.dalsi-krok .reel-krok__text small { display: block; font-size: 12.5px; font-weight: 500; opacity: .75; }
+.reel-krok__popisek { padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, .55); font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .reel-krok__akce { display: flex; flex-wrap: wrap; gap: 8px; }
 .dalsi-krok.reel-krok .reel-krok__akce .btn--ghost { background: transparent; border-color: rgba(23, 32, 15, .25); color: var(--na-limetce); }
 @media (max-width: 759px) {
-    .reel { gap: 12px; padding: 10px; border: 0; border-radius: 20px; }
-    .reel__nahled { width: 84px; }
+    /* telefon: náhled a název vedle sebe, popisek a tlačítka pod tím přes celou šířku (čte se jako na Instagramu) */
+    .reel { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px 12px; padding: 10px; border: 0; border-radius: 20px; }
+    .reel__telo { display: contents; }
+    .reel__nahled { width: 72px; }
+    .reel__hlava { align-self: center; }
+    .reel__popisek, .reel__bez, .reel__akce { grid-column: 1 / -1; }
     /* Kopírovat přes celou šířku, pod ním Video a Zveřejněno vedle sebe */
     .reel__akce { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
     .reel__akce > [data-reel-kopirovat], .reel__akce > [data-reel-kopirovat] + :last-child, .reel__akce > :only-child { grid-column: 1 / -1; }

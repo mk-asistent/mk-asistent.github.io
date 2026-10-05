@@ -905,8 +905,14 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.click('#p-fotbal .reely-tl');
     await page.waitForSelector('#p-reely .reel[data-reel="reel_dorost_tesany"] [data-reel-kopirovat]');
     jistota(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, 'Reely přetékají');
-    await page.click('#p-reely [data-reel-popisek="reel_dorost_tesany"]').catch(() => {}); // krátký popisek tlačítko nemá
+    // popisek vždy celý: poslední řádek je vidět a text není oříznutý (na stránce i v kartě na Dnes)
+    const celyPopisek = (sel) => page.evaluate((s) => { const el = document.querySelector(s); return !!el && el.scrollHeight <= el.clientHeight + 1 && /#fkagrovnorovy #dorost/.test(el.innerText); }, sel);
+    jistota(await celyPopisek('#p-reely [data-reel="reel_dorost_tesany"] .reel__popisek'), 'popisek na stránce není celý');
     await page.screenshot({ path: path.join(VYSTUP, 'telefon_reely.png'), fullPage: true });
+    await page.click('.lista [data-cil="dnes"]');
+    await page.waitForSelector('#dnes-mobil .reel-krok__popisek');
+    jistota(await celyPopisek('#dnes-mobil .reel-krok__popisek'), 'popisek v kartě na Dnes není celý');
+    await page.locator('#dnes-mobil .reel-krok').screenshot({ path: path.join(VYSTUP, 'telefon_dnes_reel.png') });
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
   });
