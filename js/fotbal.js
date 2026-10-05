@@ -98,7 +98,8 @@ export function kartaDnesHtml() {
   const p = prehled();
   if (!p.length) return '';
   const d = data();
-  return hlavickaKarty(IKONY.zapas, 'Fotbal · ' + esc(klub(d.klub || '')), '<span class="muted small">' + esc(kdyKratce(Date.parse(d.aktualizovano) || 0)) + '</span>' +
+  return hlavickaKarty(IKONY.zapas, 'Fotbal · ' + esc(klub(d.klub || '')), (hooky.reelyTlacitko ? hooky.reelyTlacitko('chip chip--mala') : '') +
+    '<span class="muted small">' + esc(kdyKratce(Date.parse(d.aktualizovano) || 0)) + '</span>' +
     '<button type="button" class="sipka" data-cil="fotbal" aria-label="Tabulky a zápasy" title="Tabulky a zápasy">' + IKONY.sipka + '</button>') +
     '<ul class="fotbal-tymy">' + p.map((x) => {
       const v = x.posledni ? vrp(x.posledni) : '';
@@ -246,9 +247,9 @@ export function vykresliFotbal(el) {
   const radekNas = tab && (tab.celkem || []).find((r) => nas.test(r.klub));
   const st = statistikyTymu(d, t.klic);
 
-  let h = '<div class="fotbal-stranka"><div class="segment fotbal-vyber" role="group" aria-label="Tým">' + tymy.map((x) =>
+  let h = '<div class="fotbal-stranka"><div class="fotbal-lista"><div class="segment fotbal-vyber" role="group" aria-label="Tým">' + tymy.map((x) =>
     '<button type="button" class="chip chip--tym" style="--b:' + esc(x.barva || 'var(--accent)') + '" data-fotbal-vyber="' + esc(x.klic) + '" aria-pressed="' + (x.klic === t.klic) + '">' +
-    esc(x.nazev) + '</button>').join('') + '</div>';
+    esc(x.nazev) + '</button>').join('') + '</div>' + (hooky.reelyTlacitko ? hooky.reelyTlacitko() : '') + '</div>';
   const souhrn = [esc(t.soutez || '')].concat(radekNas ? ['<b>' + radekNas.poradi + '. místo</b>', radekNas.body + ' ' + (radekNas.body === 1 ? 'bod' : radekNas.body >= 2 && radekNas.body <= 4 ? 'body' : 'bodů'),
     radekNas.v + '–' + radekNas.r + '–' + radekNas.p, 'skóre ' + esc(radekNas.skore)] : []).filter(Boolean);
   if (souhrn.length) h += '<p class="fotbal-souhrn">' + souhrn.join(' · ') + '</p>';

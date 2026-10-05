@@ -584,6 +584,66 @@ button.zapas-hlava:hover { background: var(--bg-soft); }
     .fotbal-tabulka .vrp { display: none; }
     .zapas-detail { padding-left: 16px; }
 }
+.fotbal-lista { display: flex; align-items: center; justify-content: space-between; gap: 8px 10px; flex-wrap: wrap; }
+.fotbal-lista > .segment { min-width: 0; }
+.reely-tl svg { width: 15px; height: 15px; }
+.chip--mala { padding: 3px 9px; gap: 5px; font-size: 12px; }
+.chip--mala svg { width: 13px; height: 13px; }
+
+/* ================================================================ Reely: hotové reely z fotbalu – popisek ke zkopírování, video na Disku */
+.pohled-reely { max-width: 780px; }
+.reely-stranka { display: flex; flex-direction: column; gap: 14px; }
+.reely-stranka > .filtry { margin-bottom: 0; }
+.reely-tyden__nadpis { margin: 2px 2px 8px; font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.reely-seznam { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.reel { display: flex; gap: 14px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow); }
+.reel__nahled { position: relative; display: block; flex: none; align-self: flex-start; width: 96px; aspect-ratio: 9 / 16; border-radius: 12px; overflow: hidden; background: #121614; color: #fff; }
+.reel__nahled img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.reel__prazdny { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255, 255, 255, .45); }
+.reel__prazdny svg { width: 30px; height: 30px; }
+.reel__play { position: absolute; left: 50%; top: 50%; width: 40px; height: 40px; margin: -20px 0 0 -20px; display: grid; place-items: center; border-radius: 50%; background: rgba(255, 255, 255, .92); color: #121614; box-shadow: 0 4px 14px rgba(0, 0, 0, .3); }
+.reel__play svg { width: 16px; height: 16px; margin-left: 2px; }
+a.reel__nahled:hover .reel__play { background: var(--limetka); }
+.reel__delka { position: absolute; left: 6px; bottom: 6px; padding: 1px 6px; border-radius: 6px; background: rgba(0, 0, 0, .62); font-size: 11px; font-weight: 600; }
+.reel__ceka { position: absolute; left: 6px; right: 6px; top: 50%; transform: translateY(-50%); padding: 4px 6px; border-radius: 8px; background: rgba(0, 0, 0, .62); font-size: 11px; font-weight: 600; line-height: 1.25; text-align: center; }
+.reel__telo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.reel__stitky { display: flex; flex-wrap: wrap; gap: 5px; }
+.reel__stitky .tag { gap: 3px; }
+.reel__stitky .tag svg { width: 12px; height: 12px; }
+.reel__nazev { font-size: 15.5px; font-weight: 700; line-height: 1.3; letter-spacing: -.01em; }
+.reel__meta { font-size: 12.5px; color: var(--muted); }
+/* popisek přesně jako na Instagramu (odřádkování, prázdné řádky); sbalený na 4 řádky s vyblednutím */
+.reel__popisek { margin-top: 2px; padding: 9px 11px; border-radius: 12px; background: var(--bg-soft); color: var(--text-soft); font-size: 13.5px; line-height: 1.5; }
+.reel__text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 6em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
+.reel__popisek.cely .reel__text { max-height: none; -webkit-mask-image: none; mask-image: none; }
+.reel__vic { align-self: flex-start; font-size: 12.5px; }
+.reel__bez { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
+.reel__akce { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.reel__akce .btn { border-radius: 999px; }
+.reel__prepinac[aria-pressed="true"] { background: var(--limetka); border-color: var(--limetka); color: var(--na-limetce); }
+.reely-napoveda { margin: 2px 2px 0; }
+/* Dnes: „Reel k vyvěšení“ – limetková karta Další krok (vzor PriorAuth), Kopírovat a Video jedním ťuknutím */
+.reel-krok { gap: 10px; }
+.reel-krok__hlava { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.reel-krok__sipka { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .6); color: var(--na-limetce); }
+.reel-krok__sipka svg { width: 15px; height: 15px; }
+.reel-krok__obsah { display: flex; align-items: flex-start; gap: 12px; }
+.reel-krok .reel__nahled { width: 64px; border-radius: 10px; }
+.reel-krok .reel__play { width: 30px; height: 30px; margin: -15px 0 0 -15px; }
+.reel-krok .reel__play svg { width: 12px; height: 12px; }
+.reel-krok__text { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.reel-krok__text b { font-size: 16px; }
+.reel-krok__text q { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.reel-krok__akce { display: flex; flex-wrap: wrap; gap: 8px; }
+.dalsi-krok.reel-krok .reel-krok__akce .btn--ghost { background: transparent; border-color: rgba(23, 32, 15, .25); color: var(--na-limetce); }
+@media (max-width: 759px) {
+    .reel { gap: 12px; padding: 10px; border: 0; border-radius: 20px; }
+    .reel__nahled { width: 84px; }
+    /* Kopírovat přes celou šířku, pod ním Video a Zveřejněno vedle sebe */
+    .reel__akce { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .reel__akce > [data-reel-kopirovat], .reel__akce > [data-reel-kopirovat] + :last-child, .reel__akce > :only-child { grid-column: 1 / -1; }
+    .reel__akce .btn { min-width: 0; padding: 0 10px; }
+}
 /* počasí: příštích 12 hodin (Open-Meteo) */
 .pocasi-hodiny { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; padding: 2px 0 6px; }
 .pocasi-hodiny > span { flex: none; width: 46px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0; border-radius: 12px; background: var(--bg-soft); }

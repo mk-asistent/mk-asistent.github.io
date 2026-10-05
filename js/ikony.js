@@ -59,7 +59,11 @@ export const IKONY = {
   snih: s('<path d="M17.5 15.5H7.5a4.5 4.5 0 1 1 1-8.9 6 6 0 0 1 11.3 2.4 3.3 3.3 0 0 1-2.3 6.5z"/><path d="M8 19h.01M12 21h.01M16 19h.01M10 23h.01M14 23h.01"/>'),
   mlha: s('<path d="M7.5 11.5a4.5 4.5 0 0 1 9 0"/><path d="M3 14.5h18M5 18h14M8 21.5h8"/>'),
   tabulka: s('<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9 4.5v15"/>'),
-  doplnky: s('<rect x="3" y="9" width="18" height="6" rx="3" transform="rotate(-35 12 12)"/><path d="M9.6 8.6l4.8 6.8"/>')
+  doplnky: s('<rect x="3" y="9" width="18" height="6" rx="3" transform="rotate(-35 12 12)"/><path d="M9.6 8.6l4.8 6.8"/>'),
+  // reel = svislé video (telefon na výšku s trojúhelníkem přehrát)
+  reely: s('<rect x="5.5" y="2.5" width="13" height="19" rx="2.5"/><path d="M10.5 9.3v5.4l4.3-2.7z"/>'),
+  prehrat: s('<path d="M8 5.2v13.6L18.8 12z" fill="currentColor"/>'),
+  kopirovat: s('<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>')
 };
 // ikona počasí podle klíče z motoru (slunce, polojasno, oblacno, dest, bourka, snih, mlha)
 IKONY.zdravi = IKONY.srdce;

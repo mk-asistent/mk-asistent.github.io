@@ -1437,4 +1437,55 @@ test('návrhy odpovědí: podklady pro Clauda na Disk, návrh u konverzace a v d
   assert.strictEqual(p.volej('navrhyNastavit', { rezim: 'nesmysl' }).ok, false);
 });
 
+test('reely: seznam z REELY/reely.json, odkaz na video na Disku, skóre z FOTBAL.json, zveřejněno, jen platná data', () => {
+  const p = prostredi();
+  let o = p.volej('reely');
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data), { aktualizovano: '', reely: [], zverejneno: {} }); // export ještě neproběhl
+  const reely = p.schranka.createFolder('REELY');
+  reely.createFile('reely.json', JSON.stringify({ verze: 1, aktualizovano: '2026-10-05T08:05:02+02:00', reely: [
+    { id: 'reel_dorost_tesany', nazev: 'Vnorovy – Těšany', tym: 'dorost', tymy: ['dorost'], tymNazev: 'Dorost', datum_zapasu: '2026-10-04', vyrobeno: '2026-10-05T07:48',
+      delka_s: 48.2, velikost_mb: 51.3, video: 'reel_dorost_tesany.mp4', popisek: 'Hattrick! ⚽⚽⚽\n\nDorost doma porazil Těšany.\n\n#fkagrovnorovy',
+      nahled: 'data:image/jpeg;base64,/9j/AAAA', zapasy: [{ datum: '2026-10-04', tym: 'dorost', domaci: 'Vnorovy', hoste: 'Těšany', skore: '', id: 'z-tesany' }], tajne: 'x' },
+    { id: 'reel_benfika_lipov', tymy: ['B'], datum_zapasu: '2026-09-12', video: 'reel_benfika_lipov.mp4', popisek: '', nahled: 'javascript:alert(1)',
+      zapasy: [{ datum: '2026-09-12', tym: 'B', domaci: 'Vnorovy B', hoste: 'Lipov', skore: '4:5' }] },
+    { id: '../ven', video: 'x.mp4' }
+  ] }));
+  // výsledek, který export ještě neznal, doplní motor z fotbal.cz (podle id zápasu)
+  const fotbal = JSON.parse(FOTBAL);
+  fotbal.zapasy.push({ id: 'z-tesany', tym: 'dorost', zacatek: '2026-10-04T12:15:00+02:00', domaci: 'FK Agro Vnorovy', hoste: 'TJ Sokol Těšany', doma: true, vysledek: '3:1' });
+  p.schranka.createFile('FOTBAL.json', JSON.stringify(fotbal));
+  o = p.volej('reely', { znovu: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(o.data.reely.map((r) => r.id), ['reel_dorost_tesany', 'reel_benfika_lipov'], 'neplatné id vynechané');
+  const t = o.data.reely[0];
+  assert.deepStrictEqual([t.nazev, t.zapasy[0].skore, t.datum, t.delka, t.tymy.join()], ['Vnorovy – Těšany 3:1', '3:1', '2026-10-04', 48.2, 'dorost']);
+  assert.strictEqual(t.popisek, 'Hattrick! ⚽⚽⚽\n\nDorost doma porazil Těšany.\n\n#fkagrovnorovy', 'popisek beze změny (prázdné řádky, emoji)');
+  assert.ok(!('tajne' in t), 'jen očekávaná pole');
+  assert.deepStrictEqual([t.video, t.odkaz], [true, ''], 'video se ještě nahrává na Disk');
+  assert.strictEqual(o.data.reely[1].nahled, '', 'náhled jen jako data:image/jpeg');
+  assert.strictEqual(p.ttl.get('reely:seznam'), 60, 'dokud video chybí, mezipaměť jen minutu');
+  // video doputovalo na Disk → odkaz na soubor (sdílení se nemění – otevře ho jen můj účet)
+  const videa = reely.createFolder('videa');
+  videa.createFile('reel_dorost_tesany.mp4', 'video');
+  assert.strictEqual(p.volej('reely').data.reely[0].odkaz, '', 'z mezipaměti');
+  o = p.volej('reely', { znovu: true });
+  assert.strictEqual(o.data.reely[0].odkaz, 'https://drive.google.com/file/d/soubor-videa-reel_dorost_tesany.mp4/view');
+  // zveřejněno: uložit, zrušit, neplatné id odmítnout; stav je čerstvý i z mezipaměti
+  o = p.volej('reelStav', { id: 'reel_dorost_tesany', zverejneno: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(o.data.zverejneno.reel_dorost_tesany));
+  assert.ok(p.volej('reely').data.zverejneno.reel_dorost_tesany);
+  assert.deepStrictEqual(json(p.volej('reelStav', { id: 'reel_dorost_tesany', zverejneno: false }).data.zverejneno), {});
+  assert.strictEqual(p.volej('reelStav', { id: '../x', zverejneno: true }).ok, false);
+  // stav drží jen nejnovějších 150 (vlastnost má limit 9 kB)
+  const zmenStav = vm.runInContext('REELY_.zmenStav', p.ctx); // const v motoru není vlastnost kontextu
+  let s = {};
+  for (let i = 0; i < 160; i++) s = zmenStav(s, 'reel_x' + i, true, '2026-' + String(1 + (i % 12)).padStart(2, '0') + '-01');
+  assert.ok(Object.keys(s).length === 150 && JSON.stringify(s).length < 9000, 'limit stavu');
+  // chybný soubor = srozumitelná chyba
+  reely.soubory.find((f) => f.getName() === 'reely.json').setContent('{');
+  assert.ok(/reely\.json/.test(p.volej('reely', { znovu: true }).chyba));
+});
+
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

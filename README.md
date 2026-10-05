@@ -1,7 +1,8 @@
 # Asistent
 
 Osobní přehled v jedné aplikaci: **schránka poznámek pro Clauda**, **pošta** (osobní a pracovní účet), **kalendář**
-(Google + kalendáře z iPhonu), **počasí ČHMÚ**, **zdraví** (WHOOP + Apple Watch) a **zápasy klubu** z fotbal.cz.
+(Google + kalendáře z iPhonu), **počasí ČHMÚ**, **zdraví** (WHOOP + Apple Watch), **zápasy klubu** z fotbal.cz
+a hotové **reely** s popisky pro Instagram.
 Webová aplikace (PWA) – na iPhonu, iPadu i PC se přidá na plochu a otevírá se jako samostatná aplikace.
 
 ## Z čeho se skládá
@@ -92,6 +93,19 @@ zápasy**, **tabulka** celkem / doma / venku s naším řádkem, **střelci a ka
 a celé rozlosování na fotbal.cz. Data: `FOTBAL.json` verze 2 (tabulky + detaily zápasů) z nástroje
 `NASTROJE\asistent\fotbal_cz` (naplánovaná úloha „asistent-fotbal“ v Michalově Chromu; detaily jen nových zápasů).
 
+## Reely
+Stránka **Reely** (levý pruh, tlačítko „Reely“ na stránce Fotbal a v kartě Fotbal na Dnes): hotové reely z fotbalu po
+týdnech – náhled s tlačítkem přehrát (video na Disku Google, otevře ho jen Michalův účet), zápas a výsledek, **popisek**
+přesně jako na Instagram (odřádkování, emoji) s tlačítkem **Kopírovat popisek** a přepínač **Zveřejněno**. Na Dnes
+limetková karta **Reel k vyvěšení**, když je nezveřejněný reel ze zápasu za poslední týden (Kopírovat a Video jedním
+ťuknutím; po zkopírování jde v oznámení rovnou označit „Zveřejněno“).
+
+Data dělá domácí PC: nástroj `CLAUDE_PRACOVNI\NASTROJE\asistent\reely\export_reely.py` po dokončení reelu zkopíruje video
+do `CLAUDE_SCHRANKA/REELY/videa/` a zapíše `REELY/reely.json` (popisky z `popisky\*.txt`, zápasy podle scénáře
+a FOTBAL.json, malé náhledy z výsledkové desky). Motor (akce `reely`) k videím dohledá soubory na Disku a chybějící
+výsledek doplní z FOTBAL.json; stav „zveřejněno“ drží vlastnost `REELY_STAV` (akce `reelStav`). Popisek se v aplikaci
+jen kopíruje – mění se na PC. Do Fotek v iPhonu: aplikace Disk → ⋯ → Poslat kopii → Uložit video.
+
 ## Počasí (ČHMÚ)
 Motor čte otevřená data ČHMÚ (CC BY 4.0): výstrahy CAP pro ORP, vodní stav řeky s povodňovými stupni a textovou
 předpověď kraje na dnes až 3 dny. Stahuje šetrně (ETag → 304, výpis předpovědí jednou za hodinu), přehled drží 15 minut.
@@ -145,6 +159,7 @@ Vlastnosti skriptu (⚙ → Vlastnosti skriptu) – všechny nepovinné kromě k
 | `NAVRHY_ODPOVEDI` | návrhy odpovědí: obe / osobni / vypnuto (nastavuje aplikace) |
 | `DOCHAZKA_URL`, `DOCHAZKA_WEB` | odkud číst docházku dorostu (výchozí: odvodí se z webu dorostu) |
 | `POCASI_MISTA`, `POCASI_POLOHA` | místa podle polohy a poslední poloha pro upozornění (spravuje motor) |
+| `REELY_STAV` | které reely už jsou na Instagramu (nastavuje aplikace) |
 | `FOTBAL`, `DRUHY_KALENDARU`, `ICS_KALENDARE`, `SKRYTE_KALENDARE`, … | spravuje motor sám |
 
 ## Instalace aplikace
@@ -168,7 +183,8 @@ poštu oddělí a odpovídá z adresy, na kterou zpráva přišla.
   Commity mají jen skrytou adresu GitHubu (noreply), ne osobní e-mail.
 - Aplikace smí volat jen motor (`script.google.com`) a Open-Meteo (CSP `connect-src`); nic jiného z ní neodejde.
 - Data, která zůstávají jen na Michalově Disku: schránka, zdraví a režim doplňků, FOTBAL.json (jména hráčů z fotbal.cz),
-  podklady a návrhy odpovědí na poštu.
+  podklady a návrhy odpovědí na poštu, reely a jejich popisky (nezletilí hráči – videa se nesdílí, odkaz otevře jen
+  Michalův účet).
 
 ## Testy
 ```

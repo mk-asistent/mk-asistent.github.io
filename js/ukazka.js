@@ -234,6 +234,28 @@ const fotbalUkazka = {
 })();
 let fotbalVKalendari = ['dorost'];
 
+/** Reely v ukázce: tři reely z minulého víkendu (hráči vymyšlení), náhled = jednoduchá deska se skóre. */
+const deska = (skore, barva) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 160">' +
+  '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + barva + '"/><stop offset="1" stop-color="#111"/></linearGradient></defs>' +
+  '<rect width="90" height="160" fill="url(#g)"/><text x="45" y="86" fill="#fff" font-family="Impact,Arial" font-size="26" text-anchor="middle">' + skore + '</text>' +
+  '<text x="45" y="104" fill="#d5ee5e" font-family="Arial" font-size="7" font-weight="700" text-anchor="middle" letter-spacing="1">VNOROVY</text></svg>');
+const reel = (id, posunDni, tym, tymNazev, domaci, hoste, skore, soutez, o) => Object.assign({
+  id, nazev: domaci + ' – ' + hoste + ' ' + skore, varianta: '', tymy: [tym], tymNazev, datum: iso(pridejDny(dnes, posunDni)),
+  vyrobeno: iso(pridejDny(dnes, posunDni + 1)) + 'T09:30', delka: 0, velikost: 0, video: true, odkaz: '', popisek: '', nahled: '',
+  zapasy: [{ datum: iso(pridejDny(dnes, posunDni)), tym, domaci, hoste, souper: /Vnorovy/.test(domaci) ? hoste : domaci, skore, soutez }]
+}, o);
+const reelyUkazka = [
+  reel('reel_benfika_nova-lhota', minulaNedele, 'B', 'B-tým', 'Vnorovy B', 'Nová Lhota', '8:0', '9. liga dospělí', {
+    delka: 82.3, velikost: 54.6, odkaz: 'https://drive.google.com/drive/my-drive', nahled: deska('8:0', '#0f7c8c'),
+    popisek: 'Adam Procházka a jeho hattrick. ⚽⚽⚽\n\nBéčko doma přejelo Novou Lhotu 8:0 a drží se na čele tabulky.\n\n' +
+      'Další zápas: neděle 15:00 doma proti Veselí B. Přijďte fandit! 💚\n\n#fkagrovnorovy #benfika #fotbal' }),
+  reel('reel_dorost_kyjov', minulaNedele, 'dorost', 'Dorost', 'Kyjov 1919', 'Vnorovy', '4:1', '5. liga starší dorost', {
+    delka: 53.7, velikost: 59.6, odkaz: 'https://drive.google.com/drive/my-drive', nahled: deska('4:1', '#a8620c'),
+    popisek: 'V Kyjově to tentokrát nevyšlo, čestný gól dal Matěj Černý. 💪\n\nV neděli doma proti Těšanům!\n\n#fkagrovnorovy #dorost' }),
+  reel('reel_a-tym_lysovice', minulaNedele - 1, 'A', 'A-tým', 'Vnorovy', 'Lysovice', '1:3', '6. liga dospělí', { delka: 47.2, velikost: 24.1 })
+];
+const reelyZverejneno = { reel_dorost_kyjov: iso(pridejDny(dnes, minulaNedele + 1)) };
+
 /** Zdraví v ukázce: 30 dní připravenosti, spánku a zátěže; zápas v sobotu, trénink út a čt (sedí s kalendářem), posilovna v pondělí. */
 function zdraviUkazka() {
   const nahoda = (i, k) => { const x = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453; return x - Math.floor(x); };
@@ -431,6 +453,12 @@ const akce = {
   kontakty: () => kopie(kontakty),
   podpisyUlozit: (d) => { Object.assign(podpisy, { osobni: String((d.podpisy || {}).osobni || ''), pracovni: String((d.podpisy || {}).pracovni || '') }); return akce.info().posta; },
   fotbal: () => kopie({ data: fotbalUkazka, vKalendari: fotbalVKalendari, kalendar: null }),
+  reely: () => kopie({ aktualizovano: new Date(ted - 2 * H).toISOString(), reely: reelyUkazka, zverejneno: reelyZverejneno }),
+  reelStav: (d) => {
+    if (!reelyUkazka.some((r) => r.id === d.id)) throw new Error('Neplatný reel.');
+    if (d.zverejneno) reelyZverejneno[d.id] = iso(Date.now()); else delete reelyZverejneno[d.id];
+    return { zverejneno: kopie(reelyZverejneno) };
+  },
   // docházka dorostu (Týmuj) – tréninky út a čt za 8 týdnů, hráči vymyšlení
   dochazka: () => {
     const jmena = ['Novák J.', 'Svoboda P.', 'Dvořák T.', 'Černý M.', 'Procházka A.', 'Kučera D.', 'Veselý J.', 'Horák P.', 'Marek F.', 'Pokorný V.'];

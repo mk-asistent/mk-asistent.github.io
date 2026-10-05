@@ -15,6 +15,7 @@ export const stav = {
   kontakty: null,           // komu jsem psal (našeptávač adres)
   zdravi: null,             // přehled WHOOP + Apple Zdraví z motoru
   fotbal: null,             // zápasy klubu (FOTBAL.json přes motor) + týmy v kalendáři
+  reely: null,              // hotové reely z fotbalu (REELY/reely.json přes motor) + které jsou na Instagramu
   stitkyGmailu: null,       // štítky Gmailu [{ nazev, neprectenych }]
   stitekPosty: '',          // vybraný štítek ('' = Doručená pošta)
   postaStitku: {},          // název štítku → { vlakna, nacita, chyba, kdy }

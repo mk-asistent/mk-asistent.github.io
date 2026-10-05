@@ -94,6 +94,16 @@ const motor = {
   dochazka: () => ({ udalosti: [{ zacatek: new Date(den(-1, 17)).toISOString(), druh: 'T_CT', nazev: 'ČT - DOROST', zruseno: false, venku: false,
     pocty: { prislo: 18, omluveno: 2, neomluveno: 1, mozna: 0, bez: 0, pozvano: 21 }, omluveni: ['Hráč A', 'Hráč B'], neomluveni: ['Hráč C'] }], aktualizovano: new Date(ted).toISOString(), chyba: '' }),
   fotbalKalendar: (d) => ({ pridano: 2, upraveno: 0, beze_zmeny: 0, kalendare: {}, kalendareSeznam: KALENDARE }),
+  // reely: včerejší dorost (nezveřejněný, s popiskem a videem) a starší béčko (video se ještě nahrává, bez popisku)
+  reely: () => ({ aktualizovano: new Date(ted - H).toISOString(), zverejneno: Object.assign({}, reelyZverejneno), reely: [
+    { id: 'reel_dorost_tesany', nazev: 'Vnorovy – Těšany 3:1', varianta: '', tymy: ['dorost'], tymNazev: 'Dorost', datum: iso(den(-1)), vyrobeno: iso(ted) + 'T07:48',
+      delka: 48.2, velikost: 51.3, video: true, odkaz: 'https://drive.google.com/file/d/TEST/view', nahled: '',
+      popisek: 'Hattrick! ⚽⚽⚽\n\nDorost doma porazil Těšany 3:1.\n\nDalší zápas v neděli venku.\n\n#fkagrovnorovy #dorost',
+      zapasy: [{ datum: iso(den(-1)), tym: 'dorost', domaci: 'Vnorovy', hoste: 'Těšany', souper: 'Těšany', skore: '3:1', soutez: '5. liga starší dorost' }] },
+    { id: 'reel_benfika_lipov', nazev: 'Vnorovy B – Lipov 4:5', varianta: '', tymy: ['B'], tymNazev: 'B-tým', datum: iso(den(-23)), vyrobeno: iso(den(-22)) + 'T20:00',
+      delka: 42.6, velikost: 30, video: true, odkaz: '', nahled: '', popisek: '',
+      zapasy: [{ datum: iso(den(-23)), tym: 'B', domaci: 'Vnorovy B', hoste: 'Lipov', souper: 'Lipov', skore: '4:5', soutez: '9. liga dospělí' }] }] }),
+  reelStav: (d) => { if (d.zverejneno) reelyZverejneno[d.id] = iso(ted); else delete reelyZverejneno[d.id]; return { zverejneno: Object.assign({}, reelyZverejneno) }; },
   stitky: () => [{ nazev: 'Fotbal', neprectenych: 1 }, { nazev: 'Účty', neprectenych: 0 }],
   postaStitek: (d) => ({ nazev: d.nazev, vlakna: d.nazev === 'Fotbal' ? [vlaknoSouhrn.v1, { id: 'v8', ucet: 'osobni', stav: 'resi', od: 'Rozhodčí', predmet: 'Zápis o utkání', ukazka: 'Zápis v příloze.', kdy: ted - 200 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Fotbal'] }] : [], ted }),
   kontakty: () => [{ j: 'Trenér', a: 'trener@klub.test', n: 5 }, { j: 'Investor', a: 'info@stavba.test', n: 2 }],
@@ -106,6 +116,7 @@ const motor = {
 };
 const volano = [];
 let navrhZahozen = false;
+let reelyZverejneno = {};
 
 async function pripravMotor(page) {
   await page.route(MOTOR, async (route) => {
@@ -842,6 +853,62 @@ async function novaStranka(prohlizec, v, motiv) {
     } finally {
       motor.schranka = puvodni;
     }
+  });
+
+  // ---------- Reely: limetková karta na Dnes, Kopírovat popisek (celý text i s prázdnými řádky), „Už je venku“, stránka s filtrem
+  await test('Reely na PC: karta na Dnes, kopírování popisku, zveřejněno, stránka a filtr', async () => {
+    reelyZverejneno = {};
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: WEB.replace(/\/$/, '') });
+    await page.goto(WEB);
+    await page.waitForSelector('#dl-reel:not([hidden]) .reel-krok');
+    jistota(/Reel k vyvěšení/.test(await page.textContent('#dl-reel')) && /Těšany 3:1/.test(await page.textContent('#dl-reel')), 'karta reelu na Dnes');
+    jistota(await page.locator('#dl-reel a.reel__nahled[href="https://drive.google.com/file/d/TEST/view"][target="_blank"]').count() === 1, 'náhled vede na video na Disku');
+    jistota(/Reely/.test(await page.textContent('#rail')) && await page.locator('#rail [data-cil="reely"] .pocet').count() === 1, 'Reely v panelu s počtem');
+    await page.locator('#dl-reel').screenshot({ path: path.join(VYSTUP, 'pc_dnes_reel.png') });
+    await page.click('#dl-reel [data-reel-kopirovat]');
+    await page.waitForFunction(() => /Popisek zkopírovaný/.test(document.getElementById('toast').textContent));
+    const schranka = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n'); // schránka Windows vrací CRLF
+    jistota(schranka === 'Hattrick! ⚽⚽⚽\n\nDorost doma porazil Těšany 3:1.\n\nDalší zápas v neděli venku.\n\n#fkagrovnorovy #dorost', 've schránce: ' + JSON.stringify(schranka));
+    await page.click('#toast .toast__akce');
+    await page.waitForSelector('#dl-reel', { state: 'hidden' });
+    jistota(volano.some((d) => d.akce === 'reelStav' && d.id === 'reel_dorost_tesany' && d.zverejneno === true), 'zveřejnění nedorazilo do motoru');
+    // stránka Reely: oba reely, štítky, video se nahrává, filtr „Čeká na Instagram“
+    await page.click('#rail [data-cil="reely"]');
+    await page.waitForSelector('#p-reely .reel[data-reel="reel_benfika_lipov"]');
+    jistota(/na Instagramu od/.test(await page.textContent('#p-reely [data-reel="reel_dorost_tesany"]')), 'štítek zveřejněno');
+    jistota(/nahrává se na Disk/.test(await page.textContent('#p-reely [data-reel="reel_benfika_lipov"]')), 'video se nahrává');
+    jistota(/Popisek zatím není/.test(await page.textContent('#p-reely [data-reel="reel_benfika_lipov"]')), 'bez popisku');
+    jistota(/2 reely · 1 čeká na Instagram/.test(await page.textContent('#hlava')), 'podnadpis: ' + await page.textContent('#hlava'));
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_reely.png'), fullPage: true });
+    await page.click('#p-reely [data-reely-filtr="ceka"]');
+    await page.waitForSelector('#p-reely .reel[data-reel="reel_dorost_tesany"]', { state: 'detached' });
+    jistota(await page.locator('#p-reely .reel').count() === 1, 'filtr nezveřejněných');
+    // zpět mezi nezveřejněné
+    await page.click('#p-reely [data-reely-filtr="vse"]');
+    await page.click('#p-reely [data-reel-zverejneno="reel_dorost_tesany"]');
+    await page.waitForFunction(() => /čeká na Instagram/.test(document.querySelector('#p-reely [data-reel="reel_dorost_tesany"]').textContent));
+    jistota(volano.some((d) => d.akce === 'reelStav' && d.id === 'reel_dorost_tesany' && d.zverejneno === false), 'zrušení zveřejnění');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  await test('Reely na telefonu: karta na Dnes pod čísly, ze stránky Fotbal na Reely, nic nepřetéká', async () => {
+    reelyZverejneno = {};
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
+    await page.goto(WEB);
+    await page.waitForSelector('#dnes-mobil .reel-krok');
+    jistota(await page.locator('#dl-reel:not([hidden])').count() === 0, 'na telefonu jen jedna karta reelu');
+    await page.locator('#dnes-mobil .reel-krok').screenshot({ path: path.join(VYSTUP, 'telefon_dnes_reel.png') });
+    await page.click('#dl-fotbal [data-cil="fotbal"].sipka');
+    await page.waitForSelector('#p-fotbal .reely-tl');
+    await page.click('#p-fotbal .reely-tl');
+    await page.waitForSelector('#p-reely .reel[data-reel="reel_dorost_tesany"] [data-reel-kopirovat]');
+    jistota(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, 'Reely přetékají');
+    await page.click('#p-reely [data-reel-popisek="reel_dorost_tesany"]').catch(() => {}); // krátký popisek tlačítko nemá
+    await page.screenshot({ path: path.join(VYSTUP, 'telefon_reely.png'), fullPage: true });
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
   });
 
   // ---------- Co je nového: po návratu ukáže, co přibylo (tady nová pošta, která čeká), Ukázat vede do Pošty

@@ -21,13 +21,15 @@
  *               import zápasů z rozpisu) + kalendáře z iPhonu (iCloud, soukromý odkaz webcal://…, jen čtení)
  *   Počasí    – ČHMÚ (otevřená data): výstrahy pro ORP, vodní stav řeky, krátká předpověď kraje; místo ve vlastnosti POCASI
  *   Fotbal    – zápasy klubu z CLAUDE_SCHRANKA/FOTBAL.json (zapisuje nástroj fotbal přes Chrome) → kalendáře „⚽ tým“
+ *   Reely     – hotové reely z CLAUDE_SCHRANKA/REELY (zapisuje export z domácího PC): popisky, odkaz na video na Disku,
+ *               stav „zveřejněno“ (vlastnost REELY_STAV)
  *   Zdraví    – WHOOP (API v2, OAuth – návrat přes doGet) + Apple Zdraví ze zkratky v iPhonu (akce zdraviApple, klíč
  *               ZDRAVI_KLIC); data po měsících v CLAUDE_SCHRANKA/ZDRAVI; upozornění přes ntfy (NTFY_TEMA, kazdouHodinu)
  *
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-03.2';
+const VERZE = '2026-10-05.1';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -129,7 +131,9 @@ const AKCE = {
   fotbalKalendar: function (d) { return fotbalDoKalendare_(d.tymy); },
   dochazka: function (d) { return dochazka_(!!d.znovu); },
   navrhZahodit: function (d) { return zahoditNavrh_(d.id); },
-  navrhyNastavit: function (d) { return nastavNavrhy_(d.rezim); }
+  navrhyNastavit: function (d) { return nastavNavrhy_(d.rezim); },
+  reely: function (d) { return reely_(!!d.znovu); },
+  reelStav: function (d) { return nastavStavReelu_(d.id, d.zverejneno); }
 };
 
 // ---------------------------------------------------------------- nastavení (spouští se ručně v editoru)
@@ -1886,6 +1890,101 @@ function fotbalLehce_(data) {
 function otiskFotbalu_(data, tymy) {
   return md5_(tymy.join(',') + '|' + JSON.stringify(data.zapasy.map(function (z) { return [z.id, z.zacatek, z.misto, z.vysledek, z.domaci, z.hoste]; })));
 }
+
+// ---------------------------------------------------------------- Reely: hotové reely z fotbalu (domácí PC → Disk → aplikace)
+//
+// Reely se dělají na domácím PC (skill osobni-veo-reely). Nástroj NASTROJE\asistent\reely (export_reely.py) kopíruje
+// hotová videa do CLAUDE_SCHRANKA/REELY/videa a zapisuje REELY/reely.json (popisky, zápasy, malé náhledy). Motor k videím
+// dohledá soubory na Disku – odkaz otevře jen Michalův účet (v reelech jsou nezletilí hráči, nic se nesdílí veřejně).
+// Popisek se v aplikaci jen kopíruje (jediná pravda je popisky\*.txt na PC); stav „zveřejněno“ drží vlastnost REELY_STAV.
+
+const MAX_STAVU_REELU = 150; // vlastnost má limit 9 kB
+
+/** Akce reely: reely z REELY/reely.json s odkazem na video na Disku + co už je zveřejněné (mezipaměť, d.znovu ji obejde). */
+function reely_(znovu) {
+  const KLIC = 'reely:seznam';
+  let data = znovu ? null : nactiZCache_(KLIC);
+  if (!data) {
+    data = nactiReely_();
+    // video se na Disk nahrává chvíli po exportu z PC – dokud tam není, ptát se častěji
+    ulozDoCache_(KLIC, data, data.reely.some(function (r) { return r.video && !r.odkaz; }) ? 60 : 300);
+  }
+  data.zverejneno = stavReelu_();
+  return data;
+}
+
+function nactiReely_() {
+  const it = koren_().getFoldersByName('REELY');
+  const slozka = it.hasNext() ? it.next() : null;
+  const soubory = slozka ? slozka.getFilesByName('reely.json') : null;
+  if (!soubory || !soubory.hasNext()) return { aktualizovano: '', reely: [] };
+  let data;
+  try { data = JSON.parse(soubory.next().getBlob().getDataAsString('UTF-8')); } catch (chyba) { throw new Error('REELY/reely.json není platný JSON.'); }
+  const videa = {};
+  const slozkaVidei = slozka.getFoldersByName('videa');
+  if (slozkaVidei.hasNext()) {
+    const fit = slozkaVidei.next().getFiles();
+    while (fit.hasNext()) { const f = fit.next(); videa[f.getName()] = f.getId(); }
+  }
+  let fotbal = null;
+  try { fotbal = fotbalData_(); } catch (chyba) { /* výsledky z fotbal.cz jen doplňují skóre */ }
+  return { aktualizovano: String(data.aktualizovano || ''), reely: REELY_.seznam(data.reely, videa, fotbal) };
+}
+
+function stavReelu_() {
+  try { return JSON.parse(vlastnosti_().getProperty('REELY_STAV') || '{}') || {}; } catch (chyba) { return {}; }
+}
+
+/** Akce reelStav: reel je / není na Instagramu. Popisek ani video se nemění. */
+function nastavStavReelu_(id, zverejneno) {
+  if (!REELY_.platneId(id)) throw new Error('Neplatný reel.');
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(10000);
+  try {
+    const s = REELY_.zmenStav(stavReelu_(), String(id), !!zverejneno, Utilities.formatDate(new Date(), CASOVE_PASMO, 'yyyy-MM-dd'));
+    vlastnosti_().setProperty('REELY_STAV', JSON.stringify(s));
+    return { zverejneno: s };
+  } finally {
+    zamek.releaseLock();
+  }
+}
+
+/** Čisté funkce reelů (testuje motor.test.js). */
+const REELY_ = (function () {
+  const ID = /^reel_[0-9a-z_-]{1,80}$/i;
+  const NAHLED = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
+  function txt(x) { return x == null ? '' : String(x); }
+  function platneId(id) { return ID.test(txt(id)); }
+  function popis(z) { const s = z.skore ? ' ' + z.skore : ''; return z.domaci ? z.domaci + ' – ' + z.hoste + s : z.souper + s; }
+  /** Jen očekávaná pole, odkaz na video (soubor na Disku podle názvu), chybějící skóre z FOTBAL.json (id zápasu). */
+  function seznam(reely, videa, fotbal) {
+    const vysledky = {};
+    ((fotbal && fotbal.zapasy) || []).forEach(function (z) { if (z.id && z.vysledek) vysledky[z.id] = z.vysledek; });
+    return (Array.isArray(reely) ? reely : []).filter(function (r) { return r && platneId(r.id); }).map(function (r) {
+      const zapasy = (Array.isArray(r.zapasy) ? r.zapasy : []).map(function (z) {
+        return { datum: txt(z.datum), tym: txt(z.tym), domaci: txt(z.domaci), hoste: txt(z.hoste), souper: txt(z.souper),
+          skore: txt(z.skore) || vysledky[txt(z.id)] || '', soutez: txt(z.soutez) };
+      });
+      const idVidea = r.video ? videa[txt(r.video)] : '';
+      return {
+        id: r.id, nazev: zapasy.length ? zapasy.map(popis).join(' + ') : txt(r.nazev || r.id), varianta: txt(r.varianta),
+        tymy: (Array.isArray(r.tymy) ? r.tymy : r.tym ? [r.tym] : []).map(txt), tymNazev: txt(r.tymNazev),
+        datum: txt(r.datum_zapasu), vyrobeno: txt(r.vyrobeno), delka: Number(r.delka_s) || 0, velikost: Number(r.velikost_mb) || 0,
+        video: !!r.video, odkaz: idVidea ? 'https://drive.google.com/file/d/' + idVidea + '/view' : '',
+        popisek: txt(r.popisek), nahled: NAHLED.test(txt(r.nahled)) ? r.nahled : '', zapasy: zapasy
+      };
+    });
+  }
+  /** Zveřejněné reely { id: 'RRRR-MM-DD' } – nejvýš MAX_STAVU_REELU nejnovějších. */
+  function zmenStav(stav, id, ano, dnes) {
+    const s = Object.assign({}, stav);
+    if (ano) s[id] = dnes; else delete s[id];
+    Object.keys(s).sort(function (a, b) { return txt(s[b]).localeCompare(txt(s[a])) || a.localeCompare(b); })
+      .slice(MAX_STAVU_REELU).forEach(function (k) { delete s[k]; });
+    return s;
+  }
+  return { seznam: seznam, zmenStav: zmenStav, platneId: platneId };
+})();
 
 // ---------------------------------------------------------------- Docházka dorostu (Týmuj → web dorostu → tady)
 // Web dorostu má synchronizaci z Týmuj (GitHub Actions) a ukládá docházku do Firestore (dokument dochazka/dorost).

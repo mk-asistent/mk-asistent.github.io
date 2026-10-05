@@ -17,9 +17,12 @@ import * as pocasi from './pocasi.js';
 import * as zdravi from './zdravi.js';
 import * as fotbal from './fotbal.js';
 import * as dochazka from './dochazka.js';
+import * as reely from './reely.js';
 import { vstupAdresy, klavesaAdresy } from './adresy.js';
 
-const SEKCE = [['dnes', 'Dnes'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář'], ['zdravi', 'Zdraví'], ['fotbal', 'Fotbal']];
+const SEKCE = [['dnes', 'Dnes'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář'], ['zdravi', 'Zdraví'], ['fotbal', 'Fotbal'], ['reely', 'Reely']];
+// sekce, které ukáže jen motor, který je umí (starší verze motoru je schová)
+const viditelna = (s) => (s[0] !== 'fotbal' && s[0] !== 'reely') || umiMotor(s[0]);
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
 const TELEFON = window.matchMedia('(max-width: 759px)');
 const $ = (id) => document.getElementById(id);
@@ -37,6 +40,7 @@ function start() {
   zdravi.nactiZUloziste();
   fotbal.nactiZUloziste();
   dochazka.nactiZUloziste();
+  reely.nactiZUloziste();
   if (!SEKCE.some((s) => s[0] === stav.pohled)) stav.pohled = 'dnes';
   kal.pripravGesta($('p-kalendar'));
   priZmene(vykresli);
@@ -53,6 +57,7 @@ function obnovVse(znovu) {
   pocasi.nactiPocasi(znovu);
   zdravi.nactiZdravi(znovu);
   fotbal.nactiFotbal();
+  reely.nactiReely(znovu);
 }
 
 // ---------------------------------------------------------------- počty
@@ -78,6 +83,7 @@ function vykresli() {
   pocasi.dotahni();
   zdravi.dotahni();
   fotbal.dotahni();
+  reely.dotahni();
   if (stav.pohled === 'kalendar') dochazka.dotahni();
   const p = pocty();
   document.querySelectorAll('[data-pohled]').forEach((el) => { el.hidden = el.dataset.pohled !== stav.pohled; });
@@ -92,6 +98,7 @@ function vykresli() {
   else if (stav.pohled === 'posta') posta.vykresliPostu(el);
   else if (stav.pohled === 'zdravi') zdravi.vykresliZdravi(el);
   else if (stav.pohled === 'fotbal') fotbal.vykresliFotbal(el);
+  else if (stav.pohled === 'reely') reely.vykresliReely(el);
   else kal.vykresliKalendar(el);
   zkontrolujNovinky(p);
 }
@@ -134,7 +141,7 @@ function zkontrolujNovinky(p) {
 }
 
 function odznakSekce(sekce, p) {
-  return { schranka: p.ceka.length, posta: p.nep.length }[sekce] || 0;
+  return { schranka: p.ceka.length, posta: p.nep.length, reely: reely.kVyveseni().length }[sekce] || 0;
 }
 
 /** Postranní panel: logo, sekce s počty, Nastavení, kdo je připojený. Na iPadu jen ikony (CSS). */
@@ -149,7 +156,7 @@ function vykresliRail(p) {
     '<button type="button" class="rail__logo" data-cil="dnes" title="Dnes – hlavní stránka" aria-label="Asistent – hlavní stránka">' +
       '<span class="znak">' + IKONY.dnes + '</span><div><b>Asistent</b><small>osobní přehled</small></div></button>' +
     '<div class="rail__sekce">Hlavní</div>' +
-    SEKCE.filter((s) => s[0] !== 'fotbal' || umiMotor('fotbal')).map((s) => tl('data-cil="' + s[0] + '"', s[1], IKONY[s[0]], odznakSekce(s[0], p), stav.pohled === s[0])).join('') +
+    SEKCE.filter(viditelna).map((s) => tl('data-cil="' + s[0] + '"', s[1], IKONY[s[0]], odznakSekce(s[0], p), stav.pohled === s[0])).join('') +
     '<div class="rail__spodek"><div class="rail__sekce">Účet</div>' +
       tl('data-otevri-nastaveni', 'Nastavení', IKONY.nastaveni, 0, false) +
       '<div class="rail__ja" title="' + esc(ucet) + '">' +
@@ -191,6 +198,8 @@ function vykresliHlavu(p) {
   } else if (stav.pohled === 'fotbal') {
     const f = stav.fotbal && stav.fotbal.data;
     pod = f ? esc(f.klub || '') + ' · zápasy, tabulky, střelci' : 'Zápasy z fotbal.cz';
+  } else if (stav.pohled === 'reely') {
+    pod = reely.podnadpis();
   } else if (stav.pohled === 'zdravi') {
     const z = stav.zdravi;
     pod = 'WHOOP a Apple Watch' + (z && z.whoop && z.whoop.sync && z.whoop.sync.kdy ? ' · aktualizováno ' + esc(kdyKratce(z.whoop.sync.kdy)) : '');
@@ -386,6 +395,7 @@ function vykresliDnes(el, p) {
       '<section class="card dlazdice dl-pozornost" id="dl-pozornost"></section>' +
       '<div class="dnes-vpravo"><section class="card dlazdice dl-tyden" id="dl-tyden"></section>' +
       '<section class="card dlazdice dl-doplnky" id="dl-doplnky" hidden></section>' +
+      '<section class="dl-reel" id="dl-reel" hidden></section>' +
       '<section class="card dlazdice dl-fotbal" id="dl-fotbal" hidden></section>' +
       '<section class="card dlazdice dl-zapis">' + hlavickaKarty(IKONY.claude, 'Poznámka pro Clauda') +
         schranka.zapisHtml(true) + '<div id="dl-schranka-mini"></div><div class="dlazdice__telo" id="dl-zapis-seznam"></div></section></div>' +
@@ -402,6 +412,10 @@ function vykresliDnes(el, p) {
   const doplnkyHtml = umiMotor('zdravi') ? zdravi.kartaDoplnkuHtml() : '';
   el.querySelector('#dl-doplnky').hidden = !doplnkyHtml;
   el.querySelector('#dl-doplnky').innerHTML = doplnkyHtml;
+  // čerstvý nezveřejněný reel: na PC v pravém sloupci, na telefonu hned pod malými čísly (dnesMobilHtml)
+  const reelHtml = umiMotor('reely') && !TELEFON.matches ? reely.kartaDnesHtml() : '';
+  el.querySelector('#dl-reel').hidden = !reelHtml;
+  el.querySelector('#dl-reel').innerHTML = reelHtml;
   const fotbalHtml = fotbal.maData() ? fotbal.kartaDnesHtml() : '';
   el.querySelector('#dl-fotbal').hidden = !fotbalHtml;
   el.querySelector('#dl-fotbal').innerHTML = fotbalHtml;
@@ -480,6 +494,7 @@ function dnesMobilHtml(p, dnes) {
       'Nepřečtené', p.hori ? '↗ ' + p.hori + ' hoří' : ''));
   }
   h += '<div class="mini-kpi-rada">' + male.slice(0, 3).join('') + '</div>';
+  if (umiMotor('reely')) h += reely.kartaDnesHtml(); // limetková karta „Reel k vyvěšení“ (jen když je čerstvý nezveřejněný)
   h += '<section class="pozornost"><div class="pozornost__hlava"><h2>Vyžaduje pozornost</h2>' +
     (seznam.length ? '<span class="pilulka-oranz cisla">' + seznam.length + '</span>' : '') + '</div>';
   if (!nacteno) h += '<div class="card">' + kostra(3) + '</div>';
@@ -528,6 +543,7 @@ document.addEventListener('click', (e) => {
   if (schranka.klikSchranka(el)) return;
   if (posta.klikPosta(el)) return;
   if (zdravi.klikZdravi(el)) return;
+  if (reely.klikReely(el)) return;
   if (fotbal.klikFotbal(el)) return;
   if (udalost.klikUdalost(el)) return;
   if (kal.klikKalendar(el)) return;
@@ -565,7 +581,7 @@ document.addEventListener('keydown', (e) => {
   if (pise(e) || e.ctrlKey || e.metaKey || e.altKey) return;
   // jednoduché klávesy (PC, iPad s klávesnicí)
   if (e.key === '/') { e.preventDefault(); hledat.otevriHledani(); return; }
-  if (!horniPanel() && /^[1-6]$/.test(e.key)) { prejdi(SEKCE[Number(e.key) - 1][0]); return; }
+  if (!horniPanel() && /^[1-7]$/.test(e.key)) { const s = SEKCE.filter(viditelna)[Number(e.key) - 1]; if (s) prejdi(s[0]); return; }
   if (!horniPanel() && stav.pohled === 'kalendar' && e.key.toLowerCase() === 'n') { udalost.otevriFormular({ den: stav.kal.vybrany }); return; }
   if (posta.klavesaPosta(e)) e.preventDefault();
 });
