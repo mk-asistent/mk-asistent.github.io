@@ -325,15 +325,16 @@ main { padding: 4px var(--mezera) calc(var(--lista-h) + env(safe-area-inset-bott
 .dlazdice__paty { display: flex; align-items: stretch; gap: 8px; margin: 4px 12px 12px; }
 .dlazdice__paty .dlazdice__pata { margin: 0; width: auto; flex: 1; min-height: 38px; }
 .dl-pozornost .dlazdice__telo { max-height: 640px; }
+/* iPad a PC: dlaždice se skládají do sloupců podle své výšky (jako zeď) – nic se nenatahuje do prázdna (Michal 5. 10.:
+   pošta byla přes celou výšku pravého sloupce), dlouhý seznam se posouvá uvnitř karty; na širokém monitoru tři sloupce */
 @media (min-width: 760px) {
-    .dnes-mrizka { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); grid-template-areas: "pozornost vpravo"; }
-    /* seznam roste do výšky pravého sloupce, patička (Schránka · Pošta) zůstane dole */
-    .dl-pozornost .dlazdice__telo { max-height: none; }
-    .dl-pozornost .dlazdice__paty { margin-top: auto; }
-    .dl-pozornost { align-self: stretch; }
+    .dnes-mrizka { display: block; columns: 2; column-gap: 16px; }
+    .dnes-vpravo { display: contents; }
+    .dnes-mrizka > section, .dnes-vpravo > section { break-inside: avoid; margin: 0 0 16px; }
+    .dl-pozornost .dlazdice__telo { max-height: 560px; }
 }
-@media (min-width: 1180px) {
-    .dnes-mrizka { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+@media (min-width: 1700px) {
+    .dnes-mrizka { columns: 3; }
 }
 
 /* výstrahy ČHMÚ nahoře na Dnes – jen když nějaká platí */
