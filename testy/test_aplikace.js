@@ -37,7 +37,8 @@ const zapasFotbal = (tym, dni, h, domaci, hoste, vysledek) => ({ id: tym + dni, 
   doma: /Vnorovy/.test(domaci), misto: '', vysledek, stav: vysledek ? 'odehrano' : 'naplanovano', url: '#' });
 const motor = {
   info: () => ({ verze: 'test', akce: Object.keys(motor).concat(['polozkaUpravy', 'polozkaTermin']), ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false, podpisy: { osobni: 'Michal', pracovni: '' } },
-    kalendare: KALENDARE, skupinyHostu: [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@x.test', 'rodic2@x.test'] }] }),
+    kalendare: KALENDARE, skupinyHostu: [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@x.test', 'rodic2@x.test'] }], jmeniny: jmeninyOblibeni.slice() }),
+  jmeninyUlozit: (d) => { jmeninyOblibeni = (d.oblibeni || []).map((o) => ({ jmeno: o.jmeno, kdo: o.kdo || '' })); return jmeninyOblibeni.slice(); },
   schranka: () => ({ nove: [{ id: 'n1', slozka: 'NOVE', kdy: ted - H, odkud: 'iPhone', typ: '', stav: '', shrnuti: '', termin: '', text: 'Zkušební poznámka z iPhonu', vlakno: [] }],
     ceka: [{ id: 'c1', slozka: 'CEKA', kdy: ted - 5 * H, odkud: 'iPhone', typ: 'ukol-michal', stav: 'tvuj-ukol', shrnuti: 'Zavolat kvůli lešení', termin: '', text: 'Připomeň mi zavolat.', vlakno: [] },
       { id: 'c2', slozka: 'CEKA', kdy: ted - 2 * H, odkud: 'iPhone', typ: 'email', stav: 'rozhodni', shrnuti: 'E-mail trenérovi', termin: '', tema: '', nadpis: '',
@@ -88,10 +89,19 @@ const motor = {
         zatez: { probiha: true, zatez: 6.2, kroky: 4000 } } }],
     treninky: [{ id: 'w1', den: iso(ted), start: den(0, 9), konec: den(0, 10), sport: 'soccer', zatez: 11.5, tepPrumer: 140, tepMax: 180, kcal: 700, zony: [1, 5, 20, 20, 10, 4] }],
     whoop: { nastaveno: true, propojeno: true, sync: { kdy: ted, chyba: '' } }, apple: { kdy: ted }, vaha: vahaZaznamy.slice(), doplnky: JSON.parse(JSON.stringify(doplnkyDny)),
+    pitiJidlo: JSON.parse(JSON.stringify(pitiDny)),
     rezim: { kofeinDo: '14:00', treninkDny: [], zapasTymy: ['A'], polozky: [{ id: 'kreatin', nazev: 'Kreatin', davka: '5 g', kdy: 'rano' },
       { id: 'kofein', nazev: 'Kofein', davka: 'před výkopem', kdy: 'zapas', jen: 'zapas' }, { id: 'horcik', nazev: 'Hořčík', davka: 'večer', kdy: 'vecer' }] } }),
   zdraviKlic: () => ({ klic: 'testovaci-klic-zdravi' }),
   zmeny: () => ({ auto: 0 }),
+  pitiJidlo: (d) => {
+    pitiVolani.push({ den: d.den, jak: d.jak, ml: d.ml, co: d.co, bilkoviny: d.bilkoviny, id: d.id });
+    const z = (pitiDny[d.den] = pitiDny[d.den] || { piti: [], jidlo: [] });
+    if (d.jak === 'piti') z.piti.push({ id: 'p' + pitiVolani.length, kdy: Date.now(), ml: d.ml });
+    if (d.jak === 'jidlo') z.jidlo.push({ id: 'j' + pitiVolani.length, kdy: Date.now(), co: d.co, bilkoviny: d.bilkoviny, kcal: d.kcal });
+    if (d.jak === 'smazat') { z.piti = z.piti.filter((x) => x.id !== d.id); z.jidlo = z.jidlo.filter((x) => x.id !== d.id); }
+    return { dny: JSON.parse(JSON.stringify(pitiDny)) };
+  },
   doplnky: (d) => {
     doplnkyVolani.push({ den: d.den, zmeny: d.zmeny });
     const z = (doplnkyDny[d.den] = doplnkyDny[d.den] || {});
@@ -204,6 +214,8 @@ let navrhZahozen = false;
 const autoZapisy = [], autoSmazano = [], autoUctenky = [], autoUpravy = [], autoFotky = [], autoTerminy = [];
 let postaNavic = {};              // test záložek: aktualizace v Doručené, čísla záložek a přehled od Clauda
 const doplnkyDny = {}, doplnkyVolani = []; // odškrtnuté doplňky (motor: ZDRAVI/DOPLNKY.json)
+let jmeninyOblibeni = [];          // oblíbení lidé (jmeniny v kalendáři)
+const pitiDny = {}, pitiVolani = []; // pití a jídlo (motor: ZDRAVI/PITI_JIDLO.json)
 const postaPresuny = [], postaPrecteno = [];
 const promoVlakna = [
   { id: 'k1', ucet: 'osobni', stav: 'info', od: 'Obchod Test', predmet: 'Dárek k svátku', ukazka: 'Kredit 200 Kč do neděle.', kdy: ted - 3 * H, neprectena: true, pocet: 1, odkaz: '#' },
@@ -1092,6 +1104,71 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.reload();
     await page.waitForSelector('#dl-doplnky [data-doplnek="kreatin"][aria-pressed="true"]');
     await page.locator('#dl-doplnky').screenshot({ path: path.join(VYSTUP, 'pc_doplnky.png') });
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  // ---------- kalendář: co ukazovat (zaškrtnutí, jen tento – jen v Kalendáři) a jmeniny s oblíbenými (hvězdička)
+  await test('kalendář: zaškrtávání kalendářů, jen tento, jmeniny a oblíbení se zvýrazněním', async () => {
+    jmeninyOblibeni = [];
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.click('#rail [data-cil="kalendar"]');
+    await page.click('#p-kalendar [data-kal-pohled="seznam"]');
+    await page.waitForSelector('#p-kalendar [data-udalost^="u2|"]');
+    // okno Kalendáře: schovat Osobní → v Kalendáři zůstane Rodina
+    await page.click('#p-kalendar .kal-lista [data-kal-zobrazeni]');
+    await page.waitForSelector('[data-panel="kal-zobrazeni"] [data-kal-viditelny="g1"]');
+    await page.uncheck('[data-panel="kal-zobrazeni"] [data-kal-viditelny="g1"]');
+    await page.waitForFunction(() => !document.querySelector('#p-kalendar [data-udalost^="u4|"]'));
+    jistota(await page.locator('#p-kalendar [data-udalost^="u2|"]').count() > 0, 'Rodina zůstává');
+    jistota(/1\/2/.test(await page.textContent('#p-kalendar .kal-zobrazeni-btn')), 'počet ukazovaných na tlačítku');
+    // jen tento = jen Osobní
+    await page.click('[data-panel="kal-zobrazeni"] [data-kal-jen="g1"]');
+    await page.waitForFunction(() => !document.querySelector('#p-kalendar [data-udalost^="u2|"]') && document.querySelector('#p-kalendar [data-udalost^="u4|"]'));
+    // oblíbený člověk: zadané bez diakritiky se uloží v tvaru z kalendáře
+    const svatek = await page.evaluate(() => import('/js/jmeniny.js').then((m) => {
+      const d = new Date(); d.setHours(0, 0, 0, 0);
+      const t = m.hlavniJmeno(d.getTime()) ? d.getTime() : d.getTime() + 864e5;
+      return { den: t, jmeno: m.hlavniJmeno(t).split(' a ')[0], bez: m.bezDiakritiky(m.hlavniJmeno(t).split(' a ')[0]) };
+    }));
+    await page.fill('[data-panel="kal-zobrazeni"] [data-jmeniny-jmeno]', svatek.bez);
+    await page.fill('[data-panel="kal-zobrazeni"] [data-jmeniny-kdo]', 'kamarád');
+    await page.click('[data-panel="kal-zobrazeni"] [data-jmeniny-pridat]');
+    await page.waitForFunction((j) => document.getElementById('toast').textContent.indexOf('Přidáno: ' + j) >= 0, svatek.jmeno);
+    jistota(JSON.stringify(jmeninyOblibeni) === JSON.stringify([{ jmeno: svatek.jmeno, kdo: 'kamarád' }]), 'oblíbení do motoru: ' + JSON.stringify(jmeninyOblibeni));
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_kalendar_zobrazeni.png') });
+    // zavřít, ukázat všechny, měsíc: hvězdička u dne svátku
+    await page.click('[data-panel="kal-zobrazeni"] [data-kal-vse]');
+    await page.click('[data-panel="kal-zobrazeni"] [data-zavrit-panel]');
+    await page.click('#p-kalendar [data-kal-pohled="mesic"]');
+    await page.waitForSelector('#p-kalendar .mesic-den[data-den="' + svatek.den + '"] .svatek--oblibeny');
+    jistota((await page.textContent('#p-kalendar .mesic-den[data-den="' + svatek.den + '"] .svatek--oblibeny')).indexOf('★ ' + svatek.jmeno) >= 0, 'hvězdička v měsíci');
+    await page.waitForSelector('#p-kalendar [data-udalost^="u2|"]', { state: 'attached' });
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_kalendar_jmeniny.png') });
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+    jmeninyOblibeni = [];
+  });
+
+  // ---------- pití a jídlo na Dnes: voda tlačítky (hned + motor), zpět, jídlo s bílkovinami, týden
+  await test('pití a jídlo na Dnes: +0,5 l, zpět, jídlo s bílkovinami do motoru', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.waitForSelector('#dl-piti:not([hidden]) [data-piti="500"]');
+    await page.click('#dl-piti [data-piti="500"]');
+    await page.waitForFunction(() => /0,5 l/.test(document.querySelector('#dl-piti .piti__text b').textContent));
+    jistota(pitiVolani.some((x) => x.jak === 'piti' && x.ml === 500 && x.den === iso(ted)), 'pití do motoru: ' + JSON.stringify(pitiVolani));
+    await page.waitForSelector('#dl-piti [data-piti-zpet]');
+    await page.click('#dl-piti [data-piti-zpet]');
+    await page.waitForFunction(() => /^0,0 l/.test(document.querySelector('#dl-piti .piti__text b').textContent.trim()));
+    await page.click('#dl-piti [data-jidlo-pridat]');
+    await page.fill('[data-panel="jidlo"] [data-jidlo-co]', 'Kuře s rýží');
+    await page.fill('[data-panel="jidlo"] [data-jidlo-b]', '40');
+    await page.click('[data-panel="jidlo"] [data-jidlo-ulozit]');
+    await page.waitForFunction(() => /Kuře s rýží/.test(document.querySelector('#dl-piti').textContent) && /40 g/.test(document.querySelector('#dl-piti').textContent));
+    jistota(pitiVolani.some((x) => x.jak === 'jidlo' && x.co === 'Kuře s rýží' && x.bilkoviny === 40), 'jídlo do motoru');
+    await page.locator('#dl-piti').screenshot({ path: path.join(VYSTUP, 'pc_piti.png') });
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
   });

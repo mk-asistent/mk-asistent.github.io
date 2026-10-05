@@ -1820,6 +1820,32 @@ test('doplňky: odškrtnutí na Disk (ZDRAVI/DOPLNKY.json) – víc položek nar
   assert.deepStrictEqual(json(p.volej('zdravi').data.doplnky), { '2026-10-05': { kreatin: true } });
 });
 
+test('pití a jídlo: zápis z aplikace, zápisy Clauda z diktátu, smazání obojího, se Zdravím', () => {
+  const p = prostredi();
+  p.nastavCas(Date.parse('2026-10-05T10:00:00+02:00'));
+  let o = p.volej('pitiJidlo', { den: '2026-10-05', jak: 'piti', ml: 250 });
+  assert.strictEqual(o.ok, true, o.chyba);
+  o = p.volej('pitiJidlo', { den: '2026-10-05', jak: 'jidlo', co: '  Tvaroh s ovocem ', bilkoviny: '30', kcal: 280 });
+  assert.deepStrictEqual(o.data.dny['2026-10-05'].piti.map((x) => x.ml), [250]);
+  assert.deepStrictEqual(o.data.dny['2026-10-05'].jidlo.map((x) => [x.co, x.bilkoviny, x.kcal]), [['Tvaroh s ovocem', 30, 280]]);
+  assert.ok(/ml/.test(p.volej('pitiJidlo', { den: '2026-10-05', jak: 'piti', ml: 0 }).chyba));
+  assert.ok(/snědl/.test(p.volej('pitiJidlo', { den: '2026-10-05', jak: 'jidlo', co: ' ' }).chyba));
+  // Claude z diktátu (vlastní soubor, id c-…) – motor ho přidá, divné záznamy vynechá
+  p.schranka.deti.ZDRAVI.createFile('PITI_JIDLO_CLAUDE.json', JSON.stringify({ zapisy: [
+    { id: 'c-1', den: '2026-10-05', kdy: '2026-10-05T12:30:00+02:00', druh: 'jidlo', co: 'Kuřecí prsa s rýží', bilkoviny: 45, kcal: 650 },
+    { id: 'c-2', den: '2026-10-05', kdy: '2026-10-05T09:00:00+02:00', druh: 'piti', ml: 500, co: 'voda' },
+    { id: 'bez-c', den: '2026-10-05', druh: 'piti', ml: 300 }, { id: 'c-3', den: '5. 10.', druh: 'piti', ml: 300 }] }));
+  let z = p.volej('zdravi').data.pitiJidlo['2026-10-05'];
+  assert.deepStrictEqual(z.piti.map((x) => [x.ml, !!x.claude]), [[500, true], [250, false]], 'podle času');
+  assert.deepStrictEqual(z.jidlo.map((x) => x.co), ['Tvaroh s ovocem', 'Kuřecí prsa s rýží']);
+  // smazat Claudův zápis (jeho soubor zůstane) i vlastní
+  o = p.volej('pitiJidlo', { den: '2026-10-05', jak: 'smazat', id: 'c-2' });
+  o = p.volej('pitiJidlo', { den: '2026-10-05', jak: 'smazat', id: z.jidlo[0].id });
+  z = o.data.dny['2026-10-05'];
+  assert.deepStrictEqual([z.piti.map((x) => x.ml), z.jidlo.map((x) => x.co)], [[250], ['Kuřecí prsa s rýží']]);
+  assert.ok(/zapisy/.test(p.schranka.deti.ZDRAVI.soubory.find((f) => f.getName() === 'PITI_JIDLO_CLAUDE.json').getBlob().getDataAsString()), 'Claudův soubor nezměněn');
+});
+
 test('váha: zápis s časem zápisu, česká čárka, nesmysl odmítnut, smazání překlepu, v přehledu Zdraví', () => {
   const p = prostredi();
   const rano = Date.parse('2026-10-05T07:12:00+02:00');
@@ -2230,6 +2256,16 @@ test('auto: připomínky – přezutí a zima podle data (hotové podle zápisu)
   assert.strictEqual(podle('pneu-zimni'), null);
   x = prip({ naklady: [] }, ms('2027-03-01T12:00:00'));
   assert.deepStrictEqual([podle('pneu-letni').stav, podle('pneu-letni').klic], ['brzy', 'pneu-letni-2027']);
+});
+
+test('jmeniny: oblíbení lidé se uloží (jen jména, kdo nepovinné) a přijdou s info', () => {
+  const p = prostredi();
+  assert.deepStrictEqual(json(p.volej('info').data.jmeniny), []);
+  const o = p.volej('jmeninyUlozit', { oblibeni: [{ jmeno: '  Petra ', kdo: 'manželka' }, { jmeno: 'Jan' }, { jmeno: '<script>' }, { jmeno: '' }] });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data), [{ jmeno: 'Petra', kdo: 'manželka' }, { jmeno: 'Jan', kdo: '' }]);
+  assert.deepStrictEqual(json(p.volej('info').data.jmeniny), [{ jmeno: 'Petra', kdo: 'manželka' }, { jmeno: 'Jan', kdo: '' }]);
+  assert.strictEqual(p.volej('jmeninyUlozit', { oblibeni: 'Petra' }).ok, false);
 });
 
 test('značky změn: zápis k autu ji posune, čtení ne', () => {

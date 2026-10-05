@@ -141,6 +141,7 @@ const archivovane = [
   { id: 'a2', ucet: 'osobni', stav: 'info', od: 'Elektřina', predmet: 'Vyúčtování za září', ukazka: 'Vyúčtování je k dispozici v zákaznickém portálu.', kdy: ted - 12 * 24 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Účty'] }
 ];
 const skupinyHostu = [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@example.com', 'rodic2@example.com', 'rodic3@example.com'] }];
+const jmeninyUkazka = [{ jmeno: 'Petra', kdo: 'kamarádka' }]; // oblíbení – svátek se v kalendáři zvýrazní
 // záložky jako v Gmailu: Promoakce a Fóra (Sociální sítě prázdné)
 const kategorieUkazka = {
   promo: [
@@ -280,6 +281,10 @@ let upozorneniUkazka = { zapnuto: false, tema: '' };
 let vahaUkazka = [[-33, 81.3], [-26, 81.0], [-19, 80.7], [-12, 80.9], [-6, 80.5], [-1, 80.2]].map((x) => ({ kdy: den(x[0], 6, 40 + x[0] % 7), kg: x[1] }));
 // odškrtnuté doplňky (v aplikaci ZDRAVI/DOPLNKY.json na Disku): včera všechno kromě hořčíku
 const doplnkyUkazka = { [iso(den(-1))]: { multivitamin: true, kreatin: true, omega3: true } };
+// pití a jídlo (v aplikaci ZDRAVI/PITI_JIDLO.json; diktované zapisuje Claude)
+const pitiUkazka = { [iso(den(0))]: { piti: [{ id: 'p1', kdy: den(0, 8), ml: 250 }, { id: 'c-1', kdy: den(0, 10), ml: 500, claude: true }],
+  jidlo: [{ id: 'c-2', kdy: den(0, 7.5), co: 'Tvaroh s ovocem', bilkoviny: 28, kcal: 300, claude: true }] },
+  [iso(den(-1))]: { piti: [{ id: 'p0', kdy: den(-1, 9), ml: 1750 }], jidlo: [] } };
 
 /** Auto v ukázce: vymyšlené auto, tankování zhruba každé dva týdny s kolísající cenou nafty, pár výdajů (nic skutečného). */
 const autoUkazka = (() => {
@@ -342,6 +347,7 @@ function zdraviUkazka() {
     if (posilovna) pridej('weightlifting', 19, 0, 60, 7.8, 112, 151);
   }
   return { vytvoreno: Date.now(), dny: dnyZ, treninky: treninky.sort((a, b) => b.start - a.start), vaha: kopie(vahaUkazka), doplnky: kopie(doplnkyUkazka),
+    pitiJidlo: kopie(pitiUkazka),
     whoop: { nastaveno: true, propojeno: true, sync: { kdy: Date.now() - 12 * 6e4, chyba: '' } }, apple: { kdy: Date.now() - 3 * H },
     // obecný ukázkový režim doplňků (skutečný je jen v ZDRAVI_REZIM.json na Disku)
     rezim: { kofeinDo: '14:00', treninkDny: [2, 4], zapasTymy: ['dorost'], polozky: [
@@ -363,7 +369,7 @@ function najdiPolozku(id) {
 }
 
 const akce = {
-  info: () => ({ verze: 'ukázka', ucet: 'ja@example.com', skupinyHostu: kopie(skupinyHostu),
+  info: () => ({ verze: 'ukázka', ucet: 'ja@example.com', skupinyHostu: kopie(skupinyHostu), jmeniny: kopie(jmeninyUkazka),
     posta: { osobniAdresa: 'ja@example.com', pracovniAdresa: posta.pracovniAdresa, lzeOdesilatZPracovni: true, podpisy: kopie(podpisy), navrhyOdpovedi: rezimNavrhu }, kalendare }),
   nastavPostu: (d) => { posta.pracovniAdresa = String(d.pracovniAdresa || '').trim(); return akce.info().posta; },
   schranka: () => Object.assign(kopie(schranka), { ted: Date.now() }),
@@ -482,6 +488,7 @@ const akce = {
     return true;
   },
   skupinyHostuUlozit: (d) => { skupinyHostu.splice(0, skupinyHostu.length, ...(d.skupiny || [])); return kopie(skupinyHostu); },
+  jmeninyUlozit: (d) => { jmeninyUkazka.splice(0, jmeninyUkazka.length, ...(d.oblibeni || [])); return kopie(jmeninyUkazka); },
   zapasyImport: (d) => {
     // ukázkový rozpis: tři sobotní zápasy od příští soboty, opakovaný import nic nezdvojí
     const k = akce.kalendarZalozit({ nazev: 'Zápasy', barva: '#2e7a4d' });
@@ -573,6 +580,13 @@ const akce = {
   },
   zdravi: () => zdraviUkazka(),
   zmeny: () => ({ auto: 0 }),
+  pitiJidlo: (d) => {
+    const z = (pitiUkazka[d.den] = pitiUkazka[d.den] || { piti: [], jidlo: [] });
+    if (d.jak === 'piti') z.piti.push({ id: 'p' + Date.now(), kdy: Date.now(), ml: Number(d.ml) });
+    else if (d.jak === 'jidlo') z.jidlo.push({ id: 'j' + Date.now(), kdy: Date.now(), co: d.co, bilkoviny: Number(d.bilkoviny) || 0, kcal: Number(d.kcal) || 0 });
+    else if (d.jak === 'smazat') { z.piti = z.piti.filter((x) => x.id !== d.id); z.jidlo = z.jidlo.filter((x) => x.id !== d.id); }
+    return { dny: kopie(pitiUkazka) };
+  },
   doplnky: (d) => {
     const z = (doplnkyUkazka[d.den] = doplnkyUkazka[d.den] || {});
     Object.keys(d.zmeny || {}).forEach((id) => { if (d.zmeny[id]) z[id] = true; else delete z[id]; });

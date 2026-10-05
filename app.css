@@ -710,6 +710,32 @@ a.reel__nahled:hover .reel__play { background: var(--limetka); }
 .doplnek[aria-pressed="true"] b { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--dim); }
 .doplnky-pozn { margin: 0; padding: 0 16px 12px; font-size: 12px; color: var(--muted); }
 .doplnek__tyden { margin-left: auto; flex: none; font-style: normal; font-size: 11.5px; font-weight: 650; color: var(--dim); }
+/* Pití a jídlo: voda tlačítky, bílkoviny z jídel a doplňků, týden pití */
+.piti { display: flex; flex-direction: column; gap: 10px; padding: 4px 16px 14px; }
+.piti__radek { display: flex; align-items: center; gap: 10px; }
+.piti__ikona { flex: none; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; background: var(--bg-soft); font-size: 17px; }
+.piti__text { flex: 1; min-width: 0; }
+.piti__text b { font-size: 17px; }
+.piti__text small { color: var(--muted); font-size: 12px; }
+.piti__pruh { height: 7px; margin-top: 4px; border-radius: 4px; background: var(--bg-soft); overflow: hidden; }
+.piti__pruh i { display: block; height: 100%; border-radius: 4px; background: #3b9ae1; transition: width .2s; }
+.piti__pruh--b i { background: var(--oranz); }
+.piti__akce { flex: none; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.piti__jidla { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.piti__jidla li { display: flex; align-items: center; gap: 8px; padding: 3px 0 3px 44px; font-size: 13px; }
+.piti__jidla li > span { flex: 1; min-width: 0; }
+.piti__jidla small { color: var(--muted); font-size: 11px; }
+.piti__jidla b { flex: none; font-size: 12.5px; }
+.piti__misto { width: 32px; flex: none; }
+.piti__tyden { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.piti__tyden li { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.piti__tyden li > span { width: 100%; max-width: 26px; height: 34px; display: flex; align-items: flex-end; border-radius: 7px; background: var(--bg-soft); overflow: hidden; }
+.piti__tyden i { display: block; width: 100%; background: #3b9ae1; }
+.piti__tyden small { font-size: 10.5px; color: var(--dim); font-weight: 650; }
+.piti__tyden li.dnes small { color: var(--accent); }
+.piti__tyden li.budouci { opacity: .45; }
+.jidlo-form { display: flex; flex-direction: column; gap: 12px; }
+.jidlo-cisla { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 /* tento týden: po–ne, plný den limetkově, částečný napůl, budoucí prázdný */
 .doplnky-tyden { display: flex; align-items: center; gap: 10px; margin: 0 16px 10px; padding: 8px 10px; border-radius: 12px; background: var(--bg-soft); font-size: 12px; color: var(--muted); }
 .doplnky-tyden > span { font-weight: 600; }
@@ -874,6 +900,36 @@ li.aktivni > .radek { background: var(--sand); box-shadow: inset 3px 0 0 var(--a
 .stitek-volba { display: inline-flex; align-items: center; gap: 6px; padding: 0 4px 0 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); }
 .stitek-volba svg { width: 15px; height: 15px; }
 .stitek-volba select { border: 0; background: transparent; padding: 7px 6px; font-size: 13px; font-weight: 600; color: var(--text); max-width: 220px; outline: none; }
+
+/* kalendář: jmeniny (oblíbení s hvězdičkou) a okno „Kalendáře“ – co ukazovat */
+.svatek { display: block; font-size: 10.5px; font-weight: 500; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
+.svatek--oblibeny { color: var(--oranz); font-weight: 700; }
+.den-nadpis .svatek, .kal-den__hlava .svatek { display: inline; font-size: 12px; margin-left: 4px; }
+.svatek--hlava { margin-top: 1px; max-width: 100%; }
+.mini__den.svatek-oblibeny { box-shadow: inset 0 -2px 0 var(--oranz); }
+.pas-den { position: relative; }
+.pas-den__svatek { position: absolute; top: 2px; right: 4px; font-style: normal; font-size: 10px; color: var(--oranz); }
+.kal-zobrazeni-btn b { margin-left: 2px; padding: 0 6px; border-radius: 9px; background: var(--accent-tint); color: var(--accent); font-size: 11px; }
+.kal-zobrazeni { display: flex; flex-direction: column; gap: 18px; }
+.kal-zobrazeni h3 { margin: 0 0 6px; font-size: 14px; }
+.kal-viditelne { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 2px; }
+.kal-viditelne li { display: flex; align-items: center; gap: 8px; padding: 4px 2px; }
+.kal-viditelne label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 550; cursor: pointer; }
+.kal-viditelne i { width: 10px; height: 10px; border-radius: 3px; flex: none; background: var(--b); }
+.kal-viditelne .odkaz { flex: none; font-size: 12.5px; }
+.kal-jmeniny-prepinac { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 550; }
+.jmeniny-oblibeni { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 4px; }
+.jmeniny-oblibeni li { display: flex; align-items: center; gap: 10px; padding: 5px 6px 5px 10px; border-radius: 10px; background: var(--bg-soft); font-size: 13.5px; }
+.jmeniny-oblibeni li > span { flex: 1; min-width: 0; }
+.jmeniny-oblibeni li small { color: var(--muted); }
+.jmeniny-pridat { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto; gap: 6px; margin-top: 8px; }
+@media (max-width: 759px) {
+    .mesic-den .svatek--bunka:not(.svatek--oblibeny) { display: none; }
+    .mesic-den .svatek--bunka.svatek--oblibeny { font-size: 9px; }
+    .jmeniny-pridat { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .jmeniny-pridat .btn { grid-column: 1 / -1; }
+    .kal-zobrazeni-btn span { display: none; }
+}
 
 /* záložky jako v Gmailu (Primární, Aktualizace, Promoakce, Sociální sítě, Fóra) */
 .posta-kategorie { position: relative; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; margin: 0 0 12px; border-bottom: 1px solid var(--line); }

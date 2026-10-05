@@ -36,7 +36,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.23';
+const VERZE = '2026-10-05.25';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -147,9 +147,10 @@ const SCHOPNOSTI = ['polozkaUpravy', 'polozkaTermin'];
 const AKCE = {
   info: function () {
     return { verze: VERZE, akce: Object.keys(AKCE).concat(SCHOPNOSTI), ucet: mojeAdresa_(), posta: nastaveniPosty_(), kalendare: seznamKalendaru_(),
-      skupinyHostu: skupinyHostu_(), pocasi: { misto: mistoPocasi_() } };
+      skupinyHostu: skupinyHostu_(), pocasi: { misto: mistoPocasi_() }, jmeniny: jmeninyOblibeni_() };
   },
   skupinyHostuUlozit: function (d) { return ulozSkupinyHostu_(d.skupiny); },
+  jmeninyUlozit: function (d) { return ulozJmeniny_(d.oblibeni); },
   nastavPostu: function (d) { return nastavPostu_(d.pracovniAdresa); },
   schranka: function () { return nactiSchranku_(); },
   poznamka: function (d) { return pridejPoznamku_(d.text); },
@@ -192,6 +193,7 @@ const AKCE = {
   reelZrusitPlan: function (d) { return zrusPlanReelu_(d.id); },
   vaha: function (d) { return vaha_(d); },
   doplnky: function (d) { return doplnky_(d); },
+  pitiJidlo: function (d) { return pitiJidlo_(d); },
   upozorneni: function () { return upozorneniStav_(); },
   upozorneniZapnout: function () { return upozorneniZapnout_(); },
   upozorneniTest: function () { return { odeslano: upozorni_('Asistent', 'Zkušební upozornění ✓', ['white_check_mark'], 3) }; },
@@ -2588,6 +2590,25 @@ function zmeny_() {
   return { auto: Number(vlastnosti_().getProperty('AUTO_ZMENA') || 0) };
 }
 
+/** Oblíbení lidé, jejichž jmeniny aplikace v kalendáři zvýrazní (bez upozornění): [{ jmeno, kdo }] – vlastnost JMENINY_OBLIBENI. */
+function jmeninyOblibeni_() {
+  try {
+    const x = JSON.parse(vlastnosti_().getProperty('JMENINY_OBLIBENI') || '[]');
+    return Array.isArray(x) ? x : [];
+  } catch (chyba) {
+    return [];
+  }
+}
+
+function ulozJmeniny_(oblibeni) {
+  if (!Array.isArray(oblibeni)) throw new Error('Chybí seznam oblíbených.');
+  const cisty = oblibeni.slice(0, 60).map(function (o) {
+    return { jmeno: String((o && o.jmeno) || '').replace(/\s+/g, ' ').trim().slice(0, 40), kdo: String((o && o.kdo) || '').replace(/\s+/g, ' ').trim().slice(0, 40) };
+  }).filter(function (o) { return /^\p{L}[\p{L} .'-]*$/u.test(o.jmeno); });
+  vlastnosti_().setProperty('JMENINY_OBLIBENI', JSON.stringify(cisty));
+  return cisty;
+}
+
 /** Akce auto: zápisy z listů Náklady a Tankování, kategorie a kdo co zaplatil (z Přehledu). */
 function auto_() {
   const ss = autoTabulka_();
@@ -4873,6 +4894,7 @@ function zdravi_(znovu) {
   p.rezim = zdraviRezim_();
   p.vaha = nactiVahu_(slozka).zaznamy;
   p.doplnky = nactiDoplnky_(slozka).dny;
+  p.pitiJidlo = pitiJidloDny_(slozka, 14);
   return p;
 }
 
@@ -4955,6 +4977,103 @@ function doplnky_(d) {
     const obsah = JSON.stringify({ aktualizovano: Date.now(), dny: dny });
     if (v.soubor) v.soubor.setContent(obsah); else slozka.createFile('DOPLNKY.json', obsah, MimeType.PLAIN_TEXT);
     return { dny: dny };
+  } finally {
+    zamek.releaseLock();
+  }
+}
+
+// ---- pití a jídlo (Michal 5. 10.: „piju málo, když to uvidím, třeba to půjde“; bílkoviny k cíli 130 g):
+// ZDRAVI/PITI_JIDLO.json zapisuje aplikace přes motor; ZDRAVI/PITI_JIDLO_CLAUDE.json zapisuje Claude z diktátu ve schránce
+// (jen přidává, id „c-…“) – motor oba spojí; smazání Claudova zápisu = id v „smazane“ (jeho soubor motor nemění).
+const PITI_JIDLO_DNI = 60;
+
+function nactiJson_(slozka, nazev) {
+  const it = slozka.getFilesByName(nazev);
+  if (!it.hasNext()) return { soubor: null, data: null };
+  const soubor = it.next();
+  let data = null;
+  try { data = JSON.parse(soubor.getBlob().getDataAsString('UTF-8')); } catch (chyba) { data = null; }
+  return { soubor: soubor, data: data };
+}
+
+/** Pití a jídlo po dnech (posledních n dní) z aplikace i od Clauda, bez smazaných: { 'RRRR-MM-DD': { piti: [], jidlo: [] } }. */
+function pitiJidloDny_(slozka, dni) {
+  const vlastni = nactiJson_(slozka, 'PITI_JIDLO.json').data || {};
+  const claude = nactiJson_(slozka, 'PITI_JIDLO_CLAUDE.json').data || {};
+  const smazane = {};
+  (Array.isArray(vlastni.smazane) ? vlastni.smazane : []).forEach(function (id) { smazane[id] = true; });
+  const hranice = Utilities.formatDate(new Date(Date.now() - (dni - 1) * 864e5), CASOVE_PASMO, 'yyyy-MM-dd');
+  const dny = {};
+  const den = function (d) { return (dny[d] = dny[d] || { piti: [], jidlo: [] }); };
+  Object.keys(vlastni.dny || {}).forEach(function (d) {
+    if (d < hranice) return;
+    const z = vlastni.dny[d] || {};
+    (z.piti || []).forEach(function (x) { den(d).piti.push(x); });
+    (z.jidlo || []).forEach(function (x) { den(d).jidlo.push(x); });
+  });
+  (Array.isArray(claude.zapisy) ? claude.zapisy : []).forEach(function (x) {
+    const d = String((x && x.den) || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d < hranice || !/^c-[\w-]{1,60}$/.test(String(x.id || '')) || smazane[x.id]) return;
+    const kdy = Date.parse(x.kdy) || null;
+    if (x.druh === 'piti' && Number(x.ml) > 0 && Number(x.ml) <= 3000) {
+      den(d).piti.push({ id: String(x.id), kdy: kdy, ml: Math.round(Number(x.ml)), co: String(x.co || '').slice(0, 60), claude: true });
+    } else if (x.druh === 'jidlo' && x.co) {
+      den(d).jidlo.push({ id: String(x.id), kdy: kdy, co: String(x.co).slice(0, 120), bilkoviny: Math.max(0, Math.min(300, Math.round(Number(x.bilkoviny) || 0))),
+        kcal: Math.max(0, Math.min(5000, Math.round(Number(x.kcal) || 0))), claude: true });
+    }
+  });
+  Object.keys(dny).forEach(function (d) {
+    dny[d].piti.sort(function (a, b) { return (a.kdy || 0) - (b.kdy || 0); });
+    dny[d].jidlo.sort(function (a, b) { return (a.kdy || 0) - (b.kdy || 0); });
+  });
+  return dny;
+}
+
+/**
+ * Akce pitiJidlo: { den, jak: 'piti', ml } | { den, jak: 'jidlo', co, bilkoviny, kcal } | { den, jak: 'smazat', id }.
+ * Vrací { dny } za 14 dní (jako Zdraví).
+ */
+function pitiJidlo_(d) {
+  const den = String(d.den || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(den)) throw new Error('Den má tvar RRRR-MM-DD.');
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(30000);
+  try {
+    const slozka = slozkaZdravi_();
+    const v = nactiJson_(slozka, 'PITI_JIDLO.json');
+    const data = v.data && typeof v.data === 'object' ? v.data : {};
+    data.dny = data.dny && typeof data.dny === 'object' ? data.dny : {};
+    data.smazane = Array.isArray(data.smazane) ? data.smazane : [];
+    const zaznam = (data.dny[den] = data.dny[den] || {});
+    zaznam.piti = Array.isArray(zaznam.piti) ? zaznam.piti : [];
+    zaznam.jidlo = Array.isArray(zaznam.jidlo) ? zaznam.jidlo : [];
+    const noveId = function (p) { return p + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36); };
+    if (d.jak === 'piti') {
+      const ml = Math.round(Number(d.ml));
+      if (!(ml > 0 && ml <= 3000)) throw new Error('Kolik ml? (1–3000)');
+      zaznam.piti.push({ id: noveId('p'), kdy: Date.now(), ml: ml });
+    } else if (d.jak === 'jidlo') {
+      const co = String(d.co || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+      if (!co) throw new Error('Napiš, co jsi snědl.');
+      zaznam.jidlo.push({ id: noveId('j'), kdy: Date.now(), co: co, bilkoviny: Math.max(0, Math.min(300, Math.round(Number(d.bilkoviny) || 0))),
+        kcal: Math.max(0, Math.min(5000, Math.round(Number(d.kcal) || 0))) });
+    } else if (d.jak === 'smazat') {
+      const id = String(d.id || '');
+      if (/^c-/.test(id)) { if (data.smazane.indexOf(id) < 0) data.smazane.push(id); }
+      else {
+        zaznam.piti = zaznam.piti.filter(function (x) { return x.id !== id; });
+        zaznam.jidlo = zaznam.jidlo.filter(function (x) { return x.id !== id; });
+      }
+    } else {
+      throw new Error('Neznámá akce.');
+    }
+    const hranice = Utilities.formatDate(new Date(Date.now() - PITI_JIDLO_DNI * 864e5), CASOVE_PASMO, 'yyyy-MM-dd');
+    Object.keys(data.dny).forEach(function (k) { if (k < hranice) delete data.dny[k]; });
+    data.smazane = data.smazane.slice(-300);
+    data.aktualizovano = Date.now();
+    const obsah = JSON.stringify(data);
+    if (v.soubor) v.soubor.setContent(obsah); else slozka.createFile('PITI_JIDLO.json', obsah, MimeType.PLAIN_TEXT);
+    return { dny: pitiJidloDny_(slozka, 14) };
   } finally {
     zamek.releaseLock();
   }

@@ -476,6 +476,7 @@ function vykresliDnes(el, p) {
       '<section class="card dlazdice dl-pozornost" id="dl-pozornost"></section>' +
       '<div class="dnes-vpravo"><section class="card dlazdice dl-tyden" id="dl-tyden" data-oblast="kalendar"></section>' +
       '<section class="card dlazdice dl-doplnky" id="dl-doplnky" data-oblast="zdravi" hidden></section>' +
+      '<section class="card dlazdice dl-piti" id="dl-piti" data-oblast="zdravi" hidden></section>' +
       '<section class="card dlazdice dl-vaha" id="dl-vaha" data-oblast="zdravi" hidden></section>' +
       '<section class="dl-reel" id="dl-reel" hidden></section>' +
       '<section class="card dlazdice dl-fotbal" id="dl-fotbal" data-oblast="fotbal" hidden></section>' +
@@ -494,6 +495,9 @@ function vykresliDnes(el, p) {
   const doplnkyHtml = umiMotor('zdravi') ? zdravi.kartaDoplnkuHtml() : '';
   el.querySelector('#dl-doplnky').hidden = !doplnkyHtml;
   el.querySelector('#dl-doplnky').innerHTML = doplnkyHtml;
+  const pitiHtml = umiMotor('zdravi') ? zdravi.kartaPitiHtml() : '';
+  el.querySelector('#dl-piti').hidden = !pitiHtml;
+  el.querySelector('#dl-piti').innerHTML = pitiHtml;
   // váha: když se do pole zrovna píše, kartu nepřekreslovat (zmizela by rozepsaná hodnota i klávesnice)
   const vahaEl = el.querySelector('#dl-vaha');
   const piseVahu = document.activeElement && vahaEl.contains(document.activeElement) && document.activeElement.matches('[data-vaha-pole]');
@@ -655,7 +659,7 @@ document.addEventListener('input', (e) => {
   posta.vstupPosta(e);
 });
 
-document.addEventListener('change', (e) => { if (!auto.zmenaAuto(e) && !reely.vstupReely(e) && !posta.zmenaPosta(e) && !udalost.zmenaUdalost(e)) nast.zmenaNastaveni(e); });
+document.addEventListener('change', (e) => { if (!auto.zmenaAuto(e) && !reely.vstupReely(e) && !posta.zmenaPosta(e) && !udalost.zmenaUdalost(e) && !kal.zmenaKalendar(e)) nast.zmenaNastaveni(e); });
 
 function pise(e) {
   const t = e.target;
