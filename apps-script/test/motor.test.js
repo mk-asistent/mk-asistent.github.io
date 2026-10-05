@@ -2075,11 +2075,32 @@ test('auto: připomínky – přezutí a zima podle data (hotové podle zápisu)
     myskoda: { auta: [{ adblue: 800, servis: { olejKm: 1200, olejDni: 200 } }] } }, ms('2026-10-20T12:00:00'));
   assert.deepStrictEqual([podle('pneu-zimni').stav, podle('pneu-zimni').hotovo], ['ted', true]);
   assert.deepStrictEqual([podle('olej').stav, podle('adblue').stav], ['ted', 'ted']);
+  // termíny ze souboru (aplikace / Claude): známka platí do 12. 4. 2027 → teď nic; STK za 30 dní → brzy
+  x = prip({ naklady, myskoda: auto, terminy: { znamka: '2027-04-12', stk: '2026-11-04' } }, ms('2026-10-05T12:00:00'));
+  assert.strictEqual(podle('znamka'), null, 'platná známka – žádná připomínka');
+  assert.deepStrictEqual([podle('stk').stav, /4\. 11\. 2026/.test(podle('stk').text)], ['brzy', true]);
+  x = prip({ naklady, myskoda: auto, terminy: { znamka: '2027-04-12' } }, ms('2027-03-25T12:00:00'));
+  assert.ok(podle('znamka') && podle('znamka').stav === 'ted' && /12\. 4\. 2027/.test(podle('znamka').text), JSON.stringify(podle('znamka')));
   // po skončení okna příští rok (16. 11. → zimní 2027 až za rok, letní od března)
   x = prip({ naklady: [] }, ms('2026-11-16T12:00:00'));
   assert.strictEqual(podle('pneu-zimni'), null);
   x = prip({ naklady: [] }, ms('2027-03-01T12:00:00'));
   assert.deepStrictEqual([podle('pneu-letni').stav, podle('pneu-letni').klic], ['brzy', 'pneu-letni-2027']);
+});
+
+test('auto: termíny (známka, STK, pojištění) do AUTO/terminy.json – zápis z aplikace, čtení s daty auta', () => {
+  const p = prostredi();
+  tabulkaAuta(p);
+  p.vlastnosti.set('AUTO_TABULKA', TAB_AUTO);
+  let o = p.volej('autoTermin', { id: 'znamka', datum: '2027-04-12' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.terminy), { znamka: '2027-04-12' });
+  o = p.volej('autoTermin', { id: 'stk', datum: '2028-06-01' });
+  assert.deepStrictEqual(json(p.volej('auto').data.terminy), { znamka: '2027-04-12', stk: '2028-06-01' });
+  o = p.volej('autoTermin', { id: 'stk', datum: '' });
+  assert.deepStrictEqual(json(o.data.terminy), { znamka: '2027-04-12' }, 'smazání');
+  assert.ok(/Neznámý termín/.test(p.volej('autoTermin', { id: 'servis', datum: '2027-01-01' }).chyba));
+  assert.ok(/RRRR-MM-DD/.test(p.volej('autoTermin', { id: 'stk', datum: '1. 6. 2028' }).chyba));
 });
 
 test('upozornění: připomínky k autu jednou denně, každá jen jednou za sezónu', () => {

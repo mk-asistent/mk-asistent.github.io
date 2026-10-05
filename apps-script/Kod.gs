@@ -36,7 +36,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.16';
+const VERZE = '2026-10-05.17';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -196,6 +196,7 @@ const AKCE = {
   autoUpravit: function (d) { return autoUpravit_(d); },
   autoUctenkaFoto: function (d) { return autoUctenkaFoto_(d); },
   autoPeceZapsat: function (d) { return autoPeceZapsat_(d); },
+  autoTermin: function (d) { return autoTermin_(d); },
   // víc čtení v jednom požadavku – aplikace při startu neposílá deset dotazů naráz (ty se pak řadí do fronty)
   davka: function (d) {
     return (Array.isArray(d.polozky) ? d.polozky.slice(0, 12) : []).map(function (p) {
@@ -2390,6 +2391,7 @@ function autoDataBez_(ss) {
     platili: prehled ? AUTO_.platili(prehled.getDataRange().getValues()) : null,
     myskoda: autoMyskoda_(),
     pece: autoPece_(ss),
+    terminy: autoTerminy_(),
     ted: Date.now()
   };
 }
@@ -2606,6 +2608,44 @@ function autoUpravit_(d) {
 }
 
 const AUTO_PECE_TEXT = 'Péče o auto – text';
+const AUTO_TERMINY = ['znamka', 'stk', 'pojisteni'];
+
+/**
+ * Termíny k autu, které v tabulce nejsou (dálniční známka platí do, STK do, výročí pojištění): soubor
+ * CLAUDE_SCHRANKA/AUTO/terminy.json – zapisuje aplikace (Péče o auto → Termíny) i Claude ze schránky
+ * (poznámka „dálniční známka platí do…“). { znamka: 'RRRR-MM-DD', stk, pojisteni }.
+ */
+function autoTerminy_() {
+  try {
+    const it = podslozka_(koren_(), 'AUTO').getFilesByName('terminy.json');
+    if (!it.hasNext()) return {};
+    const d = JSON.parse(it.next().getBlob().getDataAsString('UTF-8')) || {};
+    const ven = {};
+    AUTO_TERMINY.forEach(function (k) { if (/^\d{4}-\d{2}-\d{2}$/.test(String(d[k] || ''))) ven[k] = d[k]; });
+    return ven;
+  } catch (chyba) {
+    return {};
+  }
+}
+
+/** Akce autoTermin: { id: znamka | stk | pojisteni, datum: 'RRRR-MM-DD' nebo '' (smazat) } → terminy.json. */
+function autoTermin_(d) {
+  const id = String(d.id || '');
+  if (AUTO_TERMINY.indexOf(id) < 0) throw new Error('Neznámý termín.');
+  const datum = String(d.datum || '').trim();
+  if (datum && !/^\d{4}-\d{2}-\d{2}$/.test(datum)) throw new Error('Datum má tvar RRRR-MM-DD.');
+  const slozka = podslozka_(koren_(), 'AUTO');
+  const it = slozka.getFilesByName('terminy.json');
+  const soubor = it.hasNext() ? it.next() : null;
+  let obsah = {};
+  try { obsah = soubor ? JSON.parse(soubor.getBlob().getDataAsString('UTF-8')) || {} : {}; } catch (chyba) { obsah = {}; }
+  if (datum) obsah[id] = datum; else delete obsah[id];
+  obsah.aktualizovano = new Date(Date.now()).toISOString();
+  const text = JSON.stringify(obsah, null, 2);
+  if (soubor) soubor.setContent(text); else slozka.createFile('terminy.json', text, MimeType.PLAIN_TEXT);
+  const ss = autoTabulka_();
+  return ss ? autoData_(ss) : { terminy: autoTerminy_() };
+}
 
 /**
  * List „Péče o auto – text“ (plán údržby, rady) pro kartu Péče o auto v aplikaci – text bez prázdných řádků
@@ -3032,21 +3072,34 @@ const AUTO_ = (function () {
       return naklady.filter(function (z) { return z.datum != null && vzor.test([z.kategorie, z.polozka].join(' ')); })
         .sort(function (x, y) { return y.datum - x.datum; })[0] || null;
     };
+    // termíny zadané v aplikaci nebo Claudem (AUTO/terminy.json) mají přednost před odhadem z Náklady
+    const terminy = (d && d.terminy) || {};
+    const zData = function (iso) { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || '')); return m ? new Date(+m[1], +m[2] - 1, +m[3]).getTime() : null; };
+    // STK jen ze zadaného termínu (v tabulce není)
+    const stk = zData(terminy.stk);
+    if (stk != null && dnes >= stk - 45 * DEN) {
+      ven.push({ id: 'stk', klic: 'stk-' + terminy.stk, nazev: 'STK', od: stk - 45 * DEN, do: stk, hotovo: false,
+        stav: dnes >= stk - 21 * DEN ? 'ted' : 'brzy',
+        text: (dnes > stk ? 'STK propadla ' : 'STK platí do ') + datumCz(stk) + ' – objednej termín na stanici technické kontroly.' });
+    }
     const poj = posledni(/poji[šs]t/i);
-    if (poj) {
-      const vyroci = new Date(poj.datum);
-      vyroci.setFullYear(vyroci.getFullYear() + 1);
+    const pojZTerminu = zData(terminy.pojisteni);
+    if (pojZTerminu != null || poj) {
+      // výročí: zadané (posune se na nejbližší budoucí), jinak poslední roční platba + rok
+      const vyroci = new Date(pojZTerminu != null ? pojZTerminu : poj.datum);
+      if (pojZTerminu != null) { while (vyroci.getTime() < dnes - 21 * DEN) vyroci.setFullYear(vyroci.getFullYear() + 1); } else vyroci.setFullYear(vyroci.getFullYear() + 1);
       const v = vyroci.getTime();
       if (dnes >= v - PREDEM && dnes <= v + 21 * DEN) {
         ven.push({ id: 'pojisteni', klic: 'pojisteni-' + vyroci.getFullYear(), nazev: 'Výročí pojištění', od: v - PREDEM, do: v, hotovo: false,
           stav: dnes >= v - 14 * DEN ? 'ted' : 'brzy',
-          text: 'Roční pojištění bylo ' + datumCz(poj.datum) + ' (' + Math.round(poj.castka || 0).toLocaleString('cs-CZ') + ' Kč) – výročí ' +
+          text: (poj ? 'Roční pojištění bylo ' + datumCz(poj.datum) + ' (' + Math.round(poj.castka || 0).toLocaleString('cs-CZ') + ' Kč) – výročí ' : 'Výročí pojištění ') +
             datumCz(v) + '. Zkontroluj platbu, případně porovnej nabídky; zaplacené zapiš do tabulky.' });
       }
     }
     const znamka = posledni(/d[áa]ln[ií][čc]n/i);
-    if (znamka) {
-      const konec = znamka.datum + 364 * DEN;
+    const znamkaDo = zData(terminy.znamka);
+    if (znamka || znamkaDo != null) {
+      const konec = znamkaDo != null ? znamkaDo : znamka.datum + 364 * DEN;
       if (dnes >= konec - 45 * DEN) {
         ven.push({ id: 'znamka', klic: 'znamka-' + new Date(konec).getFullYear(), nazev: 'Dálniční známka', od: konec - 21 * DEN, do: konec, hotovo: false,
           stav: dnes >= konec - 21 * DEN ? 'ted' : 'brzy',

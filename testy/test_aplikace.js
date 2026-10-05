@@ -162,6 +162,12 @@ const motor = {
     return JSON.parse(JSON.stringify(autoData));
   },
   autoUctenkaFoto: (d) => { autoFotky.push(d.id); return { obrazek: MALA_FOTKA, nazev: 'uctenka.jpg' }; },
+  autoTermin: (d) => {
+    autoTerminy.push(d);
+    autoData.terminy = Object.assign({}, autoData.terminy, { [d.id]: d.datum });
+    if (!d.datum) delete autoData.terminy[d.id];
+    return JSON.parse(JSON.stringify(autoData));
+  },
   // dávka čtení jako v motoru: každá položka zvlášť ok / chyba
   davka: (d) => (d.polozky || []).map((p) => { try { volano.push(p); return { ok: true, data: motor[p.akce](p) }; } catch (e) { return { ok: false, chyba: e.message }; } }),
   stitky: () => [{ nazev: 'Fotbal', neprectenych: 1 }, { nazev: 'Účty', neprectenych: 0 }],
@@ -178,7 +184,7 @@ const volano = [];
 let ztratitOdpovedi = 0;          // kolik dalších odpovědí motoru „ztratí Google“ (test opakování)
 const odpovediRid = new Map();    // rid → odpověď (motor opakovaný zápis neprovede)
 let navrhZahozen = false;
-const autoZapisy = [], autoSmazano = [], autoUctenky = [], autoUpravy = [], autoFotky = [];
+const autoZapisy = [], autoSmazano = [], autoUctenky = [], autoUpravy = [], autoFotky = [], autoTerminy = [];
 const MALA_FOTKA = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const tank = (dni, castka, km, cena, litry) => ({ list: 'tankovani', datum: den(dni), datumText: '', polozka: 'Tankování', kategorie: 'Palivo', castka, km,
   kdo: 'M', poznamka: 'Pumpa Test', cenaLitr: cena, litry });
@@ -1391,8 +1397,13 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.click('.auto-akce [data-auto-pece]');
     await page.waitForSelector('[data-panel="auto-pece"] .pece');
     const oddily = await page.$$eval('[data-panel="auto-pece"] .pece-oddil > summary > span:nth-child(2)', (s) => s.map((x) => x.textContent.trim()));
-    jistota(JSON.stringify(oddily) === JSON.stringify(['Co řešit', 'Kdy přezouvat', 'Servis podle auta', 'Plán údržby', 'Přehled podle km', 'Automat DSG',
+    jistota(JSON.stringify(oddily) === JSON.stringify(['Co řešit', 'Termíny', 'Kdy přezouvat', 'Servis podle auta', 'Plán údržby', 'Přehled podle km', 'Automat DSG',
       'Mytí – postup (ideálně každé 2–3 týdny)', 'Jednou za půl roku']), 'oddíly péče: ' + JSON.stringify(oddily));
+    // Termíny: datum známky se uloží do motoru (soubor terminy.json), rok psaný po číslicích se neposílá
+    await page.fill('[data-panel="auto-pece"] [data-auto-termin="znamka"]', '2027-04-12');
+    await page.waitForFunction(() => /Termín uložený/.test(document.getElementById('toast').textContent));
+    jistota(JSON.stringify(autoTerminy.map((x) => [x.id, x.datum])) === JSON.stringify([['znamka', '2027-04-12']]), 'termín do motoru: ' + JSON.stringify(autoTerminy));
+    jistota(await page.inputValue('[data-panel="auto-pece"] [data-auto-termin="znamka"]') === '2027-04-12', 'termín po obnovení panelu');
     const osa = (await page.textContent('[data-panel="auto-pece"] .pece-osa')).replace(/\s+/g, ' ');
     jistota(/teď 13 600 km/.test(osa) && /15 000 km/.test(osa) && /za 1 400 km/.test(osa), 'osa km: ' + osa);
     jistota(/pod 7 °C/.test(await page.textContent('[data-panel="auto-pece"] .pece-kola')), 'kdy přezouvat');

@@ -557,6 +557,12 @@ const akce = {
     return kopie(autoUkazka);
   },
   autoUctenkaFoto: () => { throw new Error('V ukázce fotky účtenek nejsou.'); },
+  autoTermin: (d) => {
+    const t = Object.assign({}, autoUkazka.terminy);
+    if (d.datum) t[d.id] = d.datum; else delete t[d.id];
+    autoUkazka.terminy = t;
+    return kopie(autoUkazka);
+  },
   autoSmazat: (d) => {
     const seznam = autoUkazka[d.list === 'tankovani' ? 'tankovani' : 'naklady'];
     if (seznam.length && seznam[seznam.length - 1].radek === Number(d.radek)) seznam.pop();

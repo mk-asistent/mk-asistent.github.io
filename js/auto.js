@@ -416,7 +416,7 @@ const nazevOddilu = (t) => (t.charAt(0) + t.slice(1).toLowerCase()).replace(/\b(
 // ---------------------------------------------------------------- připomínky „Co řešit“ (počítá motor, okna podle dneška)
 
 const SEZONNI_ID = ['pneu-zimni', 'pneu-letni', 'zima', 'jaro'];
-const IKONA_PRIPOMINKY = { 'pneu-zimni': '❄️', 'pneu-letni': '☀️', zima: '🧊', jaro: '🌬️', olej: '🛢️', prohlidka: '🔧', adblue: '💧', pojisteni: '📄', znamka: '🛣️' };
+const IKONA_PRIPOMINKY = { 'pneu-zimni': '❄️', 'pneu-letni': '☀️', zima: '🧊', jaro: '🌬️', olej: '🛢️', prohlidka: '🔧', adblue: '💧', pojisteni: '📄', znamka: '🛣️', stk: '🔍' };
 
 /**
  * Připomínky z motoru (přezutí, zima, servis podle auta, pojištění, dálniční známka). Sezónní okna se vyhodnotí podle
@@ -478,6 +478,24 @@ const KOLA = '<div class="pece-kola"><div class="pece-kola__karta pece-kola--zim
   '<li>Při přezutí nech kola vyvážit a dotáhnout, tlak kontroluj 1× měsíčně.</li>' +
   '<li>Asistent připomene přezutí na zimní od 10. 10. a na letní od 20. 3. (na stránce Auto, na Dnes a upozorněním do iPhonu).</li></ul>';
 
+// termíny, které v tabulce nejsou – motor je drží v AUTO/terminy.json a připomene je v Co řešit (zapsat je může i Claude)
+const TERMINY = [['znamka', '🛣️', 'Dálniční známka platí do'], ['stk', '🔍', 'STK platí do'], ['pojisteni', '📄', 'Výročí pojištění']];
+const terminCasovace = {};
+
+function terminyHtml(t) {
+  const x = t || {};
+  return '<ul class="pece-terminy">' + TERMINY.map((r) => '<li><span class="pece-ikona" aria-hidden="true">' + r[1] + '</span><label><span>' + r[2] + '</span>' +
+    '<input type="date" data-auto-termin="' + r[0] + '" value="' + esc(x[r[0]] || '') + '"></label></li>').join('') + '</ul>' +
+    '<p class="napoveda">Uloží se hned po změně. Asistent připomene obnovu v Co řešit a do iPhonu – známku a STK 3–6 týdnů předem, pojištění měsíc ' +
+    'předem. Bez data bere známku a pojištění z posledního zápisu v Náklady.</p>';
+}
+
+function ulozTermin(id, datum) {
+  volej('autoTermin', { id, datum })
+    .then((data) => { uloz(data); toast(datum ? 'Termín uložený ✓' : 'Termín smazaný'); zmeneno(); if (elementPanelu('auto-pece')) obnovPanel('auto-pece'); })
+    .catch((e) => toast(e.message, true));
+}
+
 function oddilHtml(ikona, nazev, obsah, otevreny, pocet) {
   return '<details class="pece-oddil"' + (otevreny ? ' open' : '') + '><summary><span class="pece-ikona" aria-hidden="true">' + ikona + '</span><span>' + esc(nazev) +
     '</span>' + (pocet ? '<small>' + pocet + '</small>' : '') + '</summary><div class="pece-obsah">' + obsah + '</div></details>';
@@ -521,6 +539,7 @@ function peceHtml() {
   let h = '<div class="pece">';
   const x = pripominky(d);
   if (x.length) h += oddilHtml('📌', 'Co řešit', '<ul class="auto-resit__seznam">' + x.map(pripominkaHtml).join('') + '</ul>', true);
+  h += oddilHtml('📅', 'Termíny', terminyHtml(d.terminy), true);
   h += oddilHtml('🛞', 'Kdy přezouvat', KOLA, true);
   const servis = servisZAutaPeceHtml(p && p.auto);
   if (servis) h += oddilHtml('🔧', 'Servis podle auta', servis, true);
@@ -875,6 +894,13 @@ export function vstupAuto(e) {
 export function zmenaAuto(e) {
   const t = e.target;
   if (t.matches && t.matches('[data-az]') && f) { f[t.dataset.az] = t.value; return true; }
+  if (t.matches && t.matches('[data-auto-termin]')) {
+    // datum se ukládá chvíli po poslední změně (při psaní roku přijde change po každé číslici)
+    const id = t.dataset.autoTermin, datum = t.value;
+    clearTimeout(terminCasovace[id]);
+    if (!datum || /^20\d\d-\d\d-\d\d$/.test(datum)) terminCasovace[id] = setTimeout(() => ulozTermin(id, datum), 700);
+    return true;
+  }
   if (!t.matches || !t.matches('[data-auto-foto]')) return false;
   const soubory = Array.from(t.files || []);
   t.value = '';
