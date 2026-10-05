@@ -435,9 +435,17 @@ function sekceZdravi() {
     '<li>script.google.com → projekt motoru → ⚙ Nastavení projektu → <b>Vlastnosti skriptu</b> → Přidat: <code>WHOOP_CLIENT_ID</code>, ' +
       '<code>WHOOP_CLIENT_SECRET</code> a <code>WHOOP_REDIRECT_URI</code> (= stejná adresa motoru jako výš) → Uložit.</li>' +
     '<li>Tady klepni na <b>Propojit WHOOP</b> → přihlas se → <b>Allow</b>. Data za 30 dní se načtou sama.</li></ol></details>';
+  // výsledek posledního spuštění zkratky (motor ho drží 6 h) – zkratka sama běží potichu
+  const pa = stav.zdravi && stav.zdravi.apple && stav.zdravi.apple.posledni;
+  const cas = (t) => new Date(t).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const den = (s) => String(s || '').split('-').reverse().slice(0, 2).map(Number).join('. ') + '.';
   h += '<h3>Apple Watch – zkratka v iPhonu</h3>' +
     '<p class="napoveda">Data ze Zdraví jdou číst jen při odemčeném iPhonu, proto je posílá zkratka, když otevřeš aplikaci WHOOP ' +
     '(ráno stejně koukáš na připravenost). Zkratka má vlastní klíč – umí jen zapsat data Zdraví, poštu neotevře.</p>' +
+    (pa ? '<p class="nast-stav ' + (pa.ok ? 'ok' : 'chyba') + '"><i></i>Poslední zpráva ze zkratky ' + esc(cas(pa.kdy)) + ': ' +
+        (pa.ok ? 'uloženo ' + pa.ulozeno + ' dní (' + esc(den(pa.od)) + ' – ' + esc(den(pa.do)) + ')' : esc(pa.chyba)) + '</p>' +
+      (pa.pole && pa.pole.length ? '<p class="napoveda">Přišla pole: ' + esc(pa.pole.join(', ')) + '</p>' : '') +
+      (pa.ukazka ? '<pre class="ukazka-zkratky">' + esc(Object.keys(pa.ukazka).map((k) => k + ': ' + pa.ukazka[k]).join('\n')) + '</pre>' : '') : '') +
     (n.klicZdravi ? '<label><span class="label">Klíč pro zkratku (pole „klic“)</span><input class="field kod-pripojeni" data-klic-zdravi readonly value="' + esc(n.klicZdravi) + '"></label>' +
       '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="zdravi-klic-novy">Vyrobit nový</button>' +
       '<button type="button" class="btn btn--ghost btn--sm" data-nast="kopirovat-adresu">Kopírovat adresu motoru</button>' +

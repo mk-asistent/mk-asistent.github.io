@@ -1218,6 +1218,21 @@ test('zdraví: zkratka Apple Zdraví – vlastní klíč, česká čísla a data
   const a = (den) => (dny2.find((x) => x.den === den) || {}).apple || {};
   assert.deepStrictEqual([a('2026-10-03').kroky, a('2026-10-04').kroky, a('2026-10-05').kroky, a('2026-10-04').energie], [9812, 14020, 1203, 703]);
   assert.deepStrictEqual([a('2026-10-03').klidovyTep, a('2026-10-04').klidovyTep], [undefined, 52]);
+  // seznamy poslané jako pole JSON (ne text po řádcích)
+  assert.strictEqual(p.volej('zdraviApple', { kroky_dny: ['1. 10. 2026 v 0:00', '2. 10. 2026 v 0:00'], kroky: [7001, 7002] }, k).ok, true);
+  const dny3 = p.volej('zdravi').data.dny;
+  assert.strictEqual(dny3.find((x) => x.den === '2026-10-02').apple.kroky, 7002);
+  // poslední zpráva ze zkratky: úspěch, nesrozumitelná data (s ukázkou), špatný klíč, hlavní klíč aplikace (bez klíče v záznamu)
+  let pa = p.volej('zdravi').data.apple.posledni;
+  assert.deepStrictEqual([pa.ok, pa.ulozeno, pa.od, pa.do], [true, 2, '2026-10-01', '2026-10-02']);
+  assert.strictEqual(p.volej('zdraviApple', { kroky: 'nesmysl', kroky_dny: 'taky nesmysl' }, k).ok, false);
+  pa = p.volej('zdravi').data.apple.posledni;
+  assert.ok(!pa.ok && /žádná data/.test(pa.chyba) && pa.ukazka.kroky === 'nesmysl' && pa.pole.join() === 'kroky,kroky_dny', JSON.stringify(pa));
+  p.volej('zdraviApple', { kroky: '1' }, 'spatny-klic');
+  assert.ok(/nesedí/.test(p.volej('zdravi').data.apple.posledni.chyba));
+  p.volej('zdraviApple', { kroky: '1' }, KLIC);
+  pa = p.volej('zdravi').data.apple.posledni;
+  assert.ok(/hlavní klíč/.test(pa.chyba) && JSON.stringify(pa).indexOf(KLIC) < 0, 'hlavní klíč poznán, ale nezapsán');
 });
 
 // ---------------------------------------------------------------- upozornění do iPhonu (ntfy)

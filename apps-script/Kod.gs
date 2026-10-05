@@ -30,7 +30,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.4';
+const VERZE = '2026-10-05.5';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -70,8 +70,16 @@ function doPost(e) {
     // zkratka Zdraví v iPhonu má vlastní klíč jen pro zápis dat (hlavní klíč otevírá poštu)
     if (data.akce === 'zdraviApple') {
       const klicZdravi = klicZdravi_();
-      vystup = klicZdravi && typeof data.klic === 'string' && data.klic === klicZdravi
-        ? { ok: true, data: zapisApple_(data) } : { ok: false, chyba: 'klic' };
+      if (klicZdravi && typeof data.klic === 'string' && data.klic === klicZdravi) {
+        vystup = { ok: true, data: zapisApple_(data) };
+      } else {
+        // zkratka běží potichu – výsledek posledního pokusu ukáže aplikace (Nastavení → Zdraví), klíč se nikam nezapisuje
+        const hlavni = typeof data.klic === 'string' && data.klic === klicApi_();
+        zapisPosledniApple_({ ok: false, pole: poleApple_(data), chyba: hlavni
+          ? 'Ve zkratce je hlavní klíč aplikace (otevírá poštu) – vyměň ho za klíč pro zkratku z Nastavení → Zdraví.'
+          : 'Klíč ve zkratce nesedí s klíčem pro zkratku (Nastavení → Zdraví → Ukázat klíč) – vlož ho znovu.' });
+        vystup = { ok: false, chyba: 'klic' };
+      }
       return ContentService.createTextOutput(JSON.stringify(vystup)).setMimeType(ContentService.MimeType.JSON);
     }
     const klic = klicApi_();
@@ -3444,12 +3452,31 @@ function klicZdravi_() {
 function zapisApple_(d) {
   const dny = ZDRAVI_.zApple(d);
   const pocet = Object.keys(dny).length;
-  if (!pocet) throw new Error('Ve zprávě ze zkratky nejsou žádná data (zkontroluj proměnné v Načíst obsah URL).');
+  if (!pocet) {
+    // ukázka začátku toho, co přišlo (bez klíče) – podle ní se pozná, v jakém tvaru zkratka data posílá
+    const ukazka = {};
+    poleApple_(d).slice(0, 4).forEach(function (k) { ukazka[k] = String(Array.isArray(d[k]) ? d[k].join(' | ') : d[k]).slice(0, 80); });
+    zapisPosledniApple_({ ok: false, pole: poleApple_(d), ukazka: ukazka,
+      chyba: 'Ve zprávě ze zkratky nejsou žádná data, kterým by motor rozuměl (zkontroluj proměnné v Načíst obsah URL).' });
+    throw new Error('Ve zprávě ze zkratky nejsou žádná data (zkontroluj proměnné v Načíst obsah URL).');
+  }
   ulozZdravi_(dny, 'apple', null);
   vlastnosti_().setProperty('APPLE_SYNC', String(Date.now()));
+  const seznam = Object.keys(dny).sort();
+  zapisPosledniApple_({ ok: true, ulozeno: pocet, od: seznam[0], do: seznam[seznam.length - 1], pole: poleApple_(d) });
   // zkratku spouští otevření aplikace WHOOP → rovnou čerstvý WHOOP
   try { if (whoopStav_().propojeno) whoopSync_(3); } catch (chyba) { /* stačí Apple */ }
   return { ulozeno: pocet };
+}
+
+/** Jména polí, která zkratka poslala (bez klíče a akce). */
+function poleApple_(d) {
+  return Object.keys(d || {}).filter(function (k) { return k !== 'klic' && k !== 'akce'; });
+}
+
+/** Výsledek posledního pokusu zkratky (6 h v mezipaměti) – aplikace ho ukáže v Nastavení → Zdraví. */
+function zapisPosledniApple_(info) {
+  ulozDoCache_('APPLE_POSLEDNI', Object.assign({ kdy: Date.now() }, info), 21600);
 }
 
 // ---- úložiště po měsících na Disku
@@ -3513,7 +3540,7 @@ function zdravi_(znovu) {
   const p = ZDRAVI_.prehled(soubory, ted, ZDRAVI_DNI);
   p.whoop = whoopStav_();
   if (chybaSync) p.whoop.sync.chyba = chybaSync;
-  p.apple = { kdy: Number(vlastnosti_().getProperty('APPLE_SYNC') || 0) };
+  p.apple = { kdy: Number(vlastnosti_().getProperty('APPLE_SYNC') || 0), posledni: nactiZCache_('APPLE_POSLEDNI') };
   p.rezim = zdraviRezim_();
   p.vaha = nactiVahu_(slozka).zaznamy;
   return p;
@@ -3724,9 +3751,11 @@ const ZDRAVI_ = (function () {
     klidovy_tep: 'klidovyTep', hrv: 'hrv', vo2max: 'vo2max' };
   function zApple(d) {
     const dny = {};
+    // zkratka může seznam poslat i jako pole JSON (místo textu po řádcích)
+    const text = function (x) { return Array.isArray(x) ? x.join('\n') : x; };
     Object.keys(POLE_APPLE).forEach(function (pole) {
       // nový tvar: pole + pole_dny (dva seznamy), starý: „datum=hodnota;…“
-      const hodnoty = d[pole + '_dny'] != null ? parovaneHodnoty(d[pole + '_dny'], d[pole]) : denniHodnoty(d[pole]);
+      const hodnoty = d[pole + '_dny'] != null ? parovaneHodnoty(text(d[pole + '_dny']), text(d[pole])) : denniHodnoty(text(d[pole]));
       Object.keys(hodnoty).forEach(function (x) {
         // „Doplnit chybějící“ ve zkratce dává dnům bez měření nulu – tep, HRV ani VO2 max nulové být nemůžou
         if (hodnoty[x] === 0 && (pole === 'klidovy_tep' || pole === 'hrv' || pole === 'vo2max')) return;
