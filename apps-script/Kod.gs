@@ -36,7 +36,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.18';
+const VERZE = '2026-10-05.19';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -720,7 +720,7 @@ function seznamVlaken_(dotaz, ja, prac, ucet, max, predem, sPodklady) {
     const odeMe = odeMne(posledni);
     const s = stavADuvod_(posledni, odeMe, vlakno, !!oznameni[vlakno.getId()], ted, seznam.some(odeMne), znami);
     const cekas = s.stav === 'cekas';
-    const ukazka = posledni.getPlainBody().replace(/\s+/g, ' ').trim().slice(0, 180);
+    const ukazka = cistyText_(posledni.getPlainBody()).slice(0, 180);
     // čeká na odpověď → podklad pro návrh od Clauda (nactiPostu_ ho odebere a zapíše do POSTA_K_ODPOVEDI.json)
     const kOdpovedi = !!sPodklady && !odeMe && !!odesilatel && (s.stav === 'hori' || s.stav === 'ceka' || s.stav === 'otazka');
     const polozka = {
@@ -753,6 +753,15 @@ function seznamVlaken_(dotaz, ja, prac, ucet, max, predem, sPodklady) {
     if (kOdpovedi) polozka._odpoved = { zpravaId: odesilatel.getId(), text: vlastniText_(odesilatel) };
     return polozka;
   });
+}
+
+// Neviditelné znaky, kterými reklamní e-maily vycpávají náhled („‌ ‌ ‌…“), a zbytky obrázků a odkazů z textové verze.
+const NEVIDITELNE = /[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u206a-\u206f\u3164\ufeff\uffa0]/g;
+
+/** Text pro náhled: bez neviditelných znaků, „[image: …]“ a osamělých „<“ po odkazech, mezery sloučené. */
+function cistyText_(s) {
+  return String(s || '').replace(NEVIDITELNE, '').replace(/\[image:[^\]]*\]/gi, ' ').replace(/(^|\s)<(?=\s|$)/g, ' ')
+    .replace(/\s+/g, ' ').trim();
 }
 
 /** Jména adresátů zprávy (Komu, bez něj Kopie), nejvýš tři – pro „Čekáš na: …“. */
@@ -931,7 +940,7 @@ function ulozPostuKPrehledu_(vynutit) {
       const posledni = obsah[i][obsah[i].length - 1];
       zpravy.push({ id: v.getId(), kategorie: k, od: jmeno_(posledni.getFrom()), odAdresa: adresa_(posledni.getFrom()),
         predmet: v.getFirstMessageSubject() || '(bez předmětu)',
-        ukazka: String(posledni.getPlainBody() || '').replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim().slice(0, 300),
+        ukazka: cistyText_(String(posledni.getPlainBody() || '').replace(/https?:\/\/\S+/g, '')).slice(0, 300),
         kdy: v.getLastMessageDate().getTime(), neprectena: v.isUnread() });
     });
   });

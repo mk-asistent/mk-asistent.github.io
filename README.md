@@ -71,7 +71,21 @@ v Doručené poště má stav, který motor určí hned a bez AI:
 Ve vlákně je **nejnovější zpráva nahoře**. **Štítky Gmailu** jsou u konverzací a nahoře jde vybrat štítek (i archivované
 konverzace). **Podpis** (osobní / pracovní) se vloží do psaní; v poli Komu i u hostů události **našeptává** lidi,
 kterým jsi psal. Hledání v celé poště rozumí českým filtrům (`od:`, `předmět:`, `má:přílohu`, `po:1.10.2026`…).
-Klávesy na PC: `j`/`k`, `e` hotovo, `h` připomenout, `r` odpovědět, `a` všem, `f` přeposlat, `c` nový, `/` hledat, `1`–`6` sekce.
+Klávesy na PC: `j`/`k`, `e` hotovo, `h` připomenout, `v` přesunout, `r` odpovědět, `a` všem, `f` přeposlat, `c` nový, `/` hledat, `1`–`6` sekce.
+
+**Záložky jako v Gmailu** (Michal 5. 10.): **Primární · Aktualizace · Promoakce · Sociální sítě · Fóra** s počtem
+nepřečtených. Primární a Aktualizace jsou z Doručené (motor u konverzací z kategorie Aktualizace posílá `aktualizace`),
+ostatní se načtou až na klepnutí (`postaKategorie`, v Doručené za 30 dní, 5 min v mezipaměti; čísla `pocty` posílá motor
+s poštou). V záložkách kromě Primární je **Označit vše jako přečtené** (`postaPrectene`, nejvýš 100). **Přesunout do
+skupiny** (tlačítko u konverzace, klávesa `v`) = štítek Gmailu + pryč z Doručené jako „Přesunout do“ v Gmailu; jde i jen
+přidat štítek nebo ho odebrat (`postaPresunout`). Štítky jsou ve výběru nad seznamem pod „Skupiny“.
+
+**Přehled od Clauda** (balast přečte Claude): motor jednou za 4 hodiny (7–22 h, spouštěč `instagramKazdych10Min`) zapíše
+konverzace z Aktualizací, Promoakcí, Sociálních sítí a Fór za 2 dny (odesílatel, předmět, začátek textu bez odkazů) do
+`CLAUDE_SCHRANKA/POSTA_K_PREHLEDU.json`; naplánovaná úloha „Návrhy odpovědí a přehled pošty“ z nich napíše
+`POSTA_PREHLED.json` – **Vyřiď** (zásilka, platba, bezpečnost účtu, selhání automatizací…), **Mohlo by tě zajímat**
+(nejvýš 5, přísně) a **Ostatní stručně** po skupinách. Aplikace ho ukáže nahoře v Poště (v Primární jen Vyřiď a Zajímavé),
+položka jde skrýt (pamatuje se v zařízení).
 
 **Návrhy odpovědí od Clauda:** motor zapíše konverzace, které čekají na odpověď (hoří, čeká na tebe, otázka), do
 `CLAUDE_SCHRANKA/POSTA_K_ODPOVEDI.json` (jen při změně, nejvýš 15). Naplánovaná úloha „Návrhy odpovědí“ (skill
@@ -140,7 +154,8 @@ se zapomene.
   s časem, rozdíl proti minulému vážení, čáru posledních 30 zápisů a 6 posledních zápisů (překlep jde smazat).
 - **Doplňky:** režim v `CLAUDE_SCHRANKA/ZDRAVI_REZIM.json` (položky s časem dne, `jen`: trenink / zapas / zatez,
   `treninkDny`, `zapasTymy`, `kofeinDo`) – motor ho posílá se Zdravím, aplikace z něj skládá Doplňky dnes; odškrtnutí
-  se pamatuje v zařízení. Skutečný režim je jen na Disku (zdravotní údaje do repa nepatří).
+  se pamatuje v zařízení. Časy dne: rano, svacina, obed, pred, zapas, po, vecer. Skutečný režim je jen na Disku
+  (zdravotní údaje do repa nepatří).
 - **Upozornění do iPhonu** (ntfy, nepovinné): zapínají se v aplikaci **Nastavení → Upozornění** (motor vyrobí téma
   `NTFY_TEMA`, aplikace ho ukáže s návodem pro aplikaci ntfy a umí poslat zkušební). Kontroly běží **každých 10 minut**
   se spouštěčem `instagramKazdych10Min` (jiný spouštěč netřeba; starý `kazdouHodinu` dělá totéž): hoří v poště (6–22 h),
@@ -188,7 +203,9 @@ Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**
   přehled podle km jako osa a oddíly z listu (nadpis oddílu = tučný řádek).
 - **Co řešit** (motor `AUTO_.pripominky`): přezutí na zimní od 10. 10. (do 15. 11.) a na letní od 20. 3., příprava na
   zimu (říjen), klimatizace a pylový filtr (duben–květen), olej a prohlídka podle auta (≤ 1 500 km / 21 dní), AdBlue,
-  výročí pojištění (poslední roční platba + rok) a konec dálniční známky (365 dní). Hotovo = odpovídající zápis
+  výročí pojištění (poslední roční platba + rok) a konec dálniční známky (365 dní) – **termíny zadané v Péče o auto →
+  Termíny** (`CLAUDE_SCHRANKA/AUTO/terminy.json`: `znamka`, `stk`, `pojisteni`; zapisuje aplikace přes `autoTermin` i Claude
+  ze schránky) mají přednost, STK se připomíná jen ze zadaného termínu (45 / 21 dní předem). Hotovo = odpovídající zápis
   v Náklady. Karta nahoře na stránce Auto, aktuální věci i na Dnes, do iPhonu jednou za sezónu (`upozorneniAuto_`,
   jednou denně, `OHLASENO_AUTO`).
 - **Výdaje po měsících**: souvislá řada 13 měsíců s rokem, klepnutí na sloupec = rozpis po kategoriích („Ostatní“ =

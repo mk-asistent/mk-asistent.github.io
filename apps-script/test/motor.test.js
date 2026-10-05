@@ -1671,7 +1671,7 @@ test('pošta: přesun do štítku (skupiny) jako v Gmailu – štítek a pryč z
 test('pošta: podklady pro přehled od Clauda (jednou za 4 hodiny, jen při změně) a přehled v Doručené', () => {
   const p = prostredi();
   const promo = p.vlakno('p1', [p.zprava({ id: 'pm1', od: 'Slevomat <info@slevomat.test>', predmet: 'Dárek k svátku',
-    text: 'Máte 200 Kč kredit https://slevomat.test/x?a=1 do neděle.', kdy: Date.UTC(2026, 9, 2, 10), neprectena: true })], true);
+    text: '\u200c \u200c \u200c\u034f [image: Slevomat] Máte 200 Kč kredit https://slevomat.test/x?a=1 < do neděle.', kdy: Date.UTC(2026, 9, 2, 10), neprectena: true })], true);
   p.nastavKategorie({ promotions: [promo] });
   p.nastavAktualizace([p.vlakna.v2]);
   const soubor = () => p.schranka.soubory.find((f) => f.getName() === 'POSTA_K_PREHLEDU.json' && !f.vKosi);
@@ -1683,7 +1683,7 @@ test('pošta: podklady pro přehled od Clauda (jednou za 4 hodiny, jen při změ
   const d = JSON.parse(soubor().getBlob().getDataAsString());
   assert.deepStrictEqual(d.zpravy.map((z) => [z.id, z.kategorie]), [['v2', 'aktualizace'], ['p1', 'promo']]);
   assert.deepStrictEqual([d.zpravy[1].od, d.zpravy[1].predmet, d.zpravy[1].ukazka, d.zpravy[1].neprectena],
-    ['Slevomat', 'Dárek k svátku', 'Máte 200 Kč kredit do neděle.', true], 'bez odkazů');
+    ['Slevomat', 'Dárek k svátku', 'Máte 200 Kč kredit do neděle.', true], 'bez odkazů, obrázků a neviditelných znaků');
   const dotazu = p.log.dotazy.length;
   p.nastavCas(Date.parse('2026-10-05T10:00:00+02:00'));
   p.ctx.instagramKazdych10Min();
