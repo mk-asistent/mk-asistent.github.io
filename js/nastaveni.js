@@ -445,16 +445,15 @@ function sekceZdravi() {
       : '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="kopirovat-adresu">Kopírovat adresu motoru</button>' +
         '<button type="button" class="btn btn--ghost btn--sm" data-nast="zdravi-klic">Ukázat klíč pro zkratku</button></div>') +
     detail('zkratka-zdravi') + '<summary>Jak udělat zkratku „Zdraví do Asistenta“</summary><ol class="kroky">' +
-    '<li>Aplikace <b>Zkratky</b> → <b>+</b> → název <code>Zdraví do Asistenta</code>. Pro každý údaj (Kroky, Aktivní energie, Minuty cvičení, ' +
-      'Hodiny stání, Klidová tepová frekvence, Variabilita srdečního tepu, Kardiovaskulární kondice, Vzdálenost chůze a běhu): ' +
-      '<b>Hledat vzorky zdravotních dat</b> (typ, Datum zahájení je ' +
-      'v posledních 7 dnech, Seskupit podle: Den; u energie, tepu a HRV i Zdroj = tvoje Apple Watch) → <b>Opakovat se všemi položkami</b> → ' +
-      '<b>Text</b> <code>[Datum zahájení]=[Hodnota]</code> (datum ve formátu ISO 8601) → Konec opakování → <b>Spojit text</b> oddělovačem <code>;</code> → ' +
-      '<b>Nastavit proměnnou</b> → <b>Žádná akce</b>.</li>' +
-    '<li>Spánek: bez seskupení, Datum ukončení je v posledních 2 dnech, Zdroj Apple Watch, Text <code>[Datum zahájení]|[Datum ukončení]|[Hodnota]</code>.</li>' +
-    '<li><b>Načíst obsah URL</b>: adresa motoru → Metoda POST → Tělo požadavku JSON, pole (Text): <code>klic</code> = klíč výš, <code>akce</code> = ' +
-      '<code>zdraviApple</code>, a proměnné: <code>kroky</code>, <code>energie</code>, <code>cviceni</code>, <code>stani</code>, <code>vzdalenost</code>, ' +
-      '<code>klidovy_tep</code>, <code>hrv</code>, <code>vo2max</code>, <code>spanek</code>.</li>' +
+    '<li>Aplikace <b>Zkratky</b> → <b>+</b> → název <code>Zdraví do Asistenta</code>. Na každý údaj stačí <b>dvě akce</b>:' +
+      '<br>① <b>Najít vzorky zdravotních dat</b> – Typ (Steps, Aktivní energie, Minuty cvičení, Klidová tepová frekvence, Chůze a běh…), ' +
+      'Datum začátku je v posledních 7 dnech, <b>Seskupit podle: Den</b>, Doplnit chybějící vypnout. Musí tam stát „<b>Najít</b>“ – když se ' +
+      'ukáže „Filtrovat položky…“, napojila se na předchozí akci: klepni na modré „Vzorky zdravotních dat“ hned za „typu“ → Vymazat.' +
+      '<br>② <b>Nastavit proměnnou</b> – jméno <code>kroky</code> (pak <code>energie</code>, <code>cviceni</code>, <code>klidovy_tep</code>, ' +
+      '<code>vzdalenost</code>, <code>stani</code>, <code>hrv</code>, <code>vo2max</code>).</li>' +
+    '<li>Na konec <b>Načíst obsah URL</b>: adresa motoru (tlačítko výš) → Metoda POST → Tělo požadavku JSON → pole typu Text: <code>klic</code> = klíč ' +
+      'pro zkratku, <code>akce</code> = <code>zdraviApple</code>. Pro každou proměnnou <b>dvě pole</b>: <code>kroky</code> = proměnná kroky → klepni na ni ' +
+      '→ <b>Hodnota</b>; <code>kroky_dny</code> = proměnná kroky → <b>Datum začátku</b>. Stejně <code>energie</code> + <code>energie_dny</code> atd.</li>' +
     '<li>Zkratku jednou spusť (▶). iPhone se zeptá na <b>přístup ke Zdraví</b> → zapni všechny údaje → Povolit. <i>Teprve potom</i> se Zkratky objeví ' +
       'v aplikaci Zdraví → profil → Soukromí → Aplikace (tam jde přístup později změnit) – dřív tam nejsou.</li>' +
     '<li>Automatizace → <b>+</b> → Vytvořit osobní automatizaci → <b>Aplikace</b> → WHOOP → je otevřená → <b>Spustit okamžitě</b> → zkratka výš.</li></ol></details>';

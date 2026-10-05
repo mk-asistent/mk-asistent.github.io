@@ -1207,6 +1207,17 @@ test('zdraví: zkratka Apple Zdraví – vlastní klíč, česká čísla a data
   assert.deepStrictEqual(zdravi.soubory.map((x) => x.getName()).sort(), ['2026-09.json', '2026-10.json']);
   // prázdná zpráva ze zkratky → srozumitelná chyba
   assert.ok(/žádná data/.test(p.volej('zdraviApple', { verze: '1' }, k).chyba));
+  // jednodušší zkratka (bez Opakovat): dva seznamy – dny (výchozí formát data v iPhonu) a hodnoty, každý údaj na řádku
+  const o2 = p.volej('zdraviApple', {
+    kroky_dny: '3. 10. 2026 v 0:00\n4. 10. 2026 v 0:00\n5. října 2026', kroky: '9 812\n14 020\n1 203',
+    energie_dny: '4. 10. 2026 v 0:00', energie: '702,5',
+    klidovy_tep_dny: '3. 10. 2026 v 0:00\n4. 10. 2026 v 0:00', klidovy_tep: '0\n52' // nula = den bez měření („Doplnit chybějící“)
+  }, k);
+  assert.strictEqual(o2.ok, true, o2.chyba);
+  const dny2 = p.volej('zdravi').data.dny;
+  const a = (den) => (dny2.find((x) => x.den === den) || {}).apple || {};
+  assert.deepStrictEqual([a('2026-10-03').kroky, a('2026-10-04').kroky, a('2026-10-05').kroky, a('2026-10-04').energie], [9812, 14020, 1203, 703]);
+  assert.deepStrictEqual([a('2026-10-03').klidovyTep, a('2026-10-04').klidovyTep], [undefined, 52]);
 });
 
 // ---------------------------------------------------------------- upozornění do iPhonu (ntfy)

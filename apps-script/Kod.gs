@@ -30,7 +30,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.3';
+const VERZE = '2026-10-05.4';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -3657,12 +3657,28 @@ const ZDRAVI_ = (function () {
     const n = parseFloat(String(s).replace(/[\s  ]/g, '').replace(',', '.'));
     return isFinite(n) ? n : null;
   }
-  /** Datum z textu zkratky: ISO „2026-10-01T…“ nebo české „1. 10. 2026“ → „2026-10-01“ */
+  const MESICE_CZ = ['ledna', 'února', 'března', 'dubna', 'května', 'června', 'července', 'srpna', 'září', 'října', 'listopadu', 'prosince'];
+  /** Datum z textu zkratky: ISO „2026-10-01T…“, české „1. 10. 2026 v 0:00“ nebo „1. října 2026“ → „2026-10-01“ */
   function datumZTextu(s) {
     const iso = /(\d{4})-(\d{2})-(\d{2})/.exec(s);
     if (iso) return iso[1] + '-' + iso[2] + '-' + iso[3];
     const cz = /(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/.exec(s);
-    return cz ? cz[3] + '-' + ('0' + cz[2]).slice(-2) + '-' + ('0' + cz[1]).slice(-2) : '';
+    if (cz) return cz[3] + '-' + ('0' + cz[2]).slice(-2) + '-' + ('0' + cz[1]).slice(-2);
+    const slovy = new RegExp('(\\d{1,2})\\.\\s*(' + MESICE_CZ.join('|') + ')\\s*(\\d{4})', 'i').exec(String(s || ''));
+    return slovy ? slovy[3] + '-' + ('0' + (MESICE_CZ.indexOf(slovy[2].toLowerCase()) + 1)).slice(-2) + '-' + ('0' + slovy[1]).slice(-2) : '';
+  }
+  /** Dva seznamy ze zkratky – dny a hodnoty, každý údaj na řádku (vlastnosti Datum začátku a Hodnota z „Najít vzorky“)
+   *  → { 'RRRR-MM-DD': číslo }. Zkratka tak nepotřebuje Opakovat ani skládat text. */
+  function parovaneHodnoty(dnyText, hodnotyText) {
+    const out = {};
+    const dny = String(dnyText || '').split(/[;\n]+/);
+    const hodnoty = String(hodnotyText || '').split(/[;\n]+/);
+    for (let i = 0; i < Math.min(dny.length, hodnoty.length); i++) {
+      const d = datumZTextu(dny[i]);
+      const n = cisloCz(hodnoty[i]);
+      if (d && n != null) out[d] = n;
+    }
+    return out;
   }
   function denniHodnoty(text) {
     const out = {};
@@ -3709,8 +3725,11 @@ const ZDRAVI_ = (function () {
   function zApple(d) {
     const dny = {};
     Object.keys(POLE_APPLE).forEach(function (pole) {
-      const hodnoty = denniHodnoty(d[pole]);
+      // nový tvar: pole + pole_dny (dva seznamy), starý: „datum=hodnota;…“
+      const hodnoty = d[pole + '_dny'] != null ? parovaneHodnoty(d[pole + '_dny'], d[pole]) : denniHodnoty(d[pole]);
       Object.keys(hodnoty).forEach(function (x) {
+        // „Doplnit chybějící“ ve zkratce dává dnům bez měření nulu – tep, HRV ani VO2 max nulové být nemůžou
+        if (hodnoty[x] === 0 && (pole === 'klidovy_tep' || pole === 'hrv' || pole === 'vo2max')) return;
         (dny[x] = dny[x] || {})[POLE_APPLE[pole]] = pole === 'vzdalenost' ? zaokr(hodnoty[x], 2) : zaokr(hodnoty[x], pole === 'vo2max' || pole === 'hrv' ? 1 : 0);
       });
     });
