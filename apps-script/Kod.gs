@@ -26,11 +26,13 @@
  *   Zdraví    – WHOOP (API v2, OAuth – návrat přes doGet) + Apple Zdraví ze zkratky v iPhonu (akce zdraviApple, klíč
  *               ZDRAVI_KLIC); data po měsících v CLAUDE_SCHRANKA/ZDRAVI; váha zapsaná z aplikace (ZDRAVI/VAHA.json,
  *               i s časem zápisu); upozornění přes ntfy (NTFY_TEMA, kazdouHodinu)
+ *   Auto      – náklady a tankování v Michalově tabulce Google (vlastnost AUTO_TABULKA): čtení, zápis nových řádků,
+ *               fotky účtenek do CLAUDE_SCHRANKA/AUTO/uctenky + text přes OCR Disku (služba Drive API)
  *
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.5';
+const VERZE = '2026-10-05.6';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -144,6 +146,11 @@ const AKCE = {
   reely: function (d) { return reely_(!!d.znovu); },
   reelStav: function (d) { return nastavStavReelu_(d.id, d.zverejneno); },
   vaha: function (d) { return vaha_(d); },
+  auto: function () { return auto_(); },
+  autoNastavit: function (d) { return autoNastavit_(d.odkaz); },
+  autoZapsat: function (d) { return autoZapsat_(d); },
+  autoSmazat: function (d) { return autoSmazat_(d); },
+  autoUctenka: function (d) { return autoUctenka_(d); },
   // víc čtení v jednom požadavku – aplikace při startu neposílá deset dotazů naráz (ty se pak řadí do fronty)
   davka: function (d) {
     return (Array.isArray(d.polozky) ? d.polozky.slice(0, 12) : []).map(function (p) {
@@ -206,6 +213,17 @@ function mojeAdresa_() {
     try { MOJE_ADRESA_ = Session.getEffectiveUser().getEmail() || ''; } catch (chyba) { MOJE_ADRESA_ = ''; }
   }
   return MOJE_ADRESA_;
+}
+
+/** Spustit jednou po doplnění oprávnění k Tabulkám do manifestu: Google se zeptá na povolení a vypíše, jestli tabulka auta jde otevřít. */
+function povolitTabulky() {
+  const id = vlastnosti_().getProperty('AUTO_TABULKA');
+  if (!id) {
+    SpreadsheetApp.flush();
+    Logger.log('Tabulky Google povolené ✓ Tabulku auta propoj v aplikaci (stránka Auto → vložit odkaz).');
+    return;
+  }
+  Logger.log('Tabulka auta: ' + SpreadsheetApp.openById(id).getName() + ' ✓');
 }
 
 // ---------------------------------------------------------------- Schránka
@@ -2016,6 +2034,394 @@ const REELY_ = (function () {
     return s;
   }
   return { seznam: seznam, zmenStav: zmenStav, platneId: platneId };
+})();
+
+// ---------------------------------------------------------------- Auto: náklady a tankování (Michalova tabulka Google)
+//
+// Michal vede auto v tabulce Google (listy Přehled, Náklady, Tankování, Péče o auto) – ta zůstává hlavní a je i záloha.
+// Aplikace z ní čte a nové zápisy (tankování, výdaj) píše do prvního volného řádku pod posledním zápisem; Přehled je
+// sečte sám (SUMIF přes celé sloupce). Sloupce se hledají podle nadpisů v 1. řádku. ID tabulky je jen ve vlastnosti
+// AUTO_TABULKA (Michal vloží odkaz v aplikaci). Fotky účtenek → CLAUDE_SCHRANKA/AUTO/uctenky, text přes OCR Disku
+// (dočasný Dokument Google, pak do koše) → návrh zápisu; do tabulky jde až po potvrzení v aplikaci (s odkazem na fotku).
+// Potřebuje oprávnění k Tabulkám (manifest) a službu Drive API (čtení účtenek) – README, část Auto.
+
+const AUTO_LISTY = { naklady: 'Náklady', tankovani: 'Tankování', prehled: 'Přehled' };
+const MAX_UCTENKY = 6 * 1024 * 1024; // bajtů fotky (aplikace posílá zmenšenou, kolem 0,5 MB)
+
+function autoChybaPristupu_(chyba) {
+  const t = String((chyba && chyba.message) || chyba);
+  return /permission|oprávnění|authoriz|auth\/spreadsheets/i.test(t)
+    ? 'Motor zatím nemá povolení k Tabulkám Google – v editoru motoru doplň manifest a spusť povolitTabulky (návod v aplikaci na stránce Auto).'
+    : 'Tabulku auta se nepodařilo otevřít: ' + t;
+}
+
+function autoTabulka_() {
+  const id = vlastnosti_().getProperty('AUTO_TABULKA');
+  if (!id) return null;
+  try { return SpreadsheetApp.openById(id); } catch (chyba) { throw new Error(autoChybaPristupu_(chyba)); }
+}
+
+function autoList_(ss, druh) {
+  const list = ss.getSheetByName(AUTO_LISTY[druh]);
+  if (!list) throw new Error('V tabulce chybí list „' + AUTO_LISTY[druh] + '“.');
+  return list;
+}
+
+/** Akce auto: zápisy z listů Náklady a Tankování, kategorie a kdo co zaplatil (z Přehledu). */
+function auto_() {
+  const ss = autoTabulka_();
+  return ss ? autoData_(ss) : { nastaveno: false };
+}
+
+function autoData_(ss) {
+  const n = autoList_(ss, 'naklady'), t = autoList_(ss, 'tankovani');
+  const naklady = AUTO_.zapisy(n.getDataRange().getValues(), 'naklady');
+  const tankovani = AUTO_.zapisy(t.getDataRange().getValues(), 'tankovani');
+  const prehled = ss.getSheetByName(AUTO_LISTY.prehled);
+  return {
+    nastaveno: true, nazev: ss.getName(), odkaz: ss.getUrl(), naklady: naklady, tankovani: tankovani,
+    kategorie: AUTO_.kategorie(naklady, autoKategorieZValidace_(n)),
+    platili: prehled ? AUTO_.platili(prehled.getDataRange().getValues()) : null,
+    ted: Date.now()
+  };
+}
+
+/** Kategorie z rozbalovacího seznamu ve sloupci Kategorie (když ho tabulka má). */
+function autoKategorieZValidace_(list) {
+  try {
+    const s = AUTO_.sloupce(list.getRange(1, 1, 1, list.getLastColumn()).getValues()[0]);
+    if (s.kategorie < 0) return [];
+    const pravidlo = list.getRange(2, s.kategorie + 1).getDataValidation();
+    const k = pravidlo ? pravidlo.getCriteriaValues()[0] : null;
+    const hodnoty = Array.isArray(k) ? k : k && typeof k.getValues === 'function' ? k.getValues().map(function (r) { return r[0]; }) : [];
+    return hodnoty.map(function (x) { return String(x).trim(); }).filter(Boolean);
+  } catch (chyba) {
+    return [];
+  }
+}
+
+/** Akce autoNastavit: odkaz na tabulku Google → vlastnost AUTO_TABULKA (ověří listy Náklady a Tankování). Prázdný = odpojit. */
+function autoNastavit_(odkaz) {
+  const t = String(odkaz == null ? '' : odkaz).trim();
+  if (!t) { vlastnosti_().deleteProperty('AUTO_TABULKA'); return { nastaveno: false }; }
+  const m = /\/spreadsheets\/d\/([\w-]{20,})/.exec(t) || /^([\w-]{20,})$/.exec(t);
+  if (!m) throw new Error('Vlož odkaz na tabulku Google (docs.google.com/spreadsheets/d/…).');
+  let ss;
+  try { ss = SpreadsheetApp.openById(m[1]); } catch (chyba) { throw new Error(autoChybaPristupu_(chyba)); }
+  const data = autoData_(ss);
+  vlastnosti_().setProperty('AUTO_TABULKA', m[1]);
+  return data;
+}
+
+/** Akce autoZapsat: tankování nebo výdaj do prvního volného řádku listu; vrací data jako akce auto. */
+function autoZapsat_(d) {
+  const ss = autoTabulka_();
+  if (!ss) throw new Error('Tabulka auta není propojená.');
+  const z = AUTO_.novyZapis(d);
+  let odkazUctenky = '';
+  if (z.uctenka) {
+    try { odkazUctenky = DriveApp.getFileById(z.uctenka).getUrl(); } catch (chyba) { odkazUctenky = ''; }
+  }
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(20000);
+  try {
+    const list = autoList_(ss, z.druh);
+    const hodnoty = list.getDataRange().getValues();
+    const s = AUTO_.sloupce(hodnoty[0] || []);
+    if (s.datum < 0 || s.castka < 0) throw new Error('V listu „' + list.getName() + '“ chybí sloupec Datum nebo Částka.');
+    const r = AUTO_.volnyRadek(hodnoty, s);
+    const bunka = function (k) { return s[k] >= 0 ? list.getRange(r, s[k] + 1) : null; };
+    // číselný formát (Kč, datum, km) jako o řádek výš – barvy a ohraničení nechat, jak je tabulka má
+    if (r > 2) {
+      Object.keys(s).forEach(function (k) {
+        if (s[k] < 0) return;
+        const f = list.getRange(r - 1, s[k] + 1).getNumberFormat();
+        if (f && !(k === 'datum' && f === '@')) bunka(k).setNumberFormat(f);
+      });
+    }
+    const hodnota = function (k, v) { const b = bunka(k); if (b && v !== null && v !== undefined && v !== '') b.setValue(v); };
+    hodnota('datum', new Date(z.datum[0], z.datum[1] - 1, z.datum[2]));
+    hodnota('castka', z.castka);
+    hodnota('km', z.km);
+    hodnota('kdo', z.kdo);
+    if (z.druh === 'tankovani') {
+      hodnota('polozka', 'Tankování');
+      hodnota('kategorie', 'Palivo');
+      hodnota('cenaLitr', z.cenaLitr);
+      // litry vzorcem jako ostatní řádky (částka / cena za litr)
+      if (s.litry >= 0 && s.cenaLitr >= 0) bunka('litry').setFormula('=' + AUTO_.pismeno(s.castka) + r + '/$' + AUTO_.pismeno(s.cenaLitr) + r);
+      else hodnota('litry', Math.round(z.castka / z.cenaLitr * 100) / 100);
+    } else {
+      hodnota('polozka', z.polozka);
+      hodnota('kategorie', z.kategorie);
+    }
+    const b = bunka('poznamka');
+    const text = [z.poznamka, odkazUctenky ? 'účtenka' : ''].filter(Boolean).join(' · ');
+    if (b && odkazUctenky) {
+      b.setRichTextValue(SpreadsheetApp.newRichTextValue().setText(text).setLinkUrl(text.length - 7, text.length, odkazUctenky).build());
+    } else if (b && text) {
+      b.setValue(text);
+    }
+    SpreadsheetApp.flush();
+  } finally {
+    zamek.releaseLock();
+  }
+  return autoData_(ss);
+}
+
+/** Akce autoSmazat: smaže poslední zápis listu (překlep hned po zápisu) – jen když pořád sedí datum a částka. */
+function autoSmazat_(d) {
+  const ss = autoTabulka_();
+  if (!ss) throw new Error('Tabulka auta není propojená.');
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(20000);
+  try {
+    const list = autoList_(ss, d.list === 'tankovani' ? 'tankovani' : 'naklady');
+    const hodnoty = list.getDataRange().getValues();
+    const s = AUTO_.sloupce(hodnoty[0] || []);
+    const r = Number(d.radek);
+    if (!(r >= 2) || r !== AUTO_.volnyRadek(hodnoty, s) - 1) throw new Error('Smazat jde jen poslední zápis – starší oprav přímo v tabulce.');
+    const radek = hodnoty[r - 1];
+    if (AUTO_.datum(radek[s.datum]) !== Number(d.datum) || AUTO_.cislo(radek[s.castka]) !== Number(d.castka)) {
+      throw new Error('Zápis v tabulce se mezitím změnil – obnov stránku.');
+    }
+    Object.keys(s).forEach(function (k) { if (s[k] >= 0) list.getRange(r, s[k] + 1).clearContent(); });
+    SpreadsheetApp.flush();
+  } finally {
+    zamek.releaseLock();
+  }
+  return autoData_(ss);
+}
+
+/** Akce autoUctenka: fotka účtenky z telefonu (JPEG jako data URL) → Disk + rozpoznaný text → návrh zápisu (nic nezapisuje). */
+function autoUctenka_(d) {
+  const m = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(String(d.obrazek || ''));
+  if (!m) throw new Error('Fotka účtenky nepřišla (čekám JPEG).');
+  const bajty = Utilities.base64Decode(m[1]);
+  if (bajty.length > MAX_UCTENKY) throw new Error('Fotka účtenky je moc velká.');
+  const slozka = podslozka_(podslozka_(koren_(), 'AUTO'), 'uctenky');
+  const nazev = Utilities.formatDate(new Date(), CASOVE_PASMO, 'yyyy-MM-dd_HHmmss') + '_uctenka.jpg';
+  const soubor = slozka.createFile(Utilities.newBlob(bajty, 'image/jpeg', nazev));
+  let text = '', chybaTextu = '';
+  try { text = ocrObrazku_(soubor, slozka); } catch (chyba) { chybaTextu = String((chyba && chyba.message) || chyba); }
+  return { uctenka: soubor.getId(), odkaz: soubor.getUrl(), text: text.slice(0, 3000), chybaTextu: chybaTextu, navrh: AUTO_.zUctenky(text, Date.now()) };
+}
+
+/** OCR Disku: obrázek → dočasný Dokument Google (rozpoznání textu, čeština) → prostý text; dokument pak do koše. */
+function ocrObrazku_(soubor, slozka) {
+  if (typeof Drive === 'undefined') throw new Error('V editoru motoru chybí služba Drive API (čtení účtenek) – účtenku vyplň ručně.');
+  const doc = Drive.Files.create({ name: soubor.getName() + ' – text', mimeType: 'application/vnd.google-apps.document', parents: [slozka.getId()] },
+    soubor.getBlob(), { ocrLanguage: 'cs' });
+  try {
+    const odpoved = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + doc.id + '/export?mimeType=text%2Fplain',
+      { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+    if (odpoved.getResponseCode() !== 200) throw new Error('převod na text: HTTP ' + odpoved.getResponseCode());
+    return odpoved.getContentText('UTF-8');
+  } finally {
+    try { DriveApp.getFileById(doc.id).setTrashed(true); } catch (chyba) { /* zůstane u účtenek, nevadí */ }
+  }
+}
+
+/** Čisté funkce auta (testuje motor.test.js). */
+const AUTO_ = (function () {
+  const NADPISY = { datum: /^datum/, polozka: /^polo[žz]ka/, kategorie: /^kategorie/, castka: /^[čc][áa]stka/, km: /^(stav\s*)?km\b|^tachometr/,
+    cenaLitr: /^cena\s*za\s*l/, litry: /^(po[čc]et\s*)?litr/, kdo: /^n[áa]kup|^platil|^kdo/, poznamka: /^pozn[áa]mka/ };
+  // kategorie, které tabulka zná z Přehledu – nabídka i bez rozbalovacího seznamu
+  const ZAKLADNI = ['Servis', 'Servis - PNEU', 'STK', 'Pojištění', 'Dálniční známka', 'Parkování', 'Myčka', 'Nákup doplňků', 'Doplňková výbava'];
+  function txt(x) { return x == null ? '' : String(x).trim(); }
+
+  /** Index sloupců podle nadpisů v 1. řádku (−1 = sloupec chybí). */
+  function sloupce(hlavicka) {
+    const o = {};
+    Object.keys(NADPISY).forEach(function (k) { o[k] = -1; });
+    (hlavicka || []).forEach(function (h, i) {
+      const t = txt(h).toLowerCase();
+      Object.keys(NADPISY).forEach(function (k) { if (o[k] < 0 && NADPISY[k].test(t)) o[k] = i; });
+    });
+    return o;
+  }
+
+  /** 0 → A, 25 → Z, 26 → AA (pro vzorec). */
+  function pismeno(i) {
+    let s = '', n = i + 1;
+    while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+    return s;
+  }
+
+  /** „1 338 Kč“, „15 742“, „31,20 Kč“, 1338 → číslo; prázdné nebo nesmysl → null. */
+  function cislo(x) {
+    if (typeof x === 'number') return isFinite(x) ? x : null;
+    let t = txt(x).replace(/[\s ]/g, '').replace(/kč|czk|km$|l$/gi, '');
+    if (t.indexOf(',') >= 0 && t.indexOf('.') >= 0) t = t.replace(/\./g, '');
+    t = t.replace(',', '.');
+    return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : null;
+  }
+
+  /** Datum z buňky: Date (i z jiného prostředí), „7.12.2025“ i „01.04.2025“ → ms půlnoci; jinak null. */
+  function datum(x) {
+    if (x && typeof x.getTime === 'function') { const t = x.getTime(); return isFinite(t) ? t : null; }
+    const m = /^(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})$/.exec(txt(x));
+    if (!m) return null;
+    const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    return d.getMonth() === Number(m[2]) - 1 ? d.getTime() : null;
+  }
+
+  /** Řádky listu → zápisy { list, radek, datum, polozka, kategorie, castka, km, kdo, poznamka (+ cenaLitr, litry) }. */
+  function zapisy(hodnoty, list) {
+    if (!hodnoty || !hodnoty.length) return [];
+    const s = sloupce(hodnoty[0]);
+    const ven = [];
+    for (let i = 1; i < hodnoty.length; i++) {
+      const r = hodnoty[i];
+      const v = function (k) { return s[k] >= 0 ? r[s[k]] : ''; };
+      const d = datum(v('datum')), castka = cislo(v('castka'));
+      if (d == null && castka == null) continue; // prázdný řádek nebo seznam kategorií pod tabulkou
+      const z = { list: list, radek: i + 1, datum: d, datumText: d == null ? txt(v('datum')) : '', polozka: txt(v('polozka')),
+        kategorie: txt(v('kategorie')), castka: castka, km: cislo(v('km')), kdo: txt(v('kdo')).toUpperCase(), poznamka: txt(v('poznamka')) };
+      if (list === 'tankovani') {
+        z.cenaLitr = cislo(v('cenaLitr'));
+        z.litry = cislo(v('litry'));
+        if (z.litry == null && z.castka != null && z.cenaLitr) z.litry = Math.round(z.castka / z.cenaLitr * 100) / 100;
+      }
+      ven.push(z);
+    }
+    return ven;
+  }
+
+  function kategorie(naklady, zValidace) {
+    const videno = {}, ven = [];
+    [].concat(zValidace || [], (naklady || []).map(function (z) { return z.kategorie; }), ZAKLADNI).forEach(function (k) {
+      const t = txt(k);
+      if (!t || /^(palivo|kategorie|koupě auta)$/i.test(t) || videno[t.toLowerCase()]) return;
+      videno[t.toLowerCase()] = true;
+      ven.push(t);
+    });
+    return ven;
+  }
+
+  /** Přehled: čísla pod nadpisy „Michal“ a „Katka“ (kdo co zaplatil – vzorce v tabulce). */
+  function platili(hodnoty) {
+    const ven = {};
+    for (let i = 0; i + 1 < (hodnoty || []).length; i++) {
+      for (let j = 0; j < hodnoty[i].length; j++) {
+        const t = txt(hodnoty[i][j]);
+        if (/^(michal|katka)$/i.test(t)) { const c = cislo(hodnoty[i + 1][j]); if (c != null) ven[t] = c; }
+      }
+    }
+    return Object.keys(ven).length ? ven : null;
+  }
+
+  /** První volný řádek (1 = první řádek listu) pod posledním zápisem – přes prázdné předformátované řádky. */
+  function volnyRadek(hodnoty, s) {
+    let posledni = 0;
+    for (let i = 1; i < hodnoty.length; i++) {
+      if ((s.datum >= 0 && datum(hodnoty[i][s.datum]) != null) || (s.castka >= 0 && cislo(hodnoty[i][s.castka]) != null)) posledni = i;
+    }
+    const hlavni = ['datum', 'polozka', 'kategorie', 'castka', 'km'].map(function (k) { return s[k]; }).filter(function (c) { return c >= 0; });
+    let i = posledni + 1;
+    while (i < hodnoty.length && hlavni.some(function (c) { return txt(hodnoty[i][c]) !== ''; })) i++;
+    return i + 1;
+  }
+
+  /** Zápis z aplikace → zkontrolovaný { druh, datum [r, m, d], castka, km, kdo, poznamka, uctenka, cenaLitr | kategorie, polozka }. */
+  function novyZapis(d) {
+    const druh = d.druh === 'tankovani' ? 'tankovani' : d.druh === 'naklad' ? 'naklady' : '';
+    if (!druh) throw new Error('Neznámý druh zápisu.');
+    const den = /^(\d{4})-(\d{2})-(\d{2})$/.exec(txt(d.datum));
+    if (!den || new Date(Number(den[1]), Number(den[2]) - 1, Number(den[3])).getMonth() !== Number(den[2]) - 1) throw new Error('Chybí datum.');
+    const castka = cislo(d.castka);
+    if (castka == null || castka <= 0 || castka >= 1e7) throw new Error('Částka musí být kladné číslo.');
+    const km = txt(d.km) === '' ? null : cislo(d.km);
+    if (txt(d.km) !== '' && (km == null || km < 0 || km > 2e6)) throw new Error('Stav km nesedí.');
+    const z = { druh: druh, datum: [Number(den[1]), Number(den[2]), Number(den[3])], castka: Math.round(castka * 100) / 100,
+      km: km == null ? null : Math.round(km), kdo: txt(d.kdo).toUpperCase() === 'K' ? 'K' : 'M', poznamka: txt(d.poznamka).slice(0, 200),
+      uctenka: /^[\w.-]{10,200}$/.test(txt(d.uctenka)) ? txt(d.uctenka) : '' };
+    if (druh === 'tankovani') {
+      const cena = cislo(d.cenaLitr);
+      if (cena == null || cena < 10 || cena > 150) throw new Error('Cena za litr nesedí (Kč za litr, třeba 36,90).');
+      z.cenaLitr = Math.round(cena * 100) / 100;
+    } else {
+      z.kategorie = txt(d.kategorie).slice(0, 60);
+      if (!z.kategorie) throw new Error('Vyber kategorii.');
+      z.polozka = txt(d.polozka).slice(0, 120);
+    }
+    return z;
+  }
+
+  // částky na účtence: „1 860,00“, „1860,00“, „1.860,00“, „1860.00“
+  const PENIZE = /(\d{1,3}(?:[  .]\d{3})+|\d+)[,.](\d{2})(?!\d)/g;
+  function penize(s) {
+    const v = [];
+    let m;
+    PENIZE.lastIndex = 0;
+    while ((m = PENIZE.exec(s))) v.push(Number(m[1].replace(/[  .]/g, '') + '.' + m[2]));
+    return v;
+  }
+  const OBCHODY = [['ČSAD', /[čc]sad/i], ['ONO', /\bono\b/i], ['Shell', /shell/i], ['OMV', /\bomv\b/i], ['MOL', /\bmol\b/i], ['Orlen', /orlen|benzina/i],
+    ['Avia', /\bavia\b/i], ['EuroOil', /euro\s*oil/i], ['Robin Oil', /robin\s*oil/i], ['Globus', /globus/i], ['Kaufland', /kaufland/i], ['Tesco', /tesco/i],
+    ['Albert', /albert/i], ['Lidl', /\blidl\b/i], ['Makro', /\bmakro\b/i], ['Hornbach', /hornbach/i], ['Auto Kelly', /auto\s*kelly/i]];
+
+  /**
+   * Text z účtenky (OCR) → návrh zápisu: { druh 'tankovani' | 'naklad', datum 'RRRR-MM-DD', castka, litry, cenaLitr, kategorie, obchod }.
+   * Co nejde poznat, je null – aplikace to nechá vyplnit. ted = ms (datum na účtence nesmí být v budoucnu ani starší než rok).
+   */
+  function zUctenky(text, ted) {
+    const radky = String(text || '').replace(/\r/g, '').split('\n').map(function (r) { return r.trim(); }).filter(Boolean);
+    const cela = radky.join('\n');
+    let litry = null, cenaLitr = null, datumIso = null, m;
+    // celková částka: řádek s „k úhradě / celkem“ (jinak „platba / zaplaceno“) → největší částka na něm nebo na řádku pod ním;
+    // bez DPH, základu daně a vrácených peněz
+    const naRadcich = function (vzor) {
+      let v = null;
+      radky.forEach(function (r, i) {
+        if (!vzor.test(r) || /vr[áa]ceno|p[řr][ií]jato|bez\s*dph|z[áa]klad|sazba/i.test(r)) return;
+        let x = penize(r);
+        if (!x.length && i + 1 < radky.length) x = penize(radky[i + 1]);
+        x.forEach(function (c) { if (c > 0 && c < 1e6 && (v == null || c > v)) v = c; });
+      });
+      return v;
+    };
+    let castka = naRadcich(/k\s*[úu]hrad|celkem|celkov[áa]/i);
+    if (castka == null) castka = naRadcich(/zaplac|platba|kartou|platebn|suma|total/i);
+    m = /(\d{1,3}[,.]\d{1,3})\s*(?:l|lit(?:r[ůu]|ry)?|ltr)\b/i.exec(cela);
+    if (m) { const v = Number(m[1].replace(',', '.')); if (v > 0.5 && v < 150) litry = v; }
+    m = /(\d{2}[,.]\d{1,2})\s*(?:kč|czk)?\s*\/\s*(?:l|lit)/i.exec(cela) || /(?:\bx|\*|×)\s*(\d{2}[,.]\d{2})(?!\d)/i.exec(cela);
+    if (m) { const v = Number(m[1].replace(',', '.')); if (v >= 15 && v <= 90) cenaLitr = v; }
+    if (castka == null) { const vse = penize(cela).filter(function (x) { return x < 1e6; }); if (vse.length) castka = Math.max.apply(null, vse); }
+    if (litry && cenaLitr && castka == null) castka = Math.round(litry * cenaLitr * 100) / 100;
+    if (litry && castka && cenaLitr == null) { const v = castka / litry; if (v >= 15 && v <= 90) cenaLitr = Math.round(v * 100) / 100; }
+    if (cenaLitr && castka && litry == null) litry = Math.round(castka / cenaLitr * 100) / 100;
+    const DATUM = /(\d{1,2})\.\s?(\d{1,2})\.\s?(\d{4}|\d{2})(?!\d)|(\d{4})-(\d{2})-(\d{2})/g;
+    while ((m = DATUM.exec(cela))) {
+      const r = m[4] ? Number(m[4]) : Number(m[3].length === 2 ? '20' + m[3] : m[3]);
+      const mes = Number(m[4] ? m[5] : m[2]), den = Number(m[4] ? m[6] : m[1]);
+      const d = new Date(r, mes - 1, den);
+      if (d.getMonth() !== mes - 1 || d.getDate() !== den || d.getTime() > ted + 864e5 || d.getTime() < ted - 400 * 864e5) continue;
+      datumIso = r + '-' + String(mes).padStart(2, '0') + '-' + String(den).padStart(2, '0');
+      break;
+    }
+    const palivo = litry != null && /nafta|diesel|motorov|benz[ií]n|natural|\bn\s?95\b|\bba\s?95\b|lpg|verva|maxx|v-power|efecta/i.test(cela);
+    let kategorie = null;
+    if (!palivo) {
+      if (/my[čc]k|myt[ií]|wash/i.test(cela)) kategorie = 'Myčka';
+      else if (/pneu|p[řr]ezu/i.test(cela)) kategorie = 'Servis - PNEU';
+      else if (/servis|v[ýy]m[ěe]na\s*oleje|filtr/i.test(cela)) kategorie = 'Servis';
+      else if (/\bstk\b|technick[áa]\s*kontrol|emis/i.test(cela)) kategorie = 'STK';
+      else if (/parkov/i.test(cela)) kategorie = 'Parkování';
+      else if (/d[áa]ln[ií][čc]n|vignet/i.test(cela)) kategorie = 'Dálniční známka';
+      else if (/adblue|ost[řr]ikova|kapalin|st[ěe]ra[čc]|olej/i.test(cela)) kategorie = 'Nákup doplňků';
+    }
+    let obchod = null;
+    OBCHODY.some(function (o) { if (o[1].test(cela)) { obchod = o[0]; return true; } return false; });
+    if (!obchod) {
+      const r = radky.find(function (x) { return /[a-zá-ž]{3}/i.test(x) && !/i[čc]o?\b|di[čc]|[úu][čc]tenk|doklad|datum|tel|www|kasa|pokladn/i.test(x); });
+      if (r) obchod = r.slice(0, 40);
+    }
+    return { druh: palivo ? 'tankovani' : 'naklad', datum: datumIso, castka: castka, litry: litry, cenaLitr: cenaLitr, kategorie: kategorie, obchod: obchod };
+  }
+
+  return { sloupce: sloupce, pismeno: pismeno, cislo: cislo, datum: datum, zapisy: zapisy, kategorie: kategorie, platili: platili,
+    volnyRadek: volnyRadek, novyZapis: novyZapis, zUctenky: zUctenky };
 })();
 
 // ---------------------------------------------------------------- Docházka dorostu (Týmuj → web dorostu → tady)

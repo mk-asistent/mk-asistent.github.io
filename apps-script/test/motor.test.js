@@ -170,9 +170,11 @@ function prostredi() {
     s.getFilesByName = (n) => iterator(s.soubory.filter((x) => !x.vKosi && x.getName() === n));
     s.createFolder = (n) => (s.deti[n] = slozka(n, s));
     s.createFile = (n, obsah) => {
+      if (n && typeof n === 'object') { obsah = n; n = n.getName(); } // createFile(blob) – fotka účtenky
       let rodicSouboru = s;
       let upraveno = Date.now() + (citacZmen++); // jako Disk: čas úpravy se mění se změnou obsahu (motor podle něj pamatuje poznámky)
       const f = { vKosi: false, getId: () => 'soubor-' + nazev + '-' + n, getName: () => n, getBlob: () => ({ getDataAsString: () => obsah }),
+        getUrl: () => 'https://drive.google.com/file/d/soubor-' + nazev + '-' + n + '/view',
         getDateCreated: () => new Date(), getLastUpdated: () => new Date(upraveno), getParents: () => iterator([rodicSouboru]),
         setContent: (t) => { obsah = t; upraveno = Date.now() + (citacZmen++); return f; },
         moveTo: (cil) => { rodicSouboru.soubory = rodicSouboru.soubory.filter((x) => x !== f); cil.soubory.push(f); rodicSouboru = cil; return f; },
@@ -185,6 +187,43 @@ function prostredi() {
   };
   const schranka = slozka('CLAUDE_SCHRANKA', null);
   vlastnosti.set('SLOZKA_ID', 'slozka-CLAUDE_SCHRANKA');
+
+  // Tabulky Google (auto): list = pole řádků, zápis po buňkách; vzorec „=D6/$F6“ se spočítá jako v Tabulkách
+  const tabulky = {};
+  const listTabulky = (nazev, radky) => {
+    const b = radky.map((r) => r.slice());
+    const formaty = {}, vzorce = {}, odkazy = {};
+    let validace = null;
+    const sirka = () => Math.max(1, ...b.map((r) => r.length));
+    const zajisti = (r, c) => { while (b.length < r) b.push([]); while (b[r - 1].length < c) b[r - 1].push(''); };
+    const index = (pismena) => pismena.split('').reduce((a, ch) => a * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+    const rozsah = (r, c, nr = 1, nc = 1) => ({
+      getValues: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => { const x = (b[r - 1 + i] || [])[c - 1 + j]; return x === undefined ? '' : x; })),
+      setValue: (v) => { zajisti(r, c); b[r - 1][c - 1] = v; delete vzorce[r + ':' + c]; },
+      setFormula: (f) => {
+        zajisti(r, c);
+        vzorce[r + ':' + c] = f;
+        const m = /^=([A-Z]+)(\d+)\/\$([A-Z]+)(\d+)$/.exec(f);
+        b[r - 1][c - 1] = m ? Math.round(b[+m[2] - 1][index(m[1])] / b[+m[4] - 1][index(m[3])] * 100) / 100 : '';
+      },
+      getNumberFormat: () => formaty[r + ':' + c] || '',
+      setNumberFormat: (f) => { formaty[r + ':' + c] = f; },
+      clearContent: () => { zajisti(r, c); b[r - 1][c - 1] = ''; delete vzorce[r + ':' + c]; delete odkazy[r + ':' + c]; },
+      setRichTextValue: (t) => { zajisti(r, c); b[r - 1][c - 1] = t.text; odkazy[r + ':' + c] = t; },
+      getDataValidation: () => validace
+    });
+    return { getName: () => nazev, getLastColumn: sirka, getRange: rozsah,
+      getDataRange: () => ({ getValues: () => b.map((r) => { const x = r.slice(); while (x.length < sirka()) x.push(''); return x; }) }),
+      bunky: b, formaty, vzorce, odkazy, nastavValidaci: (v) => { validace = v; } };
+  };
+  const zalozTabulku = (id, nazev, listy) => {
+    const l = {};
+    Object.keys(listy).forEach((n) => { l[n] = listTabulky(n, listy[n]); });
+    tabulky[id] = { getName: () => nazev, getUrl: () => 'https://docs.google.com/spreadsheets/d/' + id + '/edit', getId: () => id,
+      getSheetByName: (n) => l[n] || null, listy: l };
+    return tabulky[id];
+  };
+  let bezPovoleniTabulek = false, ocrText = '', ocrDokumentu = 0;
 
   const sandbox = {
     DriveApp: { getFolderById: (id) => { if (id !== 'slozka-CLAUDE_SCHRANKA') throw new Error('nenalezeno'); return schranka; },
@@ -205,11 +244,34 @@ function prostredi() {
     }) },
     Utilities: {
       getUuid: () => crypto.randomUUID(), formatDate, parseDate,
-      newBlob: (s) => ({ getBytes: () => Buffer.from(String(s), 'utf8') }),
+      newBlob: (s, typ, jmeno) => ({ getBytes: () => (Array.isArray(s) || Buffer.isBuffer(s) ? Buffer.from(s) : Buffer.from(String(s), 'utf8')),
+        getName: () => jmeno || '', getContentType: () => typ || 'text/plain' }),
+      base64Decode: (t) => Array.from(Buffer.from(t, 'base64')),
       DigestAlgorithm: { MD5: 'md5' }, Charset: { UTF_8: 'utf8' },
       computeDigest: (alg, text) => Array.from(crypto.createHash('md5').update(text, 'utf8').digest()).map((b) => (b > 127 ? b - 256 : b))
     },
     Session: { getEffectiveUser: () => ({ getEmail: () => JA }) },
+    SpreadsheetApp: {
+      openById: (id) => {
+        if (bezPovoleniTabulek) throw new Error('You do not have permission to call SpreadsheetApp.openById. Required permissions: https://www.googleapis.com/auth/spreadsheets');
+        if (!tabulky[id]) throw new Error('Unexpected error while getting the method or property openById on object SpreadsheetApp.');
+        return tabulky[id];
+      },
+      flush() {},
+      newRichTextValue: () => {
+        const o = { text: '', odkaz: '', od: 0, do: 0 };
+        const t = { setText: (x) => { o.text = x; return t; }, setLinkUrl: (z, k, u) => { Object.assign(o, { od: z, do: k, odkaz: u }); return t; }, build: () => o };
+        return t;
+      }
+    },
+    // služba Drive API (OCR účtenek): převod obrázku na Dokument Google; text vrací export přes UrlFetchApp
+    Drive: { Files: { create: (zdroj, blob, volby) => {
+      const id = 'ocr-' + (++ocrDokumentu);
+      log.ocr = (log.ocr || []).concat({ zdroj, volby });
+      vsechnySoubory[id] = { vKosi: false, getId: () => id, setTrashed(k) { this.vKosi = !!k; return this; } };
+      return { id };
+    } } },
+    ScriptApp: { getOAuthToken: () => 'token-test' },
     GmailApp,
     CalendarApp: {
       getAllCalendars: () => kalendare, getDefaultCalendar: () => kalendare[0],
@@ -227,6 +289,7 @@ function prostredi() {
         return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ features: [{ attributes: atributy }] }) };
       }
       if (url.indexOf('api.prod.whoop.com') >= 0) return odpovedWhoop(url, moznosti || {});
+      if (url.indexOf('googleapis.com/drive/v3/files/') >= 0) { log.export = (log.export || []).concat(url); return { getResponseCode: () => 200, getContentText: () => ocrText }; }
       if (url === 'https://ntfy.sh/') { log.ntfy = (log.ntfy || []).concat(JSON.parse(moznosti.payload)); return { getResponseCode: () => 200, getContentText: () => '{}' }; }
       return { getResponseCode: () => (url.indexOf('chyba') >= 0 ? 404 : 200), getContentText: () => (url.indexOf('rozpis') >= 0 ? rozpis : ICS) };
     } },
@@ -307,6 +370,7 @@ function prostredi() {
   // záznamy z izolovaného prostředí převést na běžné objekty (jinak je deepStrictEqual odmítne)
   const posledniOdeslano = () => JSON.parse(JSON.stringify(log.odeslano.pop()));
   return { volej, surovy, vlastnosti, cache, ttl, log, posledniOdeslano, ctx, zprava, vlakno, vlakna, kalendare, chmu, nastavCas, schranka, vsechnySoubory, whoop,
+    zalozTabulku, tabulky, nastavOcr: (t) => { ocrText = t; }, bezPovoleniTabulek: (b) => { bezPovoleniTabulek = b; },
     nastavAliasy: (a) => { aliasy = a; }, stitkyVlaken, nastavStitkyGmailu: (o) => { stitkyGmailu = o; }, nastavAktualizace: (a) => { aktualizace = a; }, nastavRozpis: (t) => { rozpis = t; },
     nastavOdeslana: (a) => { odeslana = a; }, nastavStarsi: (osobni, pracovni) => { starsi = { osobni, pracovni: pracovni || [] }; } };
 }
@@ -1560,6 +1624,146 @@ test('dávka: víc čtení v jednom požadavku, chyba jedné akce nezastaví ost
   assert.strictEqual(cteni, 1, 'změněná poznámka se přečte znovu');
   p.volej('posta');
   assert.strictEqual(p.ttl.get('posta'), 300, 'pošta v mezipaměti 5 minut');
+});
+
+// ---- auto: tabulka Google (vymyšlená čísla – repo je veřejné)
+const TAB_AUTO = 'TABULKA-auta-1234567890abcd';
+function tabulkaAuta(p) {
+  return p.zalozTabulku(TAB_AUTO, 'Ukázkové auto - Test', {
+    'Přehled': [['Kategorie', 'Součet', '', 'Michal', '', 'Katka'], ['Koupě auta', 500000, '', 112000, '', 400000]],
+    'Náklady': [
+      ['Datum', 'Položka', 'Kategorie', 'Částka (Kč)', 'Stav km', 'Nákup', 'ROK', 'Poznámka'],
+      ['01.04.2025', '', 'Dálniční známka', '', '', '', '2025', 'zaplatil prodejce'],
+      [new Date(2025, 9, 3), '', 'Koupě auta', 500000, 10000, '', '', 'Nákup auta'],
+      [new Date(2025, 9, 3), '', 'Pojištění', 12000, '', 'M', '', 'Roční'],
+      ['7.12.2025', 'Směs do ostřikovačů', 'Nákup doplňků', 150, '15 000', 'M', '', ''],
+      [new Date(2026, 3, 12), 'Myčka', 'Myčka', 120, '', 'K', '2026', 'myčka'],
+      ['', '', '', '', '', '', '', ''],
+      ['', '', '', '', '', '', '', ''],
+      ['', '', 'Servis', '', '', '', '', '']
+    ],
+    'Tankování': [
+      ['Datum', 'Položka', 'Kategorie', 'Částka (Kč)', 'Stav km', 'Cena za litr', 'Počet litrů', 'Nákup', 'Poznámka'],
+      [new Date(2025, 9, 4), 'Tankování', 'Palivo', 1500, 10000, 30, 50, 'M', 'Pumpa A'],
+      [new Date(2025, 10, 1), 'Tankování', 'Palivo', 1200, 10800, 30, 40, 'M', 'Pumpa A'],
+      ['19.02.2026', 'Tankování', 'Palivo', 1000, '11 500', 40, 25, 'M', 'Pumpa B'],
+      [new Date(2026, 2, 8), 'Tankování', 'Palivo', 800, '', 40, 20, 'M', ''],
+      ['', '', '', '', '', '', '', '', '']
+    ]
+  });
+}
+const UCTENKA_NAFTA = ['ČSAD Hodonín a.s.', 'Čerpací stanice Test', 'IČO: 12345678', 'DIČ: CZ12345678', 'Datum: 07.08.2026 14:32',
+  'NAFTA MOTOROVÁ', '42,75 l x 43,50 Kč/l', '1 859,63', 'DPH 21 %   322,75', 'Celkem bez DPH 1 536,88', 'CELKEM K ÚHRADĚ   1 859,63 Kč', 'Platba kartou 1 859,63'].join('\n');
+
+test('auto: propojení odkazem, čtení listů (datum i jako text, km s mezerou, litry), kategorie, kdo platil', () => {
+  const p = prostredi();
+  tabulkaAuta(p);
+  assert.deepStrictEqual(json(p.volej('auto').data), { nastaveno: false });
+  assert.ok(/odkaz/.test(p.volej('autoNastavit', { odkaz: 'https://example.com/neco' }).chyba));
+  assert.ok(/nepodařilo otevřít/.test(p.volej('autoNastavit', { odkaz: 'https://docs.google.com/spreadsheets/d/NEEXISTUJE-1234567890abcd/edit' }).chyba));
+  const o = p.volej('autoNastavit', { odkaz: 'https://docs.google.com/spreadsheets/d/' + TAB_AUTO + '/edit#gid=0' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(p.vlastnosti.get('AUTO_TABULKA'), TAB_AUTO);
+  const d = p.volej('auto').data;
+  assert.strictEqual(d.nazev, 'Ukázkové auto - Test');
+  assert.deepStrictEqual(d.naklady.map((z) => z.radek), [2, 3, 4, 5, 6]);
+  assert.strictEqual(d.naklady[0].datum, new Date(2025, 3, 1).getTime());
+  assert.strictEqual(d.naklady[0].castka, null);
+  assert.strictEqual(d.naklady[3].km, 15000);
+  assert.strictEqual(d.naklady[4].kdo, 'K');
+  assert.deepStrictEqual(d.tankovani.map((z) => z.km), [10000, 10800, 11500, null]);
+  assert.deepStrictEqual(d.tankovani.map((z) => z.litry), [50, 40, 25, 20]);
+  assert.strictEqual(d.tankovani[2].datum, new Date(2026, 1, 19).getTime());
+  assert.ok(d.kategorie.indexOf('Myčka') >= 0 && d.kategorie.indexOf('Servis') >= 0 && d.kategorie.indexOf('Dálniční známka') >= 0, d.kategorie.join());
+  assert.ok(d.kategorie.indexOf('Koupě auta') < 0 && d.kategorie.indexOf('Palivo') < 0, 'koupě a palivo se nezapisují jako výdaj');
+  assert.deepStrictEqual(json(d.platili), { Michal: 112000, Katka: 400000 });
+  assert.ok(/spreadsheets\/d\/TABULKA-auta/.test(d.odkaz));
+  // kategorie z rozbalovacího seznamu tabulky mají přednost
+  p.tabulky[TAB_AUTO].listy['Náklady'].nastavValidaci({ getCriteriaValues: () => [['Servis', 'Parkování', 'Myčka']] });
+  assert.deepStrictEqual(p.volej('auto').data.kategorie.slice(0, 3), ['Servis', 'Parkování', 'Myčka']);
+  // bez povolení k Tabulkám: srozumitelný návod
+  p.bezPovoleniTabulek(true);
+  assert.ok(/povolitTabulky/.test(p.volej('auto').chyba));
+});
+
+test('auto: zápis tankování a výdaje do prvního volného řádku (vzorec litrů, formát z řádku nad), kontrola, smazání posledního', () => {
+  const p = prostredi();
+  const tab = tabulkaAuta(p);
+  p.vlastnosti.set('AUTO_TABULKA', TAB_AUTO);
+  const t = tab.listy['Tankování'], n = tab.listy['Náklady'];
+  t.getRange(5, 4).setNumberFormat('#,##0 "Kč"');
+  let o = p.volej('autoZapsat', { druh: 'tankovani', datum: '2026-10-05', castka: '1 860', cenaLitr: '43,50', km: '27 100', kdo: 'm', poznamka: 'Pumpa A' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(t.bunky[5][0].getTime(), new Date(2026, 9, 5).getTime());
+  assert.deepStrictEqual(t.bunky[5].slice(1), ['Tankování', 'Palivo', 1860, 27100, 43.5, 42.76, 'M', 'Pumpa A']);
+  assert.strictEqual(t.vzorce['6:7'], '=D6/$F6');
+  assert.strictEqual(t.formaty['6:4'], '#,##0 "Kč"', 'formát částky jako o řádek výš');
+  assert.strictEqual(o.data.tankovani.length, 5);
+  // výdaj: první prázdný řádek pod posledním zápisem, sloupec ROK (sloučené buňky) se nemění
+  o = p.volej('autoZapsat', { druh: 'naklad', datum: '2026-10-05', kategorie: 'Servis', polozka: 'Výměna oleje', castka: 3500, kdo: 'K' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(n.bunky[6].slice(1, 7), ['Výměna oleje', 'Servis', 3500, '', 'K', '']);
+  assert.strictEqual(n.bunky[8][2], 'Servis', 'seznam kategorií pod tabulkou zůstal');
+  // kontrola vstupu
+  assert.ok(/kladné/.test(p.volej('autoZapsat', { druh: 'naklad', datum: '2026-10-05', kategorie: 'Servis', castka: 0 }).chyba));
+  assert.ok(/Cena za litr/.test(p.volej('autoZapsat', { druh: 'tankovani', datum: '2026-10-05', castka: 900, cenaLitr: 5 }).chyba));
+  assert.ok(/kategorii/.test(p.volej('autoZapsat', { druh: 'naklad', datum: '2026-10-05', castka: 100 }).chyba));
+  assert.ok(/datum/.test(p.volej('autoZapsat', { druh: 'naklad', datum: '5. 10.', kategorie: 'Servis', castka: 100 }).chyba));
+  assert.ok(/km/.test(p.volej('autoZapsat', { druh: 'naklad', datum: '2026-10-05', kategorie: 'Servis', castka: 100, km: 'hodně' }).chyba));
+  // smazat jde jen poslední zápis a jen když sedí
+  assert.ok(/poslední/.test(p.volej('autoSmazat', { list: 'naklady', radek: 6, datum: new Date(2026, 3, 12).getTime(), castka: 120 }).chyba));
+  assert.ok(/změnil/.test(p.volej('autoSmazat', { list: 'naklady', radek: 7, datum: new Date(2026, 9, 5).getTime(), castka: 999 }).chyba));
+  o = p.volej('autoSmazat', { list: 'naklady', radek: 7, datum: new Date(2026, 9, 5).getTime(), castka: 3500 });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(n.bunky[6].filter((x) => x !== ''), []);
+  assert.strictEqual(o.data.naklady.length, 5);
+  o = p.volej('autoSmazat', { list: 'tankovani', radek: 6, datum: new Date(2026, 9, 5).getTime(), castka: 1860 });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(t.vzorce['6:7'], undefined, 'vzorec litrů smazaný taky');
+});
+
+test('auto: účtenka – fotka na Disk (AUTO/uctenky), text přes OCR → návrh, zápis s odkazem na fotku', () => {
+  const p = prostredi();
+  tabulkaAuta(p);
+  p.vlastnosti.set('AUTO_TABULKA', TAB_AUTO);
+  p.nastavCas(Date.parse('2026-08-07T15:00:00+02:00'));
+  p.nastavOcr(UCTENKA_NAFTA);
+  const fotka = 'data:image/jpeg;base64,' + Buffer.from('jpeg-data').toString('base64');
+  let o = p.volej('autoUctenka', { obrazek: fotka });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.navrh), { druh: 'tankovani', datum: '2026-08-07', castka: 1859.63, litry: 42.75, cenaLitr: 43.5, kategorie: null, obchod: 'ČSAD' });
+  const fotky = p.schranka.deti.AUTO.deti.uctenky.soubory;
+  assert.strictEqual(fotky.length, 1);
+  assert.ok(/_uctenka\.jpg$/.test(fotky[0].getName()));
+  assert.strictEqual(p.log.ocr[0].volby.ocrLanguage, 'cs');
+  assert.strictEqual(p.vsechnySoubory['ocr-1'].vKosi, true, 'dočasný dokument s textem do koše');
+  // zápis s odkazem na fotku v poznámce
+  o = p.volej('autoZapsat', { druh: 'tankovani', datum: '2026-08-07', castka: 1859.63, cenaLitr: 43.5, poznamka: 'ČSAD', uctenka: o.data.uctenka });
+  assert.strictEqual(o.ok, true, o.chyba);
+  const bunka = p.tabulky[TAB_AUTO].listy['Tankování'].odkazy['6:9'];
+  assert.strictEqual(bunka.text, 'ČSAD · účtenka');
+  assert.strictEqual(bunka.text.slice(bunka.od, bunka.do), 'účtenka');
+  assert.ok(/drive\.google\.com\/file\/d\/soubor-uctenky/.test(bunka.odkaz));
+  // bez služby Drive API: fotka se uloží, návrh prázdný a vysvětlení
+  vm.runInContext('Drive = undefined;', p.ctx);
+  o = p.volej('autoUctenka', { obrazek: fotka });
+  assert.ok(/Drive API/.test(o.data.chybaTextu));
+  assert.strictEqual(o.data.navrh.castka, null);
+  assert.ok(/JPEG/.test(p.volej('autoUctenka', { obrazek: 'data:image/png;base64,AAAA' }).chyba));
+});
+
+test('auto: čtení účtenek – myčka, servis, částka bez klíčového slova, datum nesmí být v budoucnu', () => {
+  const p = prostredi();
+  const zUctenky = (text, ted) => json(vm.runInContext('AUTO_.zUctenky', p.ctx)(text, ted));
+  const ted = Date.parse('2026-10-05T12:00:00+02:00');
+  let n = zUctenky('MYČKA ČSAD\nProgram 3 - aktivní pěna\n04.10.2026 18:02\nCELKEM 150,00 Kč\nHotovost 200,00\nVráceno 50,00', ted);
+  assert.deepStrictEqual([n.druh, n.kategorie, n.castka, n.datum, n.obchod], ['naklad', 'Myčka', 150, '2026-10-04', 'ČSAD']);
+  n = zUctenky('AutoServis Novák\nVýměna oleje a filtru\nk úhradě: 3.450,00\n12.12.2026', ted);
+  assert.deepStrictEqual([n.kategorie, n.castka, n.datum, n.obchod], ['Servis', 3450, null, 'AutoServis Novák']);
+  n = zUctenky('Prodejna\nKapalina do ostřikovačů 1,5 l   89,90\n', ted);
+  assert.deepStrictEqual([n.druh, n.kategorie, n.castka], ['naklad', 'Nákup doplňků', 89.9]);
+  n = zUctenky('', ted);
+  assert.deepStrictEqual([n.castka, n.datum, n.litry, n.obchod], [null, null, null, null]);
 });
 
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

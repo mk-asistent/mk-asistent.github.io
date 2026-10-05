@@ -109,6 +109,29 @@ const motor = {
       delka: 42.6, velikost: 30, video: true, odkaz: '', nahled: '', popisek: '',
       zapasy: [{ datum: iso(den(-23)), tym: 'B', domaci: 'Vnorovy B', hoste: 'Lipov', souper: 'Lipov', skore: '4:5', soutez: '9. liga dospělí' }] }] }),
   reelStav: (d) => { if (d.zverejneno) reelyZverejneno[d.id] = iso(ted); else delete reelyZverejneno[d.id]; return { zverejneno: Object.assign({}, reelyZverejneno) }; },
+  // auto: tabulka s vymyšlenými čísly (spotřeba 125 l na 2 900 km = 4,3 l/100 km, palivo 4 400 Kč / 2 900 km = 1,52 Kč/km)
+  auto: () => JSON.parse(JSON.stringify(autoData)),
+  autoNastavit: () => JSON.parse(JSON.stringify(autoData)),
+  autoZapsat: (d) => {
+    autoZapisy.push(d);
+    const [r, m, dd] = String(d.datum).split('-').map(Number);
+    const z = { datum: new Date(r, m - 1, dd).getTime(), datumText: '', castka: d.castka, km: d.km === '' ? null : d.km, kdo: d.kdo, poznamka: d.poznamka || '' };
+    if (d.druh === 'tankovani') autoData.tankovani.push(Object.assign(z, { list: 'tankovani', radek: autoData.tankovani.length + 2, polozka: 'Tankování',
+      kategorie: 'Palivo', cenaLitr: d.cenaLitr, litry: Math.round(d.castka / d.cenaLitr * 100) / 100 }));
+    else autoData.naklady.push(Object.assign(z, { list: 'naklady', radek: autoData.naklady.length + 2, polozka: d.polozka || '', kategorie: d.kategorie }));
+    return JSON.parse(JSON.stringify(autoData));
+  },
+  autoSmazat: (d) => {
+    autoSmazano.push(d);
+    const seznam = autoData[d.list];
+    if (seznam[seznam.length - 1].radek === d.radek) seznam.pop();
+    return JSON.parse(JSON.stringify(autoData));
+  },
+  autoUctenka: (d) => {
+    if (!/^data:image\/jpeg;base64,/.test(d.obrazek)) throw new Error('Fotka účtenky nepřišla (čekám JPEG).');
+    return { uctenka: 'uctenka-test-123', odkaz: '#', text: '', chybaTextu: '',
+      navrh: { druh: 'tankovani', datum: iso(ted), castka: 1859.63, litry: 42.75, cenaLitr: 43.5, kategorie: null, obchod: 'Pumpa Test' } };
+  },
   // dávka čtení jako v motoru: každá položka zvlášť ok / chyba
   davka: (d) => (d.polozky || []).map((p) => { try { volano.push(p); return { ok: true, data: motor[p.akce](p) }; } catch (e) { return { ok: false, chyba: e.message }; } }),
   stitky: () => [{ nazev: 'Fotbal', neprectenych: 1 }, { nazev: 'Účty', neprectenych: 0 }],
@@ -123,6 +146,20 @@ const motor = {
 };
 const volano = [];
 let navrhZahozen = false;
+const autoZapisy = [], autoSmazano = [];
+const tank = (dni, castka, km, cena, litry) => ({ list: 'tankovani', datum: den(dni), datumText: '', polozka: 'Tankování', kategorie: 'Palivo', castka, km,
+  kdo: 'M', poznamka: 'Pumpa Test', cenaLitr: cena, litry });
+const autoData = {
+  nastaveno: true, nazev: 'Testovací auto - Test', odkaz: 'https://docs.google.com/spreadsheets/d/TEST/edit',
+  tankovani: [tank(-120, 1500, 10000, 30, 50), tank(-90, 1200, 10800, 30, 40), tank(-60, 1000, 11500, 40, 25), tank(-45, 800, null, 40, 20),
+    tank(-30, 1400, 12900, 35, 40)].map((z, i) => Object.assign(z, { radek: i + 2 })),
+  naklady: [
+    { list: 'naklady', radek: 2, datum: den(-130), datumText: '', polozka: '', kategorie: 'Koupě auta', castka: 300000, km: 9800, kdo: '', poznamka: 'Nákup auta' },
+    { list: 'naklady', radek: 3, datum: den(-130), datumText: '', polozka: '', kategorie: 'Pojištění', castka: 8000, km: null, kdo: 'M', poznamka: 'Roční' },
+    { list: 'naklady', radek: 4, datum: den(-40), datumText: '', polozka: 'Myčka', kategorie: 'Myčka', castka: 150, km: null, kdo: 'K', poznamka: '' }],
+  kategorie: ['Servis', 'Servis - PNEU', 'STK', 'Pojištění', 'Parkování', 'Myčka', 'Nákup doplňků'],
+  platili: { Michal: 11000, Katka: 300150 }
+};
 let reelyZverejneno = {};
 let vahaZaznamy = [];
 
@@ -1205,6 +1242,78 @@ async function novaStranka(prohlizec, v, motiv) {
     await ctx.close();
   });
 
+  // ---------- Auto: přehled z tabulky, zápis tankování, účtenka z fotky, smazání překlepu
+  await test('Auto na PC: přehled z tabulky (najeto, spotřeba, Kč/km), zápis tankování, účtenka z fotky, smazání překlepu', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.click('#rail [data-cil="auto"]');
+    await page.waitForSelector('.auto-hero');
+    const hero = (await page.textContent('.auto-hero')).replace(/\s+/g, ' ');
+    jistota(/3 100/.test(hero) && /4,3/.test(hero) && /1,52/.test(hero) && /Testovací auto/.test(hero), 'přehled: ' + hero);
+    jistota(/Myčka/.test(await page.textContent('.auto-kategorie')) && /Katka/.test(await page.textContent('.auto-platili')), 'kategorie a kdo platil');
+    jistota(await page.locator('.auto-cara circle').count() === 5, 'graf ceny nafty');
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_auto.png'), fullPage: true });
+    // tankování: litry se dopočítají, do tabulky jde číslo (ne text s mezerami a čárkou)
+    autoZapisy.length = 0;
+    await page.click('[data-auto-zapis="tankovani"]');
+    await page.fill('[data-panel="auto-zapis"] [data-az="castka"]', '1 520');
+    await page.fill('[data-panel="auto-zapis"] [data-az="cenaLitr"]', '36,90');
+    jistota(/41,2 l/.test(await page.textContent('[data-az-litry]')), 'litry: ' + await page.textContent('[data-az-litry]'));
+    await page.fill('[data-panel="auto-zapis"] [data-az="km"]', '13 500');
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_auto_tankovani.png') });
+    await page.click('[data-panel="auto-zapis"] [data-auto-ulozit]');
+    await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"]'));
+    const z = autoZapisy[0] || {};
+    jistota(z.druh === 'tankovani' && z.castka === 1520 && z.cenaLitr === 36.9 && z.km === 13500 && z.kdo === 'M', 'zápis: ' + JSON.stringify(z));
+    await page.waitForFunction(() => /13 500/.test(document.querySelector('.auto-hero').textContent.replace(/\s+/g, ' ')));
+    // výdaj: kategorie z tabulky, platila Katka
+    await page.click('[data-auto-zapis="naklad"]');
+    await page.selectOption('[data-panel="auto-zapis"] [data-az="kategorie"]', 'Servis');
+    await page.fill('[data-panel="auto-zapis"] [data-az="polozka"]', 'Výměna oleje');
+    await page.fill('[data-panel="auto-zapis"] [data-az="castka"]', '3 450');
+    await page.click('[data-panel="auto-zapis"] [data-az-kdo="K"]');
+    await page.press('[data-panel="auto-zapis"] [data-az="castka"]', 'Enter');
+    await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"]'));
+    const v = autoZapisy[1] || {};
+    jistota(v.druh === 'naklad' && v.kategorie === 'Servis' && v.polozka === 'Výměna oleje' && v.castka === 3450 && v.kdo === 'K', 'výdaj: ' + JSON.stringify(v));
+    // účtenka: fotka → motor → okno s vyplněnými údaji → zápis s odkazem na fotku
+    await page.setInputFiles('.auto-akce [data-auto-foto]', { name: 'uctenka.png', mimeType: 'image/png', buffer: fs.readFileSync(path.join(KOREN, 'ikony', 'ikona-192.png')) });
+    await page.waitForSelector('[data-panel="auto-zapis"] .auto-uctenka img');
+    jistota(await page.inputValue('[data-panel="auto-zapis"] [data-az="castka"]') === '1859,63' && await page.inputValue('[data-panel="auto-zapis"] [data-az="cenaLitr"]') === '43,5', 'údaje z účtenky');
+    jistota(await page.inputValue('[data-panel="auto-zapis"] [data-az="poznamka"]') === 'Pumpa Test', 'stanice z účtenky');
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_auto_uctenka.png') });
+    await page.click('[data-panel="auto-zapis"] [data-auto-ulozit]');
+    await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"]'));
+    jistota((autoZapisy[2] || {}).uctenka === 'uctenka-test-123' && autoZapisy[2].castka === 1859.63, 'zápis z účtenky: ' + JSON.stringify(autoZapisy[2]));
+    // smazat poslední zápis (překlep)
+    await page.click('[data-auto-smazat^="tankovani:"]');
+    await page.click('.okno-pozadi [data-okno="ano"]');
+    await page.waitForFunction(() => document.querySelectorAll('.auto-zapis--palivo').length === 6);
+    jistota(autoSmazano.length === 1 && autoSmazano[0].list === 'tankovani' && autoSmazano[0].castka === 1859.63, 'smazání: ' + JSON.stringify(autoSmazano));
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  await test('Auto na telefonu: v menu, přehled bez přetékání, „+“ → Tankování, barvy oblastí na Dnes', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0], 'dark');
+    await page.goto(WEB);
+    await page.waitForSelector('.mini-kpi[data-oblast="fotbal"]');
+    await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_dnes_barvy.png'), fullPage: true });
+    await page.click('.hlava-ja [data-menu]');
+    await page.click('[data-panel="menu"] [data-menu-cil="auto"]');
+    await page.waitForSelector('.auto-hero');
+    const prekryv = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    jistota(prekryv <= 0, 'stránka přetéká do strany o ' + prekryv + ' px');
+    await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_auto.png'), fullPage: true });
+    await page.click('.lista__plus');
+    await page.waitForSelector('[data-panel="rychle"] [data-rychle-akce="tankovani"]');
+    jistota(await page.locator('[data-panel="rychle"] .rychle__foto input[data-auto-foto]').count() === 1, 'účtenka v „+“');
+    await page.click('[data-panel="rychle"] [data-rychle-akce="tankovani"]');
+    await page.waitForSelector('[data-panel="auto-zapis"] [data-az="castka"]');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
   // ---------- telefon: menu zleva (klepnutí na jméno) vede i na Fotbal a Reely; klepnutí vedle menu zavře
   await test('telefon: menu zleva se všemi sekcemi (Fotbal, Reely), zavření klepnutím vedle', async () => {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
@@ -1212,7 +1321,7 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.click('.hlava-ja [data-menu]');
     await page.waitForSelector('[data-panel="menu"].otevreny');
     const sekce = await page.$$eval('[data-panel="menu"] [data-menu-cil]', (b) => b.map((x) => x.dataset.menuCil).join());
-    jistota(sekce === 'dnes,schranka,posta,kalendar,zdravi,fotbal,reely', 'sekce v menu: ' + sekce);
+    jistota(sekce === 'dnes,schranka,posta,kalendar,zdravi,fotbal,reely,auto', 'sekce v menu: ' + sekce);
     jistota(await page.locator('[data-panel="menu"] [data-menu-cil="dnes"][aria-current="page"]').count() === 1, 'aktivní sekce');
     await page.click('[data-panel="menu"] [data-menu-cil="fotbal"]');
     await page.waitForSelector('#p-fotbal:not([hidden]) .fotbal-stranka');

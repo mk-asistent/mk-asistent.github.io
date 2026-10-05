@@ -2,7 +2,7 @@
 
 Osobní přehled v jedné aplikaci: **schránka poznámek pro Clauda**, **pošta** (osobní a pracovní účet), **kalendář**
 (Google + kalendáře z iPhonu), **počasí ČHMÚ**, **zdraví** (WHOOP + Apple Watch), **zápasy klubu** z fotbal.cz
-a hotové **reely** s popisky pro Instagram.
+a hotové **reely** s popisky pro Instagram a **auto** (náklady a tankování z tabulky Google, účtenky z fotky).
 Webová aplikace (PWA) – na iPhonu, iPadu i PC se přidá na plochu a otevírá se jako samostatná aplikace.
 
 ## Z čeho se skládá
@@ -145,10 +145,22 @@ se zapomene.
   a v neděli 19–21 h **přehled příštího týdne** (počty událostí po dnech, zápasy týmů, úkoly s termínem, předpověď) –
   přes ntfy jdou jen počty a časy, žádné názvy událostí ani texty.
 
+## Auto (náklady a tankování)
+Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**, **Přehled**) – tabulka zůstává hlavní a je i záloha.
+- Přehled: najeto od koupě, spotřeba (litry mezi tankováními se známým stavem km), nafta na 1 km, provoz bez koupě,
+  cena nafty v čase, výdaje po měsících a kategoriích, kdo co zaplatil (z Přehledu), servis podle listu Péče o auto.
+- Zápis: **Tankování** (částka, cena za litr → litry vzorcem jako v tabulce, stav km, stanice) a **Výdaj** (kategorie
+  z tabulky) jdou do prvního volného řádku pod posledním zápisem; poslední zápis jde smazat (překlep).
+- **Účtenka**: vyfotit → fotka do `CLAUDE_SCHRANKA/AUTO/uctenky`, text přes OCR Disku → předvyplněný zápis; v tabulce je
+  pak u poznámky odkaz „účtenka“ na fotku. Bez potvrzení se nic nezapíše.
+- Tabulka se propojí odkazem na stránce Auto (vlastnost `AUTO_TABULKA`). Motor k tomu potřebuje oprávnění k Tabulkám
+  a službu Drive API – obojí je v `apps-script/appsscript.json`; po jeho vložení jednou spustit **`povolitTabulky`**.
+
 ## Nasazení motoru
 
 1. <https://script.google.com> → projekt motoru → `Kód.gs` nahradit obsahem `apps-script/Kod.gs`.
-2. ⚙ Nastavení projektu → **Zobrazit soubor manifestu** → `appsscript.json` = obsah `apps-script/appsscript.json`.
+2. ⚙ Nastavení projektu → **Zobrazit soubor manifestu** → `appsscript.json` = obsah `apps-script/appsscript.json`
+   (když přibude oprávnění – naposledy Tabulky a služba Drive API pro auto –, spustit jednou `povolitTabulky` a povolit).
 3. Uložit; u nového projektu spustit **`nastavApi`** → povolit přístup → z protokolu zkopírovat **klíč** (nikam ho neposílat).
 4. **Nasadit → Spravovat nasazení → tužka** → Webová aplikace, Spustit jako **Já**, Kdo má přístup **Kdokoli** →
    Verze **Nová verze** → Nasadit. Adresa (`…/exec`) zůstane stejná.
@@ -170,6 +182,7 @@ Vlastnosti skriptu (⚙ → Vlastnosti skriptu) – všechny nepovinné kromě k
 | `DOCHAZKA_URL`, `DOCHAZKA_WEB` | odkud číst docházku dorostu (výchozí: odvodí se z webu dorostu) |
 | `POCASI_MISTA`, `POCASI_POLOHA` | místa podle polohy a poslední poloha pro upozornění (spravuje motor) |
 | `REELY_STAV` | které reely už jsou na Instagramu (nastavuje aplikace) |
+| `AUTO_TABULKA` | ID tabulky Google s náklady auta (nastaví aplikace odkazem na stránce Auto) |
 | `FOTBAL`, `DRUHY_KALENDARU`, `ICS_KALENDARE`, `SKRYTE_KALENDARE`, … | spravuje motor sám |
 
 ## Instalace aplikace

@@ -29,7 +29,7 @@ const OBNOVA_PO_ZMENE = 15e3;        // po změně z aplikace server kopie obnov
 const Z_KOPIE = ['info', 'schranka', 'posta', 'fotbal', 'reely'];
 // akce, které jen čtou – všechno ostatní mění data (i otevření konverzace: označí ji jako přečtenou)
 export const CTENI = ['info', 'schranka', 'posta', 'kalendar', 'kalendare', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky',
-  'kontakty', 'hledat', 'postaStitek'];
+  'kontakty', 'hledat', 'postaStitek', 'auto'];
 
 const s = { fb: null, fbSlib: null, uzivatel: null, kopie: {}, server: null, pripraveno: null, odber: null, prvni: true,
   obnovuje: null, naposledyObnova: 0, casovac: 0, chyba: null, naKopie: [], naStav: [] };

@@ -18,12 +18,14 @@ import * as zdravi from './zdravi.js';
 import * as fotbal from './fotbal.js';
 import * as dochazka from './dochazka.js';
 import * as reely from './reely.js';
+import * as auto from './auto.js';
 import { vstupAdresy, klavesaAdresy } from './adresy.js';
 import * as ucet from './ucet.js';
 
-const SEKCE = [['dnes', 'Dnes'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář'], ['zdravi', 'Zdraví'], ['fotbal', 'Fotbal'], ['reely', 'Reely']];
+const SEKCE = [['dnes', 'Dnes'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář'], ['zdravi', 'Zdraví'], ['fotbal', 'Fotbal'], ['reely', 'Reely'],
+  ['auto', 'Auto']];
 // sekce, které ukáže jen motor, který je umí (starší verze motoru je schová)
-const viditelna = (s) => (s[0] !== 'fotbal' && s[0] !== 'reely') || umiMotor(s[0]);
+const viditelna = (s) => ['fotbal', 'reely', 'auto'].indexOf(s[0]) < 0 || umiMotor(s[0]);
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
 const TELEFON = window.matchMedia('(max-width: 759px)');
 const $ = (id) => document.getElementById(id);
@@ -42,6 +44,7 @@ function start() {
   fotbal.nactiZUloziste();
   dochazka.nactiZUloziste();
   reely.nactiZUloziste();
+  auto.nactiZUloziste();
   if (!SEKCE.some((s) => s[0] === stav.pohled)) stav.pohled = 'dnes';
   kal.pripravGesta($('p-kalendar'));
   priZmene(vykresli);
@@ -67,6 +70,7 @@ function obnovVse(znovu) {
   zdravi.nactiZdravi(znovu);
   fotbal.nactiFotbal();
   reely.nactiReely(znovu);
+  if (znovu || stav.pohled === 'auto') auto.nactiAuto(znovu); // tabulku auta jen na její stránce nebo při Obnovit
   ucet.obnovStare();
 }
 
@@ -105,6 +109,7 @@ function vykresli() {
   zdravi.dotahni();
   fotbal.dotahni();
   reely.dotahni();
+  auto.dotahni();
   if (stav.pohled === 'kalendar') dochazka.dotahni();
   const p = pocty();
   document.querySelectorAll('[data-pohled]').forEach((el) => { el.hidden = el.dataset.pohled !== stav.pohled; });
@@ -120,6 +125,7 @@ function vykresli() {
   else if (stav.pohled === 'zdravi') zdravi.vykresliZdravi(el);
   else if (stav.pohled === 'fotbal') fotbal.vykresliFotbal(el);
   else if (stav.pohled === 'reely') reely.vykresliReely(el);
+  else if (stav.pohled === 'auto') auto.vykresliAuto(el);
   else kal.vykresliKalendar(el);
   zkontrolujNovinky(p);
 }
@@ -221,6 +227,8 @@ function vykresliHlavu(p) {
     pod = f ? esc(f.klub || '') + ' · zápasy, tabulky, střelci' : 'Zápasy z fotbal.cz';
   } else if (stav.pohled === 'reely') {
     pod = reely.podnadpis();
+  } else if (stav.pohled === 'auto') {
+    pod = esc(auto.podnadpis());
   } else if (stav.pohled === 'zdravi') {
     const z = stav.zdravi;
     pod = 'WHOOP a Apple Watch' + (z && z.whoop && z.whoop.sync && z.whoop.sync.kdy ? ' · aktualizováno ' + esc(kdyKratce(z.whoop.sync.kdy)) : '');
@@ -242,7 +250,8 @@ function vykresliHlavu(p) {
         '<button type="button" class="btn btn--ikona" data-hledat aria-label="Hledat">' + IKONY.hledat + '</button>' +
         '<button type="button" class="btn btn--ikona' + (nacitaSe() ? ' toci' : '') + '" data-obnovit aria-label="Obnovit">' + IKONY.obnovit + '</button>' +
       '</div></div>' +
-    '<div class="hlava-radek"><div class="hlava-titul"><h1>' + esc(nadpis) + '</h1>' + (pod ? '<p>' + pod + '</p>' : '') + '</div></div>';
+    '<div class="hlava-radek"><div class="hlava-titul"><h1>' + (stav.pohled !== 'dnes' ? '<span class="hlava-ikona" data-oblast="' +
+      (stav.pohled === 'reely' ? 'fotbal' : stav.pohled) + '">' + IKONY[stav.pohled] + '</span>' : '') + esc(nadpis) + '</h1>' + (pod ? '<p>' + pod + '</p>' : '') + '</div></div>';
 }
 
 function pozdrav() {
@@ -306,7 +315,11 @@ function otevriRychle() {
       volba('email', IKONY.psat, 'zluta', 'Nový e-mail', 'z osobní nebo pracovní adresy') +
       volba('udalost', IKONY.kalendar, 'zelena', 'Událost', 'do kalendáře, i s pozvánkami') +
       volba('zapas', IKONY.zapas, 'limetka', 'Zápas', 'tým, soupeř, výkop, sraz') +
-      (umiMotor('vaha') ? volba('vaha', IKONY.vaha, 'oranz', 'Váha', 'kg – zapíše se i s časem') : '') + '</div>'
+      (umiMotor('vaha') ? volba('vaha', IKONY.vaha, 'oranz', 'Váha', 'kg – zapíše se i s časem') : '') +
+      (umiMotor('autoZapsat') ? volba('tankovani', IKONY.palivo, 'auto', 'Tankování', 'částka, cena za litr, km – do tabulky auta') : '') +
+      // účtenka: popisek s polem pro fotku – fotoaparát se otevře rovnou klepnutím (iPhone jinak okno nepustí)
+      (umiMotor('autoUctenka') ? '<label class="rychle__foto"><i class="kruh kruh--auto">' + IKONY.foto + '</i><b>Účtenka</b><small>vyfoť – částka a datum se vyplní samy</small>' +
+        '<input type="file" accept="image/*" capture="environment" data-auto-foto hidden></label>' : '') + '</div>'
   });
 }
 
@@ -316,6 +329,7 @@ function rychlaAkce(akce) {
   else if (akce === 'udalost') udalost.otevriFormular({ den: stav.pohled === 'kalendar' ? stav.kal.vybrany : undefined });
   else if (akce === 'zapas') udalost.otevriFormular({ typ: 'zapas', den: stav.pohled === 'kalendar' ? stav.kal.vybrany : undefined });
   else if (akce === 'vaha') zdravi.zapisVahuOknem();
+  else if (akce === 'tankovani') auto.otevriZapis('tankovani');
 }
 
 // ---------------------------------------------------------------- Dnes
@@ -360,32 +374,32 @@ function kartyKpi(p, dnes) {
   const karty = [];
   // počasí (ČHMÚ)
   if (staryMotor()) {
-    karty.push(kpi('data-otevri-nastaveni="pripojeni"', IKONY.polojasno, 'Počasí', '–', '',
+    karty.push(kpi('data-oblast="pocasi" data-otevri-nastaveni="pripojeni"', IKONY.polojasno, 'Počasí', '–', '',
       '<span class="tag tag--warn">nový motor</span><span class="orez-1">nasaď Novou verzi</span>'));
   } else if (umiMotor('pocasi')) {
     if (stav.pocasi) {
       const k = pocasi.kartaPocasi();
-      karty.push(kpi('data-pocasi', k.ikona, k.nazev, k.hodnota, k.jednotka, k.pod));
+      karty.push(kpi('data-oblast="pocasi" data-pocasi', k.ikona, k.nazev, k.hodnota, k.jednotka, k.pod));
     } else {
-      karty.push(kpi('data-pocasi', IKONY.polojasno, 'Počasí', '–', '', '<span class="orez-1">' +
+      karty.push(kpi('data-oblast="pocasi" data-pocasi', IKONY.polojasno, 'Počasí', '–', '', '<span class="orez-1">' +
         esc(stav.chyby.pocasi ? stav.chyby.pocasi.message : 'načítám ČHMÚ…') + '</span>'));
     }
   }
   // zdraví (WHOOP, Apple Watch) – jen když ho motor umí
   if (umiMotor('zdravi') && zdravi.maData()) {
     const z = zdravi.kartaZdravi();
-    karty.push(kpi('data-cil="zdravi"', IKONY.srdce, z.nazev, z.hodnota, z.jednotka, z.pod));
+    karty.push(kpi('data-oblast="zdravi" data-cil="zdravi"', IKONY.srdce, z.nazev, z.hodnota, z.jednotka, z.pod));
   }
   // další zápas
   const z = kal.dalsiZapas(14);
   const zk = z ? null : fotbal.dalsiZapasKlubu(14);
   karty.push(z
-    ? kpi('data-udalost="' + esc(z.id) + '"', IKONY.zapas, 'Další zápas', esc(kdyKratky(z.zacatek, z.celodenni)), '',
+    ? kpi('data-oblast="fotbal" data-udalost="' + esc(z.id) + '"', IKONY.zapas, 'Další zápas', esc(kdyKratky(z.zacatek, z.celodenni)), '',
       '<span class="orez-1">' + esc(z.nazev.replace(/^⚽\s*/, '')) + '</span>')
-    : zk ? kpi('data-cil="kalendar"', IKONY.zapas, 'Další zápas', esc(kdyKratky(zk.zacatek)), '', '<span class="orez-1">' + esc(zk.nazev) + '</span>')
-    : kpi('data-cil="kalendar"', IKONY.zapas, 'Další zápas', '–', '', '<span>' + (kal.mameData(dnes) ? '14 dní žádný' : 'načítám…') + '</span>'));
+    : zk ? kpi('data-oblast="fotbal" data-cil="kalendar"', IKONY.zapas, 'Další zápas', esc(kdyKratky(zk.zacatek)), '', '<span class="orez-1">' + esc(zk.nazev) + '</span>')
+    : kpi('data-oblast="fotbal" data-cil="kalendar"', IKONY.zapas, 'Další zápas', '–', '', '<span>' + (kal.mameData(dnes) ? '14 dní žádný' : 'načítám…') + '</span>'));
   // nepřečtená pošta
-  karty.push(kpi('data-cil="posta" data-filtr-posty="neprectene"', IKONY.posta, 'Nepřečtené', stav.posta ? p.nep.length : '–', '',
+  karty.push(kpi('data-oblast="posta" data-cil="posta" data-filtr-posty="neprectene"', IKONY.posta, 'Nepřečtené', stav.posta ? p.nep.length : '–', '',
     (p.hori ? '<span class="tag tag--danger">' + p.hori + ' hoří</span>' : '') +
     '<span class="orez-1">' + (stav.posta ? p.pozornost.length + ' ' + tvar(p.pozornost.length, 'čeká', 'čekají', 'čeká') + ' na odpověď' : 'načítám…') + '</span>'));
   return karty.join('');
@@ -436,12 +450,12 @@ function vykresliDnes(el, p) {
     el.innerHTML = '<div id="dnes-vystrahy"></div><div class="dnes-mobil" id="dnes-mobil"></div><div class="kpi-mrizka" id="dnes-kpi"></div>' +
       '<div class="dnes-mrizka" id="dnes-obsah">' +
       '<section class="card dlazdice dl-pozornost" id="dl-pozornost"></section>' +
-      '<div class="dnes-vpravo"><section class="card dlazdice dl-tyden" id="dl-tyden"></section>' +
-      '<section class="card dlazdice dl-doplnky" id="dl-doplnky" hidden></section>' +
-      '<section class="card dlazdice dl-vaha" id="dl-vaha" hidden></section>' +
+      '<div class="dnes-vpravo"><section class="card dlazdice dl-tyden" id="dl-tyden" data-oblast="kalendar"></section>' +
+      '<section class="card dlazdice dl-doplnky" id="dl-doplnky" data-oblast="zdravi" hidden></section>' +
+      '<section class="card dlazdice dl-vaha" id="dl-vaha" data-oblast="zdravi" hidden></section>' +
       '<section class="dl-reel" id="dl-reel" hidden></section>' +
-      '<section class="card dlazdice dl-fotbal" id="dl-fotbal" hidden></section>' +
-      '<section class="card dlazdice dl-zapis">' + hlavickaKarty(IKONY.claude, 'Poznámka pro Clauda') +
+      '<section class="card dlazdice dl-fotbal" id="dl-fotbal" data-oblast="fotbal" hidden></section>' +
+      '<section class="card dlazdice dl-zapis" data-oblast="schranka">' + hlavickaKarty(IKONY.claude, 'Poznámka pro Clauda') +
         schranka.zapisHtml(true) + '<div id="dl-schranka-mini"></div><div class="dlazdice__telo" id="dl-zapis-seznam"></div></section></div>' +
     '</div>';
   }
@@ -531,18 +545,18 @@ function dnesMobilHtml(p, dnes) {
   if (umiMotor('pocasi') && stav.pocasi) {
     const np = pocasi.nejblizsiPredpoved();
     const v = pocasi.vystrahy();
-    male.push(mala('data-pocasi', np ? ikonaPocasi(np.p.ikona) : IKONY.polojasno, v.length ? 'oranz' : 'zluta', np ? pocasi.teplotaKratce(np.p) : '–',
+    male.push(mala('data-oblast="pocasi" data-pocasi', np ? ikonaPocasi(np.p.ikona) : IKONY.polojasno, v.length ? 'oranz' : 'zluta', np ? pocasi.teplotaKratce(np.p) : '–',
       'Počasí ' + (np ? np.kdy : ''), v.length ? '⚠ ' + v.length : ''));
   }
   if (umiMotor('zdravi') && zdravi.maData()) {
     const z = zdravi.kartaZdravi();
-    male.push(mala('data-cil="zdravi"', IKONY.srdce, 'zelena', z.hodnota + (z.jednotka === '%' ? '%' : ''), z.nazev, ''));
+    male.push(mala('data-oblast="zdravi" data-cil="zdravi"', IKONY.srdce, 'zdravi', z.hodnota + (z.jednotka === '%' ? '%' : ''), z.nazev, ''));
   }
   const zapas = kal.dalsiZapas(14) || fotbal.dalsiZapasKlubu(14);
-  male.push(mala(zapas && zapas.id ? 'data-udalost="' + esc(zapas.id) + '"' : 'data-cil="kalendar"', IKONY.zapas, 'limetka',
+  male.push(mala('data-oblast="fotbal" ' + (zapas && zapas.id ? 'data-udalost="' + esc(zapas.id) + '"' : 'data-cil="kalendar"'), IKONY.zapas, 'limetka',
     zapas ? esc(kdyKratky(zapas.zacatek, zapas.celodenni).split(' ')[0]) : '–', zapas ? esc(hhmm(zapas.zacatek) + ' zápas') : 'Žádný zápas', ''));
   if (male.length < 3) {
-    male.push(mala('data-cil="posta" data-filtr-posty="neprectene"', IKONY.posta, p.hori ? 'oranz' : 'fialova', stav.posta ? p.nep.length : '–',
+    male.push(mala('data-oblast="posta" data-cil="posta" data-filtr-posty="neprectene"', IKONY.posta, p.hori ? 'oranz' : 'fialova', stav.posta ? p.nep.length : '–',
       'Nepřečtené', p.hori ? '↗ ' + p.hori + ' hoří' : ''));
   }
   h += '<div class="mini-kpi-rada">' + male.slice(0, 3).join('') + '</div>';
@@ -599,6 +613,7 @@ document.addEventListener('click', (e) => {
   if (posta.klikPosta(el)) return;
   if (zdravi.klikZdravi(el)) return;
   if (reely.klikReely(el)) return;
+  if (auto.klikAuto(el)) return;
   if (fotbal.klikFotbal(el)) return;
   if (udalost.klikUdalost(el)) return;
   if (kal.klikKalendar(el)) return;
@@ -608,13 +623,14 @@ document.addEventListener('click', (e) => {
 document.addEventListener('input', (e) => {
   vstupAdresy(e);
   if (zdravi.vstupZdravi(e)) return;
+  if (auto.vstupAuto(e)) return;
   if (hledat.vstupHledat(e)) return;
   if (udalost.vstupUdalost(e)) return;
   if (schranka.vstupSchranka(e)) return;
   posta.vstupPosta(e);
 });
 
-document.addEventListener('change', (e) => { if (!posta.zmenaPosta(e) && !udalost.zmenaUdalost(e)) nast.zmenaNastaveni(e); });
+document.addEventListener('change', (e) => { if (!auto.zmenaAuto(e) && !posta.zmenaPosta(e) && !udalost.zmenaUdalost(e)) nast.zmenaNastaveni(e); });
 
 function pise(e) {
   const t = e.target;
@@ -625,6 +641,7 @@ document.addEventListener('keydown', (e) => {
   if ($('aplikace').hidden) return;
   if (klavesaAdresy(e)) return;
   if (zdravi.klavesaZdravi(e)) return; // Enter v poli váhy = Zapsat
+  if (auto.klavesaAuto(e)) return; // Enter v okně tankování / výdaje = Zapsat
   // Ctrl/Cmd+K = hledání (všude)
   if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); hledat.otevriHledani(); return; }
   // Ctrl/Cmd+Enter uloží poznámku nebo odešle e-mail
@@ -638,7 +655,7 @@ document.addEventListener('keydown', (e) => {
   if (pise(e) || e.ctrlKey || e.metaKey || e.altKey) return;
   // jednoduché klávesy (PC, iPad s klávesnicí)
   if (e.key === '/') { e.preventDefault(); hledat.otevriHledani(); return; }
-  if (!horniPanel() && /^[1-7]$/.test(e.key)) { const s = SEKCE.filter(viditelna)[Number(e.key) - 1]; if (s) prejdi(s[0]); return; }
+  if (!horniPanel() && /^[1-9]$/.test(e.key)) { const s = SEKCE.filter(viditelna)[Number(e.key) - 1]; if (s) prejdi(s[0]); return; }
   if (!horniPanel() && stav.pohled === 'kalendar' && e.key.toLowerCase() === 'n') { udalost.otevriFormular({ den: stav.kal.vybrany }); return; }
   if (posta.klavesaPosta(e)) e.preventDefault();
 });

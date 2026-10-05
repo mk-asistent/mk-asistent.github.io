@@ -259,6 +259,32 @@ const reelyZverejneno = { reel_dorost_kyjov: iso(pridejDny(dnes, minulaNedele + 
 /** Váha v ukázce: občasné ranní vážení za poslední měsíc (vymyšlené hodnoty). */
 let vahaUkazka = [[-33, 81.3], [-26, 81.0], [-19, 80.7], [-12, 80.9], [-6, 80.5], [-1, 80.2]].map((x) => ({ kdy: den(x[0], 6, 40 + x[0] % 7), kg: x[1] }));
 
+/** Auto v ukázce: vymyšlené auto, tankování zhruba každé dva týdny s kolísající cenou nafty, pár výdajů (nic skutečného). */
+const autoUkazka = (() => {
+  const t = [], n = [];
+  let km = 20000;
+  for (let i = 0; i < 24; i++) {
+    const kdy = pulnoc(den(-350 + i * 14));
+    const cena = Math.round((33 + 6 * Math.sin(i / 3.2) + (i > 10 && i < 15 ? 7 : 0)) * 10) / 10;
+    const litry = 34 + (i * 7) % 11;
+    km += 640 + (i * 53) % 220;
+    t.push({ list: 'tankovani', radek: i + 2, datum: kdy, datumText: '', polozka: 'Tankování', kategorie: 'Palivo', castka: Math.round(litry * cena),
+      km: i % 5 === 3 ? null : km, kdo: 'M', poznamka: i % 4 === 1 ? 'Pumpa u dálnice' : 'Pumpa ve městě', cenaLitr: cena, litry });
+  }
+  const vydaj = (posun, kategorie, castka, polozka, kdo) => n.push({ list: 'naklady', radek: n.length + 2, datum: pulnoc(den(posun)), datumText: '', polozka: polozka || '',
+    kategorie, castka, km: null, kdo: kdo || 'M', poznamka: '' });
+  n.push({ list: 'naklady', radek: 2, datum: pulnoc(den(-365)), datumText: '', polozka: '', kategorie: 'Koupě auta', castka: 420000, km: 19500, kdo: '', poznamka: 'Ukázkové auto' });
+  vydaj(-364, 'Pojištění', 9800, '', 'M');
+  vydaj(-300, 'Myčka', 150, 'Myčka');
+  vydaj(-210, 'Nákup doplňků', 189, 'Směs do ostřikovačů');
+  vydaj(-150, 'Servis', 4200, 'Výměna oleje', 'K');
+  vydaj(-90, 'Myčka', 180, 'Myčka');
+  vydaj(-20, 'Parkování', 60, 'Parkování centrum');
+  return { nastaveno: true, nazev: 'Ukázkové auto - Rodina', odkaz: '', tankovani: t, naklady: n,
+    kategorie: ['Servis', 'Servis - PNEU', 'STK', 'Pojištění', 'Dálniční známka', 'Parkování', 'Myčka', 'Nákup doplňků', 'Doplňková výbava'],
+    platili: { Michal: 210000, Katka: 240000 }, ted };
+})();
+
 /** Zdraví v ukázce: 30 dní připravenosti, spánku a zátěže; zápas v sobotu, trénink út a čt (sedí s kalendářem), posilovna v pondělí. */
 function zdraviUkazka() {
   const nahoda = (i, k) => { const x = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453; return x - Math.floor(x); };
@@ -494,6 +520,30 @@ const akce = {
     }
     return { zaznamy: kopie(vahaUkazka) };
   },
+  auto: () => kopie(Object.assign({}, autoUkazka, { ted: Date.now() })),
+  autoNastavit: () => kopie(autoUkazka),
+  autoZapsat: (d) => {
+    const castka = Number(String(d.castka).replace(',', '.'));
+    if (!(castka > 0)) throw new Error('Částka musí být kladné číslo.');
+    const [r, m, dd] = String(d.datum).split('-').map(Number);
+    const zapis = { datum: new Date(r, m - 1, dd).getTime(), datumText: '', castka, km: d.km === '' || d.km == null ? null : Number(d.km), kdo: d.kdo === 'K' ? 'K' : 'M',
+      poznamka: [d.poznamka, d.uctenka ? 'účtenka' : ''].filter(Boolean).join(' · ') };
+    if (d.druh === 'tankovani') {
+      const cena = Number(String(d.cenaLitr).replace(',', '.'));
+      autoUkazka.tankovani.push(Object.assign(zapis, { list: 'tankovani', radek: autoUkazka.tankovani.length + 2, polozka: 'Tankování', kategorie: 'Palivo',
+        cenaLitr: cena, litry: Math.round(castka / cena * 100) / 100 }));
+    } else {
+      autoUkazka.naklady.push(Object.assign(zapis, { list: 'naklady', radek: autoUkazka.naklady.length + 2, polozka: d.polozka || '', kategorie: d.kategorie }));
+    }
+    return kopie(autoUkazka);
+  },
+  autoSmazat: (d) => {
+    const seznam = autoUkazka[d.list === 'tankovani' ? 'tankovani' : 'naklady'];
+    if (seznam.length && seznam[seznam.length - 1].radek === Number(d.radek)) seznam.pop();
+    return kopie(autoUkazka);
+  },
+  autoUctenka: () => ({ uctenka: 'ukazka-uctenka-0001', odkaz: '', text: '', chybaTextu: '',
+    navrh: { druh: 'tankovani', datum: iso(Date.now()), castka: 1520, litry: 41.2, cenaLitr: 36.9, kategorie: null, obchod: 'Pumpa ve městě' } }),
   whoopPropojit: () => { throw new Error('V ukázce se WHOOP nepropojuje – po připojení motoru to půjde.'); },
   whoopOdpojit: () => zdraviUkazka().whoop,
   zdraviKlic: () => ({ klic: 'ukazka-klic-pro-zkratku-zdravi-0000' }),

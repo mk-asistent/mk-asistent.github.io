@@ -1239,7 +1239,7 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 /* ================================================================ telefon – vzor PriorAuth (iPad a PC zůstávají ve stylu Fixtrack) */
 .dnes-mobil { display: none; }
 .rychle { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 8px 0 4px; }
-.rychle > button:last-child:nth-child(odd) { grid-column: 1 / -1; } /* lichá poslední volba (Váha) přes celou šířku */
+.rychle > :last-child:nth-child(odd) { grid-column: 1 / -1; } /* lichá poslední volba přes celou šířku */
 .rychle button {
     display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 18px;
     background: var(--surface); color: inherit; text-align: left;
@@ -1328,3 +1328,172 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 }
 
 @media (hover: none) { .radek:hover, .udalost:hover, .mesic-den:hover, .rail__btn:hover { background: none; } }
+
+/* ================================================================ barvy oblastí (Michal 5. 10.: „ať není vše bílé“, fotbal zeleně
+   jako reel, zdraví do červena). Každá oblast má jednu barvu: karty s jejím jemným nádechem, ikony v menu a nadpisy karet v ní.
+   Nádech se míchá s plochou karty (color-mix) – v tmavém režimu sedí sám. */
+:root {
+    --o-fotbal: #3f8a2e; --o-zdravi: #cc3b55; --o-posta: #b8800f; --o-schranka: #7a5cc4;
+    --o-kalendar: #2f68d6; --o-auto: #0c7f8f; --o-pocasi: #1b86c4;
+    --o-zdravi-hero: #b8394f;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-motiv="svetly"]) {
+        --o-fotbal: #8fd16a; --o-zdravi: #ff7d93; --o-posta: #e8b04a; --o-schranka: #ad95f2;
+        --o-kalendar: #7ea6ff; --o-auto: #4cc6d4; --o-pocasi: #6cc3ef; --o-zdravi-hero: #8f2c3f;
+    }
+}
+:root[data-motiv="tmavy"] {
+    --o-fotbal: #8fd16a; --o-zdravi: #ff7d93; --o-posta: #e8b04a; --o-schranka: #ad95f2;
+    --o-kalendar: #7ea6ff; --o-auto: #4cc6d4; --o-pocasi: #6cc3ef; --o-zdravi-hero: #8f2c3f;
+}
+[data-oblast="fotbal"], .pohled-fotbal, .pohled-reely { --o: var(--o-fotbal); }
+[data-oblast="zdravi"], .pohled-zdravi { --o: var(--o-zdravi); }
+[data-oblast="posta"], .pohled-posta { --o: var(--o-posta); }
+[data-oblast="schranka"], [data-pohled="schranka"] { --o: var(--o-schranka); }
+[data-oblast="kalendar"], .pohled-kalendar { --o: var(--o-kalendar); }
+[data-oblast="auto"], .pohled-auto { --o: var(--o-auto); }
+[data-oblast="pocasi"] { --o: var(--o-pocasi); }
+
+/* karty a čísla s barvou oblasti: jemný nádech plochy a okraje, nadpis a ikona v barvě */
+.card[data-oblast], .kpi[data-oblast], .mini-kpi[data-oblast],
+.pohled-fotbal .card, .pohled-reely .card, .pohled-zdravi .card:not(.zdravi-hero), .pohled-auto .card {
+    background: color-mix(in srgb, var(--o) 7%, var(--surface));
+    border-color: color-mix(in srgb, var(--o) 24%, var(--line));
+}
+.card[data-oblast] .card-hlava .nadpis, .kpi[data-oblast] .kpi__hlava,
+.pohled-fotbal .card-hlava .nadpis, .pohled-reely .card-hlava .nadpis, .pohled-zdravi .card-hlava .nadpis, .pohled-auto .card-hlava .nadpis {
+    color: color-mix(in srgb, var(--o) 78%, var(--text));
+}
+.card[data-oblast] .card-hlava .nadpis svg, .kpi[data-oblast] .kpi__hlava svg, [data-pohled] .card-hlava .nadpis svg { color: var(--o, currentColor); }
+.kpi[data-oblast]:hover { border-color: color-mix(in srgb, var(--o) 45%, var(--line)); }
+
+/* navigace: ikona sekce v barvě oblasti (panel vlevo, menu, lišta na telefonu) */
+.rail__btn[data-cil="schranka"], .menu__btn[data-menu-cil="schranka"], .lista__btn[data-cil="schranka"] { --o: var(--o-schranka); }
+.rail__btn[data-cil="posta"], .menu__btn[data-menu-cil="posta"], .lista__btn[data-cil="posta"] { --o: var(--o-posta); }
+.rail__btn[data-cil="kalendar"], .menu__btn[data-menu-cil="kalendar"], .lista__btn[data-cil="kalendar"] { --o: var(--o-kalendar); }
+.rail__btn[data-cil="zdravi"], .menu__btn[data-menu-cil="zdravi"], .lista__btn[data-cil="zdravi"] { --o: var(--o-zdravi); }
+.rail__btn[data-cil="fotbal"], .menu__btn[data-menu-cil="fotbal"], .lista__btn[data-cil="fotbal"],
+.rail__btn[data-cil="reely"], .menu__btn[data-menu-cil="reely"], .lista__btn[data-cil="reely"] { --o: var(--o-fotbal); }
+.rail__btn[data-cil="auto"], .menu__btn[data-menu-cil="auto"], .lista__btn[data-cil="auto"] { --o: var(--o-auto); }
+.rail__btn[data-cil] svg, .menu__btn[data-menu-cil] svg { color: var(--o, currentColor); }
+.rail__btn[data-cil][aria-current="page"] { background: color-mix(in srgb, var(--o, var(--accent)) 13%, var(--surface)); color: var(--text); }
+.rail__btn[data-cil][aria-current="page"] svg { color: var(--o, var(--accent)); }
+.menu__btn[data-menu-cil]:not([aria-current="page"]) svg { color: var(--o, currentColor); }
+
+/* nadpis stránky: barevný čtvereček s ikonou oblasti */
+.hlava-ikona { width: 34px; height: 34px; border-radius: 10px; display: inline-grid; place-items: center; flex: none; margin-right: 10px; vertical-align: -4px;
+    background: color-mix(in srgb, var(--o) 15%, var(--surface)); color: var(--o); }
+.hlava-ikona svg { width: 19px; height: 19px; }
+.kruh--zdravi { background: color-mix(in srgb, var(--o-zdravi) 85%, #fff); color: #fff; }
+.kruh--auto { background: var(--o-auto); color: #fff; }
+
+/* ================================================================ Auto: náklady a tankování (tabulka Google) */
+.pohled-auto { max-width: 1180px; }
+.auto { display: flex; flex-direction: column; gap: 16px; }
+.auto-hero { padding: 16px 18px 14px; }
+.auto-hero__hlava { display: flex; align-items: center; gap: 12px; }
+.auto-hero__hlava .kruh { width: 44px; height: 44px; border-radius: 14px; }
+.auto-hero__hlava .kruh svg { width: 22px; height: 22px; }
+.auto-hero__nazev { flex: 1; min-width: 0; }
+.auto-hero__nazev b { display: block; font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+.auto-hero__nazev small { font-size: 12.5px; color: var(--muted); }
+.auto-hero__hlava .btn svg { width: 15px; height: 15px; }
+.auto-cisla { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.auto-cislo { display: flex; flex-direction: column; gap: 1px; padding: 12px 14px; border-radius: 12px; background: var(--surface);
+    border: 1px solid color-mix(in srgb, var(--o) 18%, var(--line)); min-width: 0; }
+.auto-cislo small { font-size: 11.5px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.auto-cislo b { font-size: 26px; line-height: 1.15; font-weight: 700; letter-spacing: -.02em; color: var(--text); }
+.auto-cislo span { font-size: 12.5px; color: var(--text-soft); }
+.auto-cislo em { font-style: normal; font-size: 12px; color: color-mix(in srgb, var(--o) 70%, var(--muted)); margin-top: 3px; }
+.auto-hero__km { margin: 12px 2px 0; font-size: 13px; color: var(--text-soft); }
+.auto-hero__km b { color: var(--text); }
+.auto-akce { display: flex; flex-wrap: wrap; gap: 8px; }
+.auto-akce .btn svg { width: 17px; height: 17px; }
+.auto-foto { cursor: pointer; }
+.auto-mrizka { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.auto-graf { padding-bottom: 12px; }
+.auto-cara { display: block; width: 100%; height: auto; padding: 0 12px; box-sizing: border-box; }
+.auto-cara polyline { fill: none; stroke: var(--o); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.auto-cara circle { fill: var(--surface); stroke: var(--o); stroke-width: 2; }
+.auto-cara circle.max { fill: var(--oranz); stroke: var(--oranz); }
+.auto-cara circle.min { fill: var(--o); }
+.auto-cara .osa { stroke: var(--line); stroke-width: 1; }
+.auto-cara text { font: 600 12px var(--font); fill: var(--text-soft); }
+.auto-cara .osa-x text { font-weight: 500; fill: var(--muted); }
+.auto-sloupce { display: flex; align-items: flex-end; gap: 6px; height: 168px; padding: 8px 16px 0; }
+.auto-sloupec { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-end; height: 100%; }
+.auto-sloupec__cislo { font-size: 10.5px; font-weight: 650; color: var(--text-soft); text-align: center; white-space: nowrap; margin-bottom: 3px; }
+.auto-sloupec__palivo { background: var(--o); border-radius: 0 0 4px 4px; }
+.auto-sloupec__ostatni { background: var(--oranz); border-radius: 4px 4px 0 0; opacity: .85; }
+.auto-sloupec__ostatni[style*="height:0px"] + .auto-sloupec__palivo { border-radius: 4px; }
+.auto-sloupec small { margin-top: 5px; font-size: 11px; color: var(--muted); text-align: center; }
+.auto-legenda { display: flex; gap: 16px; padding: 10px 16px 0; font-size: 12.5px; color: var(--text-soft); }
+.auto-legenda span { display: inline-flex; align-items: center; gap: 6px; }
+.auto-legenda i { width: 9px; height: 9px; border-radius: 3px; }
+.auto-legenda__palivo { background: var(--o); }
+.auto-legenda__ostatni { background: var(--oranz); }
+.auto-kategorie { list-style: none; margin: 8px 0 0; padding: 0 16px; }
+.auto-kategorie li { display: grid; grid-template-columns: minmax(0, 9.5em) minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 0;
+    border-top: 1px solid color-mix(in srgb, var(--o) 12%, var(--line-soft)); font-size: 13.5px; }
+.auto-kategorie li:first-child { border-top: 0; }
+.auto-kategorie span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auto-kategorie i { display: block; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--o) 14%, var(--surface)); position: relative; overflow: hidden; }
+.auto-kategorie i::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--podil); background: var(--o); border-radius: 4px; }
+.auto-kategorie b { font-weight: 650; text-align: right; }
+.auto-koupe { margin: 8px 16px 0; font-size: 12.5px; color: var(--muted); }
+.auto-koupe b { color: var(--text-soft); font-weight: 650; }
+.auto-platili { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px 14px; }
+.auto-platili .chip { cursor: default; }
+.auto-servis { padding-bottom: 6px; }
+.auto-servis > p { margin: 6px 16px; font-size: 13.5px; }
+.auto-servis__stav b { display: inline-flex; align-items: center; gap: 7px; font-size: 16px; }
+.auto-servis__stav b::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--ok); }
+.auto-servis--brzy .auto-servis__stav b::before { background: var(--zluta); }
+.auto-servis--po .auto-servis__stav b::before { background: var(--oranz); }
+.auto-servis--po .auto-servis__stav b { color: var(--oranz); }
+.auto-servis .napoveda { color: var(--muted); font-size: 12.5px; }
+.auto-seznam { list-style: none; margin: 4px 0 0; padding: 0 8px 6px; }
+.auto-zapis { display: flex; align-items: center; gap: 12px; padding: 9px 8px; border-top: 1px solid color-mix(in srgb, var(--o) 10%, var(--line-soft)); }
+.auto-zapis:first-child { border-top: 0; }
+.auto-zapis .kruh { width: 34px; height: 34px; }
+.auto-zapis .kruh svg { width: 16px; height: 16px; }
+.auto-zapis__text { flex: 1; min-width: 0; }
+.auto-zapis__text b { display: block; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auto-zapis__text small { display: block; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auto-zapis__castka { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 650; white-space: nowrap; }
+.auto-kdo { font-style: normal; width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 10.5px; font-weight: 700;
+    background: var(--sand); color: var(--text-soft); }
+.auto-kdo--k { background: var(--fialova-tint); color: var(--fialova); }
+.auto-vse { margin: 0 16px 14px; }
+.auto-nastavit { padding-bottom: 16px; }
+.auto-nastavit > p { margin: 8px 16px; font-size: 14px; color: var(--text-soft); }
+.auto-nastavit__radek { display: flex; gap: 8px; margin: 10px 16px 0; }
+.auto-nastavit__radek .field { flex: 1; min-width: 0; }
+.auto-nastavit .chyba-karty, .auto-nastavit .pruh { margin: 10px 16px 0; }
+.auto-povoleni { margin: 10px 0 0; padding: 10px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+.auto-povoleni ol { margin: 8px 0 2px; padding-left: 20px; font-size: 13px; line-height: 1.5; }
+/* okno zápisu */
+.auto-formular .auto-litry { display: block; min-height: 16px; margin-top: 4px; font-size: 12.5px; font-weight: 600; color: var(--o-auto); }
+.auto-uctenka { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 12px; background: color-mix(in srgb, var(--o-auto) 8%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--o-auto) 25%, var(--line)); }
+.auto-uctenka img { width: 64px; height: 84px; object-fit: cover; border-radius: 8px; flex: none; background: var(--sand); }
+.auto-uctenka b { display: block; font-size: 14px; }
+.auto-uctenka small { display: block; font-size: 12.5px; color: var(--muted); line-height: 1.4; margin-top: 2px; }
+/* „+“ na telefonu: účtenka jako popisek s polem pro fotku – vypadá jako ostatní volby */
+.rychle__foto { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 18px;
+    background: var(--surface); color: inherit; cursor: pointer; }
+.rychle__foto b { font-size: 14.5px; font-weight: 650; }
+.rychle__foto small { font-size: 12px; color: var(--muted); line-height: 1.35; }
+@media (max-width: 999px) {
+    .auto-mrizka { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 759px) {
+    .auto-cisla { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .auto-cislo { padding: 10px 12px; }
+    .auto-cislo b { font-size: 22px; }
+    .auto-hero { border-radius: 26px; }
+    .auto-akce .btn { flex: 1 1 auto; justify-content: center; }
+    .zdravi-hero { background: var(--o-zdravi-hero); }
+    .auto-kategorie li { grid-template-columns: minmax(0, 7.5em) minmax(0, 1fr) auto; }
+}
