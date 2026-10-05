@@ -332,8 +332,10 @@ export function vykresliPostu(el) {
 function klicDetailu() {
   const id = stav.otevreneVlakno;
   const st = id && stav.vlakna[id];
+  // i stav a štítky ze seznamu (po obnovení pošty nebo přesunu se mění, i když detail zůstává stejný)
+  const s = id && najdiSouhrn(id);
   return id ? id + ':' + (st ? (st.nacita ? 'n' : '') + (st.chyba ? 'e' : '') + (st.verze || 0) : '-') + ':' + JSON.stringify(stav.rozbaleneZpravy) +
-    ':' + JSON.stringify(stav.obrazky) : '';
+    ':' + JSON.stringify(stav.obrazky) + ':' + (s ? s.stav + '|' + s.duvod + '|' + (s.stitky || []).join(',') : '') : '';
 }
 
 function vykresliDetail(vynutit) {
