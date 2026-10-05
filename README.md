@@ -14,10 +14,13 @@ Webová aplikace (PWA) – na iPhonu, iPadu i PC se přidá na plochu a otevír�
 | `apps-script/appsscript.json` | manifest motoru – časové pásmo Praha a nutná oprávnění |
 | `sw.js`, `manifest.webmanifest`, `ikony/` | instalace na plochu a start bez sítě (vždy se načte živá verze, když síť je) |
 | `soukromi.html` | zásady soukromí (WHOOP je chce při registraci aplikace) |
+| `firebase/` | **účet a server** (Firebase, projekt asistent-michal): přihlášení e-mailem a heslem, kopie dat z motoru každých 10 minut – návod `firebase/NASAZENI.md` |
 | `apps-script/test/`, `testy/` | testy motoru (Node, i na skutečných vzorcích ČHMÚ a fotbal.cz) a aplikace v prohlížeči (Playwright) |
 
-Aplikace mluví s motorem přes `POST` s klíčem. **Adresa motoru a klíč jsou jen v zařízení** (zadají se jednou
-v aplikaci) – nikdy v tomhle repozitáři. Vzhled: styl „Fixtrack“, na telefonu „PriorAuth“, okna „CaseDraft“
+Aplikace mluví s motorem přes `POST` s klíčem. **Adresa motoru a klíč jsou v zařízení a v účtu Firebase** (zadají se
+jednou, další zařízení se přihlásí e-mailem a heslem) – nikdy v tomhle repozitáři. S účtem čte aplikace poštu, schránku,
+kalendář, fotbal a reely z kopií, které server chystá každých 10 minut (hned po otevření, změny živě); na motor čeká
+jen u akcí (odeslat, archivovat…) a u zdraví a počasí. Vzhled: styl „Fixtrack“, na telefonu „PriorAuth“, okna „CaseDraft“
 (skill `osobni-vzhled`).
 
 ## Navigace
@@ -171,11 +174,11 @@ Vlastnosti skriptu (⚙ → Vlastnosti skriptu) – všechny nepovinné kromě k
 
 ## Instalace aplikace
 Adresa: <https://mk-asistent.github.io> (organizace `mk-asistent`, vlastní adresa kvůli oddělení dat).
-- **iPhone / iPad:** Safari → Sdílet → **Přidat na plochu** → v aplikaci se **přihlásit heslem** (když je zapnuté),
-  jinak vložit „kód pro připojení“ (Nastavení → Připojení → Připojit další zařízení na PC) nebo adresu motoru a klíč.
-- **Přihlášení heslem:** na připojeném zařízení Nastavení → Připojení → Nastavit přihlášení heslem (aspoň 12 znaků) →
-  stáhne se `prihlaseni.json` = adresa motoru a klíč zašifrované heslem v prohlížeči (PBKDF2-SHA256 600 000×, AES-GCM).
-  Soubor se nahraje do kořene repa; na novém zařízení pak stačí heslo. Po novém klíči motoru (`novyKlic`) soubor vytvořit znovu.
+- **iPhone / iPad:** Safari → Sdílet → **Přidat na plochu** → v aplikaci se **přihlásit účtem** (e-mail a heslo),
+  jinak „Připojit adresou a klíčem“ a vložit „kód pro připojení“ (Nastavení → Připojení → Připojit další zařízení na PC).
+- **Účet:** založí se v konzoli Firebase (registrace je vypnutá). Na připojeném zařízení Nastavení → Připojení → Účet →
+  přihlásit – adresa motoru a klíč se uloží do účtu (odtud je bere server a nová zařízení). Po novém klíči motoru
+  (`novyKlic`) na připojeném zařízení „Změnit adresu nebo klíč“ – uloží se i do účtu.
 - **PC:** Chrome nebo Edge → v adresním řádku **Nainstalovat aplikaci**.
 - Bez motoru jde aplikaci vyzkoušet s ukázkovými daty („Jen vyzkoušet“).
 
@@ -190,13 +193,15 @@ poštu oddělí a odpovídá z adresy, na kterou zpráva přišla.
 - HTML e-maily běží v rámečku **bez skriptů**; obrázky z webu se načtou až na klepnutí „Zobrazit“.
 - Repozitář je veřejný (GitHub Pages zdarma jinak nejde): žádné adresy motoru, klíče, odkazy na kalendáře ani osobní
   údaje. Ukázková data jsou vymyšlená (i hráči na stránce Fotbal); testovací vzorky ČHMÚ a fotbal.cz jsou veřejná data.
-  Výjimka: `prihlaseni.json` obsahuje adresu motoru a klíč, ale jen **zašifrované heslem** (bez hesla nečitelné; heslo
-  se nikam neposílá) – proto musí být dlouhé a jinde nepoužité.
+  Konfigurace Firebase v `js/ucet.js` je veřejná z principu (není tajná) – přístup hlídá přihlášení a pravidla databáze.
   Commity mají jen skrytou adresu GitHubu (noreply), ne osobní e-mail.
-- Aplikace smí volat jen motor (`script.google.com`) a Open-Meteo (CSP `connect-src`); nic jiného z ní neodejde.
-- Data, která zůstávají jen na Michalově Disku: schránka, zdraví a režim doplňků, FOTBAL.json (jména hráčů z fotbal.cz),
-  podklady a návrhy odpovědí na poštu, reely a jejich popisky (nezletilí hráči – videa se nesdílí, odkaz otevře jen
-  Michalův účet).
+- Aplikace smí volat jen motor (`script.google.com`), Open-Meteo a vlastní projekt Firebase (přihlášení, databáze,
+  funkce – CSP `connect-src`; knihovny Firebase z `gstatic.com`); nic jiného z ní neodejde.
+- **Firestore (účet):** adresa motoru a klíč (`uzivatele/{uid}`) a kopie dat pro rychlý start – přehled pošty (odesílatel,
+  předmět, ukázka), schránka, kalendář na 2 měsíce, nastavení, fotbal a reely (`uzivatele/{uid}/data`). Čte je jen
+  přihlášený vlastník a server; registrace je vypnutá. **Zdraví a počasí na server nejdou.**
+- Data, která zůstávají jen na Michalově Disku: zdraví a režim doplňků, plné FOTBAL.json, podklady a návrhy odpovědí na
+  poštu, videa reelů (nezletilí hráči – videa se nesdílí, odkaz otevře jen Michalův účet).
 
 ## Testy
 ```
@@ -204,4 +209,7 @@ node apps-script/test/ics.test.js      # kalendář .ics: opakování, zóny, v�
 node apps-script/test/motor.test.js    # motor s napodobenými službami Googlu, ČHMÚ, WHOOP
 cd testy && npm i && npx playwright install chromium && node test_aplikace.js   # telefon, iPad, PC, tmavý režim
 JEN=telefon node test_aplikace.js      # jen testy, jejichž název obsahuje „telefon“
+node firebase/functions/test.js        # server: obnova kopií z napodobeného motoru
 ```
+Testy aplikace běží i s účtem – Firebase je v nich napodobený (knihovny přes `page.route`, data v testu), skutečný
+projekt se nevolá.

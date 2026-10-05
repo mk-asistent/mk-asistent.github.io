@@ -2,7 +2,7 @@
 
 import { stav, zmeneno, staryMotor, umiMotor } from './stav.js';
 import { volej, pripojeni, jeDemo, ulozPripojeni, zapomenPripojeni } from './api.js';
-import { esc, uloziste } from './pomocne.js';
+import { esc, uloziste, kdyKratce } from './pomocne.js';
 import { otevriPanel, obnovPanel, jeOtevreny, elementPanelu } from './panely.js';
 import { toast, potvrd, segment } from './ui.js';
 import { IKONY } from './ikony.js';
@@ -12,15 +12,14 @@ import { zapasyHtml } from './udalost.js';
 import { tymyHtml as fotbalTymyHtml } from './fotbal.js';
 import { DRUHY } from './kalendar.js';
 import * as pocasi from './pocasi.js';
-import { nactiPrihlaseni, otevriPrihlaseni, vytvorPrihlaseni, stahniPrihlaseni, slabeHeslo, MIN_DELKA } from './prihlaseni.js';
+import * as ucet from './ucet.js';
 
 export const VERZE_APLIKACE = '2026-10-05';
 
 // předvolby hlavní barvy – tlumené tmavé odstíny jako ve stylu Fixtrack (lesní zelená je výchozí)
 const AKCENTY = [['#1f3d2c', 'Lesní zelená'], ['#1d4250', 'Ocelová'], ['#2a3f8f', 'Modrá'], ['#4b2d63', 'Švestková'], ['#7a3a1d', 'Cihlová'], ['#2b2f33', 'Grafitová']];
 const BARVY_KALENDARE = ['#2f5bd3', '#0f7c8c', '#2e7a4d', '#a8620c', '#8e5bd3', '#c0392b', '#b5407a', '#37474f'];
-const n = { upravaPripojeni: false, ukazKod: false, novaBarva: BARVY_KALENDARE[1], pracuje: false, sekce: 'pripojeni', klicZdravi: '',
-  prihlaseni: undefined, noveHeslo: false, prihlaseniStazeno: false };
+const n = { upravaPripojeni: false, ukazKod: false, novaBarva: BARVY_KALENDARE[1], pracuje: false, sekce: 'pripojeni', klicZdravi: '' };
 // Rozbalené návody přežijí překreslení okna (data z motoru dorazí za pár vteřin a okno se překreslí – návod se
 // dřív zavřel a stránka „uskočila“ zpět, Michal 5. 10.). Pamatuje se, co Michal sám rozbalil nebo zavřel.
 const rozbaleno = {};
@@ -117,30 +116,52 @@ async function zkusPripojit(koren, tlacitko) {
   }
 }
 
-/** Přihlášení heslem: rozšifruje prihlaseni.json, ověří motor a uloží připojení do zařízení. */
-async function prihlas(el, soubor, tlacitko) {
-  const heslo = el.querySelector('[data-uvod-heslo]').value;
-  const chyba = el.querySelector('[data-pripojeni-chyba]');
+function poleUctuHtml(email) {
+  return '<label class="fmr__cely"><span class="label">E-mail</span><input class="field" data-ucet-email type="email" name="email" ' +
+      'autocomplete="username" inputmode="email" autocapitalize="off" spellcheck="false" value="' + esc(email || '') + '"></label>' +
+    '<label class="fmr__cely"><span class="label">Heslo</span><input class="field" data-ucet-heslo type="password" name="password" ' +
+      'autocomplete="current-password" autocapitalize="off" spellcheck="false"></label>';
+}
+
+/**
+ * Přihlášení účtem (Firebase). Připojené zařízení uloží svou adresu motoru a klíč do účtu (bere je odtud server
+ * a další zařízení), nové zařízení si je z účtu načte, ověří motorem a uloží. Vrací 'ucet' | 'pripojeno' | false.
+ */
+async function prihlasUctem(koren, tlacitko) {
+  const email = koren.querySelector('[data-ucet-email]').value.trim();
+  const heslo = koren.querySelector('[data-ucet-heslo]').value;
+  const chyba = koren.querySelector('[data-ucet-chyba]');
   const ukaz = (t) => { chyba.textContent = t; chyba.hidden = !t; };
-  if (!heslo) { ukaz('Napiš heslo.'); return false; }
+  if (!email || !heslo) { ukaz('Napiš e-mail i heslo.'); return false; }
+  const popisek = tlacitko.textContent;
   tlacitko.disabled = true;
   tlacitko.textContent = 'Přihlašuji…';
   ukaz('');
   try {
-    const p = await otevriPrihlaseni(heslo, soubor);
-    if (!p) { ukaz('Heslo nesedí.'); return false; }
-    const info = await volej('info', {}, p);
+    const zUctu = await ucet.prihlas(email, heslo);
+    const mistni = jeDemo() ? null : pripojeni();
+    if (mistni && mistni.url && mistni.klic && stav.info && !stav.chyby.info) {
+      if (!zUctu || zUctu.url !== mistni.url || zUctu.klic !== mistni.klic) await ucet.ulozPripojeni(mistni);
+      return 'ucet';
+    }
+    if (!zUctu) {
+      ukaz('Přihlášeno, ale v účtu ještě není připojení k motoru. Nejdřív se přihlas na zařízení, kde aplikace jede ' +
+        '(Nastavení → Připojení → Účet) – uloží ho tam.');
+      return false;
+    }
+    const info = await volej('info', {}, zUctu);
     if (!info || !info.verze) throw new Error('Motor neodpovídá – zkus to za chvíli.');
-    ulozPripojeni(p);
+    ulozPripojeni(zUctu);
     stav.info = info;
     uloziste.pis('asistent.info', info);
-    return true;
+    return 'pripojeno';
   } catch (e) {
-    ukaz(e.kod === 'klic' ? 'Klíč motoru se mezitím změnil – na připojeném zařízení vytvoř nové přihlášení (Nastavení → Připojení).' : e.message);
+    ukaz(e.kod === 'klic' ? 'Klíč motoru v účtu už neplatí – na zařízení, kde aplikace jede, se v Nastavení odhlas a znovu přihlas (uloží platný).'
+      : e.message);
     return false;
   } finally {
     tlacitko.disabled = false;
-    tlacitko.textContent = 'Přihlásit';
+    tlacitko.textContent = popisek;
   }
 }
 
@@ -148,16 +169,14 @@ export function vykresliUvod(poPripojeni) {
   const el = document.getElementById('uvod');
   document.getElementById('aplikace').hidden = true;
   el.hidden = false;
-  let soubor = null, jinak = false;
+  let jinak = !ucet.nastaveno();
   const logo = '<div class="uvod-logo"><span>' + IKONY.dnes + '</span><b>Asistent</b></div>';
   const vykresli = () => {
-    // přihlášení heslem (když je zapnuté), jinak adresa motoru a klíč jako dřív
-    el.innerHTML = '<div class="card uvod-karta">' + logo + (soubor && !jinak
-      ? '<p>Přihlas se heslem. Adresa motoru a klíč se pak uloží jen v tomhle zařízení.</p>' +
-        '<form class="fmr" data-uvod-form><input class="skryte-pole" type="text" name="username" autocomplete="username" value="Asistent" tabindex="-1" aria-hidden="true">' +
-          '<label class="fmr__cely"><span class="label">Heslo</span><input class="field" data-uvod-heslo type="password" name="password" autocomplete="current-password" ' +
-          'autocapitalize="off" spellcheck="false"></label>' +
-          '<p class="pruh pruh-varovani fmr__cely" data-pripojeni-chyba hidden></p>' +
+    // přihlášení účtem (e-mail a heslo), jinak adresa motoru a klíč jako dřív
+    el.innerHTML = '<div class="card uvod-karta">' + logo + (!jinak
+      ? '<p>Přihlas se účtem Asistenta – adresa motoru a klíč se načtou z účtu a data se ukážou hned.</p>' +
+        '<form class="fmr" data-uvod-form>' + poleUctuHtml(ucet.stavUctu().email) +
+          '<p class="pruh pruh-varovani fmr__cely" data-ucet-chyba hidden></p>' +
           '<div class="akce fmr__cely"><button type="button" class="odkaz" data-uvod-jinak>Připojit adresou a klíčem</button>' +
           '<button type="submit" class="btn btn--primary" data-uvod-prihlasit>Přihlásit</button></div></form>'
       : '<p>Schránka pro Clauda, pošta a kalendář na jednom místě. Na tomhle zařízení ještě není připojený motor.</p>' +
@@ -166,20 +185,19 @@ export function vykresliUvod(poPripojeni) {
           'nastavApi. Na dalším zařízení stačí do Adresy vložit <b>kód pro připojení</b> z Nastavení (obsahuje obojí). ' +
           'Klíč zůstane jen v tomhle zařízení – je to jako heslo k poště.</p>' +
         '<p class="pruh pruh-varovani" data-pripojeni-chyba hidden></p>' +
-        '<div class="akce">' + (soubor ? '<button type="button" class="odkaz" data-uvod-heslem>Přihlásit heslem</button>' : '') +
+        '<div class="akce">' + (ucet.nastaveno() ? '<button type="button" class="odkaz" data-uvod-heslem>Přihlásit účtem</button>' : '') +
           '<button type="button" class="odkaz" data-uvod-ukazka>Jen vyzkoušet s ukázkovými daty</button>' +
           '<button type="button" class="btn btn--primary" data-uvod-pripojit>Připojit</button></div>') + '</div>';
     const form = el.querySelector('[data-uvod-form]');
     if (form) {
       form.addEventListener('submit', async (e) => {
-        e.preventDefault(); // nic se neodesílá – heslo jen rozšifruje soubor v prohlížeči
-        if (await prihlas(el, soubor, form.querySelector('[data-uvod-prihlasit]'))) poPripojeni();
+        e.preventDefault(); // přihlašuje Firebase, formulář se nikam neodesílá
+        if (await prihlasUctem(el, form.querySelector('[data-uvod-prihlasit]'))) poPripojeni();
       });
-      el.querySelector('[data-uvod-heslo]').focus();
+      el.querySelector(ucet.stavUctu().email ? '[data-ucet-heslo]' : '[data-ucet-email]').focus();
     }
   };
-  el.innerHTML = '<div class="card uvod-karta">' + logo + '<p class="muted">Načítám…</p></div>';
-  nactiPrihlaseni().then((s) => { soubor = s; vykresli(); });
+  vykresli();
   el.onclick = async (e) => {
     const t = e.target.closest('button');
     if (!t) return;
@@ -244,40 +262,55 @@ function sekcePripojeni() {
         : '<button type="button" class="btn btn--ghost btn--sm" data-nast="kod-zarizeni">Připojit další zařízení</button>') +
       '<button type="button" class="btn btn--ghost btn--sm" data-nast="zmenit-pripojeni">Změnit adresu nebo klíč</button>' +
       '<button type="button" class="btn btn--ghost btn--sm" data-nast="odpojit">Odpojit toto zařízení</button></div>';
-    if (stav.info) h += prihlaseniHtml();
   }
+  if (!jeDemo()) h += uctuHtml();
   return h + '</section>';
 }
 
-/** Přihlášení heslem na dalších zařízeních: heslo zašifruje adresu a klíč do prihlaseni.json (zveřejní ho Claude). */
-function prihlaseniHtml() {
-  if (n.prihlaseni === undefined) {
-    n.prihlaseni = null;
-    nactiPrihlaseni().then((s) => { n.prihlaseni = s || false; if (jeOtevreny('nastaveni')) obnovPanel('nastaveni'); });
-  }
-  let h = '<h3>Přihlášení heslem</h3>';
-  h += n.prihlaseni ? '<p class="nast-stav ok"><i></i>Zapnuté' + (n.prihlaseni.vytvoreno ? ' od ' + esc(n.prihlaseni.vytvoreno.split('-').reverse().map(Number).join('. ')) : '') +
-      ' – na novém zařízení stačí otevřít aplikaci a napsat heslo.</p>'
-    : '<p class="napoveda">Na novém zařízení místo adresy motoru a klíče jen heslo. Heslo zašifruje adresu a klíč do souboru ' +
-      '<code>prihlaseni.json</code>, který Claude nahraje k aplikaci.</p>';
-  if (n.noveHeslo) {
-    h += '<div class="fmr"><input class="skryte-pole" type="text" autocomplete="username" value="Asistent" tabindex="-1" aria-hidden="true">' +
-      '<label><span class="label">Heslo (aspoň ' + MIN_DELKA + ' znaků)</span><input class="field" type="password" data-nast-heslo autocomplete="new-password"></label>' +
-      '<label><span class="label">Heslo znovu</span><input class="field" type="password" data-nast-heslo2 autocomplete="new-password"></label></div>' +
-      '<p class="napoveda">Soubor bude na webu veřejně, ale zašifrovaný tímhle heslem – proto dlouhé (třeba tři čtyři slova) a nikde jinde ' +
-      'nepoužité. Heslo se nikam neposílá, neuvidí ho ani Claude. Když ho zapomeneš, připojíš se jako dřív adresou a klíčem.</p>' +
-      '<p class="pruh pruh-varovani" data-heslo-chyba hidden></p>' +
-      '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="heslo-zrusit">Zrušit</button>' +
-      '<button type="button" class="btn btn--primary btn--sm" data-nast="heslo-vytvorit">Vytvořit soubor</button></div>';
-  } else if (n.prihlaseniStazeno) {
-    h += '<p class="nast-stav ok"><i></i>Soubor <b>prihlaseni.json</b> se stáhl. Napiš Claudovi „zveřejni přihlášení“ – nahraje ho k aplikaci a pak ' +
-      'se na dalších zařízeních přihlásíš heslem.</p>';
+function popisChybyUctu(e) {
+  const kod = String((e && e.code) || '');
+  if (/permission-denied/.test(kod)) return 'Databáze odmítla přístup – přihlas se znovu.';
+  if (/unavailable|network/.test(kod)) return 'Firebase není dostupný (síť) – data se berou z motoru.';
+  return (e && e.message) || String(e);
+}
+
+/** Účet Asistenta (Firebase): přihlášení na dalších zařízeních e-mailem a heslem a data ze serveru hned po otevření. */
+function uctuHtml() {
+  const u = ucet.stavUctu();
+  if (!u.nastaveno) return '';
+  let h = '<h3>Účet</h3>';
+  if (u.zapnuty && u.prihlasen) {
+    const sv = u.server;
+    const chyby = (sv && sv.chyby) || [];
+    h += '<p class="nast-stav ok"><i></i>Přihlášeno · ' + esc(u.email) + '</p>';
+    h += sv && sv.kdy
+      ? '<p class="nast-stav ' + (chyby.length ? 'chyba' : 'ok') + '"><i></i>Data ze serveru ' + esc(kdyKratce(sv.kdy)) +
+        (u.obnovuje ? ' · obnovuji…' : '') + '</p>' + (chyby.length ? '<p class="napoveda">' + chyby.map(esc).join('<br>') + '</p>' : '')
+      : '<p class="nast-stav"><i></i>' + (u.obnovuje ? 'Server chystá první data…' : 'Server zatím data nepřipravil.') + '</p>';
+    if (u.chyba) h += '<p class="pruh pruh-varovani">' + esc(popisChybyUctu(u.chyba)) + '</p>';
+    h += '<p class="napoveda">Server se motoru ptá každých 10 minut (6–23 h), při otevření aplikace se staršími daty a chvíli po každé změně. ' +
+      'Aplikace data ukáže hned, na motor čeká jen u akcí. Na dalším zařízení stačí e-mail a heslo.</p>' +
+      '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="ucet-obnovit"' + (u.obnovuje ? ' disabled' : '') + '>Obnovit na serveru</button>' +
+      '<button type="button" class="btn btn--ghost btn--sm" data-nast="ucet-odhlasit">Odhlásit účet</button></div>';
   } else {
-    h += '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="heslo-nastavit">' +
-      (n.prihlaseni ? 'Změnit heslo' : 'Nastavit přihlášení heslem') + '</button></div>';
+    h += u.zapnuty ? '<p class="nast-stav chyba"><i></i>Přihlášení vypršelo – přihlas se znovu.</p>'
+      : '<p class="napoveda">S účtem se na dalším zařízení přihlásíš jen e-mailem a heslem a data se načtou hned – server je pro aplikaci ' +
+        'chystá každých 10 minut. Adresa motoru a klíč se po přihlášení uloží do účtu (vidí je jen tvůj účet a server).</p>';
+    h += '<form class="fmr" data-ucet-form>' + poleUctuHtml(u.email) + '<p class="pruh pruh-varovani fmr__cely" data-ucet-chyba hidden></p>' +
+      '<div class="akce fmr__cely"><button type="submit" class="btn btn--primary btn--sm" data-ucet-prihlasit>Přihlásit účet</button></div></form>';
   }
   return h;
 }
+
+// přihlášení účtem v Nastavení (formulář kvůli Klíčence v iPhonu – nabídne uložení hesla)
+document.addEventListener('submit', async (e) => {
+  const form = e.target;
+  if (!form.matches || !form.matches('[data-ucet-form]')) return;
+  e.preventDefault();
+  const vysledek = await prihlasUctem(form, form.querySelector('[data-ucet-prihlasit]'));
+  if (vysledek === 'pripojeno') { location.reload(); return; }
+  if (vysledek) { toast('Účet přihlášen ✓'); obnovPanel('nastaveni'); }
+});
 
 function sekcePosty() {
   const p = (stav.info && stav.info.posta) || {};
@@ -508,18 +541,10 @@ export function klikNastaveni(el) {
       .catch((e) => { el.disabled = false; toast(e.message, true); });
     return true;
   }
-  if (akce === 'heslo-nastavit') { n.noveHeslo = true; n.prihlaseniStazeno = false; obnovPanel('nastaveni'); panel.querySelector('[data-nast-heslo]').focus(); return true; }
-  if (akce === 'heslo-zrusit') { n.noveHeslo = false; obnovPanel('nastaveni'); return true; }
-  if (akce === 'heslo-vytvorit') {
-    const heslo = panel.querySelector('[data-nast-heslo]').value, heslo2 = panel.querySelector('[data-nast-heslo2]').value;
-    const chyba = panel.querySelector('[data-heslo-chyba]');
-    const ukaz = (t) => { chyba.textContent = t; chyba.hidden = !t; };
-    const proc = slabeHeslo(heslo) || (heslo !== heslo2 ? 'Hesla se neshodují.' : '');
-    if (proc) { ukaz(proc); return true; }
-    el.disabled = true;
-    vytvorPrihlaseni(heslo, pripojeni())
-      .then((obsah) => { stahniPrihlaseni(obsah); n.noveHeslo = false; n.prihlaseniStazeno = true; obnovPanel('nastaveni'); toast('Soubor s přihlášením je stažený'); })
-      .catch((e) => { el.disabled = false; ukaz('Nepovedlo se: ' + e.message); });
+  if (akce === 'ucet-obnovit') { ucet.obnovNaServeru(true); return true; }
+  if (akce === 'ucet-odhlasit') {
+    potvrd('Odhlásit účet?', { text: 'Toto zařízení zůstane připojené k motoru, jen bez dat ze serveru (načítá se zase jen z motoru).', ano: 'Odhlásit' })
+      .then((ano) => { if (ano) ucet.odhlas().then(() => { toast('Účet odhlášen'); obnovPanel('nastaveni'); }); });
     return true;
   }
   if (akce === 'kopirovat-adresu') {
@@ -538,16 +563,20 @@ export function klikNastaveni(el) {
     return true;
   }
   if (akce === 'ulozit-pripojeni') {
-    zkusPripojit(panel, el).then((ok) => { if (ok) { toast('Připojeno ✓'); location.reload(); } });
+    zkusPripojit(panel, el)
+      .then((ok) => (ok && ucet.prihlasen() ? ucet.ulozPripojeni(pripojeni()).then(() => ok, () => ok) : ok)) // nový klíč i do účtu
+      .then((ok) => { if (ok) { toast('Připojeno ✓'); location.reload(); } });
     return true;
   }
   if (akce === 'odpojit') {
     potvrd('Odpojit toto zařízení?', { text: 'Smaže se adresa motoru, klíč i uložená data v tomhle zařízení. Na ostatních zařízeních se nic nemění.',
       ton: 'nebezpeci', ano: 'Odpojit' }).then((ano) => {
       if (!ano) return;
-      uloziste.klice('asistent.').forEach((k) => uloziste.smaz(k));
-      zapomenPripojeni();
-      location.reload();
+      ucet.odhlas().then(() => {
+        uloziste.klice('asistent.').forEach((k) => uloziste.smaz(k));
+        zapomenPripojeni();
+        location.reload();
+      });
     });
     return true;
   }

@@ -1,8 +1,10 @@
-// Spojení s motorem (Apps Script). Adresa a klíč jsou jen v tomhle zařízení (localStorage na vlastní adrese aplikace).
+// Spojení s motorem (Apps Script). Adresa a klíč jsou v tomhle zařízení (localStorage na vlastní adrese aplikace)
+// a s účtem i v účtu Firebase (ucet.js) – odtud čtení berou kopie dat, které chystá server.
 // Volání je „jednoduchý“ POST s text/plain – prohlížeč nedělá předběžný dotaz CORS a Apps Script ho umí obsloužit.
 
 import { uloziste } from './pomocne.js';
 import { ukazkaVolej } from './ukazka.js';
+import * as ucet from './ucet.js';
 
 const KLIC = 'asistent.pripojeni';
 
@@ -54,6 +56,18 @@ export async function volej(akce, data, jinePripojeni) {
   const p = jinePripojeni || pripojeni();
   if (!p) throw new ChybaApi('Aplikace není připojená k motoru.', 'nepripojeno');
   if (p.demo) return ukazkaVolej(akce, data || {});
+  if (!jinePripojeni && ucet.zapnuty()) {
+    // s účtem: čtení z kopie, kterou chystá server (hned, bez motoru); změna zneplatní kopie z doby před ní
+    if (ucet.CTENI.indexOf(akce) < 0) {
+      ucet.poZmene();
+      return volejPrimo(akce, data, p).finally(ucet.poZmene);
+    }
+    if (!(data && data.znovu)) {
+      const k = await ucet.kopie(akce, data);
+      if (k !== undefined) return k;
+    }
+    ucet.primeCteni(akce, data);
+  }
   if (!jinePripojeni && V_DAVCE.indexOf(akce) >= 0 && umiDavku()) {
     return new Promise((ok, chyba) => {
       if (!fronta) { fronta = []; setTimeout(odesliDavku, 0); }

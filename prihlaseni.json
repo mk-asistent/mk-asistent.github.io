@@ -1,9 +1,0 @@
-{
- "verze": 1,
- "kdf": "PBKDF2-SHA256",
- "iterace": 600000,
- "sul": "v4A/BkKgYnUQ7qSGVTl/eA==",
- "iv": "nbX0wcUgnv44aO9o",
- "data": "q3lo9+i6MOOWr3PJHfGFsbkrggZvtGc9BlaFV1jQ3AsOw9IsBOxel8rM7Y75TvSp9uBK1xvxqpqVJeT/r7m6J/W1OlATNJdr7w5w7B/BvvtfqQI3efSXd4KoSUvfzvLmjXF/95bhq1LguM7JY5o8HLNm4G1RunQy4RBwhSsnYqwZ2iLkx5OJilu8HcCRHyWPqB3Z5Ef8a//pXWoYtZO/m4CESv3aPkll3KLVvcMzq7lI7nG0GWc0Gs07zg65Szv9cVb7Xks/5EmX5ZVqTQ8IrBdIRME=",
- "vytvoreno": "2026-10-05"
-}

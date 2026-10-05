@@ -1,3 +1,6 @@
 node_modules/
 testy/vystup/
 *.log
+
+# Firebase – nasazuje se z dočasné kopie (firebase/NASAZENI.md), tohle by vzniklo jen při nasazení přímo odsud
+firebase/.firebase/

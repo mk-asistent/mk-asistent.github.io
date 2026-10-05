@@ -58,12 +58,13 @@ export function smazUlozene() {
   k.mesice = {};
 }
 
-/** Načte měsíc (podle libovolného dne v něm). Čerstvá data (< 5 min) znovu nestahuje, pokud se nevynutí. */
-export function nactiMesic(t, znovu) {
+/** Načte měsíc (podle libovolného dne v něm). Čerstvá data (< 5 min) znovu nestahuje, pokud se nevynutí
+ *  (znovu = z motoru, vzdy = i čerstvý měsíc – přišla nová kopie ze serveru). */
+export function nactiMesic(t, znovu, vzdy) {
   const klic = klicMesice(t);
   if (k.nacita[klic]) return k.nacita[klic];
   const m = k.mesice[klic];
-  if (!znovu && m && !m.zUloziste && Date.now() - m.kdy < 5 * 60e3) return Promise.resolve();
+  if (!znovu && !vzdy && m && !m.zUloziste && Date.now() - m.kdy < 5 * 60e3) return Promise.resolve();
   const r = mrizkaMesice(t);
   k.chyby[klic] = null;
   const slib = volej('kalendar', { od: r.od, do: r.do, znovu: !!znovu })
@@ -79,11 +80,11 @@ export function nactiMesic(t, znovu) {
 }
 
 /** Co je potřeba: tento a příští měsíc (Dnes, Seznam) + měsíc vybraného dne (a konce jeho týdne). */
-export function nactiKalendar(znovu) {
+export function nactiKalendar(znovu, vzdy) {
   const dny = [Date.now(), dalsiMesic(Date.now(), 1), k.vybrany, pridejDny(zacatekTydne(k.vybrany), 6)];
   const videno = {};
   return Promise.all(dny.filter((t) => { const kl = klicMesice(t); if (videno[kl]) return false; videno[kl] = 1; return true; })
-    .map((t) => nactiMesic(t, znovu)));
+    .map((t) => nactiMesic(t, znovu, vzdy)));
 }
 
 export function nacitaSe() { return Object.keys(k.nacita).length > 0; }

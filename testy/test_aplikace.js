@@ -125,11 +125,108 @@ const volano = [];
 let navrhZahozen = false;
 let reelyZverejneno = {};
 let vahaZaznamy = [];
-let prihlaseniTest = '';
+
+// ---------------------------------------------------------------- napodobený Firebase (účet a kopie dat ze serveru)
+// Knihovny z gstatic nahradí malé moduly níž (page.route); přihlášení, databáze a funkce běží tady v testu
+// (exposeBinding __fb) – žádný skutečný projekt. Pravidla jako firebase/firestore.rules: jen vlastní dokumenty, data jen server.
+const FB_UZIVATEL = { email: 'michal@test.cz', heslo: 'zelena louka u hriste 7', uid: 'uid-michal' };
+const fbDocs = {};       // cesta → data dokumentu
+const fbVolano = [];     // volané serverové funkce
+let fbObnova = null;     // co udělá obnovHned (nastaví test)
+function fbObsluha(op, a) {
+  const smi = (cesta) => !!a.uid && cesta.indexOf('uzivatele/' + a.uid) === 0;
+  if (op === 'prihlas') return a.email === FB_UZIVATEL.email && a.heslo === FB_UZIVATEL.heslo ? { uid: FB_UZIVATEL.uid } : { chyba: 'auth/invalid-credential' };
+  if (op === 'cti') return smi(a.cesta) ? { data: fbDocs[a.cesta] || null } : { chyba: 'permission-denied' };
+  if (op === 'zapis') {
+    if (!smi(a.cesta) || a.cesta.indexOf('/data/') >= 0) return { chyba: 'permission-denied' };
+    fbDocs[a.cesta] = a.merge ? Object.assign({}, fbDocs[a.cesta], a.data) : a.data;
+    return {};
+  }
+  if (op === 'kolekce') {
+    if (!smi(a.cesta)) return { chyba: 'permission-denied' };
+    const pred = a.cesta + '/';
+    return { docs: Object.keys(fbDocs).filter((c) => c.indexOf(pred) === 0 && c.slice(pred.length).indexOf('/') < 0)
+      .map((c) => ({ id: c.slice(pred.length), data: fbDocs[c] })) };
+  }
+  if (op === 'funkce') {
+    fbVolano.push(a.nazev);
+    // server chvíli pracuje (motor) – kopie přijdou až potom
+    return new Promise((hotovo) => setTimeout(() => { if (fbObnova) fbObnova(); hotovo({ data: { kdy: Date.now() } }); }, 500));
+  }
+  return { chyba: 'neznámá operace ' + op };
+}
+const FB_SDK = {
+  'firebase-app.js': `export function initializeApp(konfigurace) { return { konfigurace }; }`,
+  'firebase-auth.js': `
+    const ulozeny = () => { try { return JSON.parse(localStorage.getItem('__fb.user') || 'null'); } catch (e) { return null; } };
+    export const indexedDBLocalPersistence = 'idb', browserLocalPersistence = 'local';
+    export function initializeAuth(app) { return { app, currentUser: ulozeny(), authStateReady() { return Promise.resolve(); } }; }
+    export async function signInWithEmailAndPassword(auth, email, heslo) {
+      const r = await window.__fb('prihlas', { email, heslo });
+      if (r.chyba) throw Object.assign(new Error('Firebase: Error (' + r.chyba + ').'), { code: r.chyba });
+      auth.currentUser = { uid: r.uid, email };
+      localStorage.setItem('__fb.user', JSON.stringify(auth.currentUser));
+      return { user: auth.currentUser };
+    }
+    export async function signOut(auth) { auth.currentUser = null; localStorage.removeItem('__fb.user'); }`,
+  'firebase-firestore.js': `
+    const uid = () => { try { return (JSON.parse(localStorage.getItem('__fb.user') || 'null') || {}).uid; } catch (e) { return null; } };
+    const chyba = (r) => Object.assign(new Error(r.chyba), { code: r.chyba });
+    export function getFirestore(app) { return { app }; }
+    export function doc(db, ...c) { return { cesta: c.join('/') }; }
+    export function collection(db, ...c) { return { cesta: c.join('/') }; }
+    export async function getDoc(ref) {
+      const r = await window.__fb('cti', { cesta: ref.cesta, uid: uid() });
+      if (r.chyba) throw chyba(r);
+      return { id: ref.cesta.split('/').pop(), exists: () => r.data != null, data: () => r.data };
+    }
+    export async function setDoc(ref, data, volby) {
+      const r = await window.__fb('zapis', { cesta: ref.cesta, data, merge: !!(volby && volby.merge), uid: uid() });
+      if (r.chyba) throw chyba(r);
+    }
+    export function onSnapshot(ref, dalsi, priChybe) {
+      let znamo = null, konec = false;
+      const kolo = async () => {
+        if (konec) return;
+        const r = await window.__fb('kolekce', { cesta: ref.cesta, uid: uid() });
+        if (konec) return;
+        if (r.chyba) { if (priChybe) priChybe(chyba(r)); return; }
+        const nove = {}, zmeny = [];
+        r.docs.forEach((d) => {
+          const j = JSON.stringify(d.data);
+          nove[d.id] = j;
+          if (!znamo || znamo[d.id] !== j) zmeny.push({ type: znamo && znamo[d.id] ? 'modified' : 'added', doc: { id: d.id, data: () => JSON.parse(j) } });
+        });
+        if (znamo) Object.keys(znamo).forEach((id) => { if (!(id in nove)) zmeny.push({ type: 'removed', doc: { id, data: () => JSON.parse(znamo[id]) } }); });
+        const prvni = !znamo;
+        znamo = nove;
+        if (prvni || zmeny.length) dalsi({ docChanges: () => zmeny });
+        setTimeout(kolo, 150);
+      };
+      kolo();
+      return () => { konec = true; };
+    }`,
+  'firebase-functions.js': `
+    export function getFunctions(app, region) { return { app, region }; }
+    export function httpsCallable(f, nazev) {
+      return async (data) => {
+        const r = await window.__fb('funkce', { nazev, data, region: f.region });
+        if (r.chyba) throw Object.assign(new Error(r.chyba), { code: 'functions/' + r.chyba });
+        return { data: r.data };
+      };
+    }`
+};
+// ucet.js s testovací konfigurací (skutečný projekt Firebase se v testu nikdy nevolá)
+const UCET_TEST = () => fs.readFileSync(path.join(KOREN, 'js', 'ucet.js'), 'utf8')
+  .replace(/const KONFIGURACE = \{[^\n]*\};/, "const KONFIGURACE = { apiKey: 'test-klic', authDomain: 'test.firebaseapp.com', projectId: 'asistent-test', appId: 'test' };");
 
 async function pripravMotor(page) {
-  // přihlášení heslem: soubor s přihlášením jen v testu přihlášení (jinak prázdný = úvod s adresou a klíčem; 404 by se hlásil v konzoli)
-  await page.route('**/prihlaseni.json', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: prihlaseniTest || '{}' }));
+  // účet Firebase: testovací konfigurace a napodobené knihovny (bez účtu v zařízení se nestahují)
+  await page.route('**/js/ucet.js', (route) => route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: UCET_TEST() }));
+  await page.route('https://www.gstatic.com/firebasejs/**', (route) => {
+    const kod = FB_SDK[route.request().url().split('/').pop()];
+    route.fulfill({ status: kod ? 200 : 404, contentType: 'text/javascript; charset=utf-8', headers: { 'Access-Control-Allow-Origin': '*' }, body: kod || '' });
+  });
   await page.route(MOTOR, async (route) => {
     const data = JSON.parse(route.request().postData() || '{}');
     let telo;
@@ -168,6 +265,7 @@ async function novaStranka(prohlizec, v, motiv) {
     history.pushState = (s, t, u) => { window.__hist.push('push ' + JSON.stringify(s) + ' ' + (performance.now() | 0)); pridej(s, t, u); };
     addEventListener('popstate', (e) => window.__hist.push('pop ' + JSON.stringify(e.state) + ' ' + (performance.now() | 0)));
   }, [MOTOR, KLIC]);
+  await ctx.exposeBinding('__fb', (zdroj, op, a) => fbObsluha(op, a));
   const page = await ctx.newPage();
   const chybyStranky = [];
   page.on('pageerror', (e) => chybyStranky.push(e.message));
@@ -193,6 +291,8 @@ async function novaStranka(prohlizec, v, motiv) {
     page.on('pageerror', (e) => chybyStranky.push(e.message));
     await pripravMotor(page);
     await page.goto(WEB);
+    await page.waitForSelector('#uvod:not([hidden]) [data-uvod-form] [data-ucet-email]'); // výchozí: přihlášení účtem
+    await page.click('[data-uvod-jinak]');
     await page.waitForSelector('#uvod:not([hidden]) [data-uvod-pripojit]');
     // adresa Schránky pro Clauda (diktování) místo motoru – odpovídá {ok: 'ne'} a aplikace to musí poznat
     const SCHRANKA = 'https://script.google.com/macros/s/TEST-schranka/exec';
@@ -1007,62 +1107,102 @@ async function novaStranka(prohlizec, v, motiv) {
     await ctx.close();
   });
 
-  // ---------- přihlášení heslem: v Nastavení se vytvoří zašifrovaný soubor, na novém zařízení stačí heslo
-  await test('přihlášení heslem: soubor z Nastavení (slabé heslo odmítnuto), nové zařízení – špatné a správné heslo', async () => {
-    const HESLO = 'zelena louka u hriste 7';
+  // ---------- účet (Firebase): přihlášení v Nastavení uloží připojení do účtu, nové zařízení jen e-mail a heslo
+  await test('účet: přihlášení v Nastavení uloží připojení do účtu, nový telefon se přihlásí e-mailem a heslem', async () => {
+    Object.keys(fbDocs).forEach((k) => delete fbDocs[k]);
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
     await page.goto(WEB);
     await page.click('#rail [data-otevri-nastaveni]');
-    await page.click('[data-panel="nastaveni"] [data-nast="heslo-nastavit"]');
-    await page.fill('[data-nast-heslo]', 'kratke');
-    await page.fill('[data-nast-heslo2]', 'kratke');
-    await page.click('[data-nast="heslo-vytvorit"]');
-    jistota(/aspoň 12/.test(await page.textContent('[data-heslo-chyba]')), 'slabé heslo');
-    await page.fill('[data-nast-heslo]', HESLO);
-    await page.fill('[data-nast-heslo2]', HESLO + 'x');
-    await page.click('[data-nast="heslo-vytvorit"]');
-    jistota(/neshodují/.test(await page.textContent('[data-heslo-chyba]')), 'neshoda hesel');
-    await page.fill('[data-nast-heslo2]', HESLO);
-    const [stazeni] = await Promise.all([page.waitForEvent('download'), page.click('[data-nast="heslo-vytvorit"]')]);
-    const obsah = fs.readFileSync(await stazeni.path(), 'utf8');
-    const soubor = JSON.parse(obsah);
-    jistota(stazeni.suggestedFilename() === 'prihlaseni.json' && soubor.verze === 1 && soubor.iterace >= 600000, 'soubor s přihlášením: ' + obsah.slice(0, 120));
-    jistota(obsah.indexOf(KLIC) < 0 && obsah.indexOf('script.google.com') < 0, 'adresa ani klíč nesmí být v souboru čitelně');
-    await page.waitForSelector('[data-panel="nastaveni"] :text("zveřejni přihlášení")');
+    const N = '[data-panel="nastaveni"] ';
+    await page.waitForSelector(N + '[data-ucet-form]');
+    await page.fill(N + '[data-ucet-email]', FB_UZIVATEL.email);
+    await page.fill(N + '[data-ucet-heslo]', 'spatne heslo uplne');
+    await page.click(N + '[data-ucet-prihlasit]');
+    await page.waitForFunction((n) => /nesedí/.test((document.querySelector(n + '[data-ucet-chyba]') || {}).textContent || ''), N);
+    await page.fill(N + '[data-ucet-heslo]', FB_UZIVATEL.heslo);
+    await page.press(N + '[data-ucet-heslo]', 'Enter');
+    await page.waitForSelector(N + '[data-nast="ucet-odhlasit"]');
+    const ulozeno = fbDocs['uzivatele/' + FB_UZIVATEL.uid];
+    jistota(ulozeno && ulozeno.pripojeni && ulozeno.pripojeni.url === MOTOR && ulozeno.pripojeni.klic === KLIC, 'připojení v účtu: ' + JSON.stringify(ulozeno));
+    jistota(/Přihlášeno · michal@test\.cz/.test(await page.textContent(N + '[data-sekce="pripojeni"]')), 'stav účtu v Nastavení');
+    await page.locator(N + '[data-sekce="pripojeni"]').screenshot({ path: path.join(VYSTUP, 'pc_ucet.png') });
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
-    // nové zařízení (telefon bez připojení)
-    prihlaseniTest = obsah;
-    try {
-      const ctx2 = await prohlizec.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
-      const p2 = await ctx2.newPage();
-      const chyby2 = [];
-      p2.on('pageerror', (e) => chyby2.push(e.message));
-      await pripravMotor(p2);
-      await p2.goto(WEB);
-      await p2.waitForSelector('#uvod:not([hidden]) [data-uvod-heslo]');
-      await p2.fill('[data-uvod-heslo]', 'spatne heslo uplne');
-      await p2.click('[data-uvod-prihlasit]');
-      await p2.waitForFunction(() => /Heslo nesedí/.test(document.querySelector('[data-pripojeni-chyba]').textContent));
-      await p2.screenshot({ path: path.join(VYSTUP, 'telefon_prihlaseni.png') });
-      await p2.fill('[data-uvod-heslo]', HESLO);
-      await p2.press('[data-uvod-heslo]', 'Enter');
-      await p2.waitForSelector('#aplikace:not([hidden]) .hero');
-      const ulozene = await p2.evaluate(() => JSON.parse(localStorage.getItem('asistent.pripojeni')));
-      jistota(ulozene.url === MOTOR && ulozene.klic === KLIC, 'připojení uložené v zařízení');
-      // „Připojit adresou a klíčem“ dál jde
-      const ctx3 = await prohlizec.newContext({ viewport: { width: 390, height: 844 } });
-      const p3 = await ctx3.newPage();
-      await pripravMotor(p3);
-      await p3.goto(WEB);
-      await p3.click('[data-uvod-jinak]');
-      await p3.waitForSelector('[data-pripojeni-url]');
-      jistota(!chyby2.length, 'chyby stránky: ' + chyby2.join(' | '));
-      await ctx2.close();
-      await ctx3.close();
-    } finally {
-      prihlaseniTest = '';
-    }
+    // nový telefon: nic v něm není, přihlásí se účtem a připojení k motoru si vezme z účtu
+    const ctx2 = await prohlizec.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    await ctx2.exposeBinding('__fb', (zdroj, op, a) => fbObsluha(op, a));
+    const p2 = await ctx2.newPage();
+    const chyby2 = [];
+    p2.on('pageerror', (e) => chyby2.push(e.message));
+    await pripravMotor(p2);
+    await p2.goto(WEB);
+    await p2.waitForSelector('#uvod:not([hidden]) [data-uvod-form]');
+    await p2.screenshot({ path: path.join(VYSTUP, 'telefon_prihlaseni.png') });
+    await p2.fill('[data-ucet-email]', FB_UZIVATEL.email);
+    await p2.fill('[data-ucet-heslo]', FB_UZIVATEL.heslo);
+    await p2.click('[data-uvod-prihlasit]');
+    await p2.waitForSelector('#aplikace:not([hidden]) .hero');
+    const v = await p2.evaluate(() => ({ p: JSON.parse(localStorage.getItem('asistent.pripojeni')), u: JSON.parse(localStorage.getItem('asistent.ucet')) }));
+    jistota(v.p && v.p.url === MOTOR && v.p.klic === KLIC, 'připojení z účtu v zařízení');
+    jistota(v.u && v.u.email === FB_UZIVATEL.email, 'účet zapnutý v zařízení');
+    jistota(!chyby2.length, 'chyby stránky: ' + chyby2.join(' | '));
+    await ctx2.close();
+  });
+
+  // ---------- účet: kopie dat ze serveru – hned bez motoru, živé změny, po změně a u staré kopie zase motor
+  await test('účet: data z kopie ze serveru bez motoru, živá změna, po změně i u staré kopie motor (a obnova na serveru)', async () => {
+    const u = 'uzivatele/' + FB_UZIVATEL.uid;
+    const T = Date.now();
+    const posta = (predmet) => JSON.stringify({ osobni: [Object.assign({}, vlaknoSouhrn.v1, { predmet })], pracovni: [vlaknoSouhrn.v2],
+      pracovniAdresa: 'prace@firma.test', firemni: null, ted: T });
+    const kopie = (predmet, kdy) => {
+      fbDocs[u + '/data/posta'] = { json: posta(predmet), kdy, parametry: null };
+      fbDocs[u + '/data/schranka'] = { json: JSON.stringify(motor.schranka()), kdy, parametry: null };
+      fbDocs[u + '/data/_stav'] = { kdy, potvrzeno: { posta: kdy, schranka: kdy }, chyby: [] };
+    };
+    Object.keys(fbDocs).forEach((k) => delete fbDocs[k]);
+    fbDocs[u] = { pripojeni: { url: MOTOR, klic: KLIC }, upraveno: T };
+    kopie('Z kopie serveru', T);
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await ctx.addInitScript((ja) => {
+      if (!localStorage.getItem('asistent.ucet')) {
+        localStorage.setItem('asistent.ucet', JSON.stringify({ email: ja.email }));
+        localStorage.setItem('__fb.user', JSON.stringify({ uid: ja.uid, email: ja.email }));
+        localStorage.setItem('asistent.pohled', JSON.stringify('posta'));
+      }
+    }, FB_UZIVATEL);
+    volano.length = 0;
+    fbVolano.length = 0;
+    await page.goto(WEB);
+    await page.waitForSelector('#posta-seznam :text("Z kopie serveru")');
+    await page.waitForTimeout(400);
+    jistota(!volano.some((d) => d.akce === 'posta' || d.akce === 'schranka'), 'pošta a schránka šly na motor: ' + volano.map((d) => d.akce).join());
+    jistota(!fbVolano.length, 'čerstvá kopie – server se o obnovu žádat nemá');
+    // živě: server uložil novou kopii → aplikace ji ukáže sama
+    kopie('Živě ze serveru', Date.now());
+    await page.waitForSelector('#posta-seznam :text("Živě ze serveru")');
+    jistota(!volano.some((d) => d.akce === 'posta'), 'živá změna bez motoru');
+    // změna z aplikace (poznámka do schránky) → kopie z doby před ní neplatí, čtení jde na motor
+    await page.evaluate(() => import('/js/api.js').then((m) => m.volej('poznamka', { text: 'test' })));
+    volano.length = 0;
+    await page.evaluate(() => import('/js/posta.js').then((m) => m.nactiPostu(false)));
+    jistota(volano.some((d) => d.akce === 'posta'), 'po změně se pošta nečetla z motoru');
+    await page.waitForSelector('#posta-seznam :text("Sraz v sobotu")');
+    // stará kopie (40 min – server nejel) → motor a žádost o obnovu na serveru; nová kopie pak přijde živě
+    const stare = Date.now() - 40 * 60e3;
+    kopie('Stará kopie', stare);
+    fbObnova = () => kopie('Po obnově na serveru', Date.now());
+    await page.evaluate(() => localStorage.removeItem('asistent.kopie')); // zapomenout změnu z minulého kroku
+    volano.length = 0;
+    fbVolano.length = 0;
+    await page.reload();
+    await page.waitForSelector('#posta-seznam :text("Po obnově na serveru")', { timeout: 8000 });
+    fbObnova = null;
+    jistota(volano.some((d) => d.akce === 'posta'), 'stará kopie → pošta z motoru');
+    jistota(fbVolano.indexOf('obnovHned') >= 0, 'server nebyl požádán o obnovu');
+    jistota(!(await page.isVisible('#posta-seznam :text("Stará kopie")')), 'stará kopie se nesmí ukázat');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
   });
 
   // ---------- telefon: menu zleva (klepnutí na jméno) vede i na Fotbal a Reely; klepnutí vedle menu zavře

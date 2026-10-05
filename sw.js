@@ -1,14 +1,14 @@
 // Service worker: vždy živá verze, když je síť (Michal chce vidět vždy live), a okamžitý start i bez ní.
 // Soubory aplikace se berou ze sítě s ověřením u serveru (cache: 'no-cache' → rychlé 304); když síť
 // nejde nebo trvá déle než 3 s, použije se poslední uložená kopie. Data z motoru (script.google.com)
-// jdou mimo – ty se sem nikdy neukládají.
+// a z Firebase (googleapis.com, knihovny z gstatic.com) jdou mimo – ty se sem nikdy neukládají.
 
-const VERZE = 'asistent-2026-10-05-chyba-motoru';
+const VERZE = 'asistent-2026-10-05-ucet-firebase';
 const SOUBORY = [
   './', 'index.html', 'app.css', 'manifest.webmanifest',
   'js/app.js', 'js/api.js', 'js/pomocne.js', 'js/stav.js', 'js/ui.js', 'js/ikony.js', 'js/panely.js',
   'js/schranka.js', 'js/posta.js', 'js/kalendar.js', 'js/nastaveni.js', 'js/ukazka.js', 'js/grafy.js', 'js/hledat.js', 'js/udalost.js',
-  'js/pocasi.js', 'js/zdravi.js', 'js/adresy.js', 'js/fotbal.js', 'js/rozbor.js', 'js/dochazka.js', 'js/reely.js', 'js/prihlaseni.js',
+  'js/pocasi.js', 'js/zdravi.js', 'js/adresy.js', 'js/fotbal.js', 'js/rozbor.js', 'js/dochazka.js', 'js/reely.js', 'js/ucet.js',
   'ikony/ikona-192.png', 'ikony/apple-touch-icon.png'
 ];
 

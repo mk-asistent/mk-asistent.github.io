@@ -6,7 +6,7 @@ import { jePripojeno, jeDemo } from './api.js';
 import { esc, pulnoc, datumDlouhe, hhmm, iniciala, odstin, tvar, velkePrvni, rozdilDni, uloziste, terminDatum, dm, kdyKratce, prvniRadek, DNY_KR } from './pomocne.js';
 import { kostra, chybaHtml, hlavickaKarty, okno } from './ui.js';
 import { IKONY, ikonaPocasi } from './ikony.js';
-import { zavriPanel, horniPanel, otevriPanel, zavriAPak } from './panely.js';
+import { zavriPanel, horniPanel, otevriPanel, zavriAPak, jeOtevreny, obnovPanel, elementPanelu } from './panely.js';
 import * as schranka from './schranka.js';
 import * as posta from './posta.js';
 import * as kal from './kalendar.js';
@@ -19,6 +19,7 @@ import * as fotbal from './fotbal.js';
 import * as dochazka from './dochazka.js';
 import * as reely from './reely.js';
 import { vstupAdresy, klavesaAdresy } from './adresy.js';
+import * as ucet from './ucet.js';
 
 const SEKCE = [['dnes', 'Dnes'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář'], ['zdravi', 'Zdraví'], ['fotbal', 'Fotbal'], ['reely', 'Reely']];
 // sekce, které ukáže jen motor, který je umí (starší verze motoru je schová)
@@ -44,6 +45,14 @@ function start() {
   if (!SEKCE.some((s) => s[0] === stav.pohled)) stav.pohled = 'dnes';
   kal.pripravGesta($('p-kalendar'));
   priZmene(vykresli);
+  // účet Firebase: kopie dat ze serveru (načtou se hned, změny chodí živě) – bez účtu se nic nestahuje
+  ucet.spust();
+  ucet.naKopie(poNovychKopiich);
+  ucet.naStav(() => {
+    // stav účtu v Nastavení (ne když se zrovna píše do pole – překreslení by ho smazalo)
+    const el = elementPanelu('nastaveni');
+    if (jeOtevreny('nastaveni') && !(el && el.contains(document.activeElement) && document.activeElement.matches('input, textarea'))) obnovPanel('nastaveni');
+  });
   vykresli();
   obnovVse(false);
 }
@@ -58,6 +67,18 @@ function obnovVse(znovu) {
   zdravi.nactiZdravi(znovu);
   fotbal.nactiFotbal();
   reely.nactiReely(znovu);
+  ucet.obnovStare();
+}
+
+/** Server obnovil kopie (každých 10 min, po změně nebo při otevření) → načíst znovu, čeho se to týká (z kopie, hned). */
+function poNovychKopiich(idy) {
+  const je = (id) => idy.indexOf(id) >= 0;
+  if (je('posta')) posta.nactiPostu(false);
+  if (je('schranka')) schranka.nactiSchranku();
+  if (idy.some((id) => id.indexOf('kalendar_') === 0)) kal.nactiKalendar(false, true);
+  if (je('info')) nast.nactiInfo();
+  if (je('fotbal')) fotbal.nactiFotbal();
+  if (je('reely')) reely.nactiReely(false);
 }
 
 // ---------------------------------------------------------------- počty
