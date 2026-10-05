@@ -21,6 +21,7 @@ const SERVIS_KM = 15000, SERVIS_DNI = 365;
 const MAX_ZAPISU = 25;
 
 let f = null;          // rozpracovaný zápis (okno Tankování / Výdaj)
+let frontaUctenek = []; // víc účtenek najednou: ty, které je potřeba doplnit v okně (otevírají se jedna po druhé)
 let vseZapisy = false; // seznam zápisů rozbalený
 
 const kc = (x) => CELE.format(Math.round(x)) + ' Kč';
@@ -219,8 +220,8 @@ function akceHtml() {
     '<button type="button" class="btn btn--ghost" data-auto-zapis="naklad">' + IKONY.plus + '<span>Výdaj</span></button>' +
     // popisek s polem pro fotku: klepnutí otevře nabídku iPhonu – Fotky, Vyfotit, Soubory (programové kliknutí iPhone neotevře;
     // bez capture, ať jde vybrat i starší fotka účtenky z Fotek)
-    (umiMotor('autoUctenka') ? '<label class="btn btn--ghost auto-foto">' + IKONY.foto + '<span>Účtenka z fotky</span>' +
-      '<input type="file" accept="image/*" data-auto-foto hidden></label>' : '') + '</div>';
+    (umiMotor('autoUctenka') ? '<label class="btn btn--ghost auto-foto">' + IKONY.foto + '<span>Účtenky z fotek</span>' +
+      '<input type="file" accept="image/*" multiple data-auto-foto hidden></label>' : '') + '</div>';
 }
 
 /** Cena nafty v čase – čára s tečkami, nejvyšší a nejnižší cena. */
@@ -379,7 +380,10 @@ export function otevriZapis(druh, navrh) {
       '<button type="button" class="btn btn--primary" data-auto-ulozit' + (f && f.ukladam ? ' disabled' : '') + '>' + IKONY.fajfka + '<span>' +
       (f && f.ukladam ? 'Zapisuji…' : f && f.uprava ? 'Uložit změny' : 'Zapsat do tabulky') + '</span></button></div>',
     poOtevreni: (el) => { const pole = el.querySelector(f.castka ? '[data-az="km"]' : '[data-az="castka"]'); if (pole) pole.focus(); },
-    priZavreni: () => { if (f === moje) f = null; }
+    priZavreni: () => {
+      if (f === moje) f = null;
+      if (frontaUctenek.length) setTimeout(dalsiUctenka, 350); // další účtenka k doplnění
+    }
   });
 }
 
@@ -429,6 +433,7 @@ function zapisHtml() {
       pole('poznamka', 'Poznámka', 'placeholder="nepovinné"', f.poznamka) + '</div>';
   }
   h += '<div class="formular__radek"><span class="label">Platil</span>' + segment([['M', 'Michal'], ['K', 'Katka']], f.kdo, 'data-az-kdo', 'Kdo platil') + '</div>';
+  if (frontaUctenek.length) h += '<p class="napoveda">Po zavření se otevře další účtenka k doplnění (zbývá ' + frontaUctenek.length + ').</p>';
   h += '<p class="pruh pruh-varovani" data-az-chyba hidden></p>';
   return h + '</div>';
 }
@@ -517,40 +522,75 @@ function otevriUpravu(z, foto) {
 }
 
 /**
- * Fotka účtenky (vyfocená, nebo z Fotek) → motor ji uloží na Disk, přečte a rovnou zapíše do tabulky (Michal 5. 10.) –
- * pak jde zápis upravit z oznámení. Když z účtenky není jasné co, otevře se okno s předvyplněnými údaji.
+ * Jedna fotka účtenky (vyfocená, nebo z Fotek) → motor ji uloží na Disk, přečte a rovnou zapíše do tabulky (Michal 5. 10.).
+ * Vrací { z, zapsano, foto } (zapsáno), { navrh } (z účtenky není jasné co – doplní se v okně), nebo { chyba, sit }.
  */
-async function zpracujUctenku(soubor) {
-  toast('Čtu účtenku… (chvíli to trvá)');
+async function prectiUctenku(soubor) {
   let img, velka;
   try {
     img = await nactiObrazek(soubor);
     velka = zmensi(img, 1600, 0.82);
   } catch (e) {
-    toast(e.message, true);
-    return;
+    return { chyba: e.message };
   }
   const nahled = zmensi(img, 320, 0.7);
   try {
     const v = await volej('autoUctenka', { obrazek: velka, otisk: await otiskFotky(velka), zapsat: true });
     if (v.zapsano && v.data) {
       uloz(v.data);
-      zmeneno();
-      const z = najdiZapis(v.zapsano.list, v.zapsano.radek);
-      toastAkce('Zapsáno z účtenky: ' + popisZapisu(z), 'Upravit', () => otevriUpravu(najdiZapis(v.zapsano.list, v.zapsano.radek), { nahled, velka }));
-      return;
+      return { z: najdiZapis(v.zapsano.list, v.zapsano.radek), zapsano: v.zapsano, foto: { nahled, velka } };
     }
-    const n = v.navrh || {};
-    otevriZapis(n.druh === 'tankovani' ? 'tankovani' : 'naklad', Object.assign({}, n, { uctenka: v.uctenka, nahled, velka, chybaTextu: v.chybaTextu }));
+    return { navrh: Object.assign({}, v.navrh || {}, { uctenka: v.uctenka, nahled, velka, chybaTextu: v.chybaTextu }) };
   } catch (e) {
-    if (e.kod === 'sit') {
-      // motor mohl účtenku dočíst a zapsat – za chvíli obnovit; stejnou fotku jde poslat znovu, nic se nezdvojí
-      toast('Účtenka se ještě zpracovává – za chvíli ji uvidíš v zápisech (poslat ji znovu nevadí).', true);
-      setTimeout(() => nactiAuto(true), 40000);
-    } else {
-      toast(e.message, true);
-    }
+    return { chyba: e.message, sit: e.kod === 'sit' };
   }
+}
+
+const otevriNavrh = (n) => otevriZapis(n.druh === 'tankovani' ? 'tankovani' : 'naklad', n);
+
+function dalsiUctenka() {
+  const n = frontaUctenek.shift();
+  if (n) otevriNavrh(n);
+}
+
+/** Jedna účtenka: zapsáno → oznámení s Upravit; nejasná → okno; výpadek → za chvíli obnovit (poslat znovu nevadí). */
+async function zpracujUctenku(soubor) {
+  toast('Čtu účtenku… (chvíli to trvá)');
+  const r = await prectiUctenku(soubor);
+  zmeneno();
+  if (r.zapsano) {
+    toastAkce('Zapsáno z účtenky: ' + popisZapisu(r.z), 'Upravit', () => otevriUpravu(najdiZapis(r.zapsano.list, r.zapsano.radek), r.foto));
+  } else if (r.navrh) {
+    otevriNavrh(r.navrh);
+  } else if (r.sit) {
+    // motor mohl účtenku dočíst a zapsat – za chvíli obnovit; stejnou fotku jde poslat znovu, nic se nezdvojí
+    toast('Účtenka se ještě zpracovává – za chvíli ji uvidíš v zápisech (poslat ji znovu nevadí).', true);
+    setTimeout(() => nactiAuto(true), 40000);
+  } else {
+    toast(r.chyba, true);
+  }
+}
+
+/** Víc účtenek najednou (Michal 5. 10.): jedna po druhé, jasné se rovnou zapíšou, nejasné se pak otevřou k doplnění. */
+async function zpracujUctenky(soubory) {
+  if (soubory.length === 1) { zpracujUctenku(soubory[0]); return; }
+  const zapsane = [], kDoplneni = [];
+  let chyb = 0, sit = false;
+  for (let i = 0; i < soubory.length; i++) {
+    toast('Čtu účtenky… ' + (i + 1) + ' z ' + soubory.length);
+    const r = await prectiUctenku(soubory[i]);
+    if (r.zapsano) zapsane.push(r.z);
+    else if (r.navrh) kDoplneni.push(r.navrh);
+    else { chyb++; sit = sit || !!r.sit; }
+    zmeneno();
+  }
+  const castka = zapsane.reduce((s, z) => s + ((z && z.castka) || 0), 0);
+  toast('Účtenky: ' + [zapsane.length ? 'zapsáno ' + zapsane.length + (castka ? ' (' + kc(castka) + ')' : '') : '',
+    kDoplneni.length ? 'k doplnění ' + kDoplneni.length : '', chyb ? (sit ? 'ještě se zpracovává ' : 'nepovedlo se ') + chyb : ''].filter(Boolean).join(' · '),
+    !zapsane.length && !kDoplneni.length);
+  if (sit) setTimeout(() => nactiAuto(true), 40000);
+  frontaUctenek = kDoplneni;
+  dalsiUctenka();
 }
 
 /** Fotka účtenky na celou obrazovku (nad oknem zápisu). */
@@ -622,10 +662,10 @@ export function zmenaAuto(e) {
   const t = e.target;
   if (t.matches && t.matches('[data-az]') && f) { f[t.dataset.az] = t.value; return true; }
   if (!t.matches || !t.matches('[data-auto-foto]')) return false;
-  const soubor = t.files && t.files[0];
+  const soubory = Array.from(t.files || []);
   t.value = '';
   if (t.closest('[data-panel="rychle"]')) zavriPanel(); // z „+“ na telefonu
-  if (soubor) zpracujUctenku(soubor);
+  if (soubory.length) zpracujUctenky(soubory);
   return true;
 }
 

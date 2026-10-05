@@ -1421,6 +1421,16 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.click('.okno-pozadi [data-okno="ano"]');
     await page.waitForFunction(() => document.querySelectorAll('.auto-zapisy .auto-zapis--palivo').length === 6);
     jistota(autoSmazano.length === 1 && autoSmazano[0].list === 'tankovani' && autoSmazano[0].castka === 1900, 'smazání: ' + JSON.stringify(autoSmazano));
+    // víc účtenek najednou (z Fotek): každá zvlášť do motoru, souhrn v oznámení
+    const predUctenkami = autoUctenky.length;
+    jistota(await page.getAttribute('.auto-akce [data-auto-foto]', 'multiple') !== null, 'výběr víc fotek');
+    await page.setInputFiles('.auto-akce [data-auto-foto]', [
+      { name: 'a.png', mimeType: 'image/png', buffer: fs.readFileSync(path.join(KOREN, 'ikony', 'ikona-192.png')) },
+      { name: 'b.png', mimeType: 'image/png', buffer: fs.readFileSync(path.join(KOREN, 'ikony', 'apple-touch-icon.png')) }]);
+    await page.waitForFunction(() => /Účtenky: zapsáno 2/.test(document.getElementById('toast').textContent), null, { timeout: 15000 });
+    const dve = autoUctenky.slice(predUctenkami);
+    jistota(dve.length === 2 && dve[0].otisk !== dve[1].otisk, 'dvě účtenky, každá s vlastním otiskem: ' + JSON.stringify(dve));
+    await page.waitForFunction(() => document.querySelectorAll('.auto-zapisy .auto-zapis--palivo').length === 8);
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
   });
