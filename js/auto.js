@@ -361,12 +361,19 @@ function zapisyHtml(d) {
 
 // ---------------------------------------------------------------- péče o auto (list „Péče o auto – text“ v tabulce)
 
-/** Řádky listu → oddíly: nadpis VELKÝMI PÍSMENY ve sloupci A začíná oddíl (u tabulky s názvy sloupců B a C). */
-function oddilyPece(radky) {
-  const nadpis = (r) => !!r[0] && r[0] === r[0].toUpperCase() && /[A-ZÁ-Ž]{3}/.test(r[0]);
+/**
+ * List → oddíly. Motor posílá { radky, nadpisy } – nadpis oddílu (nebo hlavička tabulky) = tučný řádek v tabulce;
+ * první řádek je název listu. Starší motor posílal jen řádky → nadpis = sloupec A VELKÝMI PÍSMENY (bez závorky).
+ */
+function oddilyPece(pece) {
+  const radky = Array.isArray(pece) ? pece : (pece && pece.radky) || [];
+  const tucne = Array.isArray(pece) ? null : (pece && pece.nadpisy) || [];
+  const nadpis = (r, i) => (tucne ? tucne.indexOf(i) >= 0 && !!r[0] :
+    !!r[0] && /[A-ZÁ-Ž]{4}/.test(r[0]) && r[0].replace(/\(.*\)/, '') === r[0].replace(/\(.*\)/, '').toUpperCase());
   const oddily = [];
-  radky.slice(1).forEach((r) => {
-    if (nadpis(r)) {
+  radky.forEach((r, i) => {
+    if (i === 0) return;
+    if (nadpis(r, i)) {
       const odd = { nazev: r[0], polozky: [] };
       if (r[1].length > 30) odd.polozky.push(['', r[1], r[2]]); // nadpis s textem rovnou za ním
       oddily.push(odd);
@@ -374,18 +381,20 @@ function oddilyPece(radky) {
       oddily[oddily.length - 1].polozky.push(r);
     }
   });
-  return { uvod: radky.slice(1).find((r) => !nadpis(r) && r[1]) || null, oddily: oddily.filter((o) => o.polozky.length) };
+  return oddily.filter((o) => o.polozky.length);
 }
+
+/** „AUTOMAT DSG“ → „Automat DSG“: malá písmena kromě zkratek (DSG, STK, DPF, TDI, UV). */
+const nazevOddilu = (t) => (t.charAt(0) + t.slice(1).toLowerCase()).replace(/\b(dsg|stk|dpf|tdi|uv)\b/gi, (z) => z.toUpperCase());
 
 /** Karta Péče o auto: plán údržby a přehled podle km rozbalené, rady (zima, léto, DSG, mytí) na klepnutí. */
 function peceHtml(d) {
-  if (!Array.isArray(d.pece) || d.pece.length < 2) return '';
-  const { oddily } = oddilyPece(d.pece);
+  if (!d.pece) return '';
+  const oddily = oddilyPece(d.pece);
   if (!oddily.length) return '';
-  const velke = (t) => t.charAt(0) + t.slice(1).toLowerCase();
   return '<section class="card auto-pece" data-oblast="auto">' + hlavickaKarty(IKONY.auto, 'Péče o auto',
     d.odkaz ? '<a class="odkaz" href="' + esc(d.odkaz) + '" target="_blank" rel="noopener noreferrer">v tabulce</a>' : '') +
-    oddily.map((o, i) => '<details class="auto-pece__oddil"' + (i < 2 ? ' open' : '') + '><summary>' + esc(velke(o.nazev)) + '</summary><ul class="auto-pece__seznam">' +
+    oddily.map((o, i) => '<details class="auto-pece__oddil"' + (i < 2 ? ' open' : '') + '><summary>' + esc(nazevOddilu(o.nazev)) + '</summary><ul class="auto-pece__seznam">' +
       o.polozky.map((r) => '<li>' + (r[0] ? '<b>' + esc(r[0]) + '</b>' : '') + '<span>' + esc(r[1]) + '</span>' + (r[2] ? '<small>' + esc(r[2]) + '</small>' : '') + '</li>').join('') +
       '</ul></details>').join('') +
     '</section>';

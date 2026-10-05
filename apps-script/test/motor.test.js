@@ -227,7 +227,8 @@ function prostredi() {
       setWrap: () => rozsah(r, c, nr, nc), setVerticalAlignment: () => rozsah(r, c, nr, nc),
       setFontWeight: (w) => { styly[r + ':' + nr] = Object.assign({}, styly[r + ':' + nr], { tucne: w === 'bold' }); return rozsah(r, c, nr, nc); },
       setFontSize: (s) => { styly[r + ':' + nr] = Object.assign({}, styly[r + ':' + nr], { velikost: s }); return rozsah(r, c, nr, nc); },
-      setBackground: (b2) => { styly[r + ':' + nr] = Object.assign({}, styly[r + ':' + nr], { pozadi: b2 }); return rozsah(r, c, nr, nc); }
+      setBackground: (b2) => { styly[r + ':' + nr] = Object.assign({}, styly[r + ':' + nr], { pozadi: b2 }); return rozsah(r, c, nr, nc); },
+      getFontWeights: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, () => ((styly[(r + i) + ':1'] || {}).tucne ? 'bold' : 'normal')))
     });
     return { getName: () => nazev, getLastColumn: sirka, getRange: rozsah, getLastRow: () => b.filter((r) => r.some((x) => x !== '' && x != null)).length ? b.length : 0,
       clear: () => { b.length = 0; }, setColumnWidth: (s, w) => { sirky[s] = w; }, styly, sirky,
@@ -2026,7 +2027,7 @@ test('auto: péče o auto jako text do vlastního listu za Péče o auto – jin
   assert.deepStrictEqual([l.styly['1:1'].tucne, l.styly['1:1'].velikost, l.styly['2:1'].pozadi], [true, 14, '#e6f0ee']);
   assert.strictEqual(l.sirky[2], 640);
   // aplikace dostane text s daty auta (karta Péče o auto), bez prázdných řádků
-  assert.deepStrictEqual(json(p.volej('auto').data.pece), radky);
+  assert.deepStrictEqual(json(p.volej('auto').data.pece), { radky, nadpisy: [0, 1] }, 'tučné řádky = nadpisy');
   // podruhé nic nepřepíše, s prepsat ano
   assert.ok(/už obsah má/.test(p.volej('autoPeceZapsat', { radky }).chyba));
   o = p.volej('autoPeceZapsat', { radky: [['Jen jeden řádek']], prepsat: true });

@@ -189,10 +189,12 @@ const autoData = {
     { list: 'naklady', radek: 3, datum: den(-130), datumText: '', polozka: '', kategorie: 'Pojištění', castka: 8000, km: null, kdo: 'M', poznamka: 'Roční' },
     { list: 'naklady', radek: 4, datum: den(-40), datumText: '', polozka: 'Myčka', kategorie: 'Myčka', castka: 150, km: null, kdo: 'K', poznamka: '' }],
   kategorie: ['Servis', 'Servis - PNEU', 'STK', 'Pojištění', 'Parkování', 'Myčka', 'Nákup doplňků'],
-  pece: [['PÉČE O AUTO – Testovací auto', '', ''], ['', 'Úvodní věta.', ''], ['PLÁN ÚDRŽBY', 'Kdy', 'Poznámka'],
-    ['Olej + filtr', 'každých 15 000 km', 'termín hlásí auto'], ['PŘEHLED PODLE KM', 'Co udělat', ''], ['15 000 km', 'olej + filtr', ''],
-    ['ZIMA', '', ''], ['', 'Startuj s nohou na brzdě.', ''],
-    ['JEDNOU ZA PŮL ROKU', 'Jaro a podzim: navoskovat, ošetřit plasty a těsnění dveří (dost dlouhý text).', '']],
+  // jako motor: řádky + indexy tučných (nadpisy); STK uvnitř tabulky není nadpis, i když je velkými písmeny
+  pece: { radky: [['PÉČE O AUTO – Testovací auto', '', ''], ['', 'Úvodní věta.', ''], ['PLÁN ÚDRŽBY', 'Kdy', 'Poznámka'],
+    ['Olej + filtr', 'každých 15 000 km', 'termín hlásí auto'], ['STK', 'po 4 letech, pak po 2', ''], ['PŘEHLED PODLE KM', 'Co udělat', ''],
+    ['15 000 km', 'olej + filtr', ''], ['AUTOMAT DSG', '', ''], ['', 'Startuj s nohou na brzdě.', ''],
+    ['MYTÍ – POSTUP (ideálně každé 2–3 týdny)', '', ''], ['1. Hmyz', 'Hned po příjezdu.', ''],
+    ['JEDNOU ZA PŮL ROKU', 'Jaro a podzim: navoskovat, ošetřit plasty a těsnění dveří (dost dlouhý text).', '']], nadpisy: [0, 2, 5, 7, 9, 11] },
   platili: { Michal: 11000, Katka: 300150 },
   // stav z auta (MyŠkoda přes domácí PC) – čerstvý, tachometr dál než poslední zápis v tabulce
   myskoda: { aktualizovano: new Date(ted).toISOString(), auta: [{ nazev: 'Testovací', model: 'Testovací auto', km: 13600, kmKdy: new Date(ted - 6e5).toISOString(),
@@ -1355,7 +1357,10 @@ async function novaStranka(prohlizec, v, motiv) {
     // karta Péče o auto z listu v tabulce: plán a přehled rozbalené, rady na klepnutí
     const pece = (await page.textContent('.auto-pece')).replace(/\s+/g, ' ');
     jistota(/Plán údržby/.test(pece) && /každých 15 000 km/.test(pece) && /Jednou za půl roku/.test(pece), 'péče o auto: ' + pece.slice(0, 200));
-    jistota(await page.locator('.auto-pece details[open]').count() === 2 && await page.locator('.auto-pece details').count() === 4, 'oddíly péče');
+    const oddily = await page.$$eval('.auto-pece summary', (s) => s.map((x) => x.textContent.trim()));
+    jistota(JSON.stringify(oddily) === JSON.stringify(['Plán údržby', 'Přehled podle km', 'Automat DSG', 'Mytí – postup (ideálně každé 2–3 týdny)', 'Jednou za půl roku']),
+      'oddíly péče: ' + JSON.stringify(oddily));
+    jistota(await page.locator('.auto-pece details[open]').count() === 2, 'rozbalené jen první dva');
     // auto hlásí tankování, které v tabulce chybí (to před měsícem v tabulce je)
     const hlaseni = (await page.textContent('.auto-hlaseni')).replace(/\s+/g, ' ');
     jistota(/asi 36,4 l/.test(hlaseni) && !/asi 39 l/.test(hlaseni), 'hlášení z auta: ' + hlaseni);
