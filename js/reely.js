@@ -1,12 +1,13 @@
 // Reely: hotové reely z fotbalu (domácí PC → Disk → motor). U každého popisek s tlačítkem Kopírovat (vložit do Instagramu),
 // video na Disku Google (otevře ho aplikace Disk nebo prohlížeč – jen Michalův účet, nic veřejného) a stav „je na Instagramu“.
 // Popisek se tu jen kopíruje – jediná pravda je soubor popisky\*.txt na PC. Na Dnes limetková karta „Reel k vyvěšení“.
+// S propojeným Instagramem (IG_TOKEN v motoru) jde reel naplánovat: motor ho v daný čas zveřejní sám (spouštěč každých 10 min).
 
 import { stav, zmeneno, umiMotor, hooky } from './stav.js';
 import { volej } from './api.js';
 import { esc, uloziste, dm, DNY_KR, rozdilDni, zacatekTydne, pridejDny, terminDatum, isoDatum, tvar, kdyKratce } from './pomocne.js';
 import { IKONY } from './ikony.js';
-import { toast, toastAkce, kostra, chybaHtml, segment } from './ui.js';
+import { toast, toastAkce, kostra, chybaHtml, segment, okno, potvrd } from './ui.js';
 
 const ULOZISTE = 'asistent.data.reely';
 const FILTR = 'asistent.reely.filtr';
@@ -34,12 +35,16 @@ export function dotahni() {
 
 function seznam() { return (stav.reely && stav.reely.reely) || []; }
 function zverejneno(r) { return !!(stav.reely && stav.reely.zverejneno && stav.reely.zverejneno[r.id]); }
+function plan(r) { return (stav.reely && stav.reely.plan && stav.reely.plan[r.id]) || null; }
+const naplanovano = (r) => { const p = plan(r); return !!(p && ['ceka', 'nahrava', 'zverejnuji'].indexOf(p.stav) >= 0); };
+const instagram = () => (stav.reely && stav.reely.instagram) || { nastaveno: false };
+const kdyPlan = (t) => DNY_KR[new Date(t).getDay()] + ' ' + dm(t) + ' ' + new Date(t).getHours() + ':' + String(new Date(t).getMinutes()).padStart(2, '0');
 const datumReelu = (r) => terminDatum(r.datum) || Date.parse(r.vyrobeno) || 0;
 const najdi = (id) => seznam().find((r) => r.id === id);
 
 /** Nezveřejněné reely ze zápasů za poslední týden (nejnovější první) – Dnes a odznak v panelu. */
 export function kVyveseni() {
-  return seznam().filter((r) => !zverejneno(r) && (r.popisek || r.video) && rozdilDni(datumReelu(r)) >= -CERSTVY_DNI);
+  return seznam().filter((r) => !zverejneno(r) && !naplanovano(r) && (r.popisek || r.video) && rozdilDni(datumReelu(r)) >= -CERSTVY_DNI);
 }
 
 export function podnadpis() {
@@ -79,18 +84,78 @@ function reelHtml(r) {
     '<div class="reel__telo">' +
       '<div class="reel__hlava"><div class="reel__stitky">' + r.tymy.map((k) => '<span class="tag tag--seda">' + esc(nazevTymu(k)) + '</span>').join('') +
         (z ? '<span class="tag tag--ok">' + IKONY.fajfka + 'na Instagramu od ' + esc(dm(terminDatum(stav.reely.zverejneno[r.id]))) + '</span>'
-          : '<span class="tag tag--danger">čeká na Instagram</span>') + '</div>' +
+          : stitekPlanu(r)) + '</div>' +
       '<b class="reel__nazev">' + esc(r.nazev) + '</b>' +
       '<small class="reel__meta">' + esc(meta.join(' · ')) + '</small></div>' +
       // popisek vždy celý (Michal 5. 10.) – před kopírováním ho chce přečíst
       (r.popisek ? '<div class="reel__popisek">' + esc(r.popisek) + '</div>'
         : '<p class="reel__bez">Popisek zatím není – připíše ho Claude při výrobě reelu.</p>') +
-      '<div class="reel__akce">' + kopirovatHtml(r) +
+      (plan(r) && plan(r).stav === 'chyba' ? '<p class="reel__chyba">Na Instagram se nepodařilo: ' + esc(plan(r).chyba || '') + '</p>' : '') +
+      '<div class="reel__akce">' + planAkceHtml(r) + kopirovatHtml(r) +
         (r.odkaz ? '<a class="btn btn--ghost" href="' + esc(r.odkaz) + '" target="_blank" rel="noopener noreferrer">' + IKONY.prehrat + '<span>Video</span></a>' : '') +
         '<button type="button" class="btn btn--ghost reel__prepinac" data-reel-zverejneno="' + esc(r.id) + '" aria-pressed="' + z + '" title="' +
           (z ? 'Vrátit mezi nezveřejněné' : 'Označit, že reel už je na Instagramu') + '">' + IKONY.fajfka + '<span>Zveřejněno</span></button>' +
       '</div>' +
     '</div></li>';
+}
+
+/** Stav reelu, který ještě není zveřejněný: naplánováno na čas, nahrává se, nepovedlo se, nebo čeká. */
+function stitekPlanu(r) {
+  const p = plan(r);
+  if (p && p.stav === 'ceka') return '<span class="tag tag--plan">' + IKONY.kalendar + 'vyjde ' + esc(kdyPlan(p.kdy)) + '</span>';
+  if (p && (p.stav === 'nahrava' || p.stav === 'zverejnuji')) return '<span class="tag tag--plan">' + IKONY.obnovit + 'nahrává se na Instagram</span>';
+  if (p && p.stav === 'chyba') return '<span class="tag tag--danger">nepovedlo se – naplánuj znovu</span>';
+  return '<span class="tag tag--danger">čeká na Instagram</span>';
+}
+
+/** Naplánovat (s propojeným Instagramem), u naplánovaného Změnit a Zrušit, u zveřejněného odkaz na příspěvek. */
+function planAkceHtml(r) {
+  const p = plan(r);
+  if (p && p.stav === 'hotovo' && p.odkaz) {
+    return '<a class="btn btn--ghost" href="' + esc(p.odkaz) + '" target="_blank" rel="noopener noreferrer">' + IKONY.odkaz + '<span>Na Instagramu</span></a>';
+  }
+  if (!instagram().nastaveno || zverejneno(r) || !r.odkaz || !r.popisek || !umiMotor('reelNaplanovat')) return '';
+  if (p && (p.stav === 'nahrava' || p.stav === 'zverejnuji')) return '';
+  if (p && p.stav === 'ceka') {
+    return '<button type="button" class="btn btn--plan" data-reel-naplanovat="' + esc(r.id) + '">' + IKONY.kalendar + '<span>Změnit čas</span></button>' +
+      '<button type="button" class="btn btn--ghost" data-reel-zrusit-plan="' + esc(r.id) + '">' + IKONY.zavrit + '<span>Zrušit plán</span></button>';
+  }
+  return '<button type="button" class="btn btn--plan" data-reel-naplanovat="' + esc(r.id) + '">' + IKONY.kalendar + '<span>Naplánovat na Instagram</span></button>';
+}
+
+/** Výchozí čas: nejbližší 18:00 (večer mají reely klubu nejvíc přehrání), u změny dosavadní čas. */
+function vychoziCas(r) {
+  const p = plan(r);
+  let t;
+  if (p && p.stav === 'ceka') t = p.kdy;
+  else {
+    const d = new Date();
+    if (d.getHours() >= 17) d.setDate(d.getDate() + 1);
+    d.setHours(18, 0, 0, 0);
+    t = d.getTime();
+  }
+  const d = new Date(t);
+  return isoDatum(t) + 'T' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+async function naplanuj(r) {
+  const ucet = instagram().ucet ? '@' + instagram().ucet : 'klubový Instagram';
+  const hodnota = await okno({ ikona: IKONY.kalendar, nadpis: 'Naplánovat na Instagram', text: r.nazev + ' vyjde na ' + ucet +
+    ' sám v zadaný čas (do 10 minut). Popisek bude přesně ten, co vidíš u reelu.', pole: { popisek: 'Kdy', typ: 'datetime-local', hodnota: vychoziCas(r) },
+    ano: 'Naplánovat' });
+  if (!hodnota) return;
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(hodnota);
+  if (!m) { toast('Čas nesedí – vyber datum a hodinu.', true); return; }
+  const kdy = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])).getTime();
+  try {
+    const v = await volej('reelNaplanovat', { id: r.id, kdy });
+    stav.reely.plan = v.plan || {};
+    uloziste.pis(ULOZISTE, { data: stav.reely, kdy: Date.now() });
+    toast('Naplánováno – vyjde ' + kdyPlan(kdy));
+  } catch (e) {
+    toast(e.message, true);
+  }
+  zmeneno();
 }
 
 function nadpisTydne(pondeli) {
@@ -207,6 +272,23 @@ export function klikReely(el) {
   if (el.dataset.reelZverejneno) {
     const r = najdi(el.dataset.reelZverejneno);
     if (r) oznac(r.id, !zverejneno(r));
+    return true;
+  }
+  if (el.dataset.reelNaplanovat) {
+    const r = najdi(el.dataset.reelNaplanovat);
+    if (r) naplanuj(r);
+    return true;
+  }
+  if (el.dataset.reelZrusitPlan) {
+    const r = najdi(el.dataset.reelZrusitPlan);
+    if (!r) return true;
+    potvrd('Zrušit naplánované zveřejnění?', { text: r.nazev + ' – na Instagram pak nepůjde sám.', ano: 'Zrušit plán', ne: 'Nechat' }).then((ano) => {
+      if (!ano) return;
+      volej('reelZrusitPlan', { id: r.id })
+        .then((v) => { stav.reely.plan = v.plan || {}; uloziste.pis(ULOZISTE, { data: stav.reely, kdy: Date.now() }); toast('Plán zrušený'); })
+        .catch((e) => toast(e.message, true))
+        .then(zmeneno);
+    });
     return true;
   }
   if (el.dataset.reelyFiltr) { filtr = el.dataset.reelyFiltr; uloziste.pis(FILTR, filtr); zmeneno(); return true; }

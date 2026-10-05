@@ -178,7 +178,8 @@ function prostredi() {
         getDateCreated: () => new Date(), getLastUpdated: () => new Date(upraveno), getParents: () => iterator([rodicSouboru]),
         setContent: (t) => { obsah = t; upraveno = Date.now() + (citacZmen++); return f; },
         moveTo: (cil) => { rodicSouboru.soubory = rodicSouboru.soubory.filter((x) => x !== f); cil.soubory.push(f); rodicSouboru = cil; return f; },
-        setTrashed: (k) => { f.vKosi = !!k; return f; } };
+        setTrashed: (k) => { f.vKosi = !!k; return f; },
+        setSharing: (pristup, pravo) => { f.sdileni = (f.sdileni || []).concat(pristup + ':' + pravo); return f; } };
       s.soubory.push(f); log.soubory = (log.soubory || []).concat({ slozka: nazev, n, obsah });
       vsechnySoubory[f.getId()] = f;
       return f;
@@ -224,9 +225,25 @@ function prostredi() {
     return tabulky[id];
   };
   let bezPovoleniTabulek = false, ocrText = '', ocrDokumentu = 0;
+  // Instagram API (graph.instagram.com): účet, kontejner, stav zpracování, zveřejnění, odkaz, obnova klíče
+  const ig = { volani: [], stavy: ['IN_PROGRESS', 'FINISHED'], chybaKontejneru: '' };
+  const odpovedInstagram = (url, moznosti) => {
+    const telo = moznosti.payload ? Object.fromEntries(new URLSearchParams(moznosti.payload)) : {};
+    const cesta = url.replace(/^https:\/\/graph\.instagram\.com\/(v[\d.]+\/)?/, '').split('?')[0];
+    ig.volani.push({ cesta, metoda: moznosti.method || 'get', telo });
+    const json = (o, kod) => ({ getResponseCode: () => kod || 200, getContentText: () => JSON.stringify(o) });
+    if (cesta === 'refresh_access_token') return json({ access_token: 'obnoveny-klic', token_type: 'bearer', expires_in: 5184000 });
+    if (cesta === 'me') return json({ user_id: '17841400000', username: 'fkagrovnorovy' });
+    if (cesta === '17841400000/media') return ig.chybaKontejneru ? json({ error: { message: ig.chybaKontejneru } }, 400) : json({ id: 'kontejner-1' });
+    if (cesta === 'kontejner-1') { const s = ig.stavy.length > 1 ? ig.stavy.shift() : ig.stavy[0]; return json({ status_code: s, status: s === 'ERROR' ? 'Error: video se nepodařilo stáhnout' : s }); }
+    if (cesta === '17841400000/media_publish') { ig.zverejneno = (ig.zverejneno || 0) + 1; return json({ id: 'media-1' }); }
+    if (cesta === 'media-1') return json({ permalink: 'https://www.instagram.com/reel/TEST123/' });
+    return json({ error: { message: 'neznámé volání ' + cesta } }, 400);
+  };
 
   const sandbox = {
-    DriveApp: { getFolderById: (id) => { if (id !== 'slozka-CLAUDE_SCHRANKA') throw new Error('nenalezeno'); return schranka; },
+    DriveApp: { Access: { ANYONE_WITH_LINK: 'ANYONE_WITH_LINK', PRIVATE: 'PRIVATE' }, Permission: { VIEW: 'VIEW', NONE: 'NONE' },
+      getFolderById: (id) => { if (id !== 'slozka-CLAUDE_SCHRANKA') throw new Error('nenalezeno'); return schranka; },
       getFileById: (id) => { if (!vsechnySoubory[id]) throw new Error('Soubor nenalezen'); return vsechnySoubory[id]; } },
     MimeType: { PLAIN_TEXT: 'text/plain' },
     PropertiesService: { getScriptProperties: () => ({
@@ -247,6 +264,7 @@ function prostredi() {
       newBlob: (s, typ, jmeno) => ({ getBytes: () => (Array.isArray(s) || Buffer.isBuffer(s) ? Buffer.from(s) : Buffer.from(String(s), 'utf8')),
         getName: () => jmeno || '', getContentType: () => typ || 'text/plain' }),
       base64Decode: (t) => Array.from(Buffer.from(t, 'base64')),
+      sleep: () => {},
       DigestAlgorithm: { MD5: 'md5' }, Charset: { UTF_8: 'utf8' },
       computeDigest: (alg, text) => Array.from(crypto.createHash('md5').update(text, 'utf8').digest()).map((b) => (b > 127 ? b - 256 : b))
     },
@@ -289,6 +307,7 @@ function prostredi() {
         return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ features: [{ attributes: atributy }] }) };
       }
       if (url.indexOf('api.prod.whoop.com') >= 0) return odpovedWhoop(url, moznosti || {});
+      if (url.indexOf('graph.instagram.com') >= 0) return odpovedInstagram(url, moznosti || {});
       if (url.indexOf('googleapis.com/drive/v3/files/') >= 0) { log.export = (log.export || []).concat(url); return { getResponseCode: () => 200, getContentText: () => ocrText }; }
       if (url === 'https://ntfy.sh/') { log.ntfy = (log.ntfy || []).concat(JSON.parse(moznosti.payload)); return { getResponseCode: () => 200, getContentText: () => '{}' }; }
       return { getResponseCode: () => (url.indexOf('chyba') >= 0 ? 404 : 200), getContentText: () => (url.indexOf('rozpis') >= 0 ? rozpis : ICS) };
@@ -370,7 +389,7 @@ function prostredi() {
   // záznamy z izolovaného prostředí převést na běžné objekty (jinak je deepStrictEqual odmítne)
   const posledniOdeslano = () => JSON.parse(JSON.stringify(log.odeslano.pop()));
   return { volej, surovy, vlastnosti, cache, ttl, log, posledniOdeslano, ctx, zprava, vlakno, vlakna, kalendare, chmu, nastavCas, schranka, vsechnySoubory, whoop,
-    zalozTabulku, tabulky, nastavOcr: (t) => { ocrText = t; }, bezPovoleniTabulek: (b) => { bezPovoleniTabulek = b; },
+    zalozTabulku, tabulky, nastavOcr: (t) => { ocrText = t; }, bezPovoleniTabulek: (b) => { bezPovoleniTabulek = b; }, ig,
     nastavAliasy: (a) => { aliasy = a; }, stitkyVlaken, nastavStitkyGmailu: (o) => { stitkyGmailu = o; }, nastavAktualizace: (a) => { aktualizace = a; }, nastavRozpis: (t) => { rozpis = t; },
     nastavOdeslana: (a) => { odeslana = a; }, nastavStarsi: (osobni, pracovni) => { starsi = { osobni, pracovni: pracovni || [] }; } };
 }
@@ -1533,7 +1552,7 @@ test('reely: seznam z REELY/reely.json, odkaz na video na Disku, skóre z FOTBAL
   const p = prostredi();
   let o = p.volej('reely');
   assert.strictEqual(o.ok, true, o.chyba);
-  assert.deepStrictEqual(json(o.data), { aktualizovano: '', reely: [], zverejneno: {} }); // export ještě neproběhl
+  assert.deepStrictEqual(json(o.data), { aktualizovano: '', reely: [], zverejneno: {}, plan: {}, instagram: { nastaveno: false, ucet: '' } }); // export ještě neproběhl
   const reely = p.schranka.createFolder('REELY');
   reely.createFile('reely.json', JSON.stringify({ verze: 1, aktualizovano: '2026-10-05T08:05:02+02:00', reely: [
     { id: 'reel_dorost_tesany', nazev: 'Vnorovy – Těšany', tym: 'dorost', tymy: ['dorost'], tymNazev: 'Dorost', datum_zapasu: '2026-10-04', vyrobeno: '2026-10-05T07:48',
@@ -1624,6 +1643,104 @@ test('dávka: víc čtení v jednom požadavku, chyba jedné akce nezastaví ost
   assert.strictEqual(cteni, 1, 'změněná poznámka se přečte znovu');
   p.volej('posta');
   assert.strictEqual(p.ttl.get('posta'), 300, 'pošta v mezipaměti 5 minut');
+});
+
+// ---- Instagram: naplánované zveřejnění reelu (klíč i účet vymyšlené)
+function reelyProInstagram(p) {
+  const reely = p.schranka.createFolder('REELY');
+  reely.createFile('reely.json', JSON.stringify({ verze: 1, aktualizovano: '2026-10-05T08:05:02+02:00', reely: [
+    { id: 'reel_dorost_tesany', tymy: ['dorost'], datum_zapasu: '2026-10-04', video: 'reel_dorost_tesany.mp4', popisek: 'Hattrick! ⚽⚽⚽\n\n#fkagrovnorovy',
+      zapasy: [{ datum: '2026-10-04', tym: 'dorost', domaci: 'Vnorovy', hoste: 'Těšany', skore: '3:1' }] },
+    { id: 'reel_bez_videa', tymy: ['B'], datum_zapasu: '2026-10-04', video: 'chybi.mp4', popisek: 'Text', zapasy: [] },
+    { id: 'reel_bez_popisku', tymy: ['A'], datum_zapasu: '2026-10-04', video: 'reel_bez_popisku.mp4', popisek: '', zapasy: [] }
+  ] }));
+  const videa = reely.createFolder('videa');
+  videa.createFile('reel_dorost_tesany.mp4', 'video');
+  videa.createFile('reel_bez_popisku.mp4', 'video');
+  return videa.soubory[0];
+}
+
+test('Instagram: plán reelu (klíč, čas, video, popisek), zrušení, stav v odpovědi reely', () => {
+  const p = prostredi();
+  reelyProInstagram(p);
+  const za = Date.now() + 2 * 36e5;
+  assert.ok(/IG_TOKEN/.test(p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: za }).chyba), 'bez klíče nejde');
+  p.vlastnosti.set('IG_TOKEN', 'testovaci-ig-klic');
+  assert.ok(/nesedí/.test(p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: Date.now() - 864e5 }).chyba));
+  assert.ok(/Disku/.test(p.volej('reelNaplanovat', { id: 'reel_bez_videa', kdy: za }).chyba));
+  assert.ok(/popisek/.test(p.volej('reelNaplanovat', { id: 'reel_bez_popisku', kdy: za }).chyba));
+  let o = p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: za });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.plan), { reel_dorost_tesany: { kdy: za, stav: 'ceka' } });
+  const r = p.volej('reely', { znovu: true }).data;
+  assert.deepStrictEqual(json(r.instagram), { nastaveno: true, ucet: '' });
+  assert.strictEqual(r.plan.reel_dorost_tesany.stav, 'ceka');
+  o = p.volej('reelZrusitPlan', { id: 'reel_dorost_tesany' });
+  assert.deepStrictEqual(json(o.data.plan), {});
+  // spouštěč bez plánu nic nevolá (jen obnova klíče)
+  p.ctx.instagramKazdych10Min();
+  assert.deepStrictEqual(p.ig.volani.map((v) => v.cesta), ['refresh_access_token']);
+  assert.strictEqual(p.vlastnosti.get('IG_TOKEN'), 'obnoveny-klic', 'klíč obnovený');
+});
+
+test('Instagram: spouštěč zveřejní reel – tajný odkaz jen na dobu stahování, popisek beze změny, zveřejněno s odkazem', () => {
+  const p = prostredi();
+  const video = reelyProInstagram(p);
+  p.vlastnosti.set('IG_TOKEN', 'testovaci-ig-klic');
+  p.vlastnosti.set('IG_TOKEN_OBNOVA', String(Date.now()));
+  assert.strictEqual(p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: Date.now() + 30e3 }).ok, true);
+  p.ctx.instagramKazdych10Min();
+  const kontejner = p.ig.volani.find((v) => v.cesta === '17841400000/media');
+  assert.strictEqual(kontejner.telo.media_type, 'REELS');
+  assert.strictEqual(kontejner.telo.caption, 'Hattrick! ⚽⚽⚽\n\n#fkagrovnorovy', 'popisek přesně z reely.json');
+  assert.ok(/drive\.usercontent\.google\.com\/download\?id=soubor-videa-reel_dorost_tesany\.mp4/.test(kontejner.telo.video_url), kontejner.telo.video_url);
+  assert.ok(!('access_token' in kontejner.telo) || kontejner.telo.access_token === 'testovaci-ig-klic');
+  assert.deepStrictEqual(video.sdileni, ['ANYONE_WITH_LINK:VIEW', 'PRIVATE:NONE'], 'odkaz jen po dobu stahování');
+  assert.strictEqual(p.ig.zverejneno, 1);
+  const plan = JSON.parse(p.vlastnosti.get('REELY_PLAN')).reel_dorost_tesany;
+  assert.deepStrictEqual([plan.stav, plan.odkaz, plan.media], ['hotovo', 'https://www.instagram.com/reel/TEST123/', 'media-1']);
+  assert.ok(JSON.parse(p.vlastnosti.get('REELY_STAV')).reel_dorost_tesany, 'označeno jako zveřejněné');
+  // další běh nic nezveřejní znovu
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(p.ig.zverejneno, 1);
+});
+
+test('Instagram: video se zpracovává dlouho → příští běh; odmítnuté video → chyba a sdílení pryč', () => {
+  const p = prostredi();
+  const video = reelyProInstagram(p);
+  p.vlastnosti.set('IG_TOKEN', 'testovaci-ig-klic');
+  p.vlastnosti.set('IG_TOKEN_OBNOVA', String(Date.now()));
+  p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: Date.now() });
+  // zpracování trvá déle než jeden běh (čas v motoru se posune za limit čekání)
+  p.ig.stavy = ['IN_PROGRESS'];
+  const ted = Date.now();
+  let krok = 0;
+  vm.runInContext('Date.now = function () { return ' + ted + ' + (globalThis.__krok = (globalThis.__krok || 0) + 1) * 60000; };', p.ctx);
+  p.ctx.instagramKazdych10Min();
+  vm.runInContext('Date.now = function () { return ' + ted + ' + 3600000 * 0.5; };', p.ctx);
+  let plan = JSON.parse(p.vlastnosti.get('REELY_PLAN')).reel_dorost_tesany;
+  assert.deepStrictEqual([plan.stav, plan.kontejner], ['nahrava', 'kontejner-1']);
+  assert.deepStrictEqual(video.sdileni, ['ANYONE_WITH_LINK:VIEW'], 'během zpracování odkaz zůstává');
+  assert.ok(/nahrává/.test(p.volej('reelZrusitPlan', { id: 'reel_dorost_tesany' }).chyba), 'během nahrávání zrušit nejde');
+  // příští běh: Instagram video odmítl
+  p.ig.stavy = ['ERROR'];
+  p.ctx.instagramKazdych10Min();
+  plan = JSON.parse(p.vlastnosti.get('REELY_PLAN')).reel_dorost_tesany;
+  assert.strictEqual(plan.stav, 'chyba');
+  assert.ok(/odmítl/.test(plan.chyba), plan.chyba);
+  assert.deepStrictEqual(video.sdileni, ['ANYONE_WITH_LINK:VIEW', 'PRIVATE:NONE'], 'po chybě sdílení pryč');
+  assert.strictEqual(p.ig.zverejneno, undefined, 'nic se nezveřejnilo');
+  // chyba při založení kontejneru (třeba neplatný klíč) → chyba hned, odkaz pryč
+  const p2 = prostredi();
+  const video2 = reelyProInstagram(p2);
+  p2.vlastnosti.set('IG_TOKEN', 'spatny');
+  p2.vlastnosti.set('IG_TOKEN_OBNOVA', String(Date.now()));
+  p2.ig.chybaKontejneru = 'Invalid OAuth access token';
+  p2.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: Date.now() });
+  p2.ctx.instagramKazdych10Min();
+  const plan2 = JSON.parse(p2.vlastnosti.get('REELY_PLAN')).reel_dorost_tesany;
+  assert.deepStrictEqual([plan2.stav, /OAuth/.test(plan2.chyba)], ['chyba', true]);
+  assert.deepStrictEqual(video2.sdileni, ['ANYONE_WITH_LINK:VIEW', 'PRIVATE:NONE']);
 });
 
 // ---- auto: tabulka Google (vymyšlená čísla – repo je veřejné)

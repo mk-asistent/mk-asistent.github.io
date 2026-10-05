@@ -145,12 +145,23 @@ se zapomene.
   a v neděli 19–21 h **přehled příštího týdne** (počty událostí po dnech, zápasy týmů, úkoly s termínem, předpověď) –
   přes ntfy jdou jen počty a časy, žádné názvy událostí ani texty.
 
+## Instagram – naplánované reely
+Na stránce Reely jde reel **naplánovat na Instagram** (datum a čas, výchozí nejbližší 18:00). Motor ho v ten čas zveřejní
+sám na klubovém účtu přes Instagram API (Meta aplikace „Asistent FK Vnorovy“ ve vývojovém režimu, účet je v ní tester):
+- klíč `IG_TOKEN` ve Vlastnostech skriptu (vloží Michal, platí 60 dní, motor ho jednou týdně obnoví), plán `REELY_PLAN`;
+- spouštěč **`instagramKazdych10Min`** (Spouštěče → Minutový časovač → Každých 10 minut) – jeden reel za běh;
+- Instagram si video stahuje z adresy → video na Disku má jen po dobu stahování tajný odkaz (Michal souhlasil 5. 10.),
+  hned potom se sdílení vypne; popisek je přesně ten z `popisky\*.txt`;
+- po vložení klíče jednou spustit `overInstagram` (vypíše účet).
+
 ## Auto (náklady a tankování)
 Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**, **Přehled**) – tabulka zůstává hlavní a je i záloha.
 - Přehled: najeto od koupě, spotřeba (litry mezi tankováními se známým stavem km), nafta na 1 km, provoz bez koupě,
   cena nafty v čase, výdaje po měsících a kategoriích, kdo co zaplatil (z Přehledu), servis podle listu Péče o auto.
 - Zápis: **Tankování** (částka, cena za litr → litry vzorcem jako v tabulce, stav km, stanice) a **Výdaj** (kategorie
   z tabulky) jdou do prvního volného řádku pod posledním zápisem; poslední zápis jde smazat (překlep).
+- **Stav z auta (MyŠkoda)**: domácí PC jednou denně (úloha Windows „Asistent - MySkoda“, 3:30) zapíše
+  `CLAUDE_SCHRANKA/AUTO/myskoda.json` – tachometr, nádrž, dojezd, servis (bez polohy a VIN); nástroj `NASTROJE\asistent\myskoda`.
 - **Účtenka**: vyfotit → fotka do `CLAUDE_SCHRANKA/AUTO/uctenky`, text přes OCR Disku → předvyplněný zápis; v tabulce je
   pak u poznámky odkaz „účtenka“ na fotku. Bez potvrzení se nic nezapíše.
 - Tabulka se propojí odkazem na stránce Auto (vlastnost `AUTO_TABULKA`). Motor k tomu potřebuje oprávnění k Tabulkám
@@ -183,6 +194,7 @@ Vlastnosti skriptu (⚙ → Vlastnosti skriptu) – všechny nepovinné kromě k
 | `POCASI_MISTA`, `POCASI_POLOHA` | místa podle polohy a poslední poloha pro upozornění (spravuje motor) |
 | `REELY_STAV` | které reely už jsou na Instagramu (nastavuje aplikace) |
 | `AUTO_TABULKA` | ID tabulky Google s náklady auta (nastaví aplikace odkazem na stránce Auto) |
+| `IG_TOKEN`, `IG_UCET`, `IG_TOKEN_OBNOVA`, `REELY_PLAN` | Instagram: klíč (vloží Michal, motor obnovuje), účet, plán zveřejnění reelů |
 | `FOTBAL`, `DRUHY_KALENDARU`, `ICS_KALENDARE`, `SKRYTE_KALENDARE`, … | spravuje motor sám |
 
 ## Instalace aplikace

@@ -100,7 +100,8 @@ const motor = {
     pocty: { prislo: 18, omluveno: 2, neomluveno: 1, mozna: 0, bez: 0, pozvano: 21 }, omluveni: ['Hráč A', 'Hráč B'], neomluveni: ['Hráč C'] }], aktualizovano: new Date(ted).toISOString(), chyba: '' }),
   fotbalKalendar: (d) => ({ pridano: 2, upraveno: 0, beze_zmeny: 0, kalendare: {}, kalendareSeznam: KALENDARE }),
   // reely: včerejší dorost (nezveřejněný, s popiskem a videem) a starší béčko (video se ještě nahrává, bez popisku)
-  reely: () => ({ aktualizovano: new Date(ted - H).toISOString(), zverejneno: Object.assign({}, reelyZverejneno), reely: [
+  reely: () => ({ aktualizovano: new Date(ted - H).toISOString(), zverejneno: Object.assign({}, reelyZverejneno), plan: Object.assign({}, reelyPlan),
+    instagram: { nastaveno: true, ucet: 'klub_test' }, reely: [
     { id: 'reel_dorost_tesany', nazev: 'Vnorovy – Těšany 3:1', varianta: '', tymy: ['dorost'], tymNazev: 'Dorost', datum: iso(den(-1)), vyrobeno: iso(ted) + 'T07:48',
       delka: 48.2, velikost: 51.3, video: true, odkaz: 'https://drive.google.com/file/d/TEST/view', nahled: '',
       popisek: 'Hattrick! ⚽⚽⚽\n\nDorost doma porazil Těšany 3:1.\n\nDalší zápas v neděli venku.\n\n#fkagrovnorovy #dorost',
@@ -109,6 +110,8 @@ const motor = {
       delka: 42.6, velikost: 30, video: true, odkaz: '', nahled: '', popisek: '',
       zapasy: [{ datum: iso(den(-23)), tym: 'B', domaci: 'Vnorovy B', hoste: 'Lipov', souper: 'Lipov', skore: '4:5', soutez: '9. liga dospělí' }] }] }),
   reelStav: (d) => { if (d.zverejneno) reelyZverejneno[d.id] = iso(ted); else delete reelyZverejneno[d.id]; return { zverejneno: Object.assign({}, reelyZverejneno) }; },
+  reelNaplanovat: (d) => { reelyNaplanovano.push(d); reelyPlan[d.id] = { kdy: d.kdy, stav: 'ceka' }; return { plan: Object.assign({}, reelyPlan) }; },
+  reelZrusitPlan: (d) => { delete reelyPlan[d.id]; return { plan: Object.assign({}, reelyPlan) }; },
   // auto: tabulka s vymyšlenými čísly (spotřeba 125 l na 2 900 km = 4,3 l/100 km, palivo 4 400 Kč / 2 900 km = 1,52 Kč/km)
   auto: () => JSON.parse(JSON.stringify(autoData)),
   autoNastavit: () => JSON.parse(JSON.stringify(autoData)),
@@ -164,6 +167,7 @@ const autoData = {
     palivo: 61, dojezd: 510, adblue: 2900, zamceno: 'YES', servis: { olejKm: 7700, olejDni: 280, prohlidkaKm: 27700, prohlidkaDni: 697 } }] }
 };
 let reelyZverejneno = {};
+const reelyPlan = {}, reelyNaplanovano = [];
 let vahaZaznamy = [];
 
 // ---------------------------------------------------------------- napodobený Firebase (účet a kopie dat ze serveru)
@@ -1241,6 +1245,36 @@ async function novaStranka(prohlizec, v, motiv) {
     jistota(volano.some((d) => d.akce === 'posta'), 'stará kopie → pošta z motoru');
     jistota(fbVolano.indexOf('obnovHned') >= 0, 'server nebyl požádán o obnovu');
     jistota(!(await page.isVisible('#posta-seznam :text("Stará kopie")')), 'stará kopie se nesmí ukázat');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  // ---------- Reely: naplánovat na Instagram (motor reel v daný čas zveřejní sám), zrušit plán
+  await test('Reely: naplánovat na Instagram s datem a časem, štítek „vyjde…“, zrušit plán', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.click('#rail [data-cil="reely"]');
+    await page.waitForSelector('[data-reel="reel_dorost_tesany"] [data-reel-naplanovat]');
+    jistota(!(await page.isVisible('[data-reel="reel_benfika_lipov"] [data-reel-naplanovat]')), 'reel bez popisku se plánovat nedá');
+    await page.click('[data-reel="reel_dorost_tesany"] [data-reel-naplanovat]');
+    await page.waitForSelector('.okno-pozadi.videt input[type="datetime-local"]');
+    const vychozi = await page.inputValue('.okno-pozadi input[type="datetime-local"]');
+    jistota(/T18:00$/.test(vychozi), 'výchozí čas 18:00: ' + vychozi);
+    const zitra = new Date(den(1, 19.5));
+    const hodnota = iso(zitra.getTime()) + 'T19:30';
+    await page.fill('.okno-pozadi input[type="datetime-local"]', hodnota);
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_reel_naplanovat.png') });
+    await page.click('.okno-pozadi [data-okno="ano"]');
+    await page.waitForSelector('[data-reel="reel_dorost_tesany"] .tag--plan');
+    const z = reelyNaplanovano[reelyNaplanovano.length - 1] || {};
+    jistota(z.id === 'reel_dorost_tesany' && z.kdy === den(1, 19.5), 'plán do motoru: ' + JSON.stringify(z));
+    jistota(/vyjde .*19:30/.test(await page.textContent('[data-reel="reel_dorost_tesany"] .tag--plan')), 'štítek s časem');
+    // naplánovaný reel už na Dnes nestraší jako „k vyvěšení“
+    jistota(!(await page.evaluate(() => import('/js/reely.js').then((m) => m.kVyveseni().some((r) => r.id === 'reel_dorost_tesany')))), 'naplánovaný není k vyvěšení');
+    await page.click('[data-reel="reel_dorost_tesany"] [data-reel-zrusit-plan]');
+    await page.click('.okno-pozadi [data-okno="ano"]');
+    await page.waitForSelector('[data-reel="reel_dorost_tesany"] [data-reel-naplanovat]');
+    jistota(!reelyPlan.reel_dorost_tesany, 'plán zrušený');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
   });
