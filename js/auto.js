@@ -22,6 +22,8 @@ let f = null;          // rozpracovaný zápis (okno Tankování / Výdaj)
 let vseZapisy = false; // seznam zápisů rozbalený
 
 const kc = (x) => CELE.format(Math.round(x)) + ' Kč';
+// zkratky měsíců (červen a červenec se nesmí slít do „čer“)
+const MES_KR = ['led', 'úno', 'bře', 'dub', 'kvě', 'čvn', 'čvc', 'srp', 'zář', 'říj', 'lis', 'pro'];
 const klicMesice = (t) => { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
 const jeKoupe = (z) => /koupě auta/i.test(z.kategorie || '');
 
@@ -134,7 +136,7 @@ export function vykresliAuto(el) {
   const p = prehledAuta(d);
   let h = '<div class="auto">';
   if (stav.chyby.auto) h += chybaAutaHtml(stav.chyby.auto);
-  h += heroHtml(d, p) + akceHtml() + '<div class="auto-mrizka">' + cenyHtml(p) + mesiceHtml(p) + kategorieHtml(d, p) + servisHtml(d, p) + '</div>' +
+  h += heroHtml(d, p) + akceHtml() + tankovaniZAutaHtml(d) + '<div class="auto-mrizka">' + cenyHtml(p) + mesiceHtml(p) + kategorieHtml(d, p) + servisHtml(d, p) + '</div>' +
     zapisyHtml(d) + '</div>';
   el.innerHTML = h;
 }
@@ -191,6 +193,20 @@ function zAutaHtml(a) {
     (a.kdy ? ' <span class="muted">· ' + esc(kdyKratce(a.kdy)) + '</span>' : '') + '</p>';
 }
 
+/** Tankování, která poznalo auto (skok nádrže mezi dvěma denními čteními z MyŠkoda) a v tabulce k nim nic není. */
+function tankovaniZAutaHtml(d) {
+  const zapsana = (d.tankovani || []).filter((z) => z.datum != null).map((z) => z.datum);
+  const chybi = ((d.myskoda && d.myskoda.tankovani) || []).map((x) => ({ od: Date.parse(x.od), do: Date.parse(x.do), km: x.km, litry: x.litry }))
+    .filter((x) => x.od && x.do && !zapsana.some((t) => t >= x.od - 1.5 * 864e5 && t <= x.do + 864e5));
+  if (!chybi.length) return '';
+  return '<section class="card auto-hlaseni" data-oblast="auto">' + hlavickaKarty(IKONY.palivo, 'Auto hlásí tankování', '<span class="muted">v tabulce chybí</span>') +
+    '<ul class="auto-seznam">' + chybi.map((x) => '<li class="auto-zapis auto-zapis--palivo"><span class="kruh kruh--auto">' + IKONY.palivo + '</span>' +
+      '<div class="auto-zapis__text"><b>' + (x.litry ? 'asi ' + JEDNO.format(x.litry) + ' l' : 'Tankování') + '</b><small>mezi ' + esc(dm(x.od)) + ' a ' + esc(dm(x.do)) +
+      (x.km != null ? ' · ' + CELE.format(x.km) + ' km' : '') + '</small></div>' +
+      '<button type="button" class="btn btn--ghost btn--sm" data-auto-z-auta="' + x.do + '|' + (x.km != null ? x.km : '') + '">' + IKONY.plus + '<span>Zapsat</span></button></li>').join('') +
+    '</ul><p class="napoveda auto-hlaseni__pozn">Auto pozná natankování podle stavu nádrže (čte se jednou denně). Datum a částku doplň podle účtenky.</p></section>';
+}
+
 function akceHtml() {
   if (!umiMotor('autoZapsat')) return '';
   return '<div class="auto-akce">' +
@@ -216,7 +232,7 @@ function cenyHtml(p) {
   const stitek = (v, nahore) => '<text x="' + Math.min(W - 40, Math.max(40, x(v.t))).toFixed(1) + '" y="' +
     (y(v.c) + (nahore || y(v.c) + 17 > H - B - 4 ? -9 : 17)).toFixed(1) +
     '" text-anchor="middle">' + DVE.format(v.c) + '</text>';
-  const mesic = (t) => MESICE_1[new Date(t).getMonth()].slice(0, 3) + ' ' + String(new Date(t).getFullYear()).slice(2);
+  const mesic = (t) => MES_KR[new Date(t).getMonth()] + ' ' + String(new Date(t).getFullYear()).slice(2);
   const posledni = c[c.length - 1];
   return '<section class="card auto-graf" data-oblast="auto">' + hlavickaKarty(IKONY.palivo, 'Cena nafty', '<span class="muted">naposledy</span> <b>' +
       DVE.format(posledni.c) + ' Kč/l</b>') +
@@ -245,7 +261,7 @@ function mesiceHtml(p) {
       return '<div class="auto-sloupec" title="' + esc(MESICE_1[Number(k.slice(5)) - 1] + ' ' + k.slice(0, 4) + ': palivo ' + kc(m.palivo) + ', ostatní ' +
         kc(m.ostatni)) + '"><span class="auto-sloupec__cislo cisla">' + (celkem >= 1000 ? JEDNO.format(celkem / 1000) + ' tis.' : CELE.format(celkem)) + '</span>' +
         '<span class="auto-sloupec__ostatni" style="height:' + v(m.ostatni) + 'px"></span><span class="auto-sloupec__palivo" style="height:' + v(m.palivo) + 'px"></span>' +
-        '<small>' + esc(MESICE_1[Number(k.slice(5)) - 1].slice(0, 3)) + '</small></div>';
+        '<small>' + esc(MES_KR[Number(k.slice(5)) - 1]) + '</small></div>';
     }).join('') + '</div>' +
     '<div class="auto-legenda"><span><i class="auto-legenda__palivo"></i>Palivo</span><span><i class="auto-legenda__ostatni"></i>Ostatní</span></div></section>';
 }
@@ -335,7 +351,7 @@ export function otevriZapis(druh, navrh) {
   const kmZAuta = druh !== 'naklad' && a && a.km != null && a.kdy && Date.now() - a.kdy < 3 * 36e5 ? a : null;
   f = {
     druh: druh === 'naklad' ? 'naklad' : 'tankovani', datum: n.datum || isoDatum(Date.now()), castka: cisloPole(n.castka), cenaLitr: cisloPole(n.cenaLitr),
-    km: kmZAuta ? String(kmZAuta.km) : '', kmZAuta: kmZAuta ? kmZAuta.kdy : 0, kdo: 'M', kategorie: n.kategorie || '', polozka: '', poznamka: n.obchod || '', uctenka: n.uctenka || '', nahled: n.nahled || '',
+    km: n.km != null && n.km !== '' ? String(n.km) : kmZAuta ? String(kmZAuta.km) : '', kmZAuta: n.km != null && n.km !== '' ? 0 : kmZAuta ? kmZAuta.kdy : 0, kdo: 'M', kategorie: n.kategorie || '', polozka: '', poznamka: n.obchod || '', uctenka: n.uctenka || '', nahled: n.nahled || '',
     chybaTextu: n.chybaTextu || '', zUctenky: !!n.uctenka, ukladam: false
   };
   const moje = f;
@@ -467,6 +483,7 @@ async function zpracujUctenku(soubor) {
 export function klikAuto(el) {
   if (el.hasAttribute('data-auto-znovu')) { stav.chyby.auto = null; nactiAuto(true); return true; }
   if (el.dataset.autoZapis) { otevriZapis(el.dataset.autoZapis); return true; }
+  if (el.dataset.autoZAuta) { const [t, km] = el.dataset.autoZAuta.split('|'); otevriZapis('tankovani', { datum: isoDatum(Number(t)), km }); return true; }
   if (el.hasAttribute('data-auto-vse')) { vseZapisy = !vseZapisy; zmeneno(); return true; }
   if (el.hasAttribute('data-auto-ulozit')) { if (f && !f.ukladam) ulozZapis(); return true; }
   if (el.dataset.azDruh && f) { f.druh = el.dataset.azDruh; obnovPanel('auto-zapis'); return true; }

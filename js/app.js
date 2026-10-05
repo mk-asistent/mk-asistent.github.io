@@ -624,13 +624,14 @@ document.addEventListener('input', (e) => {
   vstupAdresy(e);
   if (zdravi.vstupZdravi(e)) return;
   if (auto.vstupAuto(e)) return;
+  if (reely.vstupReely(e)) return;
   if (hledat.vstupHledat(e)) return;
   if (udalost.vstupUdalost(e)) return;
   if (schranka.vstupSchranka(e)) return;
   posta.vstupPosta(e);
 });
 
-document.addEventListener('change', (e) => { if (!auto.zmenaAuto(e) && !posta.zmenaPosta(e) && !udalost.zmenaUdalost(e)) nast.zmenaNastaveni(e); });
+document.addEventListener('change', (e) => { if (!auto.zmenaAuto(e) && !reely.vstupReely(e) && !posta.zmenaPosta(e) && !udalost.zmenaUdalost(e)) nast.zmenaNastaveni(e); });
 
 function pise(e) {
   const t = e.target;

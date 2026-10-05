@@ -101,6 +101,7 @@ const motor = {
   fotbalKalendar: (d) => ({ pridano: 2, upraveno: 0, beze_zmeny: 0, kalendare: {}, kalendareSeznam: KALENDARE }),
   // reely: včerejší dorost (nezveřejněný, s popiskem a videem) a starší béčko (video se ještě nahrává, bez popisku)
   reely: () => ({ aktualizovano: new Date(ted - H).toISOString(), zverejneno: Object.assign({}, reelyZverejneno), plan: Object.assign({}, reelyPlan),
+    popiskyPlanu: Object.assign({}, reelyPopisky),
     instagram: { nastaveno: true, ucet: 'klub_test' }, reely: [
     { id: 'reel_dorost_tesany', nazev: 'Vnorovy – Těšany 3:1', varianta: '', tymy: ['dorost'], tymNazev: 'Dorost', datum: iso(den(-1)), vyrobeno: iso(ted) + 'T07:48',
       delka: 48.2, velikost: 51.3, video: true, odkaz: 'https://drive.google.com/file/d/TEST/view', nahled: '',
@@ -110,8 +111,13 @@ const motor = {
       delka: 42.6, velikost: 30, video: true, odkaz: '', nahled: '', popisek: '',
       zapasy: [{ datum: iso(den(-23)), tym: 'B', domaci: 'Vnorovy B', hoste: 'Lipov', souper: 'Lipov', skore: '4:5', soutez: '9. liga dospělí' }] }] }),
   reelStav: (d) => { if (d.zverejneno) reelyZverejneno[d.id] = iso(ted); else delete reelyZverejneno[d.id]; return { zverejneno: Object.assign({}, reelyZverejneno) }; },
-  reelNaplanovat: (d) => { reelyNaplanovano.push(d); reelyPlan[d.id] = { kdy: d.kdy, stav: 'ceka' }; return { plan: Object.assign({}, reelyPlan) }; },
-  reelZrusitPlan: (d) => { delete reelyPlan[d.id]; return { plan: Object.assign({}, reelyPlan) }; },
+  reelNaplanovat: (d) => {
+    reelyNaplanovano.push(d);
+    reelyPlan[d.id] = { kdy: d.kdy, stav: 'ceka', oznacit: String(d.oznacit || '').split(/[\s,]+/).filter(Boolean).map((u) => u.replace(/^@/, '').toLowerCase()), upraveno: true };
+    reelyPopisky[d.id] = d.popisek;
+    return { plan: Object.assign({}, reelyPlan), popisky: Object.assign({}, reelyPopisky) };
+  },
+  reelZrusitPlan: (d) => { delete reelyPlan[d.id]; delete reelyPopisky[d.id]; return { plan: Object.assign({}, reelyPlan), popisky: Object.assign({}, reelyPopisky) }; },
   // auto: tabulka s vymyšlenými čísly (spotřeba 125 l na 2 900 km = 4,3 l/100 km, palivo 4 400 Kč / 2 900 km = 1,52 Kč/km)
   auto: () => JSON.parse(JSON.stringify(autoData)),
   autoNastavit: () => JSON.parse(JSON.stringify(autoData)),
@@ -164,10 +170,12 @@ const autoData = {
   platili: { Michal: 11000, Katka: 300150 },
   // stav z auta (MyŠkoda přes domácí PC) – čerstvý, tachometr dál než poslední zápis v tabulce
   myskoda: { aktualizovano: new Date(ted).toISOString(), auta: [{ nazev: 'Testovací', model: 'Testovací auto', km: 13600, kmKdy: new Date(ted - 6e5).toISOString(),
-    palivo: 61, dojezd: 510, adblue: 2900, zamceno: 'YES', servis: { olejKm: 7700, olejDni: 280, prohlidkaKm: 27700, prohlidkaDni: 697 } }] }
+    palivo: 61, dojezd: 510, adblue: 2900, zamceno: 'YES', servis: { olejKm: 7700, olejDni: 280, prohlidkaKm: 27700, prohlidkaDni: 697 } }],
+    tankovani: [{ od: new Date(den(-3, 3.5)).toISOString(), do: new Date(den(-2, 3.5)).toISOString(), km: 13700, litry: 36.4 },
+      { od: new Date(den(-31, 3.5)).toISOString(), do: new Date(den(-30, 3.5)).toISOString(), km: 12900, litry: 39 }] }
 };
 let reelyZverejneno = {};
-const reelyPlan = {}, reelyNaplanovano = [];
+const reelyPlan = {}, reelyPopisky = {}, reelyNaplanovano = [];
 let vahaZaznamy = [];
 
 // ---------------------------------------------------------------- napodobený Firebase (účet a kopie dat ze serveru)
@@ -1257,18 +1265,22 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.waitForSelector('[data-reel="reel_dorost_tesany"] [data-reel-naplanovat]');
     jistota(!(await page.isVisible('[data-reel="reel_benfika_lipov"] [data-reel-naplanovat]')), 'reel bez popisku se plánovat nedá');
     await page.click('[data-reel="reel_dorost_tesany"] [data-reel-naplanovat]');
-    await page.waitForSelector('.okno-pozadi.videt input[type="datetime-local"]');
-    const vychozi = await page.inputValue('.okno-pozadi input[type="datetime-local"]');
+    const O = '[data-panel="reel-plan"] ';
+    await page.waitForSelector(O + '[data-rp="kdy"]');
+    const vychozi = await page.inputValue(O + '[data-rp="kdy"]');
     jistota(/T18:00$/.test(vychozi), 'výchozí čas 18:00: ' + vychozi);
+    jistota(await page.inputValue(O + '[data-rp="oznacit"]') === '@dorost_agro', 'u dorostu předvyplněné @dorost_agro');
+    jistota((await page.inputValue(O + '[data-rp="popisek"]')).indexOf('Hattrick!') === 0, 'popisek z PC v okně');
     const zitra = new Date(den(1, 19.5));
-    const hodnota = iso(zitra.getTime()) + 'T19:30';
-    await page.fill('.okno-pozadi input[type="datetime-local"]', hodnota);
+    await page.fill(O + '[data-rp="kdy"]', iso(zitra.getTime()) + 'T19:30');
+    await page.fill(O + '[data-rp="popisek"]', 'Upravený popisek ⚽\n\n#fkagrovnorovy');
     await page.screenshot({ path: path.join(VYSTUP, 'pc_reel_naplanovat.png') });
-    await page.click('.okno-pozadi [data-okno="ano"]');
+    await page.click(O + '[data-rp-ulozit]');
     await page.waitForSelector('[data-reel="reel_dorost_tesany"] .tag--plan');
     const z = reelyNaplanovano[reelyNaplanovano.length - 1] || {};
-    jistota(z.id === 'reel_dorost_tesany' && z.kdy === den(1, 19.5), 'plán do motoru: ' + JSON.stringify(z));
-    jistota(/vyjde .*19:30/.test(await page.textContent('[data-reel="reel_dorost_tesany"] .tag--plan')), 'štítek s časem');
+    jistota(z.id === 'reel_dorost_tesany' && z.kdy === den(1, 19.5) && z.oznacit === '@dorost_agro' && /^Upravený popisek/.test(z.popisek), 'plán do motoru: ' + JSON.stringify(z));
+    const karta = await page.textContent('[data-reel="reel_dorost_tesany"]');
+    jistota(/vyjde .*19:30/.test(karta) && /označí @dorost_agro/.test(karta) && /Upravený popisek/.test(karta) && /upravený popisek pro Instagram/.test(karta), 'karta po naplánování: ' + karta.slice(0, 200));
     // naplánovaný reel už na Dnes nestraší jako „k vyvěšení“
     jistota(!(await page.evaluate(() => import('/js/reely.js').then((m) => m.kVyveseni().some((r) => r.id === 'reel_dorost_tesany')))), 'naplánovaný není k vyvěšení');
     await page.click('[data-reel="reel_dorost_tesany"] [data-reel-zrusit-plan]');
@@ -1291,6 +1303,15 @@ async function novaStranka(prohlizec, v, motiv) {
     jistota(/Výměna oleje\s*za 7 700 km nebo za 280 dní/.test((await page.textContent('.auto-servis')).replace(/\s+/g, ' ')), 'servis podle auta');
     jistota(/Myčka/.test(await page.textContent('.auto-kategorie')) && /Katka/.test(await page.textContent('.auto-platili')), 'kategorie a kdo platil');
     jistota(await page.locator('.auto-cara circle').count() === 5, 'graf ceny nafty');
+    // auto hlásí tankování, které v tabulce chybí (to před měsícem v tabulce je)
+    const hlaseni = (await page.textContent('.auto-hlaseni')).replace(/\s+/g, ' ');
+    jistota(/asi 36,4 l/.test(hlaseni) && !/asi 39 l/.test(hlaseni), 'hlášení z auta: ' + hlaseni);
+    await page.click('.auto-hlaseni [data-auto-z-auta]');
+    await page.waitForSelector('[data-panel="auto-zapis"] [data-az="km"]');
+    jistota(await page.inputValue('[data-panel="auto-zapis"] [data-az="km"]') === '13700' &&
+      await page.inputValue('[data-panel="auto-zapis"] [data-az="datum"]') === iso(den(-2)), 'okno z hlášení: km a datum');
+    await page.click('[data-panel="auto-zapis"] [data-zavrit-panel]');
+    await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"]'));
     await page.screenshot({ path: path.join(VYSTUP, 'pc_auto.png'), fullPage: true });
     // tankování: litry se dopočítají, do tabulky jde číslo (ne text s mezerami a čárkou)
     autoZapisy.length = 0;
@@ -1298,7 +1319,7 @@ async function novaStranka(prohlizec, v, motiv) {
     jistota(await page.inputValue('[data-panel="auto-zapis"] [data-az="km"]') === '13600', 'stav km z auta v okně tankování');
     await page.fill('[data-panel="auto-zapis"] [data-az="castka"]', '1 520');
     await page.fill('[data-panel="auto-zapis"] [data-az="cenaLitr"]', '36,90');
-    jistota(/41,2 l/.test(await page.textContent('[data-az-litry]')), 'litry: ' + await page.textContent('[data-az-litry]'));
+    jistota(/41,2 l/.test(await page.textContent('[data-panel="auto-zapis"] [data-az-litry]')), 'litry: ' + await page.evaluate(() => Array.from(document.querySelectorAll('[data-az-litry]')).map((x) => (x.closest('[data-panel]') ? 'P:' : 'zavira:') + x.textContent).join(' | ')));
     await page.fill('[data-panel="auto-zapis"] [data-az="km"]', '13 500');
     await page.screenshot({ path: path.join(VYSTUP, 'pc_auto_tankovani.png') });
     await page.click('[data-panel="auto-zapis"] [data-auto-ulozit]');
@@ -1328,7 +1349,7 @@ async function novaStranka(prohlizec, v, motiv) {
     // smazat poslední zápis (překlep)
     await page.click('[data-auto-smazat^="tankovani:"]');
     await page.click('.okno-pozadi [data-okno="ano"]');
-    await page.waitForFunction(() => document.querySelectorAll('.auto-zapis--palivo').length === 6);
+    await page.waitForFunction(() => document.querySelectorAll('.auto-zapisy .auto-zapis--palivo').length === 6);
     jistota(autoSmazano.length === 1 && autoSmazano[0].list === 'tankovani' && autoSmazano[0].castka === 1859.63, 'smazání: ' + JSON.stringify(autoSmazano));
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();

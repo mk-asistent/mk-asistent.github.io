@@ -255,7 +255,7 @@ const reelyUkazka = [
   reel('reel_a-tym_lysovice', minulaNedele - 1, 'A', 'A-tým', 'Vnorovy', 'Lysovice', '1:3', '6. liga dospělí', { delka: 47.2, velikost: 24.1 })
 ];
 const reelyZverejneno = { reel_dorost_kyjov: iso(pridejDny(dnes, minulaNedele + 1)) };
-const reelyPlan = {};
+const reelyPlan = {}, reelyPopisky = {};
 
 /** Váha v ukázce: občasné ranní vážení za poslední měsíc (vymyšlené hodnoty). */
 let vahaUkazka = [[-33, 81.3], [-26, 81.0], [-19, 80.7], [-12, 80.9], [-6, 80.5], [-1, 80.2]].map((x) => ({ kdy: den(x[0], 6, 40 + x[0] % 7), kg: x[1] }));
@@ -483,10 +483,14 @@ const akce = {
   kontakty: () => kopie(kontakty),
   podpisyUlozit: (d) => { Object.assign(podpisy, { osobni: String((d.podpisy || {}).osobni || ''), pracovni: String((d.podpisy || {}).pracovni || '') }); return akce.info().posta; },
   fotbal: () => kopie({ data: fotbalUkazka, vKalendari: fotbalVKalendari, kalendar: null }),
-  reely: () => kopie({ aktualizovano: new Date(ted - 2 * H).toISOString(), reely: reelyUkazka, zverejneno: reelyZverejneno, plan: reelyPlan,
+  reely: () => kopie({ aktualizovano: new Date(ted - 2 * H).toISOString(), reely: reelyUkazka, zverejneno: reelyZverejneno, plan: reelyPlan, popiskyPlanu: reelyPopisky,
     instagram: { nastaveno: true, ucet: 'klub_ukazka' } }),
-  reelNaplanovat: (d) => { reelyPlan[d.id] = { kdy: Number(d.kdy), stav: 'ceka' }; return { plan: kopie(reelyPlan) }; },
-  reelZrusitPlan: (d) => { delete reelyPlan[d.id]; return { plan: kopie(reelyPlan) }; },
+  reelNaplanovat: (d) => {
+    reelyPlan[d.id] = { kdy: Number(d.kdy), stav: 'ceka', oznacit: String(d.oznacit || '').split(/[\s,]+/).filter(Boolean).map((u) => u.replace(/^@/, '')), upraveno: true };
+    if (d.popisek) reelyPopisky[d.id] = d.popisek;
+    return { plan: kopie(reelyPlan), popisky: kopie(reelyPopisky) };
+  },
+  reelZrusitPlan: (d) => { delete reelyPlan[d.id]; delete reelyPopisky[d.id]; return { plan: kopie(reelyPlan), popisky: kopie(reelyPopisky) }; },
   reelStav: (d) => {
     if (!reelyUkazka.some((r) => r.id === d.id)) throw new Error('Neplatný reel.');
     if (d.zverejneno) reelyZverejneno[d.id] = iso(Date.now()); else delete reelyZverejneno[d.id];

@@ -34,7 +34,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.8';
+const VERZE = '2026-10-05.9';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -147,7 +147,7 @@ const AKCE = {
   navrhyNastavit: function (d) { return nastavNavrhy_(d.rezim); },
   reely: function (d) { return reely_(!!d.znovu); },
   reelStav: function (d) { return nastavStavReelu_(d.id, d.zverejneno); },
-  reelNaplanovat: function (d) { return naplanujReel_(d.id, d.kdy); },
+  reelNaplanovat: function (d) { return naplanujReel_(d.id, d.kdy, d.oznacit, d.popisek); },
   reelZrusitPlan: function (d) { return zrusPlanReelu_(d.id); },
   vaha: function (d) { return vaha_(d); },
   auto: function () { return auto_(); },
@@ -1965,6 +1965,7 @@ function reely_(znovu) {
   }
   data.zverejneno = stavReelu_();
   data.plan = planReelu_();
+  data.popiskyPlanu = igUpravenePopisky_();
   data.instagram = igStav_();
   return data;
 }
@@ -2056,6 +2057,30 @@ const IG_OBNOVA_KLICE = 7 * 864e5;  // klíč platí 60 dní – obnovit jednou 
 const IG_CEKANI_MS = 4 * 60e3;      // v jednom běhu spouštěče čekat na zpracování videa nejvýš 4 minuty, pak příště
 const IG_POKUSU = 3;                // výpadek při čekání nebo zveřejnění – tolikrát zkusit znovu, pak chyba
 const MAX_PLANU = 25;               // vlastnost má limit 9 kB
+const IG_POPISEK = 'REELY_POPISEK:'; // + id reelu = popisek upravený v aplikaci jen pro Instagram (soubor na PC se nemění)
+const IG_UCET_JMENO = /^[a-z0-9._]{1,30}$/i;
+
+/** Účty k označení: „@dorost_agro, klub“ nebo pole → ['dorost_agro', 'klub'] (nejvýš 5, jen platná jména). */
+function igOznacit_(x) {
+  const seznam = (Array.isArray(x) ? x : String(x || '').split(/[\s,;]+/)).map(function (u) { return String(u).trim().replace(/^@/, ''); }).filter(Boolean);
+  const ven = [];
+  seznam.forEach(function (u) {
+    if (!IG_UCET_JMENO.test(u)) throw new Error('Neplatné jméno účtu na Instagramu: ' + u);
+    if (ven.indexOf(u.toLowerCase()) < 0) ven.push(u.toLowerCase());
+  });
+  if (ven.length > 5) throw new Error('Označit jde nejvýš 5 účtů.');
+  return ven;
+}
+
+function igPopisek_(id) { return vlastnosti_().getProperty(IG_POPISEK + id) || ''; }
+
+/** Upravené popisky naplánovaných reelů { id: text } – jen naše vlastnosti, nic jiného ven. */
+function igUpravenePopisky_() {
+  const v = vlastnosti_().getProperties();
+  const ven = {};
+  Object.keys(v).forEach(function (k) { if (k.indexOf(IG_POPISEK) === 0) ven[k.slice(IG_POPISEK.length)] = v[k]; });
+  return ven;
+}
 
 function igKlic_() {
   const k = vlastnosti_().getProperty('IG_TOKEN');
@@ -2116,8 +2141,9 @@ function upravPlan_(fn) {
   }
 }
 
-/** Akce reelNaplanovat: reel na Instagram v daný čas (ms) – jen reel s videem na Disku a s popiskem. */
-function naplanujReel_(id, kdy) {
+/** Akce reelNaplanovat: reel na Instagram v daný čas (ms) – jen reel s videem na Disku a s popiskem.
+ *  oznacit = účty k označení (user_tags), popisek = upravený text jen pro tenhle příspěvek (jinak ten z popisky\*.txt). */
+function naplanujReel_(id, kdy, oznacit, popisek) {
   if (!REELY_.platneId(id)) throw new Error('Neplatný reel.');
   igKlic_();
   const t = Number(kdy);
@@ -2127,12 +2153,18 @@ function naplanujReel_(id, kdy) {
   if (!reel.odkaz) throw new Error('Video reelu ještě není na Disku.');
   if (!reel.popisek) throw new Error('Reel nemá popisek – bez něj ho na Instagram nepošlu.');
   if (stavReelu_()[id]) throw new Error('Reel už je označený jako zveřejněný.');
-  return { plan: upravPlan_(function (plan) {
-    const z = plan[id];
+  const ucty = igOznacit_(oznacit);
+  const text = popisek == null ? '' : String(popisek).replace(/\r\n/g, '\n').trim();
+  if (text.length > 2200) throw new Error('Popisek je delší než 2 200 znaků – Instagram ho nevezme.');
+  const vlastni = !!text && text !== String(reel.popisek).trim();
+  const plan = upravPlan_(function (p) {
+    const z = p[id];
     if (z && (z.stav === 'nahrava' || z.stav === 'zverejnuji')) throw new Error('Reel se právě nahrává na Instagram.');
     if (z && z.stav === 'hotovo') throw new Error('Reel už na Instagramu je.');
-    plan[id] = { kdy: t, stav: 'ceka' };
-  }) };
+    p[id] = { kdy: t, stav: 'ceka', oznacit: ucty, upraveno: vlastni };
+  });
+  if (vlastni) vlastnosti_().setProperty(IG_POPISEK + id, text); else vlastnosti_().deleteProperty(IG_POPISEK + id);
+  return { plan: plan, popisky: igUpravenePopisky_() };
 }
 
 /** Akce reelZrusitPlan: zrušit naplánované zveřejnění (jen dokud se nenahrává). */
@@ -2141,7 +2173,7 @@ function zrusPlanReelu_(id) {
     const z = plan[id];
     if (z && (z.stav === 'nahrava' || z.stav === 'zverejnuji')) throw new Error('Reel se už nahrává na Instagram – zrušit to nejde.');
     delete plan[id];
-  }) };
+  }), popisky: (vlastnosti_().deleteProperty(IG_POPISEK + id), igUpravenePopisky_()) };
 }
 
 /** Spustit v editoru po vložení IG_TOKEN: ověří klíč a vypíše klubový účet. */
@@ -2203,8 +2235,10 @@ function igZverejni_(id) {
       ucet = igUcet_();
       soubor.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
       nastav({ stav: 'nahrava', zacatek: Date.now(), pokusy: 0 });
-      const k = igVolej_(ucet.id + '/media', 'post', { media_type: 'REELS', share_to_feed: 'true', caption: reel.popisek,
-        video_url: 'https://drive.usercontent.google.com/download?id=' + encodeURIComponent(m[1]) + '&export=download&confirm=t' });
+      const parametry = { media_type: 'REELS', share_to_feed: 'true', caption: igPopisek_(id) || reel.popisek,
+        video_url: 'https://drive.usercontent.google.com/download?id=' + encodeURIComponent(m[1]) + '&export=download&confirm=t' };
+      if (z.oznacit && z.oznacit.length) parametry.user_tags = JSON.stringify(z.oznacit.map(function (u) { return { username: u }; }));
+      const k = igVolej_(ucet.id + '/media', 'post', parametry);
       nastav({ kontejner: String(k.id) });
     } catch (e) {
       skryj();
@@ -2245,6 +2279,7 @@ function igZverejni_(id) {
   let odkaz = '';
   if (media) { try { odkaz = String(igVolej_(media, 'get', { fields: 'permalink' }).permalink || ''); } catch (e) { odkaz = ''; } }
   nastav({ stav: 'hotovo', media: media, odkaz: odkaz, zverejneno: Date.now(), kontejner: '', chyba: '' });
+  vlastnosti_().deleteProperty(IG_POPISEK + id);
   nastavStavReelu_(id, true);
 }
 
@@ -2316,6 +2351,10 @@ function autoMyskoda_() {
         return { nazev: String(a.nazev || ''), model: String(a.model || ''), km: cislo(a.km), kmKdy: String(a.km_kdy || ''), palivo: cislo(a.palivo_pct),
           dojezd: cislo(a.dojezd_km), adblue: cislo(a.adblue_km), zamceno: a.zamceno == null ? null : String(a.zamceno),
           servis: { olejKm: cislo(s.olej_km), olejDni: cislo(s.olej_dni), prohlidkaKm: cislo(s.prohlidka_km), prohlidkaDni: cislo(s.prohlidka_dni) } };
+      }),
+      // tankování podle skoku nádrže mezi dvěma čteními (skript na PC čte jednou denně): od–do, stav km, odhad litrů
+      tankovani: (Array.isArray(d.tankovani) ? d.tankovani : []).slice(-30).map(function (t) {
+        return { od: String(t.od || ''), do: String(t.do || ''), km: cislo(t.km), litry: cislo(t.litry) };
       })
     };
   } catch (chyba) {

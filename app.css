@@ -648,6 +648,10 @@ a.reel__nahled:hover .reel__play { background: var(--limetka); }
 .btn--plan { background: var(--fialova); border-color: var(--fialova); color: #fff; }
 .btn--plan:hover { filter: brightness(1.08); }
 .reel__chyba { margin: 6px 0 0; font-size: 12.5px; color: var(--danger); }
+.reel__upraveno { align-self: flex-start; margin-top: 6px; }
+.reel-plan__popisek { min-height: 220px; }
+.auto-hlaseni { padding-bottom: 6px; }
+.auto-hlaseni__pozn { margin: 0 16px 10px; font-size: 12.5px; color: var(--muted); }
 .reely-napoveda { margin: 2px 2px 0; }
 /* Dnes: „Reel k vyvěšení“ – limetková karta Další krok (vzor PriorAuth), Kopírovat a Video jedním ťuknutím */
 .reel-krok { gap: 10px; }

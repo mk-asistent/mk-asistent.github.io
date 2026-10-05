@@ -7,7 +7,8 @@ import { stav, zmeneno, umiMotor, hooky } from './stav.js';
 import { volej } from './api.js';
 import { esc, uloziste, dm, DNY_KR, rozdilDni, zacatekTydne, pridejDny, terminDatum, isoDatum, tvar, kdyKratce } from './pomocne.js';
 import { IKONY } from './ikony.js';
-import { toast, toastAkce, kostra, chybaHtml, segment, okno, potvrd } from './ui.js';
+import { toast, toastAkce, kostra, chybaHtml, segment, potvrd } from './ui.js';
+import { otevriPanel, zavriPanel, obnovPanel, elementPanelu } from './panely.js';
 
 const ULOZISTE = 'asistent.data.reely';
 const FILTR = 'asistent.reely.filtr';
@@ -38,6 +39,11 @@ function zverejneno(r) { return !!(stav.reely && stav.reely.zverejneno && stav.r
 function plan(r) { return (stav.reely && stav.reely.plan && stav.reely.plan[r.id]) || null; }
 const naplanovano = (r) => { const p = plan(r); return !!(p && ['ceka', 'nahrava', 'zverejnuji'].indexOf(p.stav) >= 0); };
 const instagram = () => (stav.reely && stav.reely.instagram) || { nastaveno: false };
+/** Popisek, který půjde na Instagram: upravený v aplikaci (jen pro ten příspěvek), jinak ten z PC. */
+const popisekReelu = (r) => (stav.reely && stav.reely.popiskyPlanu && stav.reely.popiskyPlanu[r.id]) || r.popisek;
+// u dorostu označit i účet dorostu (Michal 5. 10.); co Michal u týmu napíše jinak, si aplikace zapamatuje
+const VYCHOZI_OZNACENI = { dorost: '@dorost_agro' };
+let rp = null; // rozpracovaný plán (okno Naplánovat na Instagram)
 const kdyPlan = (t) => DNY_KR[new Date(t).getDay()] + ' ' + dm(t) + ' ' + new Date(t).getHours() + ':' + String(new Date(t).getMinutes()).padStart(2, '0');
 const datumReelu = (r) => terminDatum(r.datum) || Date.parse(r.vyrobeno) || 0;
 const najdi = (id) => seznam().find((r) => r.id === id);
@@ -88,7 +94,8 @@ function reelHtml(r) {
       '<b class="reel__nazev">' + esc(r.nazev) + '</b>' +
       '<small class="reel__meta">' + esc(meta.join(' · ')) + '</small></div>' +
       // popisek vždy celý (Michal 5. 10.) – před kopírováním ho chce přečíst
-      (r.popisek ? '<div class="reel__popisek">' + esc(r.popisek) + '</div>'
+      (r.popisek ? (popisekReelu(r) !== r.popisek ? '<span class="tag tag--plan reel__upraveno">upravený popisek pro Instagram</span>' : '') +
+        '<div class="reel__popisek">' + esc(popisekReelu(r)) + '</div>'
         : '<p class="reel__bez">Popisek zatím není – připíše ho Claude při výrobě reelu.</p>') +
       (plan(r) && plan(r).stav === 'chyba' ? '<p class="reel__chyba">Na Instagram se nepodařilo: ' + esc(plan(r).chyba || '') + '</p>' : '') +
       '<div class="reel__akce">' + planAkceHtml(r) + kopirovatHtml(r) +
@@ -102,7 +109,10 @@ function reelHtml(r) {
 /** Stav reelu, který ještě není zveřejněný: naplánováno na čas, nahrává se, nepovedlo se, nebo čeká. */
 function stitekPlanu(r) {
   const p = plan(r);
-  if (p && p.stav === 'ceka') return '<span class="tag tag--plan">' + IKONY.kalendar + 'vyjde ' + esc(kdyPlan(p.kdy)) + '</span>';
+  if (p && p.stav === 'ceka') {
+    return '<span class="tag tag--plan">' + IKONY.kalendar + 'vyjde ' + esc(kdyPlan(p.kdy)) + '</span>' +
+      (p.oznacit && p.oznacit.length ? '<span class="tag tag--seda">označí ' + esc(p.oznacit.map((u) => '@' + u).join(', ')) + '</span>' : '');
+  }
   if (p && (p.stav === 'nahrava' || p.stav === 'zverejnuji')) return '<span class="tag tag--plan">' + IKONY.obnovit + 'nahrává se na Instagram</span>';
   if (p && p.stav === 'chyba') return '<span class="tag tag--danger">nepovedlo se – naplánuj znovu</span>';
   return '<span class="tag tag--danger">čeká na Instagram</span>';
@@ -138,24 +148,76 @@ function vychoziCas(r) {
   return isoDatum(t) + 'T' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
-async function naplanuj(r) {
+function oznaceniTymu(r) {
+  const ulozene = uloziste.cti('asistent.ig.oznacit') || {};
+  const k = r.tymy[0] || '';
+  return k in ulozene ? ulozene[k] : VYCHOZI_OZNACENI[k] || '';
+}
+
+/** Okno Naplánovat na Instagram: čas, účty k označení a popisek (úprava jen pro tenhle příspěvek). */
+function otevriPlan(r) {
+  const p = plan(r);
+  rp = { id: r.id, kdy: vychoziCas(r), oznacit: p && p.stav === 'ceka' && p.oznacit ? p.oznacit.map((u) => '@' + u).join(', ') : oznaceniTymu(r),
+    popisek: popisekReelu(r), ukladam: false };
+  const moje = rp;
+  otevriPanel({
+    id: 'reel-plan', trida: 'panel-okno panel-formular', titul: 'Naplánovat na Instagram', vykresli: planHtml,
+    paticka: () => '<div class="akce"><button type="button" class="btn btn--ghost" data-zavrit-panel>Zrušit</button>' +
+      '<button type="button" class="btn btn--plan" data-rp-ulozit' + (rp && rp.ukladam ? ' disabled' : '') + '>' + IKONY.kalendar + '<span>' +
+      (rp && rp.ukladam ? 'Ukládám…' : 'Naplánovat') + '</span></button></div>',
+    poOtevreni: (el) => { const pole = el.querySelector('[data-rp="kdy"]'); if (pole) pole.focus(); },
+    priZavreni: () => { if (rp === moje) rp = null; }
+  });
+}
+
+function planHtml() {
+  if (!rp) return '';
+  const r = najdi(rp.id);
   const ucet = instagram().ucet ? '@' + instagram().ucet : 'klubový Instagram';
-  const hodnota = await okno({ ikona: IKONY.kalendar, nadpis: 'Naplánovat na Instagram', text: r.nazev + ' vyjde na ' + ucet +
-    ' sám v zadaný čas (do 10 minut). Popisek bude přesně ten, co vidíš u reelu.', pole: { popisek: 'Kdy', typ: 'datetime-local', hodnota: vychoziCas(r) },
-    ano: 'Naplánovat' });
-  if (!hodnota) return;
-  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(hodnota);
-  if (!m) { toast('Čas nesedí – vyber datum a hodinu.', true); return; }
+  // <textarea> zahodí první odřádkování obsahu – když popisek začíná prázdným řádkem, přidat jedno navíc
+  const text = /^\r?\n/.test(rp.popisek) ? '\n' + rp.popisek : rp.popisek;
+  return '<div class="formular">' +
+    '<p class="napoveda">' + esc(r ? r.nazev : '') + ' vyjde na ' + esc(ucet) + ' sám v zadaný čas (do 10 minut). Video jde v původní kvalitě z Disku.</p>' +
+    '<label><span class="label">Kdy</span><input class="field" type="datetime-local" data-rp="kdy" value="' + esc(rp.kdy) + '"></label>' +
+    '<label><span class="label">Označit účty</span><input class="field" data-rp="oznacit" value="' + esc(rp.oznacit) + '" placeholder="např. @dorost_agro" ' +
+      'autocomplete="off" autocapitalize="off" spellcheck="false"></label>' +
+    '<label><span class="label">Popisek na Instagram</span><textarea class="odpoved reel-plan__popisek" data-rp="popisek" rows="12">' + esc(text) + '</textarea></label>' +
+    '<p class="napoveda">Úprava popisku platí jen pro tenhle příspěvek – soubor s popiskem na PC zůstává, jak je.</p>' +
+    '<p class="pruh pruh-varovani" data-rp-chyba hidden></p></div>';
+}
+
+async function ulozPlan() {
+  const ukaz = (t) => { const el = elementPanelu('reel-plan'); const ch = el && el.querySelector('[data-rp-chyba]'); if (ch) { ch.textContent = t; ch.hidden = !t; } };
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(rp.kdy || '');
+  if (!m) { ukaz('Vyber datum a čas.'); return; }
+  if (!String(rp.popisek || '').trim()) { ukaz('Popisek je prázdný.'); return; }
   const kdy = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])).getTime();
+  const r = najdi(rp.id);
+  rp.ukladam = true;
+  obnovPanel('reel-plan');
   try {
-    const v = await volej('reelNaplanovat', { id: r.id, kdy });
+    const v = await volej('reelNaplanovat', { id: rp.id, kdy, oznacit: rp.oznacit, popisek: rp.popisek });
     stav.reely.plan = v.plan || {};
+    stav.reely.popiskyPlanu = v.popisky || {};
     uloziste.pis(ULOZISTE, { data: stav.reely, kdy: Date.now() });
+    if (r && r.tymy[0]) { const ul = uloziste.cti('asistent.ig.oznacit') || {}; ul[r.tymy[0]] = rp.oznacit; uloziste.pis('asistent.ig.oznacit', ul); }
+    zavriPanel();
     toast('Naplánováno – vyjde ' + kdyPlan(kdy));
+    zmeneno();
   } catch (e) {
-    toast(e.message, true);
+    if (!rp) return;
+    rp.ukladam = false;
+    obnovPanel('reel-plan');
+    ukaz(e.message);
   }
-  zmeneno();
+}
+
+/** Psaní do okna plánu (pole se nepřekreslují, jen se pamatuje hodnota). */
+export function vstupReely(e) {
+  const t = e.target;
+  if (!rp || !t.matches || !t.matches('[data-rp]')) return false;
+  rp[t.dataset.rp] = t.value;
+  return true;
 }
 
 function nadpisTydne(pondeli) {
@@ -262,7 +324,7 @@ export function klikReely(el) {
   if (el.dataset.reelKopirovat) {
     const r = najdi(el.dataset.reelKopirovat);
     if (!r) return true;
-    kopiruj(r.popisek).then((ok) => {
+    kopiruj(popisekReelu(r)).then((ok) => {
       if (!ok) { toast('Kopírování nejde – podrž prst na textu popisku a zkopíruj ho ručně.', true); return; }
       if (zverejneno(r)) toast('Popisek zkopírovaný');
       else toastAkce('Popisek zkopírovaný – vlož ho do Instagramu', 'Zveřejněno', () => oznac(r.id, true));
@@ -276,9 +338,10 @@ export function klikReely(el) {
   }
   if (el.dataset.reelNaplanovat) {
     const r = najdi(el.dataset.reelNaplanovat);
-    if (r) naplanuj(r);
+    if (r) otevriPlan(r);
     return true;
   }
+  if (el.hasAttribute('data-rp-ulozit')) { if (rp && !rp.ukladam) ulozPlan(); return true; }
   if (el.dataset.reelZrusitPlan) {
     const r = najdi(el.dataset.reelZrusitPlan);
     if (!r) return true;

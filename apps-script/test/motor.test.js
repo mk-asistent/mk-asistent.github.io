@@ -248,7 +248,8 @@ function prostredi() {
     MimeType: { PLAIN_TEXT: 'text/plain' },
     PropertiesService: { getScriptProperties: () => ({
       getProperty: (k) => (vlastnosti.has(k) ? vlastnosti.get(k) : null),
-      setProperty: (k, v) => vlastnosti.set(k, String(v)), deleteProperty: (k) => vlastnosti.delete(k)
+      setProperty: (k, v) => vlastnosti.set(k, String(v)), deleteProperty: (k) => vlastnosti.delete(k),
+      getProperties: () => Object.fromEntries(vlastnosti)
     }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (t) => ({ text: t, setMimeType() { return this; } }) },
     HtmlService: { createHtmlOutput: (h) => ({ html: h, setTitle() { return this; } }) },
@@ -1552,7 +1553,7 @@ test('reely: seznam z REELY/reely.json, odkaz na video na Disku, skóre z FOTBAL
   const p = prostredi();
   let o = p.volej('reely');
   assert.strictEqual(o.ok, true, o.chyba);
-  assert.deepStrictEqual(json(o.data), { aktualizovano: '', reely: [], zverejneno: {}, plan: {}, instagram: { nastaveno: false, ucet: '' } }); // export ještě neproběhl
+  assert.deepStrictEqual(json(o.data), { aktualizovano: '', reely: [], zverejneno: {}, plan: {}, popiskyPlanu: {}, instagram: { nastaveno: false, ucet: '' } }); // export ještě neproběhl
   const reely = p.schranka.createFolder('REELY');
   reely.createFile('reely.json', JSON.stringify({ verze: 1, aktualizovano: '2026-10-05T08:05:02+02:00', reely: [
     { id: 'reel_dorost_tesany', nazev: 'Vnorovy – Těšany', tym: 'dorost', tymy: ['dorost'], tymNazev: 'Dorost', datum_zapasu: '2026-10-04', vyrobeno: '2026-10-05T07:48',
@@ -1671,12 +1672,19 @@ test('Instagram: plán reelu (klíč, čas, video, popisek), zrušení, stav v o
   assert.ok(/popisek/.test(p.volej('reelNaplanovat', { id: 'reel_bez_popisku', kdy: za }).chyba));
   let o = p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: za });
   assert.strictEqual(o.ok, true, o.chyba);
-  assert.deepStrictEqual(json(o.data.plan), { reel_dorost_tesany: { kdy: za, stav: 'ceka' } });
+  assert.deepStrictEqual(json(o.data.plan), { reel_dorost_tesany: { kdy: za, stav: 'ceka', oznacit: [], upraveno: false } });
+  assert.ok(/Neplatné jméno/.test(p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: za, oznacit: 'dorost agro!' }).chyba));
+  // označení a upravený popisek (jen pro Instagram)
+  o = p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: za, oznacit: '@Dorost_Agro, dorost_agro', popisek: 'Upravený text\r\n#fkagrovnorovy' });
+  assert.deepStrictEqual(json(o.data.plan.reel_dorost_tesany), { kdy: za, stav: 'ceka', oznacit: ['dorost_agro'], upraveno: true });
+  assert.deepStrictEqual(json(o.data.popisky), { reel_dorost_tesany: 'Upravený text\n#fkagrovnorovy' });
+  assert.strictEqual(p.volej('reely').data.popiskyPlanu.reel_dorost_tesany, 'Upravený text\n#fkagrovnorovy');
   const r = p.volej('reely', { znovu: true }).data;
   assert.deepStrictEqual(json(r.instagram), { nastaveno: true, ucet: '' });
   assert.strictEqual(r.plan.reel_dorost_tesany.stav, 'ceka');
   o = p.volej('reelZrusitPlan', { id: 'reel_dorost_tesany' });
   assert.deepStrictEqual(json(o.data.plan), {});
+  assert.deepStrictEqual(json(o.data.popisky), {}, 'upravený popisek se zrušením pryč');
   // spouštěč bez plánu nic nevolá (jen obnova klíče)
   p.ctx.instagramKazdych10Min();
   assert.deepStrictEqual(p.ig.volani.map((v) => v.cesta), ['refresh_access_token']);
@@ -1688,11 +1696,12 @@ test('Instagram: spouštěč zveřejní reel – tajný odkaz jen na dobu stahov
   const video = reelyProInstagram(p);
   p.vlastnosti.set('IG_TOKEN', 'testovaci-ig-klic');
   p.vlastnosti.set('IG_TOKEN_OBNOVA', String(Date.now()));
-  assert.strictEqual(p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: Date.now() + 30e3 }).ok, true);
+  assert.strictEqual(p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: Date.now() + 30e3, oznacit: ['dorost_agro'] }).ok, true);
   p.ctx.instagramKazdych10Min();
   const kontejner = p.ig.volani.find((v) => v.cesta === '17841400000/media');
   assert.strictEqual(kontejner.telo.media_type, 'REELS');
   assert.strictEqual(kontejner.telo.caption, 'Hattrick! ⚽⚽⚽\n\n#fkagrovnorovy', 'popisek přesně z reely.json');
+  assert.deepStrictEqual(JSON.parse(kontejner.telo.user_tags), [{ username: 'dorost_agro' }], 'označený účet');
   assert.ok(/drive\.usercontent\.google\.com\/download\?id=soubor-videa-reel_dorost_tesany\.mp4/.test(kontejner.telo.video_url), kontejner.telo.video_url);
   assert.ok(!('access_token' in kontejner.telo) || kontejner.telo.access_token === 'testovaci-ig-klic');
   assert.deepStrictEqual(video.sdileni, ['ANYONE_WITH_LINK:VIEW', 'PRIVATE:NONE'], 'odkaz jen po dobu stahování');
@@ -1797,12 +1806,14 @@ test('auto: propojení odkazem, čtení listů (datum i jako text, km s mezerou,
   assert.ok(/spreadsheets\/d\/TABULKA-auta/.test(d.odkaz));
   assert.strictEqual(d.myskoda, null, 'bez souboru z MyŠkoda nic');
   // stav auta z MyŠkoda (soubor z domácího PC) – jen vybrané údaje, poloha ani VIN by neprošly
-  p.schranka.createFolder('AUTO').createFile('myskoda.json', JSON.stringify({ aktualizovano: '2026-10-05T13:42:35+02:00', auta: [{ nazev: 'Octavia', model: 'Škoda Octavia Combi',
+  p.schranka.createFolder('AUTO').createFile('myskoda.json', JSON.stringify({ aktualizovano: '2026-10-05T13:42:35+02:00',
+    tankovani: [{ od: '2026-10-06T03:30:00+02:00', do: '2026-10-07T03:30:00+02:00', km: 32950, litry: 36.4, misto: 'nic' }], auta: [{ nazev: 'Octavia', model: 'Škoda Octavia Combi',
     km: 32810, km_kdy: '2026-10-05T11:32:32+00:00', palivo_pct: 61, dojezd_km: 510, adblue_km: 2900, zamceno: 'YES', vin: 'TMBXXX', poloha: { lat: 49 },
     servis: { olej_km: 7700, olej_dni: 280, prohlidka_km: 27700, prohlidka_dni: 697 } }] }));
   const ms = p.volej('auto').data.myskoda;
   assert.deepStrictEqual(json(ms.auta[0]), { nazev: 'Octavia', model: 'Škoda Octavia Combi', km: 32810, kmKdy: '2026-10-05T11:32:32+00:00', palivo: 61, dojezd: 510,
     adblue: 2900, zamceno: 'YES', servis: { olejKm: 7700, olejDni: 280, prohlidkaKm: 27700, prohlidkaDni: 697 } });
+  assert.deepStrictEqual(json(ms.tankovani), [{ od: '2026-10-06T03:30:00+02:00', do: '2026-10-07T03:30:00+02:00', km: 32950, litry: 36.4 }], 'tankování z auta bez cizích polí');
   // odkaz s /u/1/ (víc účtů Googlu v prohlížeči)
   assert.strictEqual(p.volej('autoNastavit', { odkaz: 'https://docs.google.com/spreadsheets/u/1/d/' + TAB_AUTO + '/edit' }).ok, true);
   // kategorie z rozbalovacího seznamu tabulky mají přednost
