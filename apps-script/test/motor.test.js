@@ -1488,4 +1488,26 @@ test('reely: seznam z REELY/reely.json, odkaz na video na Disku, skóre z FOTBAL
   assert.ok(/reely\.json/.test(p.volej('reely', { znovu: true }).chyba));
 });
 
+test('váha: zápis s časem zápisu, česká čárka, nesmysl odmítnut, smazání překlepu, v přehledu Zdraví', () => {
+  const p = prostredi();
+  const rano = Date.parse('2026-10-05T07:12:00+02:00');
+  p.nastavCas(rano);
+  let o = p.volej('vaha', { kg: '80,4' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.zaznamy), [{ kdy: rano, kg: 80.4 }]);
+  p.nastavCas(Date.parse('2026-10-06T21:05:00+02:00'));
+  assert.strictEqual(p.volej('vaha', { kg: 79.86 }).data.zaznamy[1].kg, 79.9);
+  assert.strictEqual(p.volej('vaha', { kg: 'osmdesát' }).ok, false);
+  assert.strictEqual(p.volej('vaha', { kg: 8 }).ok, false);
+  assert.strictEqual(p.volej('vaha', { kg: '' }).ok, false);
+  assert.strictEqual(p.ctx.vahaKg_('80.4 kg'), 80.4);
+  // jen na Disku ve složce ZDRAVI, s časy zápisu
+  const soubor = p.schranka.deti.ZDRAVI.soubory.find((f) => f.getName() === 'VAHA.json');
+  assert.deepStrictEqual(JSON.parse(soubor.getBlob().getDataAsString()).zaznamy.map((x) => x.kdy), [rano, Date.parse('2026-10-06T21:05:00+02:00')]);
+  assert.deepStrictEqual(p.volej('zdravi').data.vaha.map((x) => x.kg), [80.4, 79.9]);
+  // smazat překlep
+  o = p.volej('vaha', { smazat: rano });
+  assert.deepStrictEqual(o.data.zaznamy.map((x) => x.kg), [79.9]);
+});
+
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

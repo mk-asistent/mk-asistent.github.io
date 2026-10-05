@@ -256,6 +256,9 @@ const reelyUkazka = [
 ];
 const reelyZverejneno = { reel_dorost_kyjov: iso(pridejDny(dnes, minulaNedele + 1)) };
 
+/** Váha v ukázce: občasné ranní vážení za poslední měsíc (vymyšlené hodnoty). */
+let vahaUkazka = [[-33, 81.3], [-26, 81.0], [-19, 80.7], [-12, 80.9], [-6, 80.5], [-1, 80.2]].map((x) => ({ kdy: den(x[0], 6, 40 + x[0] % 7), kg: x[1] }));
+
 /** Zdraví v ukázce: 30 dní připravenosti, spánku a zátěže; zápas v sobotu, trénink út a čt (sedí s kalendářem), posilovna v pondělí. */
 function zdraviUkazka() {
   const nahoda = (i, k) => { const x = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453; return x - Math.floor(x); };
@@ -290,7 +293,7 @@ function zdraviUkazka() {
     if (trenink) pridej('soccer', 17, 0, 90, +(11 + nahoda(i, 11) * 2).toFixed(1), 138, 178);
     if (posilovna) pridej('weightlifting', 19, 0, 60, 7.8, 112, 151);
   }
-  return { vytvoreno: Date.now(), dny: dnyZ, treninky: treninky.sort((a, b) => b.start - a.start),
+  return { vytvoreno: Date.now(), dny: dnyZ, treninky: treninky.sort((a, b) => b.start - a.start), vaha: kopie(vahaUkazka),
     whoop: { nastaveno: true, propojeno: true, sync: { kdy: Date.now() - 12 * 6e4, chyba: '' } }, apple: { kdy: Date.now() - 3 * H },
     // obecný ukázkový režim doplňků (skutečný je jen v ZDRAVI_REZIM.json na Disku)
     rezim: { kofeinDo: '14:00', treninkDny: [2, 4], zapasTymy: ['dorost'], polozky: [
@@ -481,6 +484,16 @@ const akce = {
     return { pridano: fotbalVKalendari.length * 3, upraveno: 0, beze_zmeny: 0, kalendare: {}, kalendareSeznam: kopie(kalendare) };
   },
   zdravi: () => zdraviUkazka(),
+  vaha: (d) => {
+    if (d.smazat != null) vahaUkazka = vahaUkazka.filter((x) => x.kdy !== Number(d.smazat));
+    else {
+      const m = /(\d{2,3})(?:[.,](\d+))?/.exec(String(d.kg == null ? '' : d.kg));
+      const kg = m ? Math.round(Number(m[1] + '.' + (m[2] || '0')) * 10) / 10 : NaN;
+      if (!(kg >= 30 && kg <= 250)) throw new Error('Váha musí být číslo v kg (např. 80,4).');
+      vahaUkazka.push({ kdy: Date.now(), kg });
+    }
+    return { zaznamy: kopie(vahaUkazka) };
+  },
   whoopPropojit: () => { throw new Error('V ukázce se WHOOP nepropojuje – po připojení motoru to půjde.'); },
   whoopOdpojit: () => zdraviUkazka().whoop,
   zdraviKlic: () => ({ klic: 'ukazka-klic-pro-zkratku-zdravi-0000' }),

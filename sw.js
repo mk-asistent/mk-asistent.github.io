@@ -3,7 +3,7 @@
 // nejde nebo trvá déle než 3 s, použije se poslední uložená kopie. Data z motoru (script.google.com)
 // jdou mimo – ty se sem nikdy neukládají.
 
-const VERZE = 'asistent-2026-10-05-popisek';
+const VERZE = 'asistent-2026-10-05-vaha';
 const SOUBORY = [
   './', 'index.html', 'app.css', 'manifest.webmanifest',
   'js/app.js', 'js/api.js', 'js/pomocne.js', 'js/stav.js', 'js/ui.js', 'js/ikony.js', 'js/panely.js',

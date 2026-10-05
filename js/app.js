@@ -264,7 +264,8 @@ function otevriRychle() {
       volba('poznamka', IKONY.claude, 'fialova', 'Poznámka pro Clauda', 'otázka, úkol, nápad') +
       volba('email', IKONY.psat, 'zluta', 'Nový e-mail', 'z osobní nebo pracovní adresy') +
       volba('udalost', IKONY.kalendar, 'zelena', 'Událost', 'do kalendáře, i s pozvánkami') +
-      volba('zapas', IKONY.zapas, 'limetka', 'Zápas', 'tým, soupeř, výkop, sraz') + '</div>'
+      volba('zapas', IKONY.zapas, 'limetka', 'Zápas', 'tým, soupeř, výkop, sraz') +
+      (umiMotor('vaha') ? volba('vaha', IKONY.vaha, 'oranz', 'Váha', 'kg – zapíše se i s časem') : '') + '</div>'
   });
 }
 
@@ -273,6 +274,7 @@ function rychlaAkce(akce) {
   else if (akce === 'email') posta.otevriPsani('novy');
   else if (akce === 'udalost') udalost.otevriFormular({ den: stav.pohled === 'kalendar' ? stav.kal.vybrany : undefined });
   else if (akce === 'zapas') udalost.otevriFormular({ typ: 'zapas', den: stav.pohled === 'kalendar' ? stav.kal.vybrany : undefined });
+  else if (akce === 'vaha') zdravi.zapisVahuOknem();
 }
 
 // ---------------------------------------------------------------- Dnes
@@ -552,6 +554,7 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('input', (e) => {
   vstupAdresy(e);
+  if (zdravi.vstupZdravi(e)) return;
   if (hledat.vstupHledat(e)) return;
   if (udalost.vstupUdalost(e)) return;
   if (schranka.vstupSchranka(e)) return;
@@ -568,6 +571,7 @@ function pise(e) {
 document.addEventListener('keydown', (e) => {
   if ($('aplikace').hidden) return;
   if (klavesaAdresy(e)) return;
+  if (zdravi.klavesaZdravi(e)) return; // Enter v poli váhy = Zapsat
   // Ctrl/Cmd+K = hledání (všude)
   if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); hledat.otevriHledani(); return; }
   // Ctrl/Cmd+Enter uloží poznámku nebo odešle e-mail

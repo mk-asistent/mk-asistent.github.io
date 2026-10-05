@@ -4,9 +4,9 @@
 
 import { stav, zmeneno, umiMotor, staryMotor, hooky } from './stav.js';
 import { volej } from './api.js';
-import { esc, uloziste, pulnoc, pridejDny, isoDatum, DNY_KR, dm, hhmm, kdyKratce, trvani, rozdilDni } from './pomocne.js';
+import { esc, uloziste, pulnoc, pridejDny, isoDatum, DNY_KR, dm, hhmm, kdyKratce, trvani, rozdilDni, tvar } from './pomocne.js';
 import { IKONY } from './ikony.js';
-import { kostra, chybaHtml, hlavickaKarty, toast } from './ui.js';
+import { kostra, chybaHtml, hlavickaKarty, toast, okno, potvrd } from './ui.js';
 import { udalostiVRozsahu, jeZapas } from './kalendar.js';
 
 const ULOZISTE = 'asistent.data.zdravi';
@@ -265,6 +265,7 @@ export function vykresliZdravi(el) {
     '</div>';
   const doplnky = kartaDoplnkuHtml();
   h += '<div class="zdravi-mrizka-karet">' + (doplnky ? '<section class="card dlazdice zd-doplnky">' + doplnky + '</section>' : '') +
+    (umiMotor('vaha') ? '<section class="card dlazdice zd-vaha" id="zd-vaha">' + kartaVahyHtml() + '</section>' : '') +
     '<section class="card dlazdice zd-graf">' + hlavickaKarty(IKONY.srdce, 'Posledních 14 dní') +
       '<div class="dlazdice__telo"><p class="zdravi-legenda"><i class="graf14__sl--zelena"></i>připravenost <i class="graf14__tecka"></i>zátěž (0–21)</p>' + graf14(plny) + '</div></section>' +
     '<section class="card dlazdice zd-spanek" id="zd-spanek">' + hlavickaKarty(IKONY.spanek, 'Spánek' + (d ? ' · ' + esc(denPopis(d.den)) : '')) +
@@ -278,7 +279,110 @@ export function vykresliZdravi(el) {
     '</div>';
   h += '<p class="zdravi-paticka">Data: WHOOP' + (z.whoop && z.whoop.sync && z.whoop.sync.kdy ? ' (' + esc(kdyKratce(z.whoop.sync.kdy)) + ')' : '') +
     ' · Apple Zdraví' + (z.apple && z.apple.kdy ? ' (' + esc(kdyKratce(z.apple.kdy)) + ')' : '') + ' · ukládá se jen na tvém Disku Google.</p>';
+  // rozepsaná váha nesmí zmizet, když se stránka mezitím překreslí (dorazí data)
+  const pise = document.activeElement && el.contains(document.activeElement) && document.activeElement.matches('[data-vaha-pole]');
   el.innerHTML = h;
+  const pole = el.querySelector('[data-vaha-pole]');
+  if (pole && pise) { pole.focus({ preventScroll: true }); pole.setSelectionRange(pole.value.length, pole.value.length); }
+}
+
+// ---------------------------------------------------------------- Váha (ruční zápis; čas = kdy se zapsala) – CLAUDE_SCHRANKA/ZDRAVI/VAHA.json
+
+let rozepsanaVaha = '';
+function vahy() { return (stav.zdravi && stav.zdravi.vaha) || []; }
+const kgCz = (kg) => cisloCz(kg, 1);
+
+/** „80,4“, „80.4 kg“ → 80.4; nesmysl nebo mimo 30–250 kg → null (stejně jako motor). */
+export function kgZTextu(t) {
+  const m = /(\d{2,3})(?:[.,](\d+))?/.exec(String(t == null ? '' : t));
+  if (!m) return null;
+  const kg = Math.round(Number(m[1] + '.' + (m[2] || '0')) * 10) / 10;
+  return kg >= 30 && kg <= 250 ? kg : null;
+}
+
+/** „dnes 7:12“, „včera 21:05“, „čt 1. 10. 6:40“ */
+function kdyZapsano(t) {
+  const r = rozdilDni(t);
+  return (r === 0 ? 'dnes' : r === -1 ? 'včera' : DNY_KR[new Date(t).getDay()] + ' ' + dm(t) + (new Date(t).getFullYear() !== new Date().getFullYear() ? ' ' + new Date(t).getFullYear() : '')) + ' ' + hhmm(t);
+}
+
+/** Čára z posledních 30 zápisů (osa x podle času, takže mezery mezi vážením jsou vidět). */
+function grafVahy(z) {
+  const body = z.slice(-30);
+  const W = 520, H = 110, P = 16;
+  const t0 = body[0].kdy, t1 = body[body.length - 1].kdy;
+  const kg = body.map((b) => b.kg);
+  const lo = Math.floor((Math.min.apply(null, kg) - 0.3) * 2) / 2, hi = Math.ceil((Math.max.apply(null, kg) + 0.3) * 2) / 2;
+  const x = (t) => P + (t1 > t0 ? (t - t0) / (t1 - t0) : 0.5) * (W - 2 * P);
+  const y = (v) => P + (hi - v) / ((hi - lo) || 1) * (H - 2 * P);
+  const cara = body.map((b, i) => (i ? 'L ' : 'M ') + x(b.kdy).toFixed(1) + ' ' + y(b.kg).toFixed(1)).join(' ');
+  return '<svg class="graf-vahy" viewBox="0 0 ' + W + ' ' + (H + 18) + '" role="img" aria-label="Váha – posledních ' + body.length + ' zápisů">' +
+    [hi, lo].map((v) => '<line class="graf-vahy__mez" x1="' + P + '" x2="' + (W - P) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '"/>' +
+      '<text class="graf-vahy__popis" x="' + (W - P) + '" y="' + (y(v) - 4).toFixed(1) + '" text-anchor="end">' + kgCz(v) + '</text>').join('') +
+    '<path class="graf-vahy__cara" d="' + cara + '"/>' +
+    body.map((b) => '<circle class="graf-vahy__bod" cx="' + x(b.kdy).toFixed(1) + '" cy="' + y(b.kg).toFixed(1) + '" r="3.6"><title>' +
+      esc(kdyZapsano(b.kdy) + ': ' + kgCz(b.kg) + ' kg') + '</title></circle>').join('') +
+    '<text class="graf-vahy__popis" x="' + P + '" y="' + (H + 14) + '">' + esc(dm(t0)) + '</text>' +
+    '<text class="graf-vahy__popis" x="' + (W - P) + '" y="' + (H + 14) + '" text-anchor="end">' + esc(dm(t1)) + '</text></svg>';
+}
+
+export function kartaVahyHtml() {
+  const z = vahy();
+  const posl = z[z.length - 1], pred = z[z.length - 2];
+  const rozdil = posl && pred ? Math.round((posl.kg - pred.kg) * 10) / 10 : null;
+  return hlavickaKarty(IKONY.vaha, 'Váha', z.length ? '<span class="muted small">' + z.length + ' ' + tvar(z.length, 'zápis', 'zápisy', 'zápisů') + '</span>' : '') +
+    '<div class="dlazdice__telo">' +
+      (posl ? '<p class="vaha-ted"><b class="cisla">' + kgCz(posl.kg) + '<small>kg</small></b><span>zapsáno ' + esc(kdyZapsano(posl.kdy)) +
+          (rozdil != null ? '<br><em>' + (rozdil > 0 ? '+' : rozdil < 0 ? '−' : '±') + kgCz(Math.abs(rozdil)) + ' kg</em> proti ' + esc(kdyZapsano(pred.kdy)) : '') + '</span></p>'
+        : '<p class="prazdne vaha-prazdne">Zatím žádný zápis. Napiš váhu – uloží se i s časem, kdy jsi ji zapsal.</p>') +
+      '<div class="vaha-zapis"><input class="field" data-vaha-pole inputmode="decimal" enterkeyhint="done" autocomplete="off" placeholder="např. 80,4" aria-label="Váha v kg" value="' +
+        esc(rozepsanaVaha) + '"><span>kg</span><button type="button" class="btn btn--primary" data-vaha-zapsat>Zapsat</button></div>' +
+      (z.length > 1 ? grafVahy(z) : '') +
+      (z.length ? '<ul class="vaha-seznam">' + z.slice(-6).reverse().map((x) => '<li><span>' + esc(kdyZapsano(x.kdy)) + '</span><b class="cisla">' + kgCz(x.kg) + ' kg</b>' +
+        '<button type="button" class="vaha-smazat" data-vaha-smazat="' + x.kdy + '" aria-label="Smazat zápis ' + esc(kdyZapsano(x.kdy)) + '" title="Smazat zápis">' + IKONY.zavrit + '</button></li>').join('') + '</ul>' : '') +
+    '</div>';
+}
+
+function poVaze(zaznamy) {
+  if (stav.zdravi) {
+    stav.zdravi.vaha = zaznamy;
+    uloziste.pis(ULOZISTE, { data: stav.zdravi, kdy: Date.now() });
+  }
+  zmeneno();
+}
+
+/** Zapíše váhu (čas zápisu dá motor). Vrací true, když se povedlo. */
+export function zapisVahu(text) {
+  const kg = kgZTextu(text);
+  if (kg == null) { toast('Napiš váhu v kg, třeba 80,4', true); return Promise.resolve(false); }
+  return volej('vaha', { kg })
+    .then((v) => {
+      rozepsanaVaha = '';
+      poVaze(v.zaznamy || []);
+      const posl = (v.zaznamy || []).slice(-1)[0];
+      toast('Zapsáno ' + kgCz(kg) + ' kg' + (posl ? ' · ' + kdyZapsano(posl.kdy) : ''));
+      return true;
+    })
+    .catch((e) => { toast(e.message, true); return false; });
+}
+
+/** „+“ → Váha: okno s polem (číselná klávesnice na telefonu). */
+export function zapisVahuOknem() {
+  return okno({ ikona: IKONY.vaha, nadpis: 'Váha', text: 'Zapíše se i s časem, kdy ji zapisuješ.', pole: { popisek: 'Kg', placeholder: 'např. 80,4', inputmode: 'decimal' },
+    ano: 'Zapsat', ne: 'Zrušit' }).then((t) => (t ? zapisVahu(t) : false));
+}
+
+/** Psaní do pole váhy (app.js – událost input) a Enter = Zapsat (app.js – keydown). */
+export function vstupZdravi(e) {
+  if (!e.target.matches || !e.target.matches('[data-vaha-pole]')) return false;
+  rozepsanaVaha = e.target.value;
+  return true;
+}
+export function klavesaZdravi(e) {
+  if (e.key !== 'Enter' || !e.target.matches || !e.target.matches('[data-vaha-pole]')) return false;
+  e.preventDefault();
+  zapisVahu(e.target.value);
+  return true;
 }
 
 // ---------------------------------------------------------------- Doplňky dnes (režim z ZDRAVI_REZIM.json na Disku)
@@ -338,6 +442,22 @@ export function klikZdravi(el) {
     // staré dny pryč (jen posledních 7)
     uloziste.klice(VZATO).filter((k) => k < VZATO + isoDatum(pridejDny(pulnoc(Date.now()), -7))).forEach((k) => uloziste.smaz(k));
     zmeneno();
+    return true;
+  }
+  if (el.hasAttribute('data-vaha-zapsat')) {
+    const pole = el.closest('.vaha-zapis').querySelector('[data-vaha-pole]');
+    el.disabled = true;
+    zapisVahu(pole.value).then(() => { el.disabled = false; });
+    return true;
+  }
+  if (el.dataset.vahaSmazat) {
+    const kdy = Number(el.dataset.vahaSmazat);
+    const x = vahy().find((v) => v.kdy === kdy);
+    if (!x) return true;
+    potvrd('Smazat zápis ' + kgCz(x.kg) + ' kg?', { ikona: IKONY.smazat, ton: 'nebezpeci', text: 'Zapsáno ' + kdyZapsano(x.kdy) + '.', ano: 'Smazat' }).then((ano) => {
+      if (!ano) return;
+      volej('vaha', { smazat: kdy }).then((v) => { poVaze(v.zaznamy || []); toast('Zápis smazán'); }).catch((e) => toast(e.message, true));
+    });
     return true;
   }
   const akce = el.dataset.zdravi;

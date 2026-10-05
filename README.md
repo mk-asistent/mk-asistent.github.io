@@ -127,6 +127,9 @@ se zapomene.
   Nastavení → Zdraví). Postup krok za krokem je přímo v aplikaci.
 - Data po měsících v `CLAUDE_SCHRANKA/ZDRAVI/RRRR-MM.json` (soukromý Disk, nikdy do gitu). Trénink se spáruje s událostí
   v kalendáři (zápas, trénink) a čísla z WHOOP jsou i v detailu zápasu.
+- **Váha:** ruční zápis v kartě Váha na stránce Zdraví (Enter nebo Zapsat) nebo na telefonu přes „+“ → Váha. Motor
+  (akce `vaha`) ke každému zápisu uloží čas zápisu → `CLAUDE_SCHRANKA/ZDRAVI/VAHA.json`; karta ukáže poslední váhu
+  s časem, rozdíl proti minulému vážení, čáru posledních 30 zápisů a 6 posledních zápisů (překlep jde smazat).
 - **Doplňky:** režim v `CLAUDE_SCHRANKA/ZDRAVI_REZIM.json` (položky s časem dne, `jen`: trenink / zapas / zatez,
   `treninkDny`, `zapasTymy`, `kofeinDo`) – motor ho posílá se Zdravím, aplikace z něj skládá Doplňky dnes; odškrtnutí
   se pamatuje v zařízení. Skutečný režim je jen na Disku (zdravotní údaje do repa nepatří).

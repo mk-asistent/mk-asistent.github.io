@@ -77,10 +77,15 @@ const motor = {
         spanek: { start: den(0, -1), konec: den(0, 6), celkem: 6.5 * H, hluboky: 1.4 * H, rem: 1.6 * H, lehky: 3.5 * H, bdeni: 0.3 * H, vykon: 91, potreba: 8 * H },
         zatez: { probiha: true, zatez: 6.2, kroky: 4000 } } }],
     treninky: [{ id: 'w1', den: iso(ted), start: den(0, 9), konec: den(0, 10), sport: 'soccer', zatez: 11.5, tepPrumer: 140, tepMax: 180, kcal: 700, zony: [1, 5, 20, 20, 10, 4] }],
-    whoop: { nastaveno: true, propojeno: true, sync: { kdy: ted, chyba: '' } }, apple: { kdy: ted },
+    whoop: { nastaveno: true, propojeno: true, sync: { kdy: ted, chyba: '' } }, apple: { kdy: ted }, vaha: vahaZaznamy.slice(),
     rezim: { kofeinDo: '14:00', treninkDny: [], zapasTymy: ['A'], polozky: [{ id: 'kreatin', nazev: 'Kreatin', davka: '5 g', kdy: 'rano' },
       { id: 'kofein', nazev: 'Kofein', davka: 'před výkopem', kdy: 'zapas', jen: 'zapas' }, { id: 'horcik', nazev: 'Hořčík', davka: 'večer', kdy: 'vecer' }] } }),
   zdraviKlic: () => ({ klic: 'testovaci-klic-zdravi' }),
+  vaha: (d) => {
+    if (d.smazat != null) vahaZaznamy = vahaZaznamy.filter((x) => x.kdy !== Number(d.smazat));
+    else vahaZaznamy.push({ kdy: Date.now(), kg: Number(d.kg) });
+    return { zaznamy: vahaZaznamy.slice() };
+  },
   fotbal: () => ({ vKalendari: [], kalendar: null, data: { verze: 1, aktualizovano: new Date(ted).toISOString(), klub: 'FK Agro Vnorovy',
     tymy: [{ klic: 'A', nazev: 'A-tým', barva: '#2e7a4d' }, { klic: 'B', nazev: 'B-tým', barva: '#0f7c8c' }, { klic: 'dorost', nazev: 'Dorost', barva: '#a8620c' }],
     zapasy: [zapasFotbal('A', -6, 16, 'FK Agro Vnorovy', 'TJ Lysovice', '1:3'), zapasFotbal('A', 2, 15, 'FK Šardice', 'FK Agro Vnorovy', ''),
@@ -117,6 +122,7 @@ const motor = {
 const volano = [];
 let navrhZahozen = false;
 let reelyZverejneno = {};
+let vahaZaznamy = [];
 
 async function pripravMotor(page) {
   await page.route(MOTOR, async (route) => {
@@ -913,6 +919,58 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.waitForSelector('#dnes-mobil .reel-krok__popisek');
     jistota(await celyPopisek('#dnes-mobil .reel-krok__popisek'), 'popisek v kartě na Dnes není celý');
     await page.locator('#dnes-mobil .reel-krok').screenshot({ path: path.join(VYSTUP, 'telefon_dnes_reel.png') });
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  // ---------- Váha: zápis v kartě Zdraví (tlačítko i Enter) s časem zápisu, rozdíl, čára, nesmysl odmítnut, smazání; telefon přes „+“
+  await test('Váha na PC: zápis v kartě Zdraví s časem, rozdíl, čára, smazání', async () => {
+    vahaZaznamy = [{ kdy: Date.now() - 3 * 864e5, kg: 81.2 }];
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.click('#rail [data-cil="zdravi"]');
+    await page.waitForSelector('#zd-vaha [data-vaha-pole]');
+    jistota(/81,2/.test(await page.textContent('#zd-vaha')), 'poslední váha');
+    await page.fill('#zd-vaha [data-vaha-pole]', '80,4');
+    await page.click('#zd-vaha [data-vaha-zapsat]');
+    await page.waitForFunction(() => /80,4/.test(document.querySelector('#zd-vaha .vaha-ted').textContent));
+    jistota(volano.some((d) => d.akce === 'vaha' && d.kg === 80.4), 'kg do motoru');
+    const t = await page.textContent('#zd-vaha .vaha-ted');
+    jistota(/zapsáno dnes \d{1,2}:\d{2}/.test(t) && /−0,8 kg/.test(t), 'čas zápisu a rozdíl: ' + t);
+    jistota(await page.locator('#zd-vaha .graf-vahy').count() === 1 && await page.inputValue('#zd-vaha [data-vaha-pole]') === '', 'čára a prázdné pole');
+    await page.fill('#zd-vaha [data-vaha-pole]', '80,1');
+    await page.press('#zd-vaha [data-vaha-pole]', 'Enter');
+    await page.waitForFunction(() => /80,1/.test(document.querySelector('#zd-vaha .vaha-ted').textContent));
+    const pred = volano.filter((d) => d.akce === 'vaha').length;
+    await page.fill('#zd-vaha [data-vaha-pole]', 'osm');
+    await page.click('#zd-vaha [data-vaha-zapsat]');
+    await page.waitForFunction(() => /Napiš váhu/.test(document.getElementById('toast').textContent));
+    jistota(volano.filter((d) => d.akce === 'vaha').length === pred, 'nesmysl nešel do motoru');
+    await page.fill('#zd-vaha [data-vaha-pole]', '');
+    await page.locator('#zd-vaha').screenshot({ path: path.join(VYSTUP, 'pc_vaha.png') });
+    await page.click('#zd-vaha .vaha-seznam li:first-child [data-vaha-smazat]');
+    await page.waitForSelector('.okno-pozadi.videt [data-okno="ano"]');
+    await page.click('.okno-pozadi [data-okno="ano"]');
+    await page.waitForFunction(() => !/80,1 kg/.test(document.querySelector('#zd-vaha .vaha-seznam').textContent));
+    jistota(volano.some((d) => d.akce === 'vaha' && d.smazat), 'smazání do motoru');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  await test('Váha na telefonu: + → Váha → zápis s časem', async () => {
+    vahaZaznamy = [];
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
+    await page.goto(WEB);
+    await page.click('.lista [data-rychle]');
+    await page.click('[data-rychle-akce="vaha"]');
+    await page.waitForSelector('.okno-pozadi.videt .okno__pole input[inputmode="decimal"]');
+    await page.fill('.okno-pozadi .okno__pole input', '79,9');
+    await page.click('.okno-pozadi [data-okno="ano"]');
+    await page.waitForFunction(() => /Zapsáno 79,9 kg · dnes \d/.test(document.getElementById('toast').textContent));
+    jistota(volano.some((d) => d.akce === 'vaha' && d.kg === 79.9), 'kg z okna do motoru');
+    await page.click('.hlava-akce [data-cil="zdravi"]');
+    await page.waitForFunction(() => /79,9/.test((document.querySelector('#zd-vaha .vaha-ted') || {}).textContent || ''));
+    await page.locator('#zd-vaha').screenshot({ path: path.join(VYSTUP, 'telefon_vaha.png') });
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
   });

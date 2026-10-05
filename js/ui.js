@@ -66,7 +66,7 @@ let otevreneOkno = null;
 /**
  * Okno uprostřed (vzor CaseDraft): kroužek s ikonou, nadpis, text, šedé řádky, pole, dvě tlačítka.
  * o = { ikona, ton: 'ok'|'pozor'|'nebezpeci', nadpis, text, radky: [[ikona, text, vpravo]], html (vlastní obsah – už ošetřený),
- *       pole: { popisek, hodnota, placeholder, radku (víc řádků = textarea, odeslat Ctrl+Enter) }, siroke (širší okno),
+ *       pole: { popisek, hodnota, placeholder, radku (víc řádků = textarea, odeslat Ctrl+Enter), inputmode (např. decimal) }, siroke (širší okno),
  *       volby: [[hodnota, popisek, odstín?]] + vybrana (klepnutí na volbu vrátí její hodnotu),
  *       ano: 'Smazat', ne: 'Zrušit' (null = bez druhého tlačítka) }
  * Vrací Promise: true / false, s polem napsaný text / null.
@@ -78,7 +78,8 @@ export function okno(o) {
     pozadi.className = 'okno-pozadi';
     const vstup = o.pole && o.pole.radku > 1
       ? '<textarea class="field" rows="' + o.pole.radku + '" placeholder="' + esc(o.pole.placeholder || '') + '">' + esc(o.pole.hodnota || '') + '</textarea>'
-      : o.pole ? '<input class="field" value="' + esc(o.pole.hodnota || '') + '" placeholder="' + esc(o.pole.placeholder || '') + '" autocomplete="off">' : '';
+      : o.pole ? '<input class="field" value="' + esc(o.pole.hodnota || '') + '" placeholder="' + esc(o.pole.placeholder || '') + '" autocomplete="off"' +
+        (o.pole.inputmode ? ' inputmode="' + esc(o.pole.inputmode) + '"' : '') + '>' : '';
     pozadi.innerHTML = '<div class="okno' + (o.siroke ? ' okno--siroke' : '') + '" role="dialog" aria-modal="true" aria-labelledby="okno-nadpis">' +
       (o.ikona ? '<span class="okno__kruh okno__kruh--' + (o.ton || 'ok') + '">' + o.ikona + '</span>' : '') +
       '<h2 id="okno-nadpis">' + esc(o.nadpis) + '</h2>' + (o.text ? '<p>' + esc(o.text) + '</p>' : '') +

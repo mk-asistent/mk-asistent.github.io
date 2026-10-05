@@ -24,12 +24,13 @@
  *   Reely     – hotové reely z CLAUDE_SCHRANKA/REELY (zapisuje export z domácího PC): popisky, odkaz na video na Disku,
  *               stav „zveřejněno“ (vlastnost REELY_STAV)
  *   Zdraví    – WHOOP (API v2, OAuth – návrat přes doGet) + Apple Zdraví ze zkratky v iPhonu (akce zdraviApple, klíč
- *               ZDRAVI_KLIC); data po měsících v CLAUDE_SCHRANKA/ZDRAVI; upozornění přes ntfy (NTFY_TEMA, kazdouHodinu)
+ *               ZDRAVI_KLIC); data po měsících v CLAUDE_SCHRANKA/ZDRAVI; váha zapsaná z aplikace (ZDRAVI/VAHA.json,
+ *               i s časem zápisu); upozornění přes ntfy (NTFY_TEMA, kazdouHodinu)
  *
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.1';
+const VERZE = '2026-10-05.2';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -133,7 +134,8 @@ const AKCE = {
   navrhZahodit: function (d) { return zahoditNavrh_(d.id); },
   navrhyNastavit: function (d) { return nastavNavrhy_(d.rezim); },
   reely: function (d) { return reely_(!!d.znovu); },
-  reelStav: function (d) { return nastavStavReelu_(d.id, d.zverejneno); }
+  reelStav: function (d) { return nastavStavReelu_(d.id, d.zverejneno); },
+  vaha: function (d) { return vaha_(d); }
 };
 
 // ---------------------------------------------------------------- nastavení (spouští se ručně v editoru)
@@ -3491,7 +3493,52 @@ function zdravi_(znovu) {
   if (chybaSync) p.whoop.sync.chyba = chybaSync;
   p.apple = { kdy: Number(vlastnosti_().getProperty('APPLE_SYNC') || 0) };
   p.rezim = zdraviRezim_();
+  p.vaha = nactiVahu_(slozka).zaznamy;
   return p;
+}
+
+// ---- váha: ruční zápis z aplikace (Michal se váží jen občas), CLAUDE_SCHRANKA/ZDRAVI/VAHA.json { zaznamy: [{ kdy: ms, kg }] }
+
+function nactiVahu_(slozka) {
+  const it = slozka.getFilesByName('VAHA.json');
+  if (!it.hasNext()) return { soubor: null, zaznamy: [] };
+  const soubor = it.next();
+  let data = null;
+  try { data = JSON.parse(soubor.getBlob().getDataAsString('UTF-8')); } catch (chyba) { data = null; }
+  return { soubor: soubor, zaznamy: data && Array.isArray(data.zaznamy) ? data.zaznamy : [] };
+}
+
+/** „80,4“, „80.4 kg“, 80.44 → 80.4 (kg na desetiny); nesmysl nebo mimo 30–250 kg → null. */
+function vahaKg_(x) {
+  const m = /(\d{2,3})(?:[.,](\d+))?/.exec(String(x == null ? '' : x));
+  if (!m) return null;
+  const kg = Math.round(Number(m[1] + '.' + (m[2] || '0')) * 10) / 10;
+  return kg >= 30 && kg <= 250 ? kg : null;
+}
+
+/** Akce vaha: d.kg = zapsat (čas zápisu = teď), d.smazat = čas záznamu ke smazání (překlep). Vrací všechny záznamy. */
+function vaha_(d) {
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(30000);
+  try {
+    const slozka = slozkaZdravi_();
+    const v = nactiVahu_(slozka);
+    let zaznamy = v.zaznamy;
+    if (d.smazat != null) {
+      const kdy = Number(d.smazat);
+      zaznamy = zaznamy.filter(function (z) { return z.kdy !== kdy; });
+    } else {
+      const kg = vahaKg_(d.kg);
+      if (kg == null) throw new Error('Váha musí být číslo v kg (např. 80,4).');
+      zaznamy.push({ kdy: Date.now(), kg: kg });
+    }
+    zaznamy.sort(function (a, b) { return a.kdy - b.kdy; });
+    const obsah = JSON.stringify({ aktualizovano: Date.now(), zaznamy: zaznamy });
+    if (v.soubor) v.soubor.setContent(obsah); else slozka.createFile('VAHA.json', obsah, MimeType.PLAIN_TEXT);
+    return { zaznamy: zaznamy };
+  } finally {
+    zamek.releaseLock();
+  }
 }
 
 /**
