@@ -78,7 +78,14 @@ nepřečtených. Primární a Aktualizace jsou z Doručené (motor u konverzací
 ostatní se načtou až na klepnutí (`postaKategorie`, v Doručené za 30 dní, 5 min v mezipaměti; čísla `pocty` posílá motor
 s poštou). V záložkách kromě Primární je **Označit vše jako přečtené** (`postaPrectene`, nejvýš 100). **Přesunout do
 skupiny** (tlačítko u konverzace, klávesa `v`) = štítek Gmailu + pryč z Doručené jako „Přesunout do“ v Gmailu; jde i jen
-přidat štítek nebo ho odebrat (`postaPresunout`). Štítky jsou ve výběru nad seznamem pod „Skupiny“.
+přidat štítek nebo ho odebrat (`postaPresunout`), pole **Nová skupina** štítek rovnou založí (`novy: true`).
+Štítky jsou ve výběru nad seznamem pod „Skupiny“. Přehled od Clauda prochází i skupiny z vlastnosti `PREHLED_STITKY`
+(výchozí `VÝVOJ`), aby selhání automatizací neutekla, ani když je filtr dá mimo Doručenou.
+
+**Denní limit Gmailu** (5. 10. vyčerpaný – server obnovuje poštu každých 10 minut): souhrny konverzací se skládají ze
+zpráv jednoho `getMessagesForThreads`, metody vlákna (`isUnread`, `getLastMessageDate`, `isImportant`…) jsou každá
+zvlášť volání a v seznamech se nepoužívají (testy je počítají). Motor si pamatuje otisk Doručené (pořadí vláken,
+nepřečtená, návrhy od Clauda) – beze změny vrátí uložený seznam a zprávy nenačítá.
 
 **Přehled od Clauda** (balast přečte Claude): motor jednou za 4 hodiny (7–22 h, spouštěč `instagramKazdych10Min`) zapíše
 konverzace z Aktualizací, Promoakcí, Sociálních sítí a Fór za 2 dny (odesílatel, předmět, začátek textu bez odkazů) do
@@ -153,9 +160,12 @@ se zapomene.
   (akce `vaha`) ke každému zápisu uloží čas zápisu → `CLAUDE_SCHRANKA/ZDRAVI/VAHA.json`; karta ukáže poslední váhu
   s časem, rozdíl proti minulému vážení, čáru posledních 30 zápisů a 6 posledních zápisů (překlep jde smazat).
 - **Doplňky:** režim v `CLAUDE_SCHRANKA/ZDRAVI_REZIM.json` (položky s časem dne, `jen`: trenink / zapas / zatez,
-  `treninkDny`, `zapasTymy`, `kofeinDo`) – motor ho posílá se Zdravím, aplikace z něj skládá Doplňky dnes; odškrtnutí
-  se pamatuje v zařízení. Časy dne: rano, svacina, obed, pred, zapas, po, vecer. Skutečný režim je jen na Disku
-  (zdravotní údaje do repa nepatří).
+  `treninkDny`, `zapasTymy`, `kofeinDo`) – motor ho posílá se Zdravím, aplikace z něj skládá Doplňky dnes. Časy dne:
+  rano, svacina, obed, pred, zapas, po, vecer. **Odškrtnutí** jde přes motor (akce `doplnky`) do
+  `CLAUDE_SCHRANKA/ZDRAVI/DOPLNKY.json` (120 dní) – stejné na telefonu i PC; neodeslané změny čekají v zařízení
+  (`asistent.doplnkyCekajici`) a odejdou s dalším načtením Zdraví. Pod seznamem **Tento týden** (Po–Ne, plný /
+  částečný den, procento) a u položky „vzato/dní“ za týden. Skutečný režim je jen na Disku (zdravotní údaje do repa
+  nepatří).
 - **Upozornění do iPhonu** (ntfy, nepovinné): zapínají se v aplikaci **Nastavení → Upozornění** (motor vyrobí téma
   `NTFY_TEMA`, aplikace ho ukáže s návodem pro aplikaci ntfy a umí poslat zkušební). Kontroly běží **každých 10 minut**
   se spouštěčem `instagramKazdych10Min` (jiný spouštěč netřeba; starý `kazdouHodinu` dělá totéž): hoří v poště (6–22 h),
