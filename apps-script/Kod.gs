@@ -26,7 +26,9 @@
  *               spouštěč instagramKazdych10Min)
  *   Zdraví    – WHOOP (API v2, OAuth – návrat přes doGet) + Apple Zdraví ze zkratky v iPhonu (akce zdraviApple, klíč
  *               ZDRAVI_KLIC); data po měsících v CLAUDE_SCHRANKA/ZDRAVI; váha zapsaná z aplikace (ZDRAVI/VAHA.json,
- *               i s časem zápisu); upozornění přes ntfy (NTFY_TEMA, kazdouHodinu)
+ *               i s časem zápisu)
+ *   Upozornění – do iPhonu přes ntfy (NTFY_TEMA, zapíná aplikace); kontroly každých 10 minut se spouštěčem
+ *               instagramKazdych10Min (hoří v poště, výstrahy ČHMÚ, ranní souhrn, neděle, WHOOP, reel na Instagramu)
  *   Auto      – náklady a tankování v Michalově tabulce Google (vlastnost AUTO_TABULKA): čtení, zápis nových řádků,
  *               fotky účtenek do CLAUDE_SCHRANKA/AUTO/uctenky + text přes OCR Disku (služba Drive API);
  *               stav auta z MyŠkoda (CLAUDE_SCHRANKA/AUTO/myskoda.json – zapisuje domácí PC, NASTROJE\asistent\myskoda)
@@ -34,7 +36,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.10';
+const VERZE = '2026-10-05.11';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -73,18 +75,22 @@ function doPost(e) {
     } catch (chyba) {
       throw new Error('Nečitelný požadavek.');
     }
-    // zkratka Zdraví v iPhonu má vlastní klíč jen pro zápis dat (hlavní klíč otevírá poštu)
-    if (data.akce === 'zdraviApple') {
-      const klicZdravi = klicZdravi_();
-      if (klicZdravi && typeof data.klic === 'string' && data.klic === klicZdravi) {
+    // zkratka Zdraví v iPhonu má vlastní klíč jen pro zápis dat (hlavní klíč otevírá poštu). Mezery a odřádkování kolem
+    // klíče (kopírování v iPhonu) nevadí a klíč zkratky stačí i bez pole akce. Běžné požadavky aplikace (hlavní klíč)
+    // klíč zkratky vůbec nečtou.
+    const klicZpravy = typeof data.klic === 'string' ? data.klic.trim() : '';
+    const klicZdravi = data.akce === 'zdraviApple' || (klicZpravy && klicZpravy !== klicApi_()) ? klicZdravi_() : null;
+    const odZkratky = !!klicZdravi && klicZpravy === klicZdravi;
+    if (data.akce === 'zdraviApple' || odZkratky) {
+      if (odZkratky) {
         vystup = { ok: true, data: zapisApple_(data) };
       } else {
-        // zkratka běží potichu – výsledek posledního pokusu ukáže aplikace (Nastavení → Zdraví), klíč se nikam nezapisuje
-        const hlavni = typeof data.klic === 'string' && data.klic === klicApi_();
-        zapisPosledniApple_({ ok: false, pole: poleApple_(data), chyba: hlavni
+        // výsledek pokusu ukáže aplikace (Nastavení → Zdraví) a důvod dostane i zkratka – klíč se nikam nezapisuje
+        const zprava = klicZpravy && klicZpravy === klicApi_()
           ? 'Ve zkratce je hlavní klíč aplikace (otevírá poštu) – vyměň ho za klíč pro zkratku z Nastavení → Zdraví.'
-          : 'Klíč ve zkratce nesedí s klíčem pro zkratku (Nastavení → Zdraví → Ukázat klíč) – vlož ho znovu.' });
-        vystup = { ok: false, chyba: 'klic' };
+          : 'Klíč ve zkratce nesedí s klíčem pro zkratku (Nastavení → Zdraví → Ukázat klíč) – vlož ho znovu.';
+        zapisPosledniApple_({ ok: false, pole: poleApple_(data), chyba: zprava });
+        vystup = { ok: false, chyba: 'klic', zprava: zprava };
       }
       return ContentService.createTextOutput(JSON.stringify(vystup)).setMimeType(ContentService.MimeType.JSON);
     }
@@ -152,6 +158,10 @@ const AKCE = {
   reelNaplanovat: function (d) { return naplanujReel_(d.id, d.kdy, d.oznacit, d.popisek); },
   reelZrusitPlan: function (d) { return zrusPlanReelu_(d.id); },
   vaha: function (d) { return vaha_(d); },
+  upozorneni: function () { return upozorneniStav_(); },
+  upozorneniZapnout: function () { return upozorneniZapnout_(); },
+  upozorneniTest: function () { return { odeslano: upozorni_('Asistent', 'Zkušební upozornění ✓', ['white_check_mark'], 3) }; },
+  upozorneniVypnout: function () { return upozorneniVypnout_(); },
   auto: function () { return auto_(); },
   autoNastavit: function (d) { return autoNastavit_(d.odkaz); },
   autoZapsat: function (d) { return autoZapsat_(d); },
@@ -2186,8 +2196,15 @@ function overInstagram() {
   Logger.log('Pak: Spouštěče (budík vlevo) → Přidat spouštěč → instagramKazdych10Min → Časový → Minutový časovač → Každých 10 minut.');
 }
 
-/** Spouštěč každých 10 minut (Michal ho přidá v editoru): obnova klíče a zveřejnění reelu, který je na řadě (jeden za běh). */
+/** Spouštěč každých 10 minut (Michal ho přidá v editoru, jediný potřebný): nejdřív rychlé kontroly upozornění do iPhonu,
+ *  pak Instagram (čekání na zpracování videa může trvat minuty). */
 function instagramKazdych10Min() {
+  try { upozorneniKontrola_(); } catch (chyba) { /* příště */ }
+  instagramPlan_();
+}
+
+/** Obnova klíče a zveřejnění reelu, který je na řadě (jeden za běh). */
+function instagramPlan_() {
   if (!vlastnosti_().getProperty('IG_TOKEN')) return;
   try { igObnovKlic_(); } catch (chyba) { /* zkusí se zítra */ }
   const plan = planReelu_();
@@ -2217,8 +2234,12 @@ function igObnovKlic_() {
 function igZverejni_(id) {
   let z = planReelu_()[id];
   let soubor = null;
+  let reel = null;
   const nastav = function (zmena) { z = upravPlan_(function (plan) { plan[id] = Object.assign({}, plan[id], zmena); return plan[id]; }); };
-  const chyba = function (text) { nastav({ stav: 'chyba', chyba: String(text).slice(0, 150), kontejner: '' }); };
+  const chyba = function (text) {
+    nastav({ stav: 'chyba', chyba: String(text).slice(0, 150), kontejner: '' });
+    try { upozorni_('Reel nevyšel na Instagramu', (reel && reel.nazev ? reel.nazev + ' – ' : '') + 'důvod je v Asistentovi (Reely)', ['warning'], 4); } catch (e) { /* bez upozornění */ }
+  };
   const skryj = function () {
     try { if (soubor) soubor.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE); } catch (e) { /* zkusí se příště */ }
   };
@@ -2227,7 +2248,7 @@ function igZverejni_(id) {
     const pokusy = (z.pokusy || 0) + 1;
     if (pokusy >= IG_POKUSU) { skryj(); chyba(String((e && e.message) || e)); } else nastav({ pokusy: pokusy });
   };
-  const reel = nactiReely_().reely.filter(function (r) { return r.id === id; })[0];
+  reel = nactiReely_().reely.filter(function (r) { return r.id === id; })[0] || null;
   const m = reel && /\/file\/d\/([^/?#]+)/.exec(reel.odkaz || '');
   if (!m) { chyba('Video reelu na Disku není.'); return; }
   soubor = DriveApp.getFileById(m[1]);
@@ -2283,6 +2304,7 @@ function igZverejni_(id) {
   nastav({ stav: 'hotovo', media: media, odkaz: odkaz, zverejneno: Date.now(), kontejner: '', chyba: '' });
   vlastnosti_().deleteProperty(IG_POPISEK + id);
   nastavStavReelu_(id, true);
+  try { upozorni_('Reel je na Instagramu ✓', (reel && reel.nazev) || 'Reel', ['white_check_mark'], 3, odkaz); } catch (e) { /* bez upozornění */ }
 }
 
 // ---------------------------------------------------------------- Auto: náklady a tankování (Michalova tabulka Google)
@@ -4475,27 +4497,35 @@ const ZDRAVI_ = (function () {
 // ---------------------------------------------------------------- upozornění do iPhonu (ntfy, nepovinné)
 //
 // Když je ve vlastnostech skriptu NTFY_TEMA (náhodné jméno – kdo ho zná, čte), motor pošle krátké upozornění přes ntfy.sh
-// (aplikace ntfy v iPhonu, téma odebírat). Spouští ho funkce kazdouHodinu (spouštěč nastaví Michal v editoru: Spouštěče).
+// (aplikace ntfy v iPhonu, téma odebírat). Zapíná se v aplikaci (Nastavení → Upozornění). Kontroly běží každých 10 minut
+// se spouštěčem instagramKazdych10Min – jiný spouštěč není potřeba (kazdouHodinu zůstává pro starší hodinový spouštěč).
 
-function upozorni_(nadpis, text, tagy, priorita) {
+function upozorni_(nadpis, text, tagy, priorita, odkaz) {
   const tema = vlastnosti_().getProperty('NTFY_TEMA');
   if (!tema) return false;
   const r = UrlFetchApp.fetch('https://ntfy.sh/', { method: 'post', contentType: 'application/json', muteHttpExceptions: true,
     payload: JSON.stringify({ topic: tema, title: nadpis, message: text, tags: tagy || [], priority: priorita || 3,
-      click: vlastnosti_().getProperty('ADRESA_APLIKACE') || 'https://mk-asistent.github.io/' }) });
+      click: odkaz || vlastnosti_().getProperty('ADRESA_APLIKACE') || 'https://mk-asistent.github.io/' }) });
   return r.getResponseCode() === 200;
 }
 
-/** Spouštěč každou hodinu: WHOOP (nová připravenost ráno), výstrahy ČHMÚ (oranžová a vyšší), ranní souhrn dne
- *  a nové „hoří“ v poště (6–22 h). Všechno jen když je nastavené NTFY_TEMA. */
+/** Starý hodinový spouštěč – dělá totéž co kontrola každých 10 minut (stačí jeden z nich). */
 function kazdouHodinu() {
+  upozorneniKontrola_();
+}
+
+/** Kontroly pro upozornění (jen s NTFY_TEMA): nové „hoří“ v poště (6–22 h) a výstrahy ČHMÚ (oranžová a vyšší) hned,
+ *  ranní souhrn a nedělní přehled jednou, WHOOP (nová připravenost ráno) nejvýš jednou za hodinu. */
+function upozorneniKontrola_() {
   const p = vlastnosti_();
   if (!p.getProperty('NTFY_TEMA')) return;
   const hodina = Number(Utilities.formatDate(new Date(Date.now()), CASOVE_PASMO, 'H'));
   try { if (hodina >= 6 && hodina <= 22) horiVPoste_(); } catch (chyba) { /* příště */ }
   try { ranniSouhrn_(hodina); } catch (chyba) { /* příště */ }
   try { nedelniPrehled_(hodina); } catch (chyba) { /* příště */ }
-  if (whoopStav_().propojeno) {
+  const hodinaWhoop = Utilities.formatDate(new Date(Date.now()), CASOVE_PASMO, 'yyyy-MM-dd H');
+  if (p.getProperty('UPOZORNENI_WHOOP') !== hodinaWhoop && whoopStav_().propojeno) {
+    p.setProperty('UPOZORNENI_WHOOP', hodinaWhoop);
     try {
       const z = whoopSync_(3);
       const dnes = Utilities.formatDate(new Date(Date.now()), CASOVE_PASMO, 'yyyy-MM-dd');
@@ -4511,7 +4541,7 @@ function kazdouHodinu() {
     } catch (chyba) { /* zkusí se za hodinu */ }
   }
   try {
-    const pocasi = pocasi_(true);
+    const pocasi = pocasi_(false); // přehled drží 15 min → ČHMÚ se ptá nejvýš dvakrát za půl hodiny
     const ohlasene = JSON.parse(p.getProperty('OHLASENE_VYSTRAHY') || '{}');
     const ted = Date.now();
     const nove = {};
@@ -4650,17 +4680,29 @@ function ranniSouhrn_(hodina) {
   }
 }
 
-/** Spustit jednou v editoru (▶): vyrobí téma pro upozornění a vypíše ho do protokolu (vloží se do aplikace ntfy). */
+/** Náhradní cesta z editoru (▶) – jinak se upozornění zapínají v aplikaci (Nastavení → Upozornění). */
 function nastavUpozorneni() {
+  Logger.log('Téma pro aplikaci ntfy (server ntfy.sh): ' + upozorneniZapnout_().tema);
+  Logger.log('Kontroly běží se spouštěčem instagramKazdych10Min (každých 10 minut) – jiný spouštěč není potřeba.');
+}
+
+/** Stav pro aplikaci; téma vidí jen ten, kdo má klíč nebo účet (aplikace je za přihlášením). */
+function upozorneniStav_() {
+  const tema = vlastnosti_().getProperty('NTFY_TEMA');
+  return { zapnuto: !!tema, tema: tema || '' };
+}
+
+/** Zapnout z aplikace: vyrobí náhodné téma (když chybí) a pošle zkušební upozornění. */
+function upozorneniZapnout_() {
   const p = vlastnosti_();
-  let tema = p.getProperty('NTFY_TEMA');
-  if (!tema) {
-    tema = 'asistent-' + Utilities.getUuid().replace(/-/g, '').slice(0, 24);
-    p.setProperty('NTFY_TEMA', tema);
-  }
-  Logger.log('Téma pro aplikaci ntfy (server ntfy.sh): ' + tema);
-  Logger.log('Pak: Spouštěče (budík vlevo) → Přidat spouštěč → kazdouHodinu → Časový → Hodinový časovač → Každou hodinu.');
-  upozorni_('Asistent', 'Upozornění fungují ✓', ['white_check_mark'], 3);
+  if (!p.getProperty('NTFY_TEMA')) p.setProperty('NTFY_TEMA', 'asistent-' + Utilities.getUuid().replace(/-/g, '').slice(0, 24));
+  return Object.assign(upozorneniStav_(), { odeslano: upozorni_('Asistent', 'Upozornění fungují ✓', ['white_check_mark'], 3) });
+}
+
+/** Vypnout: téma pryč (po novém zapnutí vznikne jiné – v aplikaci ntfy ho pak odebírat znovu). */
+function upozorneniVypnout_() {
+  vlastnosti_().deleteProperty('NTFY_TEMA');
+  return upozorneniStav_();
 }
 
 // ---------------------------------------------------------------- mezipaměť (CacheService, po kusech)

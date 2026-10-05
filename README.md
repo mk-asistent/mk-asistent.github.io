@@ -131,7 +131,8 @@ se zapomene.
   `WHOOP_CLIENT_ID`, `WHOOP_CLIENT_SECRET`, `WHOOP_REDIRECT_URI` → v aplikaci Zdraví → **Propojit**. Tokeny spravuje motor.
 - **Apple Watch:** zkratka v iPhonu „Zdraví do Asistenta“ (spouští ji otevření aplikace WHOOP – zamčený iPhone data Zdraví
   nevydá) pošle denní hodnoty za 7 dní (`akce: zdraviApple`, vlastní klíč `ZDRAVI_KLIC` jen pro zápis – ukáže ho
-  Nastavení → Zdraví). Postup krok za krokem je přímo v aplikaci.
+  Nastavení → Zdraví). Postup krok za krokem je přímo v aplikaci. Mezery kolem klíče nevadí, klíč zkratky stačí i bez
+  pole `akce`; při chybě dostane zkratka v odpovědi i důvod (`zprava`, např. „ve zkratce je hlavní klíč aplikace“).
 - Data po měsících v `CLAUDE_SCHRANKA/ZDRAVI/RRRR-MM.json` (soukromý Disk, nikdy do gitu). Trénink se spáruje s událostí
   v kalendáři (zápas, trénink) a čísla z WHOOP jsou i v detailu zápasu.
 - **Váha:** ruční zápis v kartě Váha na stránce Zdraví (Enter nebo Zapsat) nebo na telefonu přes „+“ → Váha. Motor
@@ -140,10 +141,13 @@ se zapomene.
 - **Doplňky:** režim v `CLAUDE_SCHRANKA/ZDRAVI_REZIM.json` (položky s časem dne, `jen`: trenink / zapas / zatez,
   `treninkDny`, `zapasTymy`, `kofeinDo`) – motor ho posílá se Zdravím, aplikace z něj skládá Doplňky dnes; odškrtnutí
   se pamatuje v zařízení. Skutečný režim je jen na Disku (zdravotní údaje do repa nepatří).
-- **Upozornění (nepovinné):** v editoru spustit `nastavUpozorneni` (téma pro aplikaci ntfy) a přidat spouštěč
-  `kazdouHodinu` (hodinový) → ráno souhrn a připravenost, oranžové a vyšší výstrahy ČHMÚ, hoří v poště (jen počty)
-  a v neděli 19–21 h **přehled příštího týdne** (počty událostí po dnech, zápasy týmů, úkoly s termínem, předpověď) –
-  přes ntfy jdou jen počty a časy, žádné názvy událostí ani texty.
+- **Upozornění do iPhonu** (ntfy, nepovinné): zapínají se v aplikaci **Nastavení → Upozornění** (motor vyrobí téma
+  `NTFY_TEMA`, aplikace ho ukáže s návodem pro aplikaci ntfy a umí poslat zkušební). Kontroly běží **každých 10 minut**
+  se spouštěčem `instagramKazdych10Min` (jiný spouštěč netřeba; starý `kazdouHodinu` dělá totéž): hoří v poště (6–22 h),
+  oranžové a vyšší výstrahy ČHMÚ, reel zveřejněný na Instagramu (klepnutí otevře příspěvek) nebo když nevyšel, ráno
+  souhrn a připravenost, v neděli 19–21 h **přehled příštího týdne** (počty událostí po dnech, zápasy týmů, úkoly
+  s termínem, předpověď); WHOOP se kvůli upozornění stahuje nejvýš jednou za hodinu. Přes ntfy jdou jen počty a časy,
+  žádné názvy událostí ani texty.
 
 ## Instagram – naplánované reely
 Na stránce Reely jde reel **naplánovat na Instagram** (datum a čas, výchozí nejbližší 18:00). Motor ho v ten čas zveřejní
@@ -169,7 +173,8 @@ Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**
 - **Tankování z auta**: MyŠkoda historii tankování nemá – skript na PC ho pozná z rozdílu dvou čtení
   (dotankováno = změna nádrže + spotřeba jízd mezi čteními), den a stav km odhadne podle jízd (bez míst). Když v tabulce
   kolem toho dne tankování chybí, ukáže stránka Auto kartu **Auto hlásí tankování** s tlačítkem Zapsat (předvyplní den a km).
-- **Účtenka**: vyfotit → fotka do `CLAUDE_SCHRANKA/AUTO/uctenky`, text přes OCR Disku → předvyplněný zápis; v tabulce je
+- **Účtenka**: vyfotit nebo vybrat z Fotek (iPhone nabídne Fotky / Vyfotit / Soubory) → fotka do
+  `CLAUDE_SCHRANKA/AUTO/uctenky`, text přes OCR Disku → předvyplněný zápis; v tabulce je
   pak u poznámky odkaz „účtenka“ na fotku. Bez potvrzení se nic nezapíše.
 - Tabulka se propojí odkazem na stránce Auto (vlastnost `AUTO_TABULKA`). Motor k tomu potřebuje oprávnění k Tabulkám
   a službu Drive API – obojí je v `apps-script/appsscript.json`; po jeho vložení jednou spustit **`povolitTabulky`**.
@@ -177,7 +182,8 @@ Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**
 ## Nasazení motoru
 
 **Automaticky z PC** (od 5. 10. 2026): `python NASTROJE\asistent\motor\nasad_motor.py` – testy motoru → kontrola projektu
-na serveru (žádné cizí soubory, stejná oprávnění) → `clasp push` → nová verze stávajícího nasazení (adresa `…/exec` zůstává)
+na serveru (motor se tam jmenuje `Kód`, ostatní soubory – starý `Index.html` přehledové aplikace – pošle zpátky beze změny,
+takže push nic nesmaže; stejná oprávnění) → `clasp push` → nová verze stávajícího nasazení (adresa `…/exec` zůstává)
 → ověření, že adresa vrací novou verzi (`/exec?verze=1`). ID projektu a nasazení jsou jen v `nastaveni.json` vedle skriptu
 (mimo git). Jednorázově na každém PC: Google Apps Script API zapnuté (script.google.com/home/usersettings) a
 `npx -y @google/clasp@3.4.1 login`. Když přibude oprávnění, skript kód nahraje, ale nasazení počká, až Michal v editoru
@@ -205,7 +211,7 @@ Vlastnosti skriptu (⚙ → Vlastnosti skriptu) – všechny nepovinné kromě k
 | `POCASI` | jiné místo pro počasí (výchozí Veselí nad Moravou) |
 | `WHOOP_CLIENT_ID`, `WHOOP_CLIENT_SECRET`, `WHOOP_REDIRECT_URI` | propojení s WHOOP (zadá Michal sám) |
 | `ZDRAVI_KLIC` | klíč zkratky Zdraví (vytvoří aplikace v Nastavení → Zdraví) |
-| `NTFY_TEMA` | upozornění do iPhonu (vytvoří `nastavUpozorneni`) |
+| `NTFY_TEMA`, `UPOZORNENI_WHOOP` | upozornění do iPhonu (zapíná aplikace v Nastavení → Upozornění), poslední hodina stažení WHOOP pro upozornění |
 | `NAVRHY_ODPOVEDI` | návrhy odpovědí: obe / osobni / vypnuto (nastavuje aplikace) |
 | `DOCHAZKA_URL`, `DOCHAZKA_WEB` | odkud číst docházku dorostu (výchozí: odvodí se z webu dorostu) |
 | `POCASI_MISTA`, `POCASI_POLOHA` | místa podle polohy a poslední poloha pro upozornění (spravuje motor) |

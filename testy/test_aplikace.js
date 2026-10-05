@@ -81,6 +81,10 @@ const motor = {
     rezim: { kofeinDo: '14:00', treninkDny: [], zapasTymy: ['A'], polozky: [{ id: 'kreatin', nazev: 'Kreatin', davka: '5 g', kdy: 'rano' },
       { id: 'kofein', nazev: 'Kofein', davka: 'před výkopem', kdy: 'zapas', jen: 'zapas' }, { id: 'horcik', nazev: 'Hořčík', davka: 'večer', kdy: 'vecer' }] } }),
   zdraviKlic: () => ({ klic: 'testovaci-klic-zdravi' }),
+  upozorneni: () => Object.assign({}, upozorneniStav),
+  upozorneniZapnout: () => { upozorneniStav = { zapnuto: true, tema: 'asistent-testovaci-tema' }; upozorneniOdeslano++; return Object.assign({ odeslano: true }, upozorneniStav); },
+  upozorneniTest: () => { upozorneniOdeslano++; return { odeslano: upozorneniStav.zapnuto }; },
+  upozorneniVypnout: () => { upozorneniStav = { zapnuto: false, tema: '' }; return Object.assign({}, upozorneniStav); },
   vaha: (d) => {
     if (d.smazat != null) vahaZaznamy = vahaZaznamy.filter((x) => x.kdy !== Number(d.smazat));
     else vahaZaznamy.push({ kdy: Date.now(), kg: Number(d.kg) });
@@ -177,6 +181,7 @@ const autoData = {
 let reelyZverejneno = {};
 const reelyPlan = {}, reelyPopisky = {}, reelyNaplanovano = [];
 let vahaZaznamy = [];
+let upozorneniStav = { zapnuto: false, tema: '' }, upozorneniOdeslano = 0;
 
 // ---------------------------------------------------------------- napodobený Firebase (účet a kopie dat ze serveru)
 // Knihovny z gstatic nahradí malé moduly níž (page.route); přihlášení, databáze a funkce běží tady v testu
@@ -1370,6 +1375,7 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.click('.lista__plus');
     await page.waitForSelector('[data-panel="rychle"] [data-rychle-akce="tankovani"]');
     jistota(await page.locator('[data-panel="rychle"] .rychle__foto input[data-auto-foto]').count() === 1, 'účtenka v „+“');
+    jistota(await page.getAttribute('[data-panel="rychle"] .rychle__foto input[data-auto-foto]', 'capture') === null, 'účtenka i z Fotek (bez vynuceného fotoaparátu)');
     await page.click('[data-panel="rychle"] [data-rychle-akce="tankovani"]');
     await page.waitForSelector('[data-panel="auto-zapis"] [data-az="castka"]');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
@@ -1409,6 +1415,34 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.click('[data-panel="nastaveni"] [data-nast-sekce="zdravi"]');
     jistota(await page.locator('details[data-detail="zkratka-zdravi"][open]').count() === 1, 'návod se po překreslení zavřel');
     jistota(/Teprve potom/.test(await page.textContent('details[data-detail="zkratka-zdravi"]')), 'návod: Zkratky se ve Zdraví objeví až po prvním spuštění');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  // ---------- Nastavení: upozornění do iPhonu bez editoru motoru
+  await test('Nastavení: upozornění – zapnout, téma pro ntfy, zkušební, vypnout (bez editoru a spouštěčů)', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.click('#rail [data-otevri-nastaveni]');
+    await page.click('[data-panel="nastaveni"] [data-nast-sekce="upozorneni"]');
+    const S = '[data-panel="nastaveni"] [data-sekce="upozorneni"] ';
+    await page.waitForSelector(S + '[data-nast="upozorneni-zapnout"]');
+    jistota(!/kazdouHodinu|editoru/.test(await page.textContent(S)), 'návod bez editoru a spouštěčů');
+    await page.click(S + '[data-nast="upozorneni-zapnout"]');
+    await page.waitForSelector(S + '[data-ntfy-tema]');
+    jistota(await page.inputValue(S + '[data-ntfy-tema]') === 'asistent-testovaci-tema', 'téma v okně');
+    const pred = upozorneniOdeslano;
+    await page.click(S + '[data-nast="upozorneni-test"]');
+    await page.waitForFunction(() => /Zkušební upozornění odesláno/.test(document.body.textContent));
+    jistota(upozorneniOdeslano === pred + 1, 'zkušební do motoru');
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_nastaveni_upozorneni.png') });
+    await page.click(S + '[data-nast="upozorneni-vypnout"]');
+    await page.click('.okno-pozadi [data-okno="ano"]');
+    await page.waitForSelector(S + '[data-nast="upozorneni-zapnout"]');
+    jistota(!upozorneniStav.zapnuto, 'vypnuto v motoru');
+    // zkratka Zdraví: návod na upozornění už v záložce Zdraví není
+    await page.click('[data-panel="nastaveni"] [data-nast-sekce="zdravi"]');
+    jistota(!/nastavUpozorneni/.test(await page.textContent('[data-panel="nastaveni"]')), 'starý návod pryč');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
   });

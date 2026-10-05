@@ -1265,10 +1265,18 @@ test('zdraví: přehled po dnech (den probuzení), recovery přes spánek, zát�
 
 test('zdraví: zkratka Apple Zdraví – vlastní klíč, česká čísla a data, spánek přes půlnoc, data zůstanou vedle WHOOP', () => {
   const p = zdraviProstredi();
-  assert.deepStrictEqual(p.volej('zdraviApple', { kroky: '2026-10-01T00:00:00+02:00=11 873' }, 'spatny'), { ok: false, chyba: 'klic' });
-  assert.deepStrictEqual(p.volej('zdraviApple', { kroky: '…' }, KLIC), { ok: false, chyba: 'klic' }); // hlavní klíč tu neplatí
+  let r = p.volej('zdraviApple', { kroky: '2026-10-01T00:00:00+02:00=11 873' }, 'spatny');
+  assert.deepStrictEqual([r.ok, r.chyba, /nesedí/.test(r.zprava)], [false, 'klic', true], JSON.stringify(r));
+  r = p.volej('zdraviApple', { kroky: '…' }, KLIC); // hlavní klíč tu neplatí – zkratka dostane i důvod
+  assert.deepStrictEqual([r.ok, r.chyba, /hlavní klíč/.test(r.zprava)], [false, 'klic', true], JSON.stringify(r));
+  assert.ok(JSON.stringify(r).indexOf(KLIC) < 0, 'klíč se v odpovědi nevrací');
   const k = p.volej('zdraviKlic').data.klic;
   assert.ok(k && k.length >= 32);
+  // klíč s mezerou a odřádkováním (kopírování v iPhonu) a zpráva bez pole akce – pozná se podle klíče zkratky
+  r = p.surovy(JSON.stringify({ klic: ' ' + k + '\n', kroky_dny: '1. 10. 2026 v 0:00', kroky: '6 000' }));
+  assert.deepStrictEqual([r.ok, r.data && r.data.ulozeno], [true, 1], JSON.stringify(r));
+  // běžné požadavky aplikace s hlavním klíčem jdou dál beze změny
+  assert.strictEqual(p.volej('zdravi').ok, true);
   const o = p.volej('zdraviApple', {
     verze: '1',
     kroky: '2026-10-01T00:00:00+02:00=11\u00a0873;2026-10-02T00:00:00+02:00=512',
@@ -1345,6 +1353,33 @@ test('upozornění: bez tématu nic; hoří v poště jen počtem (bez jmen a p�
   p.nastavCas(Date.parse('2026-10-02T08:30:00+02:00'));
   p.ctx.kazdouHodinu();
   assert.strictEqual(p.log.ntfy.length, pocet);
+});
+
+test('upozornění z aplikace: zapnout (téma + zkušební zpráva), stav, test, vypnout; hlídá je spouštěč každých 10 minut', () => {
+  const p = prostredi();
+  p.chmu.cap = 'cap_rijen.xml';
+  p.nastavCas(Date.parse('2026-10-02T07:30:00+02:00'));
+  assert.deepStrictEqual(json(p.volej('upozorneni').data), { zapnuto: false, tema: '' });
+  assert.strictEqual(p.volej('upozorneniTest').data.odeslano, false, 'bez tématu nic');
+  const z = p.volej('upozorneniZapnout').data;
+  assert.ok(z.zapnuto && /^asistent-[0-9a-f]{24}$/.test(z.tema) && z.odeslano, JSON.stringify(z));
+  assert.deepStrictEqual([p.log.ntfy.length, p.log.ntfy[0].topic, p.log.ntfy[0].message], [1, z.tema, 'Upozornění fungují ✓']);
+  assert.strictEqual(p.volej('upozorneniZapnout').data.tema, z.tema, 'podruhé stejné téma');
+  // spouštěč každých 10 minut (instagramKazdych10Min) hlídá poštu i bez Instagramu
+  p.vlakna.v1 = p.vlakno('v1', [p.zprava({ id: 'm1', od: 'Trenér <trener@klub.test>', predmet: 'Hřiště', text: 'Urgentně: nefunguje osvětlení, ozvi se.', kdy: Date.parse('2026-10-02T07:20:00+02:00'), neprectena: true })], true);
+  p.ctx.instagramKazdych10Min();
+  assert.ok(p.log.ntfy.some((x) => /Hoří/.test(x.title)), JSON.stringify(p.log.ntfy));
+  const pocet = p.log.ntfy.length;
+  p.nastavCas(Date.parse('2026-10-02T07:40:00+02:00'));
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(p.log.ntfy.length, pocet, 'za 10 minut nic znovu');
+  assert.strictEqual(p.volej('upozorneniTest').data.odeslano, true);
+  assert.deepStrictEqual(json(p.volej('upozorneniVypnout').data), { zapnuto: false, tema: '' });
+  p.nastavCas(Date.parse('2026-10-02T07:50:00+02:00'));
+  p.vlakna.v2 = p.vlakno('v2', [p.zprava({ id: 'm2', od: 'Trenér <trener@klub.test>', predmet: 'Zápas', text: 'Urgentně: změna času, ozvi se.', kdy: Date.parse('2026-10-02T07:45:00+02:00'), neprectena: true })], true);
+  const poVypnuti = p.log.ntfy.length;
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(p.log.ntfy.length, poVypnuti, 'po vypnutí nic');
 });
 
 // ---------------------------------------------------------------- počasí (ČHMÚ)
@@ -1710,9 +1745,22 @@ test('Instagram: spouštěč zveřejní reel – tajný odkaz jen na dobu stahov
   const plan = JSON.parse(p.vlastnosti.get('REELY_PLAN')).reel_dorost_tesany;
   assert.deepStrictEqual([plan.stav, plan.odkaz, plan.media], ['hotovo', 'https://www.instagram.com/reel/TEST123/', 'media-1']);
   assert.ok(JSON.parse(p.vlastnosti.get('REELY_STAV')).reel_dorost_tesany, 'označeno jako zveřejněné');
+  assert.ok(!p.log.ntfy, 'bez zapnutých upozornění nic');
   // další běh nic nezveřejní znovu
   p.ctx.instagramKazdych10Min();
   assert.strictEqual(p.ig.zverejneno, 1);
+});
+
+test('Instagram: se zapnutými upozorněními přijde „Reel je na Instagramu“ s odkazem na příspěvek', () => {
+  const p = prostredi();
+  reelyProInstagram(p);
+  p.vlastnosti.set('IG_TOKEN', 'testovaci-ig-klic');
+  p.vlastnosti.set('IG_TOKEN_OBNOVA', String(Date.now()));
+  p.volej('upozorneniZapnout');
+  p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: Date.now() });
+  p.ctx.instagramKazdych10Min();
+  const u = p.log.ntfy.find((x) => x.title === 'Reel je na Instagramu ✓');
+  assert.ok(u && u.click === 'https://www.instagram.com/reel/TEST123/', JSON.stringify(p.log.ntfy));
 });
 
 test('Instagram: video se zpracovává dlouho → příští běh; odmítnuté video → chyba a sdílení pryč', () => {
@@ -1747,10 +1795,12 @@ test('Instagram: video se zpracovává dlouho → příští běh; odmítnuté v
   p2.vlastnosti.set('IG_TOKEN_OBNOVA', String(Date.now()));
   p2.ig.chybaKontejneru = 'Invalid OAuth access token';
   p2.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: Date.now() });
+  p2.volej('upozorneniZapnout');
   p2.ctx.instagramKazdych10Min();
   const plan2 = JSON.parse(p2.vlastnosti.get('REELY_PLAN')).reel_dorost_tesany;
   assert.deepStrictEqual([plan2.stav, /OAuth/.test(plan2.chyba)], ['chyba', true]);
   assert.deepStrictEqual(video2.sdileni, ['ANYONE_WITH_LINK:VIEW', 'PRIVATE:NONE']);
+  assert.ok(p2.log.ntfy.some((x) => x.title === 'Reel nevyšel na Instagramu' && x.priority === 4), JSON.stringify(p2.log.ntfy));
 });
 
 // ---- auto: tabulka Google (vymyšlená čísla – repo je veřejné)

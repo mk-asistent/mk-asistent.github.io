@@ -215,9 +215,10 @@ function akceHtml() {
   return '<div class="auto-akce">' +
     '<button type="button" class="btn btn--primary" data-auto-zapis="tankovani">' + IKONY.palivo + '<span>Tankování</span></button>' +
     '<button type="button" class="btn btn--ghost" data-auto-zapis="naklad">' + IKONY.plus + '<span>Výdaj</span></button>' +
-    // popisek s polem pro fotku: fotoaparát otevře rovnou klepnutí (iPhone programové kliknutí neotevře)
-    (umiMotor('autoUctenka') ? '<label class="btn btn--ghost auto-foto">' + IKONY.foto + '<span>Vyfotit účtenku</span>' +
-      '<input type="file" accept="image/*" capture="environment" data-auto-foto hidden></label>' : '') + '</div>';
+    // popisek s polem pro fotku: klepnutí otevře nabídku iPhonu – Fotky, Vyfotit, Soubory (programové kliknutí iPhone neotevře;
+    // bez capture, ať jde vybrat i starší fotka účtenky z Fotek)
+    (umiMotor('autoUctenka') ? '<label class="btn btn--ghost auto-foto">' + IKONY.foto + '<span>Účtenka z fotky</span>' +
+      '<input type="file" accept="image/*" data-auto-foto hidden></label>' : '') + '</div>';
 }
 
 /** Cena nafty v čase – čára s tečkami, nejvyšší a nejnižší cena. */

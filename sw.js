@@ -3,7 +3,7 @@
 // nejde nebo trvá déle než 3 s, použije se poslední uložená kopie. Data z motoru (script.google.com)
 // a z Firebase (googleapis.com, knihovny z gstatic.com) jdou mimo – ty se sem nikdy neukládají.
 
-const VERZE = 'asistent-2026-10-05-tankovani-den';
+const VERZE = 'asistent-2026-10-05-upozorneni';
 const SOUBORY = [
   './', 'index.html', 'app.css', 'manifest.webmanifest',
   'js/app.js', 'js/api.js', 'js/pomocne.js', 'js/stav.js', 'js/ui.js', 'js/ikony.js', 'js/panely.js',

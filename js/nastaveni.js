@@ -19,7 +19,8 @@ export const VERZE_APLIKACE = '2026-10-05';
 // předvolby hlavní barvy – tlumené tmavé odstíny jako ve stylu Fixtrack (lesní zelená je výchozí)
 const AKCENTY = [['#1f3d2c', 'Lesní zelená'], ['#1d4250', 'Ocelová'], ['#2a3f8f', 'Modrá'], ['#4b2d63', 'Švestková'], ['#7a3a1d', 'Cihlová'], ['#2b2f33', 'Grafitová']];
 const BARVY_KALENDARE = ['#2f5bd3', '#0f7c8c', '#2e7a4d', '#a8620c', '#8e5bd3', '#c0392b', '#b5407a', '#37474f'];
-const n = { upravaPripojeni: false, ukazKod: false, novaBarva: BARVY_KALENDARE[1], pracuje: false, sekce: 'pripojeni', klicZdravi: '' };
+const n = { upravaPripojeni: false, ukazKod: false, novaBarva: BARVY_KALENDARE[1], pracuje: false, sekce: 'pripojeni', klicZdravi: '',
+  upozorneni: null, upozorneniNacitam: false, upozorneniChyba: '' };
 // Rozbalené návody přežijí překreslení okna (data z motoru dorazí za pár vteřin a okno se překreslí – návod se
 // dřív zavřel a stránka „uskočila“ zpět, Michal 5. 10.). Pamatuje se, co Michal sám rozbalil nebo zavřel.
 const rozbaleno = {};
@@ -33,7 +34,8 @@ document.addEventListener('toggle', (e) => {
 }, true); // toggle nebublá – zachytit cestou dolů
 
 // záložky okna Nastavení – vždy je vidět jen jedna
-const ZALOZKY = [['pripojeni', 'Připojení'], ['posta', 'Pošta'], ['kalendare', 'Kalendáře'], ['pocasi', 'Počasí'], ['zdravi', 'Zdraví'], ['vzhled', 'Vzhled'], ['aplikace', 'Aplikace']];
+const ZALOZKY = [['pripojeni', 'Připojení'], ['posta', 'Pošta'], ['kalendare', 'Kalendáře'], ['pocasi', 'Počasí'], ['zdravi', 'Zdraví'], ['upozorneni', 'Upozornění'],
+  ['vzhled', 'Vzhled'], ['aplikace', 'Aplikace']];
 
 // ---------------------------------------------------------------- vzhled
 
@@ -498,16 +500,54 @@ function sekceZdravi() {
     '<li>Zkratku jednou spusť (▶). iPhone se zeptá na <b>přístup ke Zdraví</b> → zapni všechny údaje → Povolit. <i>Teprve potom</i> se Zkratky objeví ' +
       'v aplikaci Zdraví → profil → Soukromí → Aplikace (tam jde přístup později změnit) – dřív tam nejsou.</li>' +
     '<li>Automatizace → <b>+</b> → Vytvořit osobní automatizaci → <b>Aplikace</b> → WHOOP → je otevřená → <b>Spustit okamžitě</b> → zkratka výš.</li></ol></details>';
-  h += '<h3>Upozornění do iPhonu</h3>' + detail('upozorneni') + '<summary>Ráno připravenost, výstrahy ČHMÚ (nepovinné, aplikace ntfy)</summary><ol class="kroky">' +
-    '<li>V editoru motoru spusť funkci <b>nastavUpozorneni</b> – v protokolu je téma (jméno kanálu, funguje jako heslo).</li>' +
-    '<li>iPhone: App Store → <b>ntfy</b> → + → téma z protokolu, server ntfy.sh → povol oznámení.</li>' +
-    '<li>Editor → Spouštěče (budík) → Přidat spouštěč → <b>kazdouHodinu</b> → Časový → Hodinový časovač → Každou hodinu.</li></ol></details>';
   return h + '</section>';
+}
+
+// Upozornění do iPhonu přes ntfy: zapnutí bez editoru motoru (téma vyrobí motor, hlídá každých 10 minut se spouštěčem Instagramu)
+function sekceUpozorneni() {
+  let h = '<section class="card nast-sekce" data-sekce="upozorneni"><h3>Upozornění do iPhonu</h3>';
+  if (staryMotor()) return h + '<p>Upozornění ukáže nová verze motoru.</p>' + novaVerzeMotoruHtml() + '</section>';
+  if (!umiMotor('upozorneniZapnout')) return h + '<p>Zapnutí upozornění ukáže nová verze motoru.</p></section>';
+  h += '<p class="napoveda">Do 10 minut: 🔥 nová konverzace, která hoří (6–22 h), ⚠ výstraha ČHMÚ (oranžová a vyšší), reel zveřejněný ' +
+    'na Instagramu, nebo když nevyšel. Ráno souhrn dne s připraveností, v neděli večer přehled týdne. Jde to přes službu ntfy.sh – ' +
+    'posílají se jen počty a časy, žádná jména, předměty ani texty.</p>';
+  const u = n.upozorneni;
+  if (!u) {
+    if (n.upozorneniChyba) {
+      return h + '<p class="nast-stav chyba"><i></i>' + esc(n.upozorneniChyba) + '</p>' +
+        '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="upozorneni-nacist">Zkusit znovu</button></div></section>';
+    }
+    if (!n.upozorneniNacitam) setTimeout(nactiUpozorneni);
+    return h + '<p class="muted">Načítám…</p></section>';
+  }
+  if (!u.zapnuto) {
+    return h + '<p class="nast-stav"><i></i>Vypnuto</p>' +
+      '<div class="akce"><button type="button" class="btn btn--primary btn--sm" data-nast="upozorneni-zapnout">Zapnout upozornění</button></div></section>';
+  }
+  return h + '<p class="nast-stav ok"><i></i>Zapnuto – motor hlídá každých 10 minut</p>' +
+    '<label><span class="label">Téma pro aplikaci ntfy (funguje jako heslo – nikam ho neposílej)</span>' +
+    '<input class="field kod-pripojeni" data-ntfy-tema readonly value="' + esc(u.tema) + '"></label>' +
+    '<ol class="kroky napoveda"><li>V iPhonu nainstaluj z App Store aplikaci <b>ntfy</b>.</li>' +
+    '<li>V ntfy klepni na <b>+</b> → do pole <b>Topic</b> vlož téma (Kopírovat téma) → server nech <b>ntfy.sh</b> → Subscribe → <b>povol oznámení</b>.</li>' +
+    '<li>Klepni na <b>Poslat zkušební</b> – do pár vteřin přijde „Zkušební upozornění ✓“.</li></ol>' +
+    '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="upozorneni-vypnout">Vypnout</button>' +
+    '<button type="button" class="btn btn--ghost btn--sm" data-nast="upozorneni-test">Poslat zkušební</button>' +
+    '<button type="button" class="btn btn--primary btn--sm" data-nast="upozorneni-kopirovat">Kopírovat téma</button></div></section>';
+}
+
+function nactiUpozorneni() {
+  if (n.upozorneniNacitam) return;
+  n.upozorneniNacitam = true;
+  volej('upozorneni')
+    .then((u) => { n.upozorneni = u; n.upozorneniChyba = ''; })
+    .catch((e) => { n.upozorneniChyba = e.message; })
+    .finally(() => { n.upozorneniNacitam = false; if (n.sekce === 'upozorneni') obnovPanel('nastaveni'); });
 }
 
 function nastaveniHtml() {
   const s = ZALOZKY.some((z) => z[0] === n.sekce) ? n.sekce : 'pripojeni';
-  const obsah = { pripojeni: sekcePripojeni, posta: sekcePosty, kalendare: sekceKalendaru, pocasi: sekcePocasi, zdravi: sekceZdravi, vzhled: sekceVzhledu, aplikace: sekceAplikace }[s]();
+  const obsah = { pripojeni: sekcePripojeni, posta: sekcePosty, kalendare: sekceKalendaru, pocasi: sekcePocasi, zdravi: sekceZdravi,
+    upozorneni: sekceUpozorneni, vzhled: sekceVzhledu, aplikace: sekceAplikace }[s]();
   return '<div class="nast-zalozky" role="tablist" aria-label="Části nastavení">' + ZALOZKY.map((z) =>
     '<button type="button" class="chip" role="tab" data-nast-sekce="' + z[0] + '" aria-selected="' + (z[0] === s) + '" aria-pressed="' + (z[0] === s) + '">' + z[1] +
     (z[0] === 'pripojeni' && (staryMotor() || stav.chyby.info) ? ' <i class="tecka"></i>' : '') + '</button>').join('') + '</div>' +
@@ -624,6 +664,34 @@ export function klikNastaveni(el) {
     });
     return true;
   }
+  if (akce === 'upozorneni-zapnout' || akce === 'upozorneni-test') {
+    const zapnout = akce === 'upozorneni-zapnout';
+    el.disabled = true;
+    volej(zapnout ? 'upozorneniZapnout' : 'upozorneniTest')
+      .then((d) => {
+        if (zapnout) n.upozorneni = { zapnuto: d.zapnuto, tema: d.tema };
+        if (zapnout) toast('Upozornění zapnutá – přidej téma v aplikaci ntfy a pošli zkušební');
+        else toast(d.odeslano ? 'Zkušební upozornění odesláno – mělo by přijít do pár vteřin' : 'Upozornění se nepodařilo odeslat (ntfy.sh)', !d.odeslano);
+        obnovPanel('nastaveni');
+      })
+      .catch((e) => { el.disabled = false; toast(e.message, true); });
+    return true;
+  }
+  if (akce === 'upozorneni-kopirovat') {
+    const pole = panel.querySelector('[data-ntfy-tema]');
+    const hotovo = () => toast('Téma zkopírované – v ntfy ho vlož do pole Topic');
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(pole.value).then(hotovo, () => { pole.select(); toast('Označeno – zkopíruj'); });
+    else { pole.select(); toast('Označeno – zkopíruj'); }
+    return true;
+  }
+  if (akce === 'upozorneni-vypnout') {
+    potvrd('Vypnout upozornění?', { text: 'Motor přestane posílat. Po novém zapnutí vznikne jiné téma – v ntfy ho pak přidáš znovu.', ano: 'Vypnout' }).then((ano) => {
+      if (!ano) return;
+      volej('upozorneniVypnout').then((u) => { n.upozorneni = u; obnovPanel('nastaveni'); toast('Upozornění vypnutá'); }).catch((e) => toast(e.message, true));
+    });
+    return true;
+  }
+  if (akce === 'upozorneni-nacist') { n.upozorneniChyba = ''; nactiUpozorneni(); obnovPanel('nastaveni'); return true; }
   if (akce === 'zdravi-klic-kopirovat') {
     const pole = panel.querySelector('[data-klic-zdravi]');
     const hotovo = () => toast('Klíč zkopírovaný – vlož ho do zkratky do pole klic');

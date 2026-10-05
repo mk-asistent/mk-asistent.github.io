@@ -256,6 +256,7 @@ const reelyUkazka = [
 ];
 const reelyZverejneno = { reel_dorost_kyjov: iso(pridejDny(dnes, minulaNedele + 1)) };
 const reelyPlan = {}, reelyPopisky = {};
+let upozorneniUkazka = { zapnuto: false, tema: '' };
 
 /** Váha v ukázce: občasné ranní vážení za poslední měsíc (vymyšlené hodnoty). */
 let vahaUkazka = [[-33, 81.3], [-26, 81.0], [-19, 80.7], [-12, 80.9], [-6, 80.5], [-1, 80.2]].map((x) => ({ kdy: den(x[0], 6, 40 + x[0] % 7), kg: x[1] }));
@@ -555,6 +556,10 @@ const akce = {
   whoopPropojit: () => { throw new Error('V ukázce se WHOOP nepropojuje – po připojení motoru to půjde.'); },
   whoopOdpojit: () => zdraviUkazka().whoop,
   zdraviKlic: () => ({ klic: 'ukazka-klic-pro-zkratku-zdravi-0000' }),
+  upozorneni: () => kopie(upozorneniUkazka),
+  upozorneniZapnout: () => { upozorneniUkazka = { zapnuto: true, tema: 'asistent-ukazka-0000' }; return Object.assign(kopie(upozorneniUkazka), { odeslano: false }); },
+  upozorneniTest: () => ({ odeslano: false }),
+  upozorneniVypnout: () => { upozorneniUkazka = { zapnuto: false, tema: '' }; return kopie(upozorneniUkazka); },
   pocasi: () => {
     // ukázka: zítra odpoledne žluté bouřky, jinak klid; předpověď na 4 dny jako od ČHMÚ
     const dnyPred = [['slunce', 'Převážně jasno', [19, 23], null], ['bourka', 'Odpoledne bouřky', [24, 28], [12, 15]],
