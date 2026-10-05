@@ -957,6 +957,25 @@ async function novaStranka(prohlizec, v, motiv) {
     await ctx.close();
   });
 
+  for (const v of [VELIKOSTI[3], VELIKOSTI[0]]) {
+    await test(v.nazev + ': Váha na Dnes – zápis z hlavní stránky s časem', async () => {
+      vahaZaznamy = [{ kdy: Date.now() - 2 * 864e5, kg: 81.5 }];
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, v);
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-vaha:not([hidden]) [data-vaha-pole]');
+      jistota(/81,5/.test(await page.textContent('#dl-vaha')), 'poslední váha na Dnes');
+      await page.fill('#dl-vaha [data-vaha-pole]', '81,1');
+      await page.press('#dl-vaha [data-vaha-pole]', 'Enter');
+      await page.waitForFunction(() => /81,1/.test(document.querySelector('#dl-vaha .vaha-ted').textContent));
+      const t = await page.textContent('#dl-vaha .vaha-ted');
+      jistota(/zapsáno dnes \d{1,2}:\d{2}/.test(t) && /−0,4 kg/.test(t), 'čas a rozdíl na Dnes: ' + t);
+      jistota(await page.inputValue('#dl-vaha [data-vaha-pole]') === '', 'pole po zápisu prázdné');
+      await page.locator('#dl-vaha').screenshot({ path: path.join(VYSTUP, v.nazev + '_dnes_vaha.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    });
+  }
+
   await test('Váha na telefonu: + → Váha → zápis s časem', async () => {
     vahaZaznamy = [];
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);

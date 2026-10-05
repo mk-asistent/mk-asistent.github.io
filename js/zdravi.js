@@ -326,17 +326,30 @@ function grafVahy(z) {
     '<text class="graf-vahy__popis" x="' + (W - P) + '" y="' + (H + 14) + '" text-anchor="end">' + esc(dm(t1)) + '</text></svg>';
 }
 
+/** Poslední váha s časem zápisu a rozdílem proti minulému vážení (karta ve Zdraví i na Dnes). */
+function posledniVahaHtml(z) {
+  const posl = z[z.length - 1], pred = z[z.length - 2];
+  if (!posl) return '<p class="prazdne vaha-prazdne">Zatím žádný zápis. Napiš váhu – uloží se i s časem, kdy jsi ji zapsal.</p>';
+  const rozdil = pred ? Math.round((posl.kg - pred.kg) * 10) / 10 : null;
+  return '<p class="vaha-ted"><b class="cisla">' + kgCz(posl.kg) + '<small>kg</small></b><span>zapsáno ' + esc(kdyZapsano(posl.kdy)) +
+    (rozdil != null ? '<br><em>' + (rozdil > 0 ? '+' : rozdil < 0 ? '−' : '±') + kgCz(Math.abs(rozdil)) + ' kg</em> proti ' + esc(kdyZapsano(pred.kdy)) : '') + '</span></p>';
+}
+
+function vahaZapisHtml() {
+  return '<div class="vaha-zapis"><input class="field" data-vaha-pole inputmode="decimal" enterkeyhint="done" autocomplete="off" placeholder="např. 80,4" aria-label="Váha v kg" value="' +
+    esc(rozepsanaVaha) + '"><span>kg</span><button type="button" class="btn btn--primary" data-vaha-zapsat>Zapsat</button></div>';
+}
+
+/** Váha na Dnes (Michal 5. 10.: zapisovat i z hlavní stránky) – poslední zápis a pole; čára a historie jsou ve Zdraví. */
+export function kartaVahyDnesHtml() {
+  return hlavickaKarty(IKONY.vaha, 'Váha', '<button type="button" class="sipka" data-cil="zdravi" aria-label="Historie váhy ve Zdraví" title="Historie váhy ve Zdraví">' + IKONY.sipka + '</button>') +
+    '<div class="dlazdice__telo">' + posledniVahaHtml(vahy()) + vahaZapisHtml() + '</div>';
+}
+
 export function kartaVahyHtml() {
   const z = vahy();
-  const posl = z[z.length - 1], pred = z[z.length - 2];
-  const rozdil = posl && pred ? Math.round((posl.kg - pred.kg) * 10) / 10 : null;
   return hlavickaKarty(IKONY.vaha, 'Váha', z.length ? '<span class="muted small">' + z.length + ' ' + tvar(z.length, 'zápis', 'zápisy', 'zápisů') + '</span>' : '') +
-    '<div class="dlazdice__telo">' +
-      (posl ? '<p class="vaha-ted"><b class="cisla">' + kgCz(posl.kg) + '<small>kg</small></b><span>zapsáno ' + esc(kdyZapsano(posl.kdy)) +
-          (rozdil != null ? '<br><em>' + (rozdil > 0 ? '+' : rozdil < 0 ? '−' : '±') + kgCz(Math.abs(rozdil)) + ' kg</em> proti ' + esc(kdyZapsano(pred.kdy)) : '') + '</span></p>'
-        : '<p class="prazdne vaha-prazdne">Zatím žádný zápis. Napiš váhu – uloží se i s časem, kdy jsi ji zapsal.</p>') +
-      '<div class="vaha-zapis"><input class="field" data-vaha-pole inputmode="decimal" enterkeyhint="done" autocomplete="off" placeholder="např. 80,4" aria-label="Váha v kg" value="' +
-        esc(rozepsanaVaha) + '"><span>kg</span><button type="button" class="btn btn--primary" data-vaha-zapsat>Zapsat</button></div>' +
+    '<div class="dlazdice__telo">' + posledniVahaHtml(z) + vahaZapisHtml() +
       (z.length > 1 ? grafVahy(z) : '') +
       (z.length ? '<ul class="vaha-seznam">' + z.slice(-6).reverse().map((x) => '<li><span>' + esc(kdyZapsano(x.kdy)) + '</span><b class="cisla">' + kgCz(x.kg) + ' kg</b>' +
         '<button type="button" class="vaha-smazat" data-vaha-smazat="' + x.kdy + '" aria-label="Smazat zápis ' + esc(kdyZapsano(x.kdy)) + '" title="Smazat zápis">' + IKONY.zavrit + '</button></li>').join('') + '</ul>' : '') +
@@ -358,6 +371,9 @@ export function zapisVahu(text) {
   return volej('vaha', { kg })
     .then((v) => {
       rozepsanaVaha = '';
+      // pole pustit (zavře klávesnici na telefonu) – karta se pak překreslí s novou váhou
+      const a = document.activeElement;
+      if (a && a.matches && a.matches('[data-vaha-pole]')) a.blur();
       poVaze(v.zaznamy || []);
       const posl = (v.zaznamy || []).slice(-1)[0];
       toast('Zapsáno ' + kgCz(kg) + ' kg' + (posl ? ' · ' + kdyZapsano(posl.kdy) : ''));

@@ -397,6 +397,7 @@ function vykresliDnes(el, p) {
       '<section class="card dlazdice dl-pozornost" id="dl-pozornost"></section>' +
       '<div class="dnes-vpravo"><section class="card dlazdice dl-tyden" id="dl-tyden"></section>' +
       '<section class="card dlazdice dl-doplnky" id="dl-doplnky" hidden></section>' +
+      '<section class="card dlazdice dl-vaha" id="dl-vaha" hidden></section>' +
       '<section class="dl-reel" id="dl-reel" hidden></section>' +
       '<section class="card dlazdice dl-fotbal" id="dl-fotbal" hidden></section>' +
       '<section class="card dlazdice dl-zapis">' + hlavickaKarty(IKONY.claude, 'Poznámka pro Clauda') +
@@ -414,6 +415,14 @@ function vykresliDnes(el, p) {
   const doplnkyHtml = umiMotor('zdravi') ? zdravi.kartaDoplnkuHtml() : '';
   el.querySelector('#dl-doplnky').hidden = !doplnkyHtml;
   el.querySelector('#dl-doplnky').innerHTML = doplnkyHtml;
+  // váha: když se do pole zrovna píše, kartu nepřekreslovat (zmizela by rozepsaná hodnota i klávesnice)
+  const vahaEl = el.querySelector('#dl-vaha');
+  const piseVahu = document.activeElement && vahaEl.contains(document.activeElement) && document.activeElement.matches('[data-vaha-pole]');
+  if (!piseVahu) {
+    const vahaHtml = umiMotor('vaha') ? zdravi.kartaVahyDnesHtml() : '';
+    vahaEl.hidden = !vahaHtml;
+    vahaEl.innerHTML = vahaHtml;
+  }
   // čerstvý nezveřejněný reel: na PC v pravém sloupci, na telefonu hned pod malými čísly (dnesMobilHtml)
   const reelHtml = umiMotor('reely') && !TELEFON.matches ? reely.kartaDnesHtml() : '';
   el.querySelector('#dl-reel').hidden = !reelHtml;
