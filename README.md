@@ -281,6 +281,23 @@ Adresa: <https://mk-asistent.github.io> (organizace `mk-asistent`, vlastní adre
   aplikace, data i přihlášení zůstanou). Dřív šel každý soubor zvlášť ze sítě s limitem 3 s a při pomalé síti se
   míchaly dvě verze – aplikace v mobilu se pak nespustila (5. 10.).
 
+## Co se jak často načítá (šetří limity Googlu – Michal 5. 10.)
+| Data | Server (Firebase, 6–23 h) | Aplikace |
+|---|---|---|
+| Pošta, schránka, kalendář | každých 10 min (pošta s otiskem – beze změny bez načítání zpráv) | z kopie hned |
+| Fotbal, nastavení (`info`) | jednou za hodinu | kopie platí 3 h |
+| Reely | jednou za půl hodiny | kopie platí 90 min |
+| Značky změn (`zmeny`) | každá obnova (jen vlastnosti skriptu) | auto se načte, když se k němu zapisovalo odjinud |
+| Počasí, zdraví | – (jen motor) | při návratu do aplikace nejvýš 1× za 30 / 15 min |
+| Auto (tabulka) | – | na stránce Auto: poprvé, po 6 h nebo podle značky změny |
+
+Po změně z aplikace (zápis) a po **Obnovit** obnoví server všechno hned (`obnovHned` s `vse`). Intervaly: `INTERVALY_MIN`
+v `firebase/functions/obnova.js`, platnost kopií `MAX_STARI_ID` v `js/ucet.js`.
+
+**Nová verze aplikace** (service worker, `js/start.js`): přenačte se hned jen ve skryté aplikaci nebo do 8 s po otevření /
+návratu z pozadí, a to bez otevřeného panelu a rozepsaného textu; jinak toast „načte se, až ji zavřeš“ a přenačtení při
+odchodu do pozadí (dřív to Michala vyhazovalo z Nastavení).
+
 ## Ztracené odpovědi motoru
 Google odpověď na POST webové aplikace občas ztratí (hlavně když běží víc pomalých dotazů naráz): prohlížeč pak skončí na
 úvodu motoru (`doGet` – „Asistent – motor běží.“) nebo na 404 z `script.googleusercontent.com`, i když motor akci
