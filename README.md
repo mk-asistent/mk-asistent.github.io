@@ -114,6 +114,12 @@ vždy Michal; po odeslání odpovědi se návrh zahodí sám. Nastavení → Po�
   omluveno, neomluveno) a jména bez omluvy. Zdroj: synchronizace Týmuj na webu dorostu (Firestore), motor čte souhrn
   (akce `dochazka`, 30 min v mezipaměti); texty omluv se do aplikace nepředávají.
 
+**Kalendáře a jmeniny** (tlačítko Kalendáře na liště, na PC i boční panel): zaškrtnutí, které kalendáře ukazovat – jen v sekci
+Kalendář a v tomhle zařízení (`asistent.kal.skryte`), „jen tento“, „Ukázat všechny“; úplné vypnutí kalendáře (motor ho
+nenačítá) zůstává v Nastavení → Kalendáře. **Jmeniny** (`js/jmeniny.js` – občanský kalendář podle české Wikipedie)
+v měsíci pod datem, v týdnu a v nadpisu dne; **oblíbení lidé** (`jmeninyUlozit`, vlastnost `JMENINY_OBLIBENI`, chodí
+s `info`) se zvýrazní ★ a v Seznamu mají i den bez událostí – bez upozornění. Státní svátky jsou kalendář Googlu.
+
 ## Fotbal
 Stránka **Fotbal** (levý pruh, na telefonu šipka v kartě Fotbal na Dnes): přepínač týmů, souhrn místa v tabulce,
 **další zápas**, **výsledky** s góly (minuta, střelec, vlastní góly, penalty) a kartami po rozkliknutí, **zbývající
@@ -166,6 +172,11 @@ se zapomene.
   (`asistent.doplnkyCekajici`) a odejdou s dalším načtením Zdraví. Pod seznamem **Tento týden** (Po–Ne, plný /
   částečný den, procento) a u položky „vzato/dní“ za týden. Skutečný režim je jen na Disku (zdravotní údaje do repa
   nepatří).
+- **Pití a jídlo** (karta na Dnes i ve Zdraví): voda tlačítky +0,25 / +0,5 l (zpět = poslední vlastní), bílkoviny
+  z jídel (okno Jídlo: co, g, kcal) a z odškrtnutých doplňků s `bilkoviny` v režimu, týden pití Po–Ne. Cíle v
+  `ZDRAVI_REZIM.json` (`pitiCil` ml, `bilkovinyCil` g; výchozí 2,5 l a 130 g). Data `ZDRAVI/PITI_JIDLO.json` (akce
+  `pitiJidlo`); diktát přes schránku zapisuje Claude do `ZDRAVI/PITI_JIDLO_CLAUDE.json` (jen přidává, id `c-…`,
+  bílkoviny odhadne) – motor oba soubory spojí, smazání Claudova zápisu = `smazane` v PITI_JIDLO.json.
 - **Upozornění do iPhonu** (ntfy, nepovinné): zapínají se v aplikaci **Nastavení → Upozornění** (motor vyrobí téma
   `NTFY_TEMA`, aplikace ho ukáže s návodem pro aplikaci ntfy a umí poslat zkušební). Kontroly běží **každých 10 minut**
   se spouštěčem `instagramKazdych10Min` (jiný spouštěč netřeba; starý `kazdouHodinu` dělá totéž): hoří v poště (6–22 h),
