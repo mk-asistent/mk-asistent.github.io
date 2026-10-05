@@ -184,6 +184,15 @@ Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**
   sedí původní datum a částka.
 - **Péče o auto – text**: obrázky z listu Péče o auto přepsané a doplněné (plán údržby, přehled podle km, zima/léto,
   DSG, mytí) v listu „Péče o auto – text“ (akce `autoPeceZapsat` – jiné listy nemění, obsah bez `prepsat` nepřepíše).
+  V aplikaci tlačítko **Péče o auto** na liště stránky Auto → boční panel: Co řešit, Kdy přezouvat, Servis podle auta,
+  přehled podle km jako osa a oddíly z listu (nadpis oddílu = tučný řádek).
+- **Co řešit** (motor `AUTO_.pripominky`): přezutí na zimní od 10. 10. (do 15. 11.) a na letní od 20. 3., příprava na
+  zimu (říjen), klimatizace a pylový filtr (duben–květen), olej a prohlídka podle auta (≤ 1 500 km / 21 dní), AdBlue,
+  výročí pojištění (poslední roční platba + rok) a konec dálniční známky (365 dní). Hotovo = odpovídající zápis
+  v Náklady. Karta nahoře na stránce Auto, aktuální věci i na Dnes, do iPhonu jednou za sezónu (`upozorneniAuto_`,
+  jednou denně, `OHLASENO_AUTO`).
+- **Výdaje po měsících**: souvislá řada 13 měsíců s rokem, klepnutí na sloupec = rozpis po kategoriích („Ostatní“ =
+  vše kromě paliva).
 - Tabulka se propojí odkazem na stránce Auto (vlastnost `AUTO_TABULKA`). Motor k tomu potřebuje oprávnění k Tabulkám
   a službu Drive API – obojí je v `apps-script/appsscript.json`; po jeho vložení jednou spustit **`povolitTabulky`**.
 
@@ -244,6 +253,14 @@ Adresa: <https://mk-asistent.github.io> (organizace `mk-asistent`, vlastní adre
   selže). Když se aplikace přesto nespustí (prázdná obrazovka), za 8 s nabídne **Načíst znovu** (smaže uložené soubory
   aplikace, data i přihlášení zůstanou). Dřív šel každý soubor zvlášť ze sítě s limitem 3 s a při pomalé síti se
   míchaly dvě verze – aplikace v mobilu se pak nespustila (5. 10.).
+
+## Ztracené odpovědi motoru
+Google odpověď na POST webové aplikace občas ztratí (hlavně když běží víc pomalých dotazů naráz): prohlížeč pak skončí na
+úvodu motoru (`doGet` – „Asistent – motor běží.“) nebo na 404 z `script.googleusercontent.com`, i když motor akci
+provedl. Aplikace proto posílá s každým dotazem `rid` a ztracenou odpověď zkusí ještě 2× se stejným `rid`; motor zápis
+se stejným `rid` podruhé neprovede a vrátí výsledek prvního běhu (CacheService 10 min, čtení se nepamatují –
+`CTENI_MOTORU`). Server Firebase (jen čte) zkouší ztracenou odpověď znovu taky. Obnovit s účtem nechá poštu, kalendář
+a reely na serveru (dřív posílal motoru deset dotazů naráz).
 
 ## Pracovní pošta
 Motor čte jen Gmail. Pracovní schránka se do něj dostane **přeposíláním kopií** od poskytovatele; odpovídá se přes
