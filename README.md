@@ -20,6 +20,10 @@ Aplikace mluví s motorem přes `POST` s klíčem. **Adresa motoru a klíč jsou
 v aplikaci) – nikdy v tomhle repozitáři. Vzhled: styl „Fixtrack“, na telefonu „PriorAuth“, okna „CaseDraft“
 (skill `osobni-vzhled`).
 
+## Navigace
+Na PC a iPadu postranní panel se všemi sekcemi. Na telefonu spodní lišta (Dnes, Schránka, +, Pošta, Kalendář) a **menu
+zleva** po klepnutí na jméno nahoře – všechny sekce včetně Zdraví, Fotbalu a Reelů, dole Nastavení.
+
 ## Dnes
 Každá věc jen jednou: nahoře **výstrahy ČHMÚ** (jen když nějaká platí), karty **Počasí**, **Připravenost** (WHOOP),
 **Další zápas** a **Nepřečtené**, pod tím jeden seznam **Vyžaduje pozornost** (úkoly, rozhodnutí, návrhy od Clauda
