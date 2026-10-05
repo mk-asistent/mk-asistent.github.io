@@ -167,8 +167,11 @@ Vlastnosti skriptu (⚙ → Vlastnosti skriptu) – všechny nepovinné kromě k
 
 ## Instalace aplikace
 Adresa: <https://mk-asistent.github.io> (organizace `mk-asistent`, vlastní adresa kvůli oddělení dat).
-- **iPhone / iPad:** Safari → Sdílet → **Přidat na plochu** → v aplikaci vložit „kód pro připojení“ (Nastavení →
-  Připojení → Připojit další zařízení na PC) nebo adresu motoru a klíč.
+- **iPhone / iPad:** Safari → Sdílet → **Přidat na plochu** → v aplikaci se **přihlásit heslem** (když je zapnuté),
+  jinak vložit „kód pro připojení“ (Nastavení → Připojení → Připojit další zařízení na PC) nebo adresu motoru a klíč.
+- **Přihlášení heslem:** na připojeném zařízení Nastavení → Připojení → Nastavit přihlášení heslem (aspoň 12 znaků) →
+  stáhne se `prihlaseni.json` = adresa motoru a klíč zašifrované heslem v prohlížeči (PBKDF2-SHA256 600 000×, AES-GCM).
+  Soubor se nahraje do kořene repa; na novém zařízení pak stačí heslo. Po novém klíči motoru (`novyKlic`) soubor vytvořit znovu.
 - **PC:** Chrome nebo Edge → v adresním řádku **Nainstalovat aplikaci**.
 - Bez motoru jde aplikaci vyzkoušet s ukázkovými daty („Jen vyzkoušet“).
 
@@ -183,6 +186,8 @@ poštu oddělí a odpovídá z adresy, na kterou zpráva přišla.
 - HTML e-maily běží v rámečku **bez skriptů**; obrázky z webu se načtou až na klepnutí „Zobrazit“.
 - Repozitář je veřejný (GitHub Pages zdarma jinak nejde): žádné adresy motoru, klíče, odkazy na kalendáře ani osobní
   údaje. Ukázková data jsou vymyšlená (i hráči na stránce Fotbal); testovací vzorky ČHMÚ a fotbal.cz jsou veřejná data.
+  Výjimka: `prihlaseni.json` obsahuje adresu motoru a klíč, ale jen **zašifrované heslem** (bez hesla nečitelné; heslo
+  se nikam neposílá) – proto musí být dlouhé a jinde nepoužité.
   Commity mají jen skrytou adresu GitHubu (noreply), ne osobní e-mail.
 - Aplikace smí volat jen motor (`script.google.com`) a Open-Meteo (CSP `connect-src`); nic jiného z ní neodejde.
 - Data, která zůstávají jen na Michalově Disku: schránka, zdraví a režim doplňků, FOTBAL.json (jména hráčů z fotbal.cz),

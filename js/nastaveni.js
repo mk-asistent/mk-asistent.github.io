@@ -12,13 +12,15 @@ import { zapasyHtml } from './udalost.js';
 import { tymyHtml as fotbalTymyHtml } from './fotbal.js';
 import { DRUHY } from './kalendar.js';
 import * as pocasi from './pocasi.js';
+import { nactiPrihlaseni, otevriPrihlaseni, vytvorPrihlaseni, stahniPrihlaseni, slabeHeslo, MIN_DELKA } from './prihlaseni.js';
 
 export const VERZE_APLIKACE = '2026-10-05';
 
 // předvolby hlavní barvy – tlumené tmavé odstíny jako ve stylu Fixtrack (lesní zelená je výchozí)
 const AKCENTY = [['#1f3d2c', 'Lesní zelená'], ['#1d4250', 'Ocelová'], ['#2a3f8f', 'Modrá'], ['#4b2d63', 'Švestková'], ['#7a3a1d', 'Cihlová'], ['#2b2f33', 'Grafitová']];
 const BARVY_KALENDARE = ['#2f5bd3', '#0f7c8c', '#2e7a4d', '#a8620c', '#8e5bd3', '#c0392b', '#b5407a', '#37474f'];
-const n = { upravaPripojeni: false, ukazKod: false, novaBarva: BARVY_KALENDARE[1], pracuje: false, sekce: 'pripojeni', klicZdravi: '' };
+const n = { upravaPripojeni: false, ukazKod: false, novaBarva: BARVY_KALENDARE[1], pracuje: false, sekce: 'pripojeni', klicZdravi: '',
+  prihlaseni: undefined, noveHeslo: false, prihlaseniStazeno: false };
 // záložky okna Nastavení – vždy je vidět jen jedna
 const ZALOZKY = [['pripojeni', 'Připojení'], ['posta', 'Pošta'], ['kalendare', 'Kalendáře'], ['pocasi', 'Počasí'], ['zdravi', 'Zdraví'], ['vzhled', 'Vzhled'], ['aplikace', 'Aplikace']];
 
@@ -103,27 +105,80 @@ async function zkusPripojit(koren, tlacitko) {
   }
 }
 
+/** Přihlášení heslem: rozšifruje prihlaseni.json, ověří motor a uloží připojení do zařízení. */
+async function prihlas(el, soubor, tlacitko) {
+  const heslo = el.querySelector('[data-uvod-heslo]').value;
+  const chyba = el.querySelector('[data-pripojeni-chyba]');
+  const ukaz = (t) => { chyba.textContent = t; chyba.hidden = !t; };
+  if (!heslo) { ukaz('Napiš heslo.'); return false; }
+  tlacitko.disabled = true;
+  tlacitko.textContent = 'Přihlašuji…';
+  ukaz('');
+  try {
+    const p = await otevriPrihlaseni(heslo, soubor);
+    if (!p) { ukaz('Heslo nesedí.'); return false; }
+    const info = await volej('info', {}, p);
+    if (!info || !info.verze) throw new Error('Motor neodpovídá – zkus to za chvíli.');
+    ulozPripojeni(p);
+    stav.info = info;
+    uloziste.pis('asistent.info', info);
+    return true;
+  } catch (e) {
+    ukaz(e.kod === 'klic' ? 'Klíč motoru se mezitím změnil – na připojeném zařízení vytvoř nové přihlášení (Nastavení → Připojení).' : e.message);
+    return false;
+  } finally {
+    tlacitko.disabled = false;
+    tlacitko.textContent = 'Přihlásit';
+  }
+}
+
 export function vykresliUvod(poPripojeni) {
   const el = document.getElementById('uvod');
   document.getElementById('aplikace').hidden = true;
   el.hidden = false;
-  el.innerHTML = '<div class="card uvod-karta">' +
-    '<div class="uvod-logo"><span>' + IKONY.dnes + '</span><b>Asistent</b></div>' +
-    '<p>Schránka pro Clauda, pošta a kalendář na jednom místě. Na tomhle zařízení ještě není připojený motor.</p>' +
-    formularPripojeniHtml(false) +
-    '<p class="napoveda">Adresu (končí /exec) najdeš v Apps Scriptu v Nasadit → Spravovat nasazení, klíč v protokolu po spuštění ' +
-      'nastavApi. Na dalším zařízení stačí do Adresy vložit <b>kód pro připojení</b> z Nastavení (obsahuje obojí). ' +
-      'Klíč zůstane jen v tomhle zařízení – je to jako heslo k poště.</p>' +
-    '<p class="pruh pruh-varovani" data-pripojeni-chyba hidden></p>' +
-    '<div class="akce"><button type="button" class="odkaz" data-uvod-ukazka>Jen vyzkoušet s ukázkovými daty</button>' +
-    '<button type="button" class="btn btn--primary" data-uvod-pripojit>Připojit</button></div></div>';
+  let soubor = null, jinak = false;
+  const logo = '<div class="uvod-logo"><span>' + IKONY.dnes + '</span><b>Asistent</b></div>';
+  const vykresli = () => {
+    // přihlášení heslem (když je zapnuté), jinak adresa motoru a klíč jako dřív
+    el.innerHTML = '<div class="card uvod-karta">' + logo + (soubor && !jinak
+      ? '<p>Přihlas se heslem. Adresa motoru a klíč se pak uloží jen v tomhle zařízení.</p>' +
+        '<form class="fmr" data-uvod-form><input class="skryte-pole" type="text" name="username" autocomplete="username" value="Asistent" tabindex="-1" aria-hidden="true">' +
+          '<label class="fmr__cely"><span class="label">Heslo</span><input class="field" data-uvod-heslo type="password" name="password" autocomplete="current-password" ' +
+          'autocapitalize="off" spellcheck="false"></label>' +
+          '<p class="pruh pruh-varovani fmr__cely" data-pripojeni-chyba hidden></p>' +
+          '<div class="akce fmr__cely"><button type="button" class="odkaz" data-uvod-jinak>Připojit adresou a klíčem</button>' +
+          '<button type="submit" class="btn btn--primary" data-uvod-prihlasit>Přihlásit</button></div></form>'
+      : '<p>Schránka pro Clauda, pošta a kalendář na jednom místě. Na tomhle zařízení ještě není připojený motor.</p>' +
+        formularPripojeniHtml(false) +
+        '<p class="napoveda">Adresu (končí /exec) najdeš v Apps Scriptu v Nasadit → Spravovat nasazení, klíč v protokolu po spuštění ' +
+          'nastavApi. Na dalším zařízení stačí do Adresy vložit <b>kód pro připojení</b> z Nastavení (obsahuje obojí). ' +
+          'Klíč zůstane jen v tomhle zařízení – je to jako heslo k poště.</p>' +
+        '<p class="pruh pruh-varovani" data-pripojeni-chyba hidden></p>' +
+        '<div class="akce">' + (soubor ? '<button type="button" class="odkaz" data-uvod-heslem>Přihlásit heslem</button>' : '') +
+          '<button type="button" class="odkaz" data-uvod-ukazka>Jen vyzkoušet s ukázkovými daty</button>' +
+          '<button type="button" class="btn btn--primary" data-uvod-pripojit>Připojit</button></div>') + '</div>';
+    const form = el.querySelector('[data-uvod-form]');
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault(); // nic se neodesílá – heslo jen rozšifruje soubor v prohlížeči
+        if (await prihlas(el, soubor, form.querySelector('[data-uvod-prihlasit]'))) poPripojeni();
+      });
+      el.querySelector('[data-uvod-heslo]').focus();
+    }
+  };
+  el.innerHTML = '<div class="card uvod-karta">' + logo + '<p class="muted">Načítám…</p></div>';
+  nactiPrihlaseni().then((s) => { soubor = s; vykresli(); });
   el.onclick = async (e) => {
     const t = e.target.closest('button');
     if (!t) return;
+    if (t.hasAttribute('data-uvod-jinak')) { jinak = true; vykresli(); }
+    if (t.hasAttribute('data-uvod-heslem')) { jinak = false; vykresli(); }
     if (t.hasAttribute('data-uvod-ukazka')) { ulozPripojeni({ demo: true }); poPripojeni(); }
     if (t.hasAttribute('data-uvod-pripojit') && await zkusPripojit(el, t)) poPripojeni();
   };
-  el.onkeydown = (e) => { if (e.key === 'Enter' && e.target.matches('input')) el.querySelector('[data-uvod-pripojit]').click(); };
+  el.onkeydown = (e) => {
+    if (e.key === 'Enter' && e.target.matches('[data-pripojeni-url], [data-pripojeni-klic]')) el.querySelector('[data-uvod-pripojit]').click();
+  };
 }
 
 // ---------------------------------------------------------------- informace z motoru
@@ -177,8 +232,39 @@ function sekcePripojeni() {
         : '<button type="button" class="btn btn--ghost btn--sm" data-nast="kod-zarizeni">Připojit další zařízení</button>') +
       '<button type="button" class="btn btn--ghost btn--sm" data-nast="zmenit-pripojeni">Změnit adresu nebo klíč</button>' +
       '<button type="button" class="btn btn--ghost btn--sm" data-nast="odpojit">Odpojit toto zařízení</button></div>';
+    if (stav.info) h += prihlaseniHtml();
   }
   return h + '</section>';
+}
+
+/** Přihlášení heslem na dalších zařízeních: heslo zašifruje adresu a klíč do prihlaseni.json (zveřejní ho Claude). */
+function prihlaseniHtml() {
+  if (n.prihlaseni === undefined) {
+    n.prihlaseni = null;
+    nactiPrihlaseni().then((s) => { n.prihlaseni = s || false; if (jeOtevreny('nastaveni')) obnovPanel('nastaveni'); });
+  }
+  let h = '<h3>Přihlášení heslem</h3>';
+  h += n.prihlaseni ? '<p class="nast-stav ok"><i></i>Zapnuté' + (n.prihlaseni.vytvoreno ? ' od ' + esc(n.prihlaseni.vytvoreno.split('-').reverse().map(Number).join('. ')) : '') +
+      ' – na novém zařízení stačí otevřít aplikaci a napsat heslo.</p>'
+    : '<p class="napoveda">Na novém zařízení místo adresy motoru a klíče jen heslo. Heslo zašifruje adresu a klíč do souboru ' +
+      '<code>prihlaseni.json</code>, který Claude nahraje k aplikaci.</p>';
+  if (n.noveHeslo) {
+    h += '<div class="fmr"><input class="skryte-pole" type="text" autocomplete="username" value="Asistent" tabindex="-1" aria-hidden="true">' +
+      '<label><span class="label">Heslo (aspoň ' + MIN_DELKA + ' znaků)</span><input class="field" type="password" data-nast-heslo autocomplete="new-password"></label>' +
+      '<label><span class="label">Heslo znovu</span><input class="field" type="password" data-nast-heslo2 autocomplete="new-password"></label></div>' +
+      '<p class="napoveda">Soubor bude na webu veřejně, ale zašifrovaný tímhle heslem – proto dlouhé (třeba tři čtyři slova) a nikde jinde ' +
+      'nepoužité. Heslo se nikam neposílá, neuvidí ho ani Claude. Když ho zapomeneš, připojíš se jako dřív adresou a klíčem.</p>' +
+      '<p class="pruh pruh-varovani" data-heslo-chyba hidden></p>' +
+      '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="heslo-zrusit">Zrušit</button>' +
+      '<button type="button" class="btn btn--primary btn--sm" data-nast="heslo-vytvorit">Vytvořit soubor</button></div>';
+  } else if (n.prihlaseniStazeno) {
+    h += '<p class="nast-stav ok"><i></i>Soubor <b>prihlaseni.json</b> se stáhl. Napiš Claudovi „zveřejni přihlášení“ – nahraje ho k aplikaci a pak ' +
+      'se na dalších zařízeních přihlásíš heslem.</p>';
+  } else {
+    h += '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="heslo-nastavit">' +
+      (n.prihlaseni ? 'Změnit heslo' : 'Nastavit přihlášení heslem') + '</button></div>';
+  }
+  return h;
 }
 
 function sekcePosty() {
@@ -320,6 +406,11 @@ function sekceZdravi() {
     (w.propojeno ? 'Propojeno' + (w.sync && w.sync.kdy ? ' · data z ' + new Date(w.sync.kdy).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : '')
       : w.nastaveno ? 'Nastaveno, ještě nepropojeno' : 'Zatím nenastaveno') + '</p>' +
     (w.sync && w.sync.chyba ? '<p class="pruh pruh-varovani">' + esc(w.sync.chyba) + '</p>' : '') +
+    // nejčastější chyba propojení: adresa pro návrat (redirect) ve WHOOP nebo ve vlastnosti motoru není přesně adresa motoru
+    (w.nastaveno && !w.propojeno && !jeDemo() ? '<p class="napoveda">Když WHOOP hlásí <i>„redirect_uri … does not match“</i>: v developer-dashboard.whoop.com ' +
+      '(aplikace → <b>Redirect URLs</b>) i ve vlastnosti skriptu <code>WHOOP_REDIRECT_URI</code> musí být <b>přesně</b> tahle adresa motoru – bez mezer ' +
+      'a lomítka na konci:</p><div class="akce"><code class="adresa-motoru">' + esc(motor) + '</code>' +
+      '<button type="button" class="btn btn--ghost btn--sm" data-nast="kopirovat-adresu">Kopírovat adresu</button></div>' : '') +
     '<div class="akce">' + (w.propojeno ? '<button type="button" class="btn btn--ghost btn--sm" data-nast="whoop-odpojit">Odpojit WHOOP</button>' : '') +
     (w.nastaveno || jeDemo() ? '<button type="button" class="btn btn--primary btn--sm" data-zdravi="propojit">' + (w.propojeno ? 'Propojit znovu' : 'Propojit WHOOP') + '</button>' : '') + '</div>' +
     '<details class="napoveda"' + (w.nastaveno ? '' : ' open') + '><summary>Jak nastavit WHOOP (jednou, na PC, asi 10 minut)</summary><ol class="kroky">' +
@@ -392,6 +483,26 @@ export function klikNastaveni(el) {
     volej('navrhyNastavit', { rezim: el.dataset.nastNavrhy })
       .then((posta) => { if (stav.info) stav.info.posta = posta; uloziste.pis('asistent.info', stav.info); toast('Uloženo ✓'); obnovPanel('nastaveni'); })
       .catch((e) => { el.disabled = false; toast(e.message, true); });
+    return true;
+  }
+  if (akce === 'heslo-nastavit') { n.noveHeslo = true; n.prihlaseniStazeno = false; obnovPanel('nastaveni'); panel.querySelector('[data-nast-heslo]').focus(); return true; }
+  if (akce === 'heslo-zrusit') { n.noveHeslo = false; obnovPanel('nastaveni'); return true; }
+  if (akce === 'heslo-vytvorit') {
+    const heslo = panel.querySelector('[data-nast-heslo]').value, heslo2 = panel.querySelector('[data-nast-heslo2]').value;
+    const chyba = panel.querySelector('[data-heslo-chyba]');
+    const ukaz = (t) => { chyba.textContent = t; chyba.hidden = !t; };
+    const proc = slabeHeslo(heslo) || (heslo !== heslo2 ? 'Hesla se neshodují.' : '');
+    if (proc) { ukaz(proc); return true; }
+    el.disabled = true;
+    vytvorPrihlaseni(heslo, pripojeni())
+      .then((obsah) => { stahniPrihlaseni(obsah); n.noveHeslo = false; n.prihlaseniStazeno = true; obnovPanel('nastaveni'); toast('Soubor s přihlášením je stažený'); })
+      .catch((e) => { el.disabled = false; ukaz('Nepovedlo se: ' + e.message); });
+    return true;
+  }
+  if (akce === 'kopirovat-adresu') {
+    const adresa = (pripojeni() || {}).url || '';
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(adresa).then(() => toast('Adresa motoru zkopírovaná'), () => toast(adresa));
+    else toast(adresa);
     return true;
   }
   if (akce === 'zmenit-pripojeni') { n.upravaPripojeni = true; obnovPanel('nastaveni'); return true; }

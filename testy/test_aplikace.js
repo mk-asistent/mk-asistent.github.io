@@ -123,8 +123,11 @@ const volano = [];
 let navrhZahozen = false;
 let reelyZverejneno = {};
 let vahaZaznamy = [];
+let prihlaseniTest = '';
 
 async function pripravMotor(page) {
+  // přihlášení heslem: soubor s přihlášením jen v testu přihlášení (jinak prázdný = úvod s adresou a klíčem; 404 by se hlásil v konzoli)
+  await page.route('**/prihlaseni.json', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: prihlaseniTest || '{}' }));
   await page.route(MOTOR, async (route) => {
     const data = JSON.parse(route.request().postData() || '{}');
     let telo;
@@ -992,6 +995,64 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.locator('#zd-vaha').screenshot({ path: path.join(VYSTUP, 'telefon_vaha.png') });
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
+  });
+
+  // ---------- přihlášení heslem: v Nastavení se vytvoří zašifrovaný soubor, na novém zařízení stačí heslo
+  await test('přihlášení heslem: soubor z Nastavení (slabé heslo odmítnuto), nové zařízení – špatné a správné heslo', async () => {
+    const HESLO = 'zelena louka u hriste 7';
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.click('#rail [data-otevri-nastaveni]');
+    await page.click('[data-panel="nastaveni"] [data-nast="heslo-nastavit"]');
+    await page.fill('[data-nast-heslo]', 'kratke');
+    await page.fill('[data-nast-heslo2]', 'kratke');
+    await page.click('[data-nast="heslo-vytvorit"]');
+    jistota(/aspoň 12/.test(await page.textContent('[data-heslo-chyba]')), 'slabé heslo');
+    await page.fill('[data-nast-heslo]', HESLO);
+    await page.fill('[data-nast-heslo2]', HESLO + 'x');
+    await page.click('[data-nast="heslo-vytvorit"]');
+    jistota(/neshodují/.test(await page.textContent('[data-heslo-chyba]')), 'neshoda hesel');
+    await page.fill('[data-nast-heslo2]', HESLO);
+    const [stazeni] = await Promise.all([page.waitForEvent('download'), page.click('[data-nast="heslo-vytvorit"]')]);
+    const obsah = fs.readFileSync(await stazeni.path(), 'utf8');
+    const soubor = JSON.parse(obsah);
+    jistota(stazeni.suggestedFilename() === 'prihlaseni.json' && soubor.verze === 1 && soubor.iterace >= 600000, 'soubor s přihlášením: ' + obsah.slice(0, 120));
+    jistota(obsah.indexOf(KLIC) < 0 && obsah.indexOf('script.google.com') < 0, 'adresa ani klíč nesmí být v souboru čitelně');
+    await page.waitForSelector('[data-panel="nastaveni"] :text("zveřejni přihlášení")');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+    // nové zařízení (telefon bez připojení)
+    prihlaseniTest = obsah;
+    try {
+      const ctx2 = await prohlizec.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+      const p2 = await ctx2.newPage();
+      const chyby2 = [];
+      p2.on('pageerror', (e) => chyby2.push(e.message));
+      await pripravMotor(p2);
+      await p2.goto(WEB);
+      await p2.waitForSelector('#uvod:not([hidden]) [data-uvod-heslo]');
+      await p2.fill('[data-uvod-heslo]', 'spatne heslo uplne');
+      await p2.click('[data-uvod-prihlasit]');
+      await p2.waitForFunction(() => /Heslo nesedí/.test(document.querySelector('[data-pripojeni-chyba]').textContent));
+      await p2.screenshot({ path: path.join(VYSTUP, 'telefon_prihlaseni.png') });
+      await p2.fill('[data-uvod-heslo]', HESLO);
+      await p2.press('[data-uvod-heslo]', 'Enter');
+      await p2.waitForSelector('#aplikace:not([hidden]) .hero');
+      const ulozene = await p2.evaluate(() => JSON.parse(localStorage.getItem('asistent.pripojeni')));
+      jistota(ulozene.url === MOTOR && ulozene.klic === KLIC, 'připojení uložené v zařízení');
+      // „Připojit adresou a klíčem“ dál jde
+      const ctx3 = await prohlizec.newContext({ viewport: { width: 390, height: 844 } });
+      const p3 = await ctx3.newPage();
+      await pripravMotor(p3);
+      await p3.goto(WEB);
+      await p3.click('[data-uvod-jinak]');
+      await p3.waitForSelector('[data-pripojeni-url]');
+      jistota(!chyby2.length, 'chyby stránky: ' + chyby2.join(' | '));
+      await ctx2.close();
+      await ctx3.close();
+    } finally {
+      prihlaseniTest = '';
+    }
   });
 
   // ---------- Co je nového: po návratu ukáže, co přibylo (tady nová pošta, která čeká), Ukázat vede do Pošty

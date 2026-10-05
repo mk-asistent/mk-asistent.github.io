@@ -1120,6 +1120,10 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 .uvod-logo span { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--tmava); color: #fff; }
 .uvod-logo svg { width: 24px; height: 24px; }
 .uvod-logo b { font-size: 21px; font-weight: 700; letter-spacing: -.01em; }
+.uvod-karta .akce { flex-wrap: wrap; }
+/* skryté pole „uživatel“ – správce hesel (Klíčenka, Chrome) pak heslo k aplikaci uloží a nabídne */
+.skryte-pole { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; opacity: 0; }
+.adresa-motoru { display: block; flex: 1 1 100%; overflow-wrap: anywhere; word-break: break-all; }
 .uvod p { margin: 0; font-size: 14px; color: var(--text-soft); }
 .uvod .akce { justify-content: flex-end; align-items: center; }
 .uvod .akce .odkaz { margin-right: auto; }
