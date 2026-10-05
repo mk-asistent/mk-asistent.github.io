@@ -173,9 +173,17 @@ Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**
 - **Tankování z auta**: MyŠkoda historii tankování nemá – skript na PC ho pozná z rozdílu dvou čtení
   (dotankováno = změna nádrže + spotřeba jízd mezi čteními), den a stav km odhadne podle jízd (bez míst). Když v tabulce
   kolem toho dne tankování chybí, ukáže stránka Auto kartu **Auto hlásí tankování** s tlačítkem Zapsat (předvyplní den a km).
-- **Účtenka**: vyfotit nebo vybrat z Fotek (iPhone nabídne Fotky / Vyfotit / Soubory) → fotka do
-  `CLAUDE_SCHRANKA/AUTO/uctenky`, text přes OCR Disku → předvyplněný zápis; v tabulce je
-  pak u poznámky odkaz „účtenka“ na fotku. Bez potvrzení se nic nezapíše.
+- **Účtenky**: vyfotit nebo vybrat z Fotek, i víc najednou (iPhone nabídne Fotky / Vyfotit / Soubory) → fotka do
+  `CLAUDE_SCHRANKA/AUTO/uctenky`, text přes OCR Disku → **rovnou zápis do tabulky** (Michal 5. 10.), když je z účtenky
+  jasné co (datum a částka; u tankování cena za litr, u výdaje kategorie; stav km z auta, když ho MyŠkoda ten den zná);
+  jinak se otevře okno s předvyplněnými údaji (u víc účtenek jedna po druhé). V tabulce je u poznámky odkaz „účtenka“
+  na fotku. Stejná fotka podruhé (otisk z aplikace – opakování po výpadku) nic nezdvojí; text z OCR se drží v popisu
+  souboru. Čtení účtenky smí trvat až 150 s.
+- **Úprava zápisu**: klepnutí na zápis v Zápisech (nebo Upravit v oznámení po účtence) → okno s údaji a fotkou účtenky
+  (z Disku přes `autoUctenkaFoto`, jen složka účtenek) → `autoUpravit` přepíše řádek v tabulce, jen když v něm pořád
+  sedí původní datum a částka.
+- **Péče o auto – text**: obrázky z listu Péče o auto přepsané a doplněné (plán údržby, přehled podle km, zima/léto,
+  DSG, mytí) v listu „Péče o auto – text“ (akce `autoPeceZapsat` – jiné listy nemění, obsah bez `prepsat` nepřepíše).
 - Tabulka se propojí odkazem na stránce Auto (vlastnost `AUTO_TABULKA`). Motor k tomu potřebuje oprávnění k Tabulkám
   a službu Drive API – obojí je v `apps-script/appsscript.json`; po jeho vložení jednou spustit **`povolitTabulky`**.
 
@@ -230,6 +238,12 @@ Adresa: <https://mk-asistent.github.io> (organizace `mk-asistent`, vlastní adre
   (`novyKlic`) na připojeném zařízení „Změnit adresu nebo klíč“ – uloží se i do účtu.
 - **PC:** Chrome nebo Edge → v adresním řádku **Nainstalovat aplikaci**.
 - Bez motoru jde aplikaci vyzkoušet s ukázkovými daty („Jen vyzkoušet“).
+- **Nové verze:** service worker posílá aplikaci vždy celou z jedné uložené verze (moduly k sobě sedí, start hned
+  i bez sítě); novou verzi stáhne na pozadí a aplikace se sama jednou znovu načte (`js/start.js`, rozepsaný text
+  nesmaže). `VERZE` v `sw.js` je otisk obsahu souborů → po každé změně `node testy/sw_verze.js --zapsat` (test jinak
+  selže). Když se aplikace přesto nespustí (prázdná obrazovka), za 8 s nabídne **Načíst znovu** (smaže uložené soubory
+  aplikace, data i přihlášení zůstanou). Dřív šel každý soubor zvlášť ze sítě s limitem 3 s a při pomalé síti se
+  míchaly dvě verze – aplikace v mobilu se pak nespustila (5. 10.).
 
 ## Pracovní pošta
 Motor čte jen Gmail. Pracovní schránka se do něj dostane **přeposíláním kopií** od poskytovatele; odpovídá se přes
@@ -258,6 +272,7 @@ node apps-script/test/ics.test.js      # kalendář .ics: opakování, zóny, v�
 node apps-script/test/motor.test.js    # motor s napodobenými službami Googlu, ČHMÚ, WHOOP
 cd testy && npm i && npx playwright install chromium && node test_aplikace.js   # telefon, iPad, PC, tmavý režim
 JEN=telefon node test_aplikace.js      # jen testy, jejichž název obsahuje „telefon“
+node testy/sw_verze.js --zapsat        # po změně souborů aplikace: VERZE service workeru podle obsahu
 node firebase/functions/test.js        # server: obnova kopií z napodobeného motoru
 ```
 Testy aplikace běží i s účtem – Firebase je v nich napodobený (knihovny přes `page.route`, data v testu), skutečný
