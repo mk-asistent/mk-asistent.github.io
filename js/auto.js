@@ -5,7 +5,7 @@
 
 import { stav, zmeneno, umiMotor } from './stav.js';
 import { volej } from './api.js';
-import { esc, uloziste, dm, isoDatum, MESICE_1 } from './pomocne.js';
+import { esc, uloziste, dm, isoDatum, kdyKratce, MESICE_1 } from './pomocne.js';
 import { kostra, chybaHtml, toast, potvrd, segment, hlavickaKarty } from './ui.js';
 import { IKONY } from './ikony.js';
 import { otevriPanel, zavriPanel, obnovPanel, elementPanelu } from './panely.js';
@@ -55,13 +55,24 @@ export function dotahni() {
   if (!nacteno) { nacteno = true; nactiAuto(); }
 }
 
+/** Stav auta z MyŠkoda (domácí PC → Disk → motor): první auto a kdy je údaj z auta. */
+function zAuta(d) {
+  const m = d && d.myskoda;
+  const a = m && Array.isArray(m.auta) ? m.auta[0] : null;
+  if (!a) return null;
+  return Object.assign({}, a, { kdy: Date.parse(a.kmKdy || m.aktualizovano) || null });
+}
+
 /** Přehled z obou listů: najeto, spotřeba (litry mezi tankováními se známým km), Kč/km, kategorie, měsíce. */
 export function prehledAuta(d) {
   const t = (d.tankovani || []).filter((z) => z.datum != null).sort((a, b) => a.datum - b.datum || a.radek - b.radek);
   const n = (d.naklady || []).filter((z) => z.datum != null || z.castka != null);
   const vse = t.concat(n);
   const koupe = n.find((z) => jeKoupe(z) && z.km != null) || null;
-  const sKm = vse.filter((z) => z.km != null && z.datum != null).sort((a, b) => a.datum - b.datum);
+  const auto = zAuta(d);
+  // stav tachometru: zápisy v tabulce + aktuální údaj z auta (MyŠkoda); spotřeba dál jen z tankování
+  const sKm = vse.filter((z) => z.km != null && z.datum != null)
+    .concat(auto && auto.km != null && auto.kdy ? [{ km: auto.km, datum: auto.kdy }] : []).sort((a, b) => a.datum - b.datum);
   const kmStart = koupe ? koupe.km : sKm.length ? sKm[0].km : null;
   const datumStart = koupe ? koupe.datum : sKm.length ? sKm[0].datum : null;
   const posledniKm = sKm.reduce((a, z) => (!a || z.km >= a.km ? z : a), null);
@@ -95,13 +106,13 @@ export function prehledAuta(d) {
     najeto, kmStart, datumStart, kmPosledni: posledniKm ? posledniKm.km : null, kmPosledniDatum: posledniKm ? posledniKm.datum : null,
     kmMesic: najeto != null && mesicu > 0.5 ? najeto / mesicu : null, spotreba, palivoKm, palivo, litry,
     cenaPrumer: litry ? palivo / litry : null, kategorie, celkem, koupeKc, provoz: celkem - koupeKc, mesice,
-    posledniTankovani: t.length ? t[t.length - 1] : null, ceny: t.filter((z) => z.cenaLitr).map((z) => ({ t: z.datum, c: z.cenaLitr }))
+    posledniTankovani: t.length ? t[t.length - 1] : null, ceny: t.filter((z) => z.cenaLitr).map((z) => ({ t: z.datum, c: z.cenaLitr })), auto
   };
 }
 
 /** Odhad dnešního stavu km (poslední zapsaný + průměr na den) – jen když je poslední zápis starší než týden. */
 function odhadKm(p) {
-  if (p.kmPosledni == null || !p.kmMesic || !p.kmPosledniDatum) return null;
+  if (p.auto || p.kmPosledni == null || !p.kmMesic || !p.kmPosledniDatum) return null;
   const dni = (Date.now() - p.kmPosledniDatum) / 864e5;
   return dni > 7 ? Math.round((p.kmPosledni + p.kmMesic / 30.44 * dni) / 100) * 100 : null;
 }
@@ -166,9 +177,18 @@ function heroHtml(d, p) {
       bunka('Nafta na 1 km', p.palivoKm != null ? DVE.format(p.palivoKm) : '—', 'Kč', p.cenaPrumer ? 'průměr ' + DVE.format(p.cenaPrumer) + ' Kč/l' : '') +
       bunka('Provoz celkem', CELE.format(p.provoz), 'Kč', 'bez koupě auta') +
     '</div>' +
-    (p.kmPosledni != null ? '<p class="auto-hero__km">Stav tachometru ' + CELE.format(p.kmPosledni) + ' km (' + esc(dm(p.kmPosledniDatum)) + ')' +
-      (odhad ? ' · dnes asi <b>' + CELE.format(odhad) + ' km</b> – při tankování zapiš stav, ať sedí spotřeba' : '') + '</p>' : '') +
+    (p.auto ? zAutaHtml(p.auto) : p.kmPosledni != null ? '<p class="auto-hero__km">Stav tachometru ' + CELE.format(p.kmPosledni) + ' km (' +
+      esc(dm(p.kmPosledniDatum)) + ')' + (odhad ? ' · dnes asi <b>' + CELE.format(odhad) + ' km</b> – při tankování zapiš stav, ať sedí spotřeba' : '') + '</p>' : '') +
   '</section>';
+}
+
+/** Řádek z auta (MyŠkoda): tachometr, nádrž, dojezd, AdBlue, zamčení a kdy to auto poslalo. */
+function zAutaHtml(a) {
+  const casti = [a.km != null ? '<b>' + CELE.format(a.km) + ' km</b>' : '', a.palivo != null ? 'nádrž <b>' + a.palivo + ' %</b>' : '',
+    a.dojezd != null ? 'dojezd <b>' + CELE.format(a.dojezd) + ' km</b>' : '', a.adblue != null ? 'AdBlue ' + CELE.format(a.adblue) + ' km' : '',
+    a.zamceno === 'YES' ? 'zamčeno' : a.zamceno === 'NO' ? '<b class="auto-pozor">odemčeno</b>' : ''].filter(Boolean);
+  return '<p class="auto-hero__km auto-z-auta"><span class="auto-z-auta__stitek">' + IKONY.auto + 'z auta</span>' + casti.join(' · ') +
+    (a.kdy ? ' <span class="muted">· ' + esc(kdyKratce(a.kdy)) + '</span>' : '') + '</p>';
 }
 
 function akceHtml() {
@@ -245,6 +265,8 @@ function kategorieHtml(d, p) {
 
 /** Servis podle listu Péče o auto (olej + filtr po 15 000 km nebo roce) od posledního zapsaného servisu, jinak od koupě. */
 function servisHtml(d, p) {
+  const s = p.auto && p.auto.servis;
+  if (s && (s.olejKm != null || s.olejDni != null || s.prohlidkaKm != null || s.prohlidkaDni != null)) return servisZAutaHtml(s, p.auto);
   const servisy = (d.naklady || []).filter((z) => /^servis/i.test(z.kategorie || '') && z.datum != null).sort((a, b) => b.datum - a.datum);
   const od = servisy.length ? { datum: servisy[0].datum, km: servisy[0].km, co: 'od servisu ' + dm(servisy[0].datum) } :
     { datum: p.datumStart, km: p.kmStart, co: 'od koupě ' + (p.datumStart ? dm(p.datumStart) : '') };
@@ -261,6 +283,19 @@ function servisHtml(d, p) {
       (servisy.length ? '' : ' · zatím žádný servis v tabulce') + '</p>' +
     '<p class="napoveda">Podle tvého listu Péče o auto: olej + filtr každých 15 000 km nebo jednou za rok, pylový filtr ročně. ' +
       'Zapsaný servis (kategorie Servis) počítání vynuluje.</p></section>';
+}
+
+/** Servis podle auta (MyŠkoda): kolik zbývá do výměny oleje a do prohlídky. */
+function servisZAutaHtml(s, a) {
+  const km = [s.olejKm, s.prohlidkaKm].filter((x) => x != null), dni = [s.olejDni, s.prohlidkaDni].filter((x) => x != null);
+  const minKm = km.length ? Math.min(...km) : null, minDni = dni.length ? Math.min(...dni) : null;
+  const stav2 = (minKm != null && minKm <= 0) || (minDni != null && minDni <= 0) ? 'po' : (minKm != null && minKm <= 1500) || (minDni != null && minDni <= 30) ? 'brzy' : 'ok';
+  const radek = (nazev, k, dn) => (k == null && dn == null ? '' : '<li><span>' + nazev + '</span><b>' + [k != null ? (k <= 0 ? 'přes ' + CELE.format(-k) + ' km' :
+    'za ' + CELE.format(k) + ' km') : '', dn != null ? (dn <= 0 ? 'prošlé ' + CELE.format(-dn) + ' dní' : 'za ' + CELE.format(dn) + ' dní') : ''].filter(Boolean).join(' nebo ') + '</b></li>');
+  return '<section class="card auto-servis auto-servis--' + stav2 + '" data-oblast="auto">' + hlavickaKarty(IKONY.nastaveni, 'Servis', '<span class="muted">podle auta</span>') +
+    '<p class="auto-servis__stav"><b>' + (stav2 === 'po' ? 'Čas na servis' : stav2 === 'brzy' ? 'Servis se blíží' : 'Servis v pořádku') + '</b></p>' +
+    '<ul class="auto-servis__seznam">' + radek('Výměna oleje', s.olejKm, s.olejDni) + radek('Prohlídka', s.prohlidkaKm, s.prohlidkaDni) + '</ul>' +
+    '<p class="napoveda">Z aplikace MyŠkoda' + (a.kdy ? ' (' + esc(kdyKratce(a.kdy)) + ')' : '') + ' – auto počítá servis samo.</p></section>';
 }
 
 function zapisyHtml(d) {
@@ -296,9 +331,11 @@ const cislo = (x) => { const t = String(x == null ? '' : x).replace(/[\s ]/g, '
 
 export function otevriZapis(druh, navrh) {
   const n = navrh || {};
+  const a = zAuta(stav.auto);
+  const kmZAuta = druh !== 'naklad' && a && a.km != null && a.kdy && Date.now() - a.kdy < 3 * 36e5 ? a : null;
   f = {
     druh: druh === 'naklad' ? 'naklad' : 'tankovani', datum: n.datum || isoDatum(Date.now()), castka: cisloPole(n.castka), cenaLitr: cisloPole(n.cenaLitr),
-    km: '', kdo: 'M', kategorie: n.kategorie || '', polozka: '', poznamka: n.obchod || '', uctenka: n.uctenka || '', nahled: n.nahled || '',
+    km: kmZAuta ? String(kmZAuta.km) : '', kmZAuta: kmZAuta ? kmZAuta.kdy : 0, kdo: 'M', kategorie: n.kategorie || '', polozka: '', poznamka: n.obchod || '', uctenka: n.uctenka || '', nahled: n.nahled || '',
     chybaTextu: n.chybaTextu || '', zUctenky: !!n.uctenka, ukladam: false
   };
   const moje = f;
@@ -337,7 +374,8 @@ function zapisHtml() {
   if (f.druh === 'tankovani') {
     h += '<div class="fmr fmr--2">' + pole('cenaLitr', 'Cena za litr (Kč)', 'inputmode="decimal" placeholder="např. 36,90"', f.cenaLitr,
       '<small class="auto-litry" data-az-litry>' + esc(litryText()) + '</small>') +
-      pole('km', 'Stav km', 'inputmode="numeric" placeholder="' + (p && p.kmPosledni != null ? 'naposledy ' + CELE.format(p.kmPosledni) : 'z tachometru') + '"', f.km) + '</div>';
+      pole('km', 'Stav km', 'inputmode="numeric" placeholder="' + (p && p.kmPosledni != null ? 'naposledy ' + CELE.format(p.kmPosledni) : 'z tachometru') + '"', f.km,
+        f.kmZAuta ? '<small class="auto-litry">z auta ' + esc(kdyKratce(f.kmZAuta)) + ' – oprav, jestli jsi od té doby jel</small>' : '') + '</div>';
     const stanice = {};
     (d.tankovani || []).forEach((z) => { if (z.poznamka) stanice[z.poznamka] = (stanice[z.poznamka] || 0) + 1; });
     const nejcastejsi = Object.keys(stanice).sort((a, b) => stanice[b] - stanice[a]).slice(0, 8);

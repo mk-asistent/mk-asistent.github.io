@@ -158,7 +158,10 @@ const autoData = {
     { list: 'naklady', radek: 3, datum: den(-130), datumText: '', polozka: '', kategorie: 'Pojištění', castka: 8000, km: null, kdo: 'M', poznamka: 'Roční' },
     { list: 'naklady', radek: 4, datum: den(-40), datumText: '', polozka: 'Myčka', kategorie: 'Myčka', castka: 150, km: null, kdo: 'K', poznamka: '' }],
   kategorie: ['Servis', 'Servis - PNEU', 'STK', 'Pojištění', 'Parkování', 'Myčka', 'Nákup doplňků'],
-  platili: { Michal: 11000, Katka: 300150 }
+  platili: { Michal: 11000, Katka: 300150 },
+  // stav z auta (MyŠkoda přes domácí PC) – čerstvý, tachometr dál než poslední zápis v tabulce
+  myskoda: { aktualizovano: new Date(ted).toISOString(), auta: [{ nazev: 'Testovací', model: 'Testovací auto', km: 13600, kmKdy: new Date(ted - 6e5).toISOString(),
+    palivo: 61, dojezd: 510, adblue: 2900, zamceno: 'YES', servis: { olejKm: 7700, olejDni: 280, prohlidkaKm: 27700, prohlidkaDni: 697 } }] }
 };
 let reelyZverejneno = {};
 let vahaZaznamy = [];
@@ -1249,13 +1252,16 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.click('#rail [data-cil="auto"]');
     await page.waitForSelector('.auto-hero');
     const hero = (await page.textContent('.auto-hero')).replace(/\s+/g, ' ');
-    jistota(/3 100/.test(hero) && /4,3/.test(hero) && /1,52/.test(hero) && /Testovací auto/.test(hero), 'přehled: ' + hero);
+    jistota(/3 800/.test(hero) && /4,3/.test(hero) && /1,52/.test(hero) && /Testovací auto/.test(hero), 'přehled: ' + hero);
+    jistota(/z auta/.test(hero) && /nádrž 61 %/.test(hero) && /dojezd 510 km/.test(hero), 'údaje z auta: ' + hero);
+    jistota(/Výměna oleje\s*za 7 700 km nebo za 280 dní/.test((await page.textContent('.auto-servis')).replace(/\s+/g, ' ')), 'servis podle auta');
     jistota(/Myčka/.test(await page.textContent('.auto-kategorie')) && /Katka/.test(await page.textContent('.auto-platili')), 'kategorie a kdo platil');
     jistota(await page.locator('.auto-cara circle').count() === 5, 'graf ceny nafty');
     await page.screenshot({ path: path.join(VYSTUP, 'pc_auto.png'), fullPage: true });
     // tankování: litry se dopočítají, do tabulky jde číslo (ne text s mezerami a čárkou)
     autoZapisy.length = 0;
     await page.click('[data-auto-zapis="tankovani"]');
+    jistota(await page.inputValue('[data-panel="auto-zapis"] [data-az="km"]') === '13600', 'stav km z auta v okně tankování');
     await page.fill('[data-panel="auto-zapis"] [data-az="castka"]', '1 520');
     await page.fill('[data-panel="auto-zapis"] [data-az="cenaLitr"]', '36,90');
     jistota(/41,2 l/.test(await page.textContent('[data-az-litry]')), 'litry: ' + await page.textContent('[data-az-litry]'));
@@ -1265,7 +1271,7 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"]'));
     const z = autoZapisy[0] || {};
     jistota(z.druh === 'tankovani' && z.castka === 1520 && z.cenaLitr === 36.9 && z.km === 13500 && z.kdo === 'M', 'zápis: ' + JSON.stringify(z));
-    await page.waitForFunction(() => /13 500/.test(document.querySelector('.auto-hero').textContent.replace(/\s+/g, ' ')));
+    await page.waitForFunction(() => /13 500 km/.test(document.querySelector('.auto-zapisy').textContent.replace(/\s+/g, ' ')));
     // výdaj: kategorie z tabulky, platila Katka
     await page.click('[data-auto-zapis="naklad"]');
     await page.selectOption('[data-panel="auto-zapis"] [data-az="kategorie"]', 'Servis');

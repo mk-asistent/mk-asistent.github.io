@@ -1678,6 +1678,16 @@ test('auto: propojení odkazem, čtení listů (datum i jako text, km s mezerou,
   assert.ok(d.kategorie.indexOf('Koupě auta') < 0 && d.kategorie.indexOf('Palivo') < 0, 'koupě a palivo se nezapisují jako výdaj');
   assert.deepStrictEqual(json(d.platili), { Michal: 112000, Katka: 400000 });
   assert.ok(/spreadsheets\/d\/TABULKA-auta/.test(d.odkaz));
+  assert.strictEqual(d.myskoda, null, 'bez souboru z MyŠkoda nic');
+  // stav auta z MyŠkoda (soubor z domácího PC) – jen vybrané údaje, poloha ani VIN by neprošly
+  p.schranka.createFolder('AUTO').createFile('myskoda.json', JSON.stringify({ aktualizovano: '2026-10-05T13:42:35+02:00', auta: [{ nazev: 'Octavia', model: 'Škoda Octavia Combi',
+    km: 32810, km_kdy: '2026-10-05T11:32:32+00:00', palivo_pct: 61, dojezd_km: 510, adblue_km: 2900, zamceno: 'YES', vin: 'TMBXXX', poloha: { lat: 49 },
+    servis: { olej_km: 7700, olej_dni: 280, prohlidka_km: 27700, prohlidka_dni: 697 } }] }));
+  const ms = p.volej('auto').data.myskoda;
+  assert.deepStrictEqual(json(ms.auta[0]), { nazev: 'Octavia', model: 'Škoda Octavia Combi', km: 32810, kmKdy: '2026-10-05T11:32:32+00:00', palivo: 61, dojezd: 510,
+    adblue: 2900, zamceno: 'YES', servis: { olejKm: 7700, olejDni: 280, prohlidkaKm: 27700, prohlidkaDni: 697 } });
+  // odkaz s /u/1/ (víc účtů Googlu v prohlížeči)
+  assert.strictEqual(p.volej('autoNastavit', { odkaz: 'https://docs.google.com/spreadsheets/u/1/d/' + TAB_AUTO + '/edit' }).ok, true);
   // kategorie z rozbalovacího seznamu tabulky mají přednost
   p.tabulky[TAB_AUTO].listy['Náklady'].nastavValidaci({ getCriteriaValues: () => [['Servis', 'Parkování', 'Myčka']] });
   assert.deepStrictEqual(p.volej('auto').data.kategorie.slice(0, 3), ['Servis', 'Parkování', 'Myčka']);

@@ -1408,6 +1408,14 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 .auto-cislo em { font-style: normal; font-size: 12px; color: color-mix(in srgb, var(--o) 70%, var(--muted)); margin-top: 3px; }
 .auto-hero__km { margin: 12px 2px 0; font-size: 13px; color: var(--text-soft); }
 .auto-hero__km b { color: var(--text); }
+.auto-z-auta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.auto-z-auta__stitek { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px 3px 7px; border-radius: 999px; background: var(--o-auto); color: #fff;
+    font-size: 11.5px; font-weight: 650; margin-right: 4px; }
+.auto-z-auta__stitek svg { width: 13px; height: 13px; }
+.auto-pozor { color: var(--oranz); }
+.auto-servis__seznam { list-style: none; margin: 4px 16px 6px; padding: 0; }
+.auto-servis__seznam li { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-top: 1px solid color-mix(in srgb, var(--o) 12%, var(--line-soft)); font-size: 13.5px; }
+.auto-servis__seznam li:first-child { border-top: 0; }
 .auto-akce { display: flex; flex-wrap: wrap; gap: 8px; }
 .auto-akce .btn svg { width: 17px; height: 17px; }
 .auto-foto { cursor: pointer; }

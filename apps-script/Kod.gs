@@ -27,12 +27,13 @@
  *               ZDRAVI_KLIC); data po měsících v CLAUDE_SCHRANKA/ZDRAVI; váha zapsaná z aplikace (ZDRAVI/VAHA.json,
  *               i s časem zápisu); upozornění přes ntfy (NTFY_TEMA, kazdouHodinu)
  *   Auto      – náklady a tankování v Michalově tabulce Google (vlastnost AUTO_TABULKA): čtení, zápis nových řádků,
- *               fotky účtenek do CLAUDE_SCHRANKA/AUTO/uctenky + text přes OCR Disku (služba Drive API)
+ *               fotky účtenek do CLAUDE_SCHRANKA/AUTO/uctenky + text přes OCR Disku (služba Drive API);
+ *               stav auta z MyŠkoda (CLAUDE_SCHRANKA/AUTO/myskoda.json – zapisuje domácí PC, NASTROJE\asistent\myskoda)
  *
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.6';
+const VERZE = '2026-10-05.7';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -2082,8 +2083,33 @@ function autoData_(ss) {
     nastaveno: true, nazev: ss.getName(), odkaz: ss.getUrl(), naklady: naklady, tankovani: tankovani,
     kategorie: AUTO_.kategorie(naklady, autoKategorieZValidace_(n)),
     platili: prehled ? AUTO_.platili(prehled.getDataRange().getValues()) : null,
+    myskoda: autoMyskoda_(),
     ted: Date.now()
   };
+}
+
+/** Stav auta z MyŠkoda (tachometr, nádrž, dojezd, servis) – soubor AUTO/myskoda.json zapisuje domácí PC; bez polohy a VIN. */
+function autoMyskoda_() {
+  try {
+    const slozky = koren_().getFoldersByName('AUTO');
+    if (!slozky.hasNext()) return null;
+    const soubory = slozky.next().getFilesByName('myskoda.json');
+    if (!soubory.hasNext()) return null;
+    const d = JSON.parse(soubory.next().getBlob().getDataAsString('UTF-8'));
+    if (!d || !Array.isArray(d.auta)) return null;
+    const cislo = function (x) { return typeof x === 'number' && isFinite(x) ? x : null; };
+    return {
+      aktualizovano: String(d.aktualizovano || ''),
+      auta: d.auta.slice(0, 5).map(function (a) {
+        const s = a.servis || {};
+        return { nazev: String(a.nazev || ''), model: String(a.model || ''), km: cislo(a.km), kmKdy: String(a.km_kdy || ''), palivo: cislo(a.palivo_pct),
+          dojezd: cislo(a.dojezd_km), adblue: cislo(a.adblue_km), zamceno: a.zamceno == null ? null : String(a.zamceno),
+          servis: { olejKm: cislo(s.olej_km), olejDni: cislo(s.olej_dni), prohlidkaKm: cislo(s.prohlidka_km), prohlidkaDni: cislo(s.prohlidka_dni) } };
+      })
+    };
+  } catch (chyba) {
+    return null;
+  }
 }
 
 /** Kategorie z rozbalovacího seznamu ve sloupci Kategorie (když ho tabulka má). */
@@ -2104,7 +2130,7 @@ function autoKategorieZValidace_(list) {
 function autoNastavit_(odkaz) {
   const t = String(odkaz == null ? '' : odkaz).trim();
   if (!t) { vlastnosti_().deleteProperty('AUTO_TABULKA'); return { nastaveno: false }; }
-  const m = /\/spreadsheets\/d\/([\w-]{20,})/.exec(t) || /^([\w-]{20,})$/.exec(t);
+  const m = /\/spreadsheets\/(?:u\/\d+\/)?d\/([\w-]{20,})/.exec(t) || /^([\w-]{20,})$/.exec(t);
   if (!m) throw new Error('Vlož odkaz na tabulku Google (docs.google.com/spreadsheets/d/…).');
   let ss;
   try { ss = SpreadsheetApp.openById(m[1]); } catch (chyba) { throw new Error(autoChybaPristupu_(chyba)); }
