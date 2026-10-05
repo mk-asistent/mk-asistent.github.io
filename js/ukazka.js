@@ -278,6 +278,8 @@ let upozorneniUkazka = { zapnuto: false, tema: '' };
 
 /** Váha v ukázce: občasné ranní vážení za poslední měsíc (vymyšlené hodnoty). */
 let vahaUkazka = [[-33, 81.3], [-26, 81.0], [-19, 80.7], [-12, 80.9], [-6, 80.5], [-1, 80.2]].map((x) => ({ kdy: den(x[0], 6, 40 + x[0] % 7), kg: x[1] }));
+// odškrtnuté doplňky (v aplikaci ZDRAVI/DOPLNKY.json na Disku): včera všechno kromě hořčíku
+const doplnkyUkazka = { [iso(den(-1))]: { multivitamin: true, kreatin: true, omega3: true } };
 
 /** Auto v ukázce: vymyšlené auto, tankování zhruba každé dva týdny s kolísající cenou nafty, pár výdajů (nic skutečného). */
 const autoUkazka = (() => {
@@ -339,7 +341,7 @@ function zdraviUkazka() {
     if (trenink) pridej('soccer', 17, 0, 90, +(11 + nahoda(i, 11) * 2).toFixed(1), 138, 178);
     if (posilovna) pridej('weightlifting', 19, 0, 60, 7.8, 112, 151);
   }
-  return { vytvoreno: Date.now(), dny: dnyZ, treninky: treninky.sort((a, b) => b.start - a.start), vaha: kopie(vahaUkazka),
+  return { vytvoreno: Date.now(), dny: dnyZ, treninky: treninky.sort((a, b) => b.start - a.start), vaha: kopie(vahaUkazka), doplnky: kopie(doplnkyUkazka),
     whoop: { nastaveno: true, propojeno: true, sync: { kdy: Date.now() - 12 * 6e4, chyba: '' } }, apple: { kdy: Date.now() - 3 * H },
     // obecný ukázkový režim doplňků (skutečný je jen v ZDRAVI_REZIM.json na Disku)
     rezim: { kofeinDo: '14:00', treninkDny: [2, 4], zapasTymy: ['dorost'], polozky: [
@@ -508,6 +510,7 @@ const akce = {
     return { kategorie: d.kategorie, vlakna: kopie(kategorieUkazka[d.kategorie]), ted: Date.now() };
   },
   postaPresunout: (d) => {
+    if (!stitkyGmailu[d.stitek] && d.novy && d.pridat !== false) stitkyGmailu[d.stitek] = [];
     const ids = stitkyGmailu[d.stitek];
     if (!ids) throw new Error('Štítek „' + d.stitek + '“ v Gmailu není.');
     const seznamy = [posta.osobni, posta.pracovni].concat(Object.values(kategorieUkazka));
@@ -569,6 +572,11 @@ const akce = {
     return { pridano: fotbalVKalendari.length * 3, upraveno: 0, beze_zmeny: 0, kalendare: {}, kalendareSeznam: kopie(kalendare) };
   },
   zdravi: () => zdraviUkazka(),
+  doplnky: (d) => {
+    const z = (doplnkyUkazka[d.den] = doplnkyUkazka[d.den] || {});
+    Object.keys(d.zmeny || {}).forEach((id) => { if (d.zmeny[id]) z[id] = true; else delete z[id]; });
+    return { dny: kopie(doplnkyUkazka) };
+  },
   vaha: (d) => {
     if (d.smazat != null) vahaUkazka = vahaUkazka.filter((x) => x.kdy !== Number(d.smazat));
     else {

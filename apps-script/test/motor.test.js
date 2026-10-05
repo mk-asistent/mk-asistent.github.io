@@ -81,6 +81,7 @@ function prostredi() {
     getUserLabelByName: (n) => (stitkyGmailu[n] ? { getName: () => n, getThreads: (od, max) => stitkyGmailu[n].vlakna.slice(od, od + max),
       addToThread: (v) => { stitkyVlaken[v.getId()] = (stitkyVlaken[v.getId()] || []).filter((x) => x !== n).concat(n); },
       removeFromThread: (v) => { stitkyVlaken[v.getId()] = (stitkyVlaken[v.getId()] || []).filter((x) => x !== n); } } : null),
+    createLabel: (n) => { stitkyGmailu[n] = { neprectenych: 0, vlakna: [] }; log.zalozenyStitek = n; return GmailApp.getUserLabelByName(n); },
     markThreadsRead: (v) => v.forEach((x) => x.markRead()),
     getInboxUnreadCount: () => 1,
     sendEmail: (komu, predmet, text, m) => log.odeslano.push({ jak: 'send', komu, predmet, t: text, m })
@@ -1671,6 +1672,11 @@ test('pošta: přesun do štítku (skupiny) jako v Gmailu – štítek a pryč z
   o = p.volej('postaPresunout', { id: 'v1', stitek: 'AUTO', pridat: false });
   assert.deepStrictEqual(json(o.data.stitky), [], 'odebrat');
   assert.ok(/není/.test(p.volej('postaPresunout', { id: 'v1', stitek: 'Neexistuje' }).chyba));
+  // nová skupina: založí štítek a přesune
+  o = p.volej('postaPresunout', { id: 'v2', stitek: ' VÝVOJ ', archivovat: true, novy: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual([p.log.zalozenyStitek, json(o.data.stitky).indexOf('VÝVOJ') >= 0, o.data.archivovano], ['VÝVOJ', true, true]);
+  assert.ok(/40 znaků/.test(p.volej('postaPresunout', { id: 'v2', stitek: 'a/', novy: true }).chyba));
 });
 
 test('pošta: podklady pro přehled od Clauda (jednou za 4 hodiny, jen při změně) a přehled v Doručené', () => {
@@ -1679,6 +1685,10 @@ test('pošta: podklady pro přehled od Clauda (jednou za 4 hodiny, jen při změ
     text: '\u200c \u200c \u200c\u034f [image: Slevomat] Máte 200 Kč kredit https://slevomat.test/x?a=1 < do neděle.', kdy: Date.UTC(2026, 9, 2, 10), neprectena: true })], true);
   p.nastavKategorie({ promotions: [promo] });
   p.nastavAktualizace([p.vlakna.v2]);
+  // skupina VÝVOJ (oznámení mimo Doručenou): čerstvé jdou do podkladů, staré ne, dvakrát nic
+  const selhani = p.vlakno('g1', [p.zprava({ id: 'gm1', od: 'GitHub <notifications@github.test>', predmet: 'Run failed: Tabulka', text: 'Job failed.', kdy: Date.parse('2026-10-05T07:30:00+02:00') })], true);
+  const stare = p.vlakno('g2', [p.zprava({ id: 'gm2', od: 'GitHub <notifications@github.test>', predmet: 'Run failed: starý', text: 'Job failed.', kdy: Date.parse('2026-09-20T07:30:00+02:00') })], false);
+  p.nastavStitkyGmailu({ 'VÝVOJ': { neprectenych: 1, vlakna: [selhani, stare, p.vlakna.v2] } });
   const soubor = () => p.schranka.soubory.find((f) => f.getName() === 'POSTA_K_PREHLEDU.json' && !f.vKosi);
   p.nastavCas(Date.parse('2026-10-05T06:30:00+02:00'));
   p.ctx.instagramKazdych10Min();
@@ -1686,7 +1696,7 @@ test('pošta: podklady pro přehled od Clauda (jednou za 4 hodiny, jen při změ
   p.nastavCas(Date.parse('2026-10-05T09:00:00+02:00'));
   p.ctx.instagramKazdych10Min();
   const d = JSON.parse(soubor().getBlob().getDataAsString());
-  assert.deepStrictEqual(d.zpravy.map((z) => [z.id, z.kategorie]), [['v2', 'aktualizace'], ['p1', 'promo']]);
+  assert.deepStrictEqual(d.zpravy.map((z) => [z.id, z.kategorie, z.stitek || '']), [['v2', 'aktualizace', ''], ['p1', 'promo', ''], ['g1', 'stitek', 'VÝVOJ']]);
   assert.deepStrictEqual([d.zpravy[1].od, d.zpravy[1].predmet, d.zpravy[1].ukazka, d.zpravy[1].neprectena],
     ['Slevomat', 'Dárek k svátku', 'Máte 200 Kč kredit do neděle.', true], 'bez odkazů, obrázků a neviditelných znaků');
   const dotazu = p.log.dotazy.length;
@@ -1756,6 +1766,22 @@ test('reely: seznam z REELY/reely.json, odkaz na video na Disku, skóre z FOTBAL
   // chybný soubor = srozumitelná chyba
   reely.soubory.find((f) => f.getName() === 'reely.json').setContent('{');
   assert.ok(/reely\.json/.test(p.volej('reely', { znovu: true }).chyba));
+});
+
+test('doplňky: odškrtnutí na Disk (ZDRAVI/DOPLNKY.json) – víc položek naráz, odškrtnout zpět, staré dny pryč, se Zdravím', () => {
+  const p = prostredi();
+  p.nastavCas(Date.parse('2026-10-05T08:00:00+02:00'));
+  let o = p.volej('doplnky', { den: '2026-10-05', zmeny: { kreatin: true, champion: true } });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.dny), { '2026-10-05': { kreatin: true, champion: true } });
+  o = p.volej('doplnky', { den: '2026-10-05', zmeny: { champion: false, '../x': true } });
+  assert.deepStrictEqual(json(o.data.dny), { '2026-10-05': { kreatin: true } }, 'odškrtnuto zpět, divné id ne');
+  o = p.volej('doplnky', { den: '2026-05-01', zmeny: { kreatin: true } });
+  assert.ok(!('2026-05-01' in o.data.dny), 'starší než 120 dní se nedrží');
+  assert.ok(/RRRR-MM-DD/.test(p.volej('doplnky', { den: '5. 10.', zmeny: { kreatin: true } }).chyba));
+  const soubor = p.schranka.deti.ZDRAVI.soubory.find((f) => f.getName() === 'DOPLNKY.json');
+  assert.deepStrictEqual(JSON.parse(soubor.getBlob().getDataAsString()).dny, { '2026-10-05': { kreatin: true } });
+  assert.deepStrictEqual(json(p.volej('zdravi').data.doplnky), { '2026-10-05': { kreatin: true } });
 });
 
 test('váha: zápis s časem zápisu, česká čárka, nesmysl odmítnut, smazání překlepu, v přehledu Zdraví', () => {

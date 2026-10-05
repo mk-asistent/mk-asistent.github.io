@@ -709,6 +709,19 @@ a.reel__nahled:hover .reel__play { background: var(--limetka); }
 .doplnek small { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doplnek[aria-pressed="true"] b { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--dim); }
 .doplnky-pozn { margin: 0; padding: 0 16px 12px; font-size: 12px; color: var(--muted); }
+.doplnek__tyden { margin-left: auto; flex: none; font-style: normal; font-size: 11.5px; font-weight: 650; color: var(--dim); }
+/* tento týden: po–ne, plný den limetkově, částečný napůl, budoucí prázdný */
+.doplnky-tyden { display: flex; align-items: center; gap: 10px; margin: 0 16px 10px; padding: 8px 10px; border-radius: 12px; background: var(--bg-soft); font-size: 12px; color: var(--muted); }
+.doplnky-tyden > span { font-weight: 600; }
+.doplnky-tyden ol { list-style: none; margin: 0; padding: 0; display: flex; gap: 4px; flex: 1; }
+.doplnky-tyden li { flex: 1; max-width: 30px; height: 24px; display: grid; place-items: center; border-radius: 7px; font-size: 10.5px; font-weight: 650;
+    background: var(--surface); color: var(--dim); border: 1px solid var(--line); }
+.doplnky-tyden li.plny { background: var(--limetka); border-color: var(--limetka); color: var(--na-limetce); }
+.doplnky-tyden li.cast { background: linear-gradient(to top, var(--limetka) 50%, var(--surface) 50%); border-color: var(--limetka); color: var(--text); }
+.doplnky-tyden li.nic { border-color: var(--sand-2); color: var(--text-soft); }
+.doplnky-tyden li.budouci, .doplnky-tyden li.volno { opacity: .55; }
+.doplnky-tyden li.dnes { outline: 2px solid var(--accent); outline-offset: 1px; }
+.doplnky-tyden b { color: var(--text); font-size: 13px; }
 .kal-druhy { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .kal-druhy::-webkit-scrollbar { display: none; }
 /* předpověď ČHMÚ u dnů v kalendáři */
@@ -908,6 +921,9 @@ li.aktivni > .radek { background: var(--sand); box-shadow: inset 3px 0 0 var(--a
 .presun__stitek small { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
 .presun__stitek small svg { width: 12px; height: 12px; }
 .presun__nechat { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-soft); }
+.presun__novy { display: flex; gap: 8px; align-items: center; }
+.presun__novy .field { flex: 1; min-width: 0; min-height: 38px; }
+.presun__novy .btn { flex: none; }
 
 /* našeptávač adres (Komu, hosté události) */
 .naseptavac { position: fixed; z-index: 120; display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-pop); max-height: 280px; overflow-y: auto; }

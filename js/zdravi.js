@@ -22,7 +22,7 @@ export function nactiZdravi(znovu) {
   stav.chyby.zdravi = null;
   zmeneno();
   return volej('zdravi', { znovu: !!znovu })
-    .then((data) => { stav.zdravi = data; uloziste.pis(ULOZISTE, { data, kdy: Date.now() }); })
+    .then((data) => { stav.zdravi = data; uloziste.pis(ULOZISTE, { data, kdy: Date.now() }); prevedDoplnky(); odesliDoplnky(); })
     .catch((e) => { stav.chyby.zdravi = e; })
     .then(() => { stav.nacita.zdravi = false; zmeneno(); });
 }
@@ -404,31 +404,69 @@ export function klavesaZdravi(e) {
 // ---------------------------------------------------------------- Doplňky dnes (režim z ZDRAVI_REZIM.json na Disku)
 
 const KDY = [['rano', 'Ráno'], ['svacina', 'Svačina'], ['obed', 'K obědu'], ['pred', 'Před tréninkem'], ['zapas', 'Zápas'], ['po', 'Po zátěži'], ['vecer', 'Večer']];
-const VZATO = 'asistent.doplnky.';
+const VZATO = 'asistent.doplnky.';                 // starší motor: odškrtnutí jen v zařízení (den → { id: true })
+const CEKAJICI = 'asistent.doplnkyCekajici';       // změny, které motor ještě nepotvrdil { den: { id: true | false } }
+const DNY_TYDNE = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
+let casovacDoplnku = 0;
 
-/** Zápas dnes? Z dat fotbal.cz (týmy v rezim.zapasTymy) nebo ze zápasu v kalendáři. → čas výkopu (ms) nebo null */
-function zapasDnes(rezim) {
-  const dnes = isoDatum(Date.now());
+/** Zápas v daný den? Z dat fotbal.cz (týmy v rezim.zapasTymy) nebo ze zápasu v kalendáři. → čas výkopu (ms) nebo null */
+function zapasVDen(rezim, denMs) {
+  const den = isoDatum(denMs);
   const tymy = rezim.zapasTymy || [];
   const f = stav.fotbal && stav.fotbal.data;
-  const z = f && (f.zapasy || []).find((x) => tymy.indexOf(x.tym) >= 0 && isoDatum(Date.parse(x.zacatek)) === dnes);
+  const z = f && (f.zapasy || []).find((x) => tymy.indexOf(x.tym) >= 0 && isoDatum(Date.parse(x.zacatek)) === den);
   if (z) return Date.parse(z.zacatek);
-  const od = pulnoc(Date.now());
+  const od = pulnoc(denMs);
   const u = udalostiVRozsahu(od, pridejDny(od, 1)).find((x) => jeZapas(x) && !x.celodenni);
   return u ? u.zacatek : null;
 }
 
-/** Co dnes brát: položky režimu podle dne (trénink, zápas) a stav odškrtnutí na tomhle zařízení. */
+/** Den podle režimu: zápas, trénink a které položky ten den platí. */
+function denRezimu(rezim, denMs) {
+  const vykop = zapasVDen(rezim, denMs);
+  const trenink = (rezim.treninkDny || []).indexOf(new Date(denMs).getDay()) >= 0;
+  return { vykop, trenink, plati: (p) => !p.jen || (p.jen === 'zapas' && vykop) || (p.jen === 'trenink' && trenink) || (p.jen === 'zatez' && (trenink || vykop)) };
+}
+
+/** Odškrtnuté v den (RRRR-MM-DD): z motoru (Disk – stejné na telefonu i PC) + změny, které ještě neodešly; starší motor: jen zařízení. */
+function vzatoVDen(den) {
+  const server = stav.zdravi && stav.zdravi.doplnky;
+  const vzato = server ? Object.assign({}, server[den] || {}) : Object.assign({}, uloziste.cti(VZATO + den) || {});
+  const cekajici = (uloziste.cti(CEKAJICI) || {})[den] || {};
+  Object.keys(cekajici).forEach((id) => { if (cekajici[id]) vzato[id] = true; else delete vzato[id]; });
+  return vzato;
+}
+
+/** Tento týden (pondělí → dnes): kolik z platných položek bylo vzato – po dnech, celkem a u každé položky. */
+function tydenDoplnku(rezim) {
+  const dnes = pulnoc(Date.now());
+  const pondeli = pridejDny(dnes, -((new Date(dnes).getDay() + 6) % 7));
+  const dny = [];
+  const polozky = {};
+  let vzato = 0, celkem = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = pridejDny(pondeli, i);
+    if (d > dnes) { dny.push({ d, budouci: true }); continue; }
+    const x = vzatoVDen(isoDatum(d));
+    const plati = rezim.polozky.filter(denRezimu(rezim, d).plati);
+    const n = plati.filter((p) => x[p.id]).length;
+    plati.forEach((p) => { const s = (polozky[p.id] = polozky[p.id] || { vzato: 0, dni: 0 }); s.dni++; if (x[p.id]) s.vzato++; });
+    dny.push({ d, vzato: n, celkem: plati.length, dnes: d === dnes });
+    vzato += n;
+    celkem += plati.length;
+  }
+  return { dny, vzato, celkem, polozky };
+}
+
+/** Co dnes brát: položky režimu podle dne (trénink, zápas), odškrtnutí a týden. */
 export function doplnkyDnes() {
   const rezim = stav.zdravi && stav.zdravi.rezim;
   if (!rezim || !Array.isArray(rezim.polozky) || !rezim.polozky.length) return null;
-  const vykop = zapasDnes(rezim);
-  const trenink = (rezim.treninkDny || []).indexOf(new Date().getDay()) >= 0;
-  const plati = (p) => !p.jen || (p.jen === 'zapas' && vykop) || (p.jen === 'trenink' && trenink) || (p.jen === 'zatez' && (trenink || vykop));
-  const vzato = uloziste.cti(VZATO + isoDatum(Date.now())) || {};
-  const polozky = rezim.polozky.filter(plati).map((p) => Object.assign({ vzato: !!vzato[p.id] }, p))
+  const den = denRezimu(rezim, Date.now());
+  const vzato = vzatoVDen(isoDatum(Date.now()));
+  const polozky = rezim.polozky.filter(den.plati).map((p) => Object.assign({ vzato: !!vzato[p.id] }, p))
     .sort((a, b) => KDY.findIndex((k) => k[0] === a.kdy) - KDY.findIndex((k) => k[0] === b.kdy));
-  return { polozky, vykop, trenink, kofeinDo: rezim.kofeinDo || '', chyba: rezim.chyba || '' };
+  return { polozky, vykop: den.vykop, trenink: den.trenink, kofeinDo: rezim.kofeinDo || '', chyba: rezim.chyba || '', tyden: tydenDoplnku(rezim) };
 }
 
 export function kartaDoplnkuHtml() {
@@ -438,11 +476,53 @@ export function kartaDoplnkuHtml() {
   const nazevKdy = (k) => (KDY.find((x) => x[0] === k) || [k, k])[1];
   const den = d.vykop ? 'den zápasu · výkop ' + hhmm(d.vykop) : d.trenink ? 'tréninkový den' : '';
   const kofein = !d.vykop && d.kofeinDo && new Date().getHours() < 18 ? 'Kofein naposledy ve ' + d.kofeinDo + '.' : '';
+  const t = d.tyden;
+  const tyden = t.celkem ? '<div class="doplnky-tyden" title="Kolik doplňků jsi tento týden vzal (z těch, které ten den platily)"><span>Tento týden</span><ol>' +
+    t.dny.map((x, i) => '<li class="' + (x.budouci ? 'budouci' : !x.celkem ? 'volno' : x.vzato >= x.celkem ? 'plny' : x.vzato ? 'cast' : 'nic') + (x.dnes ? ' dnes' : '') +
+      '" title="' + DNY_TYDNE[i] + (x.budouci ? '' : ': ' + x.vzato + ' z ' + x.celkem) + '">' + DNY_TYDNE[i] + '</li>').join('') +
+    '</ol><b class="cisla">' + Math.round(t.vzato / t.celkem * 100) + ' %</b></div>' : '';
   return hlavickaKarty(IKONY.doplnky, 'Doplňky dnes', '<span class="muted small">' + (zbyva ? 'zbývá ' + zbyva : 'vše ✓') + '</span>') +
     (d.chyba ? '<p class="pruh pruh-varovani">' + esc(d.chyba) + '</p>' : '') +
-    '<ul class="doplnky">' + d.polozky.map((p) => '<li><button type="button" class="doplnek" data-doplnek="' + esc(p.id) + '" aria-pressed="' + p.vzato + '">' +
-      '<i class="zaskrt" aria-hidden="true">' + IKONY.fajfka + '</i><span><b>' + esc(p.nazev) + '</b><small>' + esc(nazevKdy(p.kdy)) + (p.davka ? ' · ' + esc(p.davka) : '') + '</small></span></button></li>').join('') + '</ul>' +
+    '<ul class="doplnky">' + d.polozky.map((p) => {
+      const s = t.polozky[p.id];
+      return '<li><button type="button" class="doplnek" data-doplnek="' + esc(p.id) + '" aria-pressed="' + p.vzato + '">' +
+        '<i class="zaskrt" aria-hidden="true">' + IKONY.fajfka + '</i><span><b>' + esc(p.nazev) + '</b><small>' + esc(nazevKdy(p.kdy)) + (p.davka ? ' · ' + esc(p.davka) : '') + '</small></span>' +
+        (s && s.dni > 1 ? '<em class="doplnek__tyden cisla" title="tento týden">' + s.vzato + '/' + s.dni + '</em>' : '') + '</button></li>';
+    }).join('') + '</ul>' + tyden +
     (den || kofein ? '<p class="doplnky-pozn">' + [den ? velkym(den) : '', kofein].filter(Boolean).join(' · ') + '</p>' : '');
+}
+
+/** Změny odškrtnutí → motor (ZDRAVI/DOPLNKY.json na Disku). Bez sítě zůstanou čekat a odejdou při dalším načtení Zdraví. */
+function odesliDoplnky() {
+  const c = uloziste.cti(CEKAJICI) || {};
+  const dny = Object.keys(c).filter((den) => Object.keys(c[den] || {}).length);
+  if (!dny.length || !umiMotor('doplnky')) return Promise.resolve();
+  return dny.reduce((retez, den) => retez.then(() => {
+    const zmeny = Object.assign({}, c[den]);
+    return volej('doplnky', { den, zmeny }).then((r) => {
+      if (stav.zdravi) { stav.zdravi.doplnky = r.dny || {}; uloziste.pis(ULOZISTE, { data: stav.zdravi, kdy: Date.now() }); }
+      const ted = uloziste.cti(CEKAJICI) || {};
+      Object.keys(zmeny).forEach((id) => { if (ted[den] && ted[den][id] === zmeny[id]) delete ted[den][id]; });
+      if (ted[den] && !Object.keys(ted[den]).length) delete ted[den];
+      uloziste.pis(CEKAJICI, ted);
+    });
+  }), Promise.resolve()).catch(() => { /* odejde při dalším načtení Zdraví */ }).then(zmeneno);
+}
+
+/** Odškrtnutí z doby, kdy se pamatovalo jen v zařízení → poprvé na Disk (pak se staré klíče smažou). */
+function prevedDoplnky() {
+  if (!umiMotor('doplnky') || !stav.zdravi || !stav.zdravi.doplnky) return;
+  const stare = uloziste.klice(VZATO).filter((k) => /^\d{4}-\d{2}-\d{2}$/.test(k.slice(VZATO.length)));
+  if (!stare.length) return;
+  const c = uloziste.cti(CEKAJICI) || {};
+  stare.forEach((k) => {
+    const den = k.slice(VZATO.length);
+    const mistni = uloziste.cti(k) || {};
+    const server = stav.zdravi.doplnky[den] || {};
+    Object.keys(mistni).forEach((id) => { if (mistni[id] && !server[id] && !(c[den] && id in c[den])) (c[den] = c[den] || {})[id] = true; });
+    uloziste.smaz(k);
+  });
+  uloziste.pis(CEKAJICI, c);
 }
 
 function velkym(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
@@ -451,12 +531,24 @@ function velkym(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 export function klikZdravi(el) {
   if (el.dataset.doplnek) {
-    const klic = VZATO + isoDatum(Date.now());
-    const vzato = uloziste.cti(klic) || {};
-    vzato[el.dataset.doplnek] = !vzato[el.dataset.doplnek];
-    uloziste.pis(klic, vzato);
-    // staré dny pryč (jen posledních 7)
-    uloziste.klice(VZATO).filter((k) => k < VZATO + isoDatum(pridejDny(pulnoc(Date.now()), -7))).forEach((k) => uloziste.smaz(k));
+    const den = isoDatum(Date.now());
+    const id = el.dataset.doplnek;
+    const vzato = !vzatoVDen(den)[id];
+    if (umiMotor('doplnky')) {
+      // na Disk (stejné na telefonu i PC); víc klepnutí za sebou odejde jedním dotazem
+      const c = uloziste.cti(CEKAJICI) || {};
+      (c[den] = c[den] || {})[id] = vzato;
+      uloziste.pis(CEKAJICI, c);
+      clearTimeout(casovacDoplnku);
+      casovacDoplnku = setTimeout(odesliDoplnky, 700);
+    } else {
+      const klic = VZATO + den;
+      const mistni = uloziste.cti(klic) || {};
+      mistni[id] = vzato;
+      uloziste.pis(klic, mistni);
+      // staré dny pryč (jen posledních 7)
+      uloziste.klice(VZATO).filter((k) => k < VZATO + isoDatum(pridejDny(pulnoc(Date.now()), -7))).forEach((k) => uloziste.smaz(k));
+    }
     zmeneno();
     return true;
   }

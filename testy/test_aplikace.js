@@ -87,10 +87,16 @@ const motor = {
         spanek: { start: den(0, -1), konec: den(0, 6), celkem: 6.5 * H, hluboky: 1.4 * H, rem: 1.6 * H, lehky: 3.5 * H, bdeni: 0.3 * H, vykon: 91, potreba: 8 * H },
         zatez: { probiha: true, zatez: 6.2, kroky: 4000 } } }],
     treninky: [{ id: 'w1', den: iso(ted), start: den(0, 9), konec: den(0, 10), sport: 'soccer', zatez: 11.5, tepPrumer: 140, tepMax: 180, kcal: 700, zony: [1, 5, 20, 20, 10, 4] }],
-    whoop: { nastaveno: true, propojeno: true, sync: { kdy: ted, chyba: '' } }, apple: { kdy: ted }, vaha: vahaZaznamy.slice(),
+    whoop: { nastaveno: true, propojeno: true, sync: { kdy: ted, chyba: '' } }, apple: { kdy: ted }, vaha: vahaZaznamy.slice(), doplnky: JSON.parse(JSON.stringify(doplnkyDny)),
     rezim: { kofeinDo: '14:00', treninkDny: [], zapasTymy: ['A'], polozky: [{ id: 'kreatin', nazev: 'Kreatin', davka: '5 g', kdy: 'rano' },
       { id: 'kofein', nazev: 'Kofein', davka: 'před výkopem', kdy: 'zapas', jen: 'zapas' }, { id: 'horcik', nazev: 'Hořčík', davka: 'večer', kdy: 'vecer' }] } }),
   zdraviKlic: () => ({ klic: 'testovaci-klic-zdravi' }),
+  doplnky: (d) => {
+    doplnkyVolani.push({ den: d.den, zmeny: d.zmeny });
+    const z = (doplnkyDny[d.den] = doplnkyDny[d.den] || {});
+    Object.keys(d.zmeny || {}).forEach((id) => { if (d.zmeny[id]) z[id] = true; else delete z[id]; });
+    return { dny: JSON.parse(JSON.stringify(doplnkyDny)) };
+  },
   upozorneni: () => Object.assign({}, upozorneniStav),
   upozorneniZapnout: () => { upozorneniStav = { zapnuto: true, tema: 'asistent-testovaci-tema' }; upozorneniOdeslano++; return Object.assign({ odeslano: true }, upozorneniStav); },
   upozorneniTest: () => { upozorneniOdeslano++; return { odeslano: upozorneniStav.zapnuto }; },
@@ -196,6 +202,7 @@ const odpovediRid = new Map();    // rid → odpověď (motor opakovaný zápis 
 let navrhZahozen = false;
 const autoZapisy = [], autoSmazano = [], autoUctenky = [], autoUpravy = [], autoFotky = [], autoTerminy = [];
 let postaNavic = {};              // test záložek: aktualizace v Doručené, čísla záložek a přehled od Clauda
+const doplnkyDny = {}, doplnkyVolani = []; // odškrtnuté doplňky (motor: ZDRAVI/DOPLNKY.json)
 const postaPresuny = [], postaPrecteno = [];
 const promoVlakna = [
   { id: 'k1', ucet: 'osobni', stav: 'info', od: 'Obchod Test', predmet: 'Dárek k svátku', ukazka: 'Kredit 200 Kč do neděle.', kdy: ted - 3 * H, neprectena: true, pocet: 1, odkaz: '#' },
@@ -799,6 +806,18 @@ async function novaStranka(prohlizec, v, motiv) {
     jistota(postaPresuny.length === 1 && postaPresuny[0].id === 'k2' && postaPresuny[0].stitek === 'Fotbal' && postaPresuny[0].pridat === true && postaPresuny[0].archivovat === true,
       'přesun: ' + JSON.stringify(postaPresuny));
     jistota(!(await page.locator('#posta-seznam .seznam-posta [data-vlakno="k2"]').count()), 'přesunutá pryč ze seznamu');
+    // nová skupina: název → Vytvořit a přesunout (motor štítek založí), ve výběru štítků hned je
+    await page.click('#posta-seznam .seznam-posta [data-vlakno="k1"]');
+    await page.waitForSelector('#posta-detail [data-presunout]');
+    await page.click('#posta-detail [data-presunout]');
+    await page.waitForSelector('[data-panel="presunout"] [data-presun-novy]');
+    await page.fill('[data-panel="presunout"] [data-presun-novy]', 'VÝVOJ');
+    await page.click('[data-panel="presunout"] [data-presun-vytvorit]');
+    await page.waitForFunction(() => /Přesunuto do VÝVOJ/.test(document.getElementById('toast').textContent));
+    const novy = postaPresuny[postaPresuny.length - 1];
+    jistota(novy.id === 'k1' && novy.stitek === 'VÝVOJ' && novy.archivovat === true, 'nová skupina: ' + JSON.stringify(novy));
+    jistota(volano.some((d) => d.akce === 'postaPresunout' && d.novy === true), 'novy: true do motoru');
+    await page.waitForSelector('[data-stitek-posty] option[value="VÝVOJ"]', { state: 'attached' });
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
     postaNavic = {};
@@ -1062,6 +1081,13 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.click('#dl-doplnky [data-doplnek="kreatin"]');
     await page.waitForSelector('#dl-doplnky [data-doplnek="kreatin"][aria-pressed="true"]');
     jistota(/zbývá 1/.test(await page.textContent('#dl-doplnky')), 'počet zbývajících');
+    // odškrtnutí jde na Disk (motor doplnky) – stejné na telefonu i PC; týden pod seznamem
+    for (let i = 0; i < 50 && !doplnkyVolani.length; i++) await page.waitForTimeout(100);
+    jistota(JSON.stringify(doplnkyVolani) === JSON.stringify([{ den: iso(ted), zmeny: { kreatin: true } }]), 'doplňky do motoru: ' + JSON.stringify(doplnkyVolani));
+    const tyden = (await page.textContent('#dl-doplnky .doplnky-tyden')).replace(/\s+/g, ' ');
+    jistota(/Tento týden/.test(tyden) && /\d+ %/.test(tyden), 'týden: ' + tyden);
+    // jiné zařízení (čisté úložiště) vidí odškrtnutí z motoru
+    await page.evaluate(() => { Object.keys(localStorage).filter((k) => /^asistent\.doplnky/.test(k)).forEach((k) => localStorage.removeItem(k)); });
     await page.reload();
     await page.waitForSelector('#dl-doplnky [data-doplnek="kreatin"][aria-pressed="true"]');
     await page.locator('#dl-doplnky').screenshot({ path: path.join(VYSTUP, 'pc_doplnky.png') });

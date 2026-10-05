@@ -858,20 +858,28 @@ function presunHtml() {
   }).join('') + '</ul>' : stav.stitkyGmailu ? '<p class="napoveda">V Gmailu zatím nemáš žádné štítky.</p>' : kostra(4);
   return '<div class="presun"><p class="pripominka__predmet">' + IKONY.posta + '<span class="orez-2">' + esc((d && d.predmet) || souhrn.predmet || '') +
     (souhrn.od ? ' <small class="muted">· ' + esc(souhrn.od) + '</small>' : '') + '</span></p>' + seznam +
+    '<div class="presun__novy"><input class="field" data-presun-novy maxlength="40" placeholder="Nová skupina, např. VÝVOJ" aria-label="Název nové skupiny">' +
+      '<button type="button" class="btn btn--ghost btn--sm" data-presun-vytvorit>' + IKONY.plus + '<span>Vytvořit a přesunout</span></button></div>' +
     '<label class="presun__nechat"><input type="checkbox" data-presun-nechat' + (p.nechat ? ' checked' : '') + '><span>Nechat i v Doručené (jen přidat štítek)</span></label>' +
     '<p class="napoveda">Jako „Přesunout do“ v Gmailu: konverzace dostane štítek a zmizí z Doručené. Najdeš ji ve výběru štítku nad seznamem pošty.</p></div>';
 }
 
-async function presun(nazev, tlacitko) {
+async function presun(nazev, tlacitko, novy) {
   const p = stav.presun;
   if (!p) return;
+  nazev = String(nazev || '').replace(/\s+/g, ' ').trim();
+  if (!nazev) { toast('Napiš název skupiny.', true); return; }
   const id = p.id;
   const souhrn = najdiSouhrn(id) || {};
-  const odebrat = (souhrn.stitky || []).indexOf(nazev) >= 0;
+  const odebrat = !novy && (souhrn.stitky || []).indexOf(nazev) >= 0;
   const archivovat = !odebrat && !p.nechat;
   tlacitko.disabled = true;
   try {
-    const v = await volej('postaPresunout', { id, stitek: nazev, pridat: !odebrat, archivovat });
+    const v = await volej('postaPresunout', { id, stitek: nazev, pridat: !odebrat, archivovat, novy: !!novy });
+    // nová skupina hned ve výběru štítků (počty se dočtou příště)
+    if (novy && stav.stitkyGmailu && !stav.stitkyGmailu.some((s) => s.nazev === nazev)) {
+      stav.stitkyGmailu = stav.stitkyGmailu.concat({ nazev, neprectenych: 0 }).sort((a, b) => a.nazev.localeCompare(b.nazev, 'cs'));
+    }
     delete stav.postaStitku[nazev]; // seznam štítku se příště načte znovu
     upravVSeznamech(id, (m) => { m.stitky = v.stitky || []; });
     if (archivovat) {
@@ -941,6 +949,11 @@ export function klikPosta(el) {
   if (el.dataset.prehledSkryt) { skryjVPrehledu(el.dataset.prehledSkryt); return true; }
   if (el.hasAttribute('data-presunout')) { otevriPresun(); return true; }
   if (el.dataset.presunStitek && stav.presun) { presun(el.dataset.presunStitek, el); return true; }
+  if (el.hasAttribute('data-presun-vytvorit') && stav.presun) {
+    const pole = el.closest('.presun__novy').querySelector('[data-presun-novy]');
+    presun(pole.value, el, true);
+    return true;
+  }
   if (el.dataset.navrhOdpovedi) {
     const id = stav.otevreneVlakno;
     const d = id && stav.vlakna[id] && stav.vlakna[id].data;

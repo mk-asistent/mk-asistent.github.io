@@ -499,7 +499,10 @@ function sekceZdravi() {
       '→ <b>Hodnota</b>; <code>kroky_dny</code> = proměnná kroky → <b>Datum začátku</b>. Stejně <code>energie</code> + <code>energie_dny</code> atd.</li>' +
     '<li>Zkratku jednou spusť (▶). iPhone se zeptá na <b>přístup ke Zdraví</b> → zapni všechny údaje → Povolit. <i>Teprve potom</i> se Zkratky objeví ' +
       'v aplikaci Zdraví → profil → Soukromí → Aplikace (tam jde přístup později změnit) – dřív tam nejsou.</li>' +
-    '<li>Automatizace → <b>+</b> → Vytvořit osobní automatizaci → <b>Aplikace</b> → WHOOP → je otevřená → <b>Spustit okamžitě</b> → zkratka výš.</li></ol></details>';
+    '<li>Automatizace → <b>+</b> → Vytvořit osobní automatizaci → <b>Aplikace</b> → WHOOP → je otevřená → <b>Spustit okamžitě</b> → zkratka výš.</li>' +
+    '<li>Chyba <b>„Protected health data is inaccessible“</b> = iPhone byl při běhu zkratky zamčený (Zdraví se zamčením zavře). Automatizace musí ' +
+      'být „Aplikace → WHOOP → je otevřená“ – ne podle času, budíku ani nabíječky – a po otevření WHOOP nech iPhone pár vteřin odemčený. ' +
+      'Jedno selhání nevadí: zkratka posílá vždy 7 dní, chybějící den doplní příště.</li></ol></details>';
   return h + '</section>';
 }
 

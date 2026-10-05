@@ -36,7 +36,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.20';
+const VERZE = '2026-10-05.21';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -169,7 +169,7 @@ const AKCE = {
   stitky: function (d) { return stitkyGmailu_(!!d.znovu); },
   postaStitek: function (d) { return postaStitku_(d.nazev); },
   postaKategorie: function (d) { return postaKategorie_(d.kategorie, !!d.znovu); },
-  postaPresunout: function (d) { return presunDoStitku_(d.id, d.stitek, d.pridat !== false, !!d.archivovat); },
+  postaPresunout: function (d) { return presunDoStitku_(d.id, d.stitek, d.pridat !== false, !!d.archivovat, !!d.novy); },
   postaPrectene: function (d) { return prectiKategorii_(d.kategorie); },
   kontakty: function () { return kontakty_(); },
   podpisyUlozit: function (d) { return ulozPodpisy_(d.podpisy); },
@@ -187,6 +187,7 @@ const AKCE = {
   reelNaplanovat: function (d) { return naplanujReel_(d.id, d.kdy, d.oznacit, d.popisek); },
   reelZrusitPlan: function (d) { return zrusPlanReelu_(d.id); },
   vaha: function (d) { return vaha_(d); },
+  doplnky: function (d) { return doplnky_(d); },
   upozorneni: function () { return upozorneniStav_(); },
   upozorneniZapnout: function () { return upozorneniZapnout_(); },
   upozorneniTest: function () { return { odeslano: upozorni_('Asistent', 'Zkušební upozornění ✓', ['white_check_mark'], 3) }; },
@@ -853,6 +854,11 @@ const DNI_KATEGORIE = 30;
 const MAX_POCTU = 50;          // víc nepřečtených se nepočítá („50+“)
 const PREHLED_POSTY_HODIN = 4;
 const MAX_K_PREHLEDU = 30;     // konverzací z jedné kategorie do podkladů
+const PREHLED_STITKY = 'VÝVOJ'; // skupiny (štítky), které Claude v přehledu taky projde – vlastnost PREHLED_STITKY (čárkou)
+
+function stitkyKPrehledu_() {
+  return String(vlastnosti_().getProperty('PREHLED_STITKY') || PREHLED_STITKY).split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+}
 
 function kategorieGmailu_(k) {
   const g = KATEGORIE_GMAILU[k];
@@ -890,12 +896,16 @@ function poctyKategorii_(znovu) {
 
 /**
  * Přesun do štítku (skupiny) jako „Přesunout do“ v Gmailu: štítek + pryč z Doručené; s archivovat: false jen štítek,
- * pridat: false štítek odebere. Vrací štítky konverzace.
+ * pridat: false štítek odebere, novy: true štítek založí, když ještě není. Vrací štítky konverzace.
  */
-function presunDoStitku_(id, nazev, pridat, archivovat) {
+function presunDoStitku_(id, nazev, pridat, archivovat, novy) {
   const vlakno = vlakno_(id);
-  nazev = String(nazev || '').trim();
-  const stitek = nazev ? GmailApp.getUserLabelByName(nazev) : null;
+  nazev = String(nazev || '').replace(/\s+/g, ' ').trim();
+  let stitek = nazev ? GmailApp.getUserLabelByName(nazev) : null;
+  if (!stitek && novy && pridat) {
+    if (nazev.length > 40 || /^\/|\/$|\/\/|[\\"<>]/.test(nazev)) throw new Error('Název skupiny: nejvýš 40 znaků, bez \\ " < > a lomítek na krajích.');
+    stitek = GmailApp.createLabel(nazev);
+  }
   if (!stitek) throw new Error('Štítek „' + nazev + '“ v Gmailu není.');
   if (pridat) {
     stitek.addToThread(vlakno);
@@ -933,16 +943,29 @@ function ulozPostuKPrehledu_(vynutit) {
   if (!vynutit && ted - Number(p.getProperty('PREHLED_POSTY_KDY') || 0) < PREHLED_POSTY_HODIN * 36e5 - 10 * 60e3) return false;
   p.setProperty('PREHLED_POSTY_KDY', String(ted));
   const zpravy = [];
-  Object.keys(KATEGORIE_GMAILU).forEach(function (k) {
-    const vlakna = GmailApp.search('in:inbox category:' + KATEGORIE_GMAILU[k] + ' newer_than:2d', 0, MAX_K_PREHLEDU);
+  const videno = {};
+  const pridej = function (vlakna, kategorie, stitek) {
+    vlakna = vlakna.filter(function (v) { return !videno[v.getId()]; });
     const obsah = vlakna.length ? GmailApp.getMessagesForThreads(vlakna) : [];
     vlakna.forEach(function (v, i) {
+      videno[v.getId()] = true;
       const posledni = obsah[i][obsah[i].length - 1];
-      zpravy.push({ id: v.getId(), kategorie: k, od: jmeno_(posledni.getFrom()), odAdresa: adresa_(posledni.getFrom()),
+      const z = { id: v.getId(), kategorie: kategorie, od: jmeno_(posledni.getFrom()), odAdresa: adresa_(posledni.getFrom()),
         predmet: v.getFirstMessageSubject() || '(bez předmětu)',
         ukazka: cistyText_(String(posledni.getPlainBody() || '').replace(/https?:\/\/\S+/g, '')).slice(0, 300),
-        kdy: v.getLastMessageDate().getTime(), neprectena: v.isUnread() });
+        kdy: v.getLastMessageDate().getTime(), neprectena: v.isUnread() };
+      if (stitek) z.stitek = stitek;
+      zpravy.push(z);
     });
+  };
+  Object.keys(KATEGORIE_GMAILU).forEach(function (k) {
+    pridej(GmailApp.search('in:inbox category:' + KATEGORIE_GMAILU[k] + ' newer_than:2d', 0, MAX_K_PREHLEDU), k, '');
+  });
+  // skupiny jako VÝVOJ: filtr je může dávat mimo Doručenou – selhání automatizací má Claude vidět i tak
+  stitkyKPrehledu_().forEach(function (n) {
+    const stitek = GmailApp.getUserLabelByName(n);
+    if (!stitek) return;
+    pridej(stitek.getThreads(0, MAX_K_PREHLEDU).filter(function (v) { return v.getLastMessageDate().getTime() > ted - 2 * 864e5; }), 'stitek', n);
   });
   const otisk = md5_(JSON.stringify(zpravy.map(function (z) { return [z.id, z.kdy]; })));
   if (p.getProperty('PREHLED_POSTY_OTISK') === otisk) return false;
@@ -4815,6 +4838,7 @@ function zdravi_(znovu) {
   p.apple = { kdy: Number(vlastnosti_().getProperty('APPLE_SYNC') || 0), posledni: nactiZCache_('APPLE_POSLEDNI') };
   p.rezim = zdraviRezim_();
   p.vaha = nactiVahu_(slozka).zaznamy;
+  p.doplnky = nactiDoplnky_(slozka).dny;
   return p;
 }
 
@@ -4857,6 +4881,46 @@ function vaha_(d) {
     const obsah = JSON.stringify({ aktualizovano: Date.now(), zaznamy: zaznamy });
     if (v.soubor) v.soubor.setContent(obsah); else slozka.createFile('VAHA.json', obsah, MimeType.PLAIN_TEXT);
     return { zaznamy: zaznamy };
+  } finally {
+    zamek.releaseLock();
+  }
+}
+
+// ---- doplňky: odškrtnutí z aplikace (stejné na telefonu i PC, s historií pro týdenní přehled) –
+// CLAUDE_SCHRANKA/ZDRAVI/DOPLNKY.json { aktualizovano, dny: { 'RRRR-MM-DD': { id: true } } }, drží se 120 dní
+const DOPLNKY_DNI = 120;
+
+function nactiDoplnky_(slozka) {
+  const it = slozka.getFilesByName('DOPLNKY.json');
+  if (!it.hasNext()) return { soubor: null, dny: {} };
+  const soubor = it.next();
+  let data = null;
+  try { data = JSON.parse(soubor.getBlob().getDataAsString('UTF-8')); } catch (chyba) { data = null; }
+  return { soubor: soubor, dny: data && data.dny && typeof data.dny === 'object' ? data.dny : {} };
+}
+
+/** Akce doplnky: { den: 'RRRR-MM-DD', zmeny: { id: true | false } } – odškrtnutí jednoho dne (i víc položek naráz). Vrací všechny dny. */
+function doplnky_(d) {
+  const den = String(d.den || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(den)) throw new Error('Den má tvar RRRR-MM-DD.');
+  const zmeny = d.zmeny && typeof d.zmeny === 'object' ? d.zmeny : {};
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(30000);
+  try {
+    const slozka = slozkaZdravi_();
+    const v = nactiDoplnky_(slozka);
+    const dny = v.dny;
+    const zaznam = dny[den] || {};
+    Object.keys(zmeny).slice(0, 50).forEach(function (id) {
+      if (!/^[\w-]{1,40}$/.test(id)) return;
+      if (zmeny[id]) zaznam[id] = true; else delete zaznam[id];
+    });
+    if (Object.keys(zaznam).length) dny[den] = zaznam; else delete dny[den];
+    const hranice = Utilities.formatDate(new Date(Date.now() - DOPLNKY_DNI * 864e5), CASOVE_PASMO, 'yyyy-MM-dd');
+    Object.keys(dny).forEach(function (k) { if (k < hranice) delete dny[k]; });
+    const obsah = JSON.stringify({ aktualizovano: Date.now(), dny: dny });
+    if (v.soubor) v.soubor.setContent(obsah); else slozka.createFile('DOPLNKY.json', obsah, MimeType.PLAIN_TEXT);
+    return { dny: dny };
   } finally {
     zamek.releaseLock();
   }
