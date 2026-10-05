@@ -862,6 +862,53 @@ li.aktivni > .radek { background: var(--sand); box-shadow: inset 3px 0 0 var(--a
 .stitek-volba svg { width: 15px; height: 15px; }
 .stitek-volba select { border: 0; background: transparent; padding: 7px 6px; font-size: 13px; font-weight: 600; color: var(--text); max-width: 220px; outline: none; }
 
+/* záložky jako v Gmailu (Primární, Aktualizace, Promoakce, Sociální sítě, Fóra) */
+.posta-kategorie { position: relative; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; margin: 0 0 12px; border-bottom: 1px solid var(--line); }
+.posta-kategorie::-webkit-scrollbar { display: none; }
+.posta-kategorie__tab { flex: none; display: inline-flex; align-items: center; gap: 7px; padding: 9px 12px 10px; margin-bottom: -1px; border: 0;
+    border-bottom: 2.5px solid transparent; background: none; color: var(--muted); font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+.posta-kategorie__tab svg { width: 16px; height: 16px; }
+.posta-kategorie__tab:hover { color: var(--text); }
+.posta-kategorie__tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.posta-kategorie__tab b { min-width: 18px; padding: 0 6px; border-radius: 9px; background: var(--sand); color: var(--text-soft); font-size: 11.5px; font-weight: 650; text-align: center; }
+.posta-kategorie__tab[aria-selected="true"] b { background: var(--accent-tint); color: var(--accent); }
+@media (max-width: 759px) {
+    .posta-kategorie__tab { padding: 9px 10px 10px; gap: 6px; }
+    .posta-kategorie__tab svg { display: none; }
+}
+/* přehled od Clauda nad seznamem (Vyřiď, Mohlo by tě zajímat, Ostatní stručně) */
+.posta-prehled { display: flex; flex-direction: column; gap: 8px; padding: 14px 14px 12px; background: var(--limetka-tint); border-color: transparent; }
+.posta-prehled__hlava { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.posta-prehled__hlava svg { width: 16px; height: 16px; }
+.posta-prehled__hlava b { font-size: 14.5px; }
+.posta-prehled__hlava small { color: var(--muted); font-size: 12px; }
+.posta-prehled__nadpis { margin: 4px 0 0; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.posta-prehled__seznam { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.posta-prehled__polozka { display: flex; align-items: flex-start; gap: 2px; border-radius: 12px; background: var(--surface); border-left: 3px solid var(--limetka); }
+.posta-prehled--dulezite { border-left-color: var(--oranz); }
+.posta-prehled__btn { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 9px 4px 9px 11px; border: 0; background: none; color: inherit; text-align: left; }
+.posta-prehled__kdo { display: flex; gap: 6px; min-width: 0; font-size: 13.5px; }
+.posta-prehled__kdo b { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
+.posta-prehled__kdo span { min-width: 0; color: var(--text-soft); }
+.posta-prehled__btn small { font-size: 12.5px; line-height: 1.4; color: var(--text); }
+.posta-prehled__polozka .btn--ikona { margin: 4px 4px 0 0; color: var(--dim); }
+.posta-prehled__zbytek { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 12.5px; line-height: 1.45; color: var(--text-soft); }
+.posta-prehled-nic { display: flex; align-items: flex-start; gap: 6px; margin: 0 2px; }
+.posta-prehled-nic svg { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+.posta-hromadne { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 2px; font-size: 12.5px; color: var(--muted); }
+/* Přesunout do skupiny (štítek Gmailu) */
+.presun { display: flex; flex-direction: column; gap: 12px; }
+.presun__seznam { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 50vh; overflow-y: auto; }
+.presun__stitek { width: 100%; display: flex; align-items: center; gap: 10px; padding: 9px 12px 9px calc(12px + var(--hloubka, 0) * 18px); border: 1px solid var(--line);
+    border-radius: 12px; background: var(--surface); color: var(--text); font-size: 14px; font-weight: 600; text-align: left; }
+.presun__stitek:hover { border-color: var(--sand-2); }
+.presun__stitek.je { background: var(--bg-soft); }
+.presun__barva { width: 12px; height: 12px; flex: none; border-radius: 4px; background: hsl(var(--h) var(--avatar-s) var(--avatar-l)); }
+.presun__nazev { flex: 1; min-width: 0; }
+.presun__stitek small { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.presun__stitek small svg { width: 12px; height: 12px; }
+.presun__nechat { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-soft); }
+
 /* našeptávač adres (Komu, hosté události) */
 .naseptavac { position: fixed; z-index: 120; display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-pop); max-height: 280px; overflow-y: auto; }
 .naseptavac button { display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 7px 10px; border: 0; border-radius: 8px; background: none; color: inherit; text-align: left; }

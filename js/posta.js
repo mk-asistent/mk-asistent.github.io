@@ -31,6 +31,11 @@ export const STAVY = {
 };
 const FILTRY = [['vse', 'Vše'], ['neprectene', 'Nepřečtené'], ['hori', 'Hoří'], ['ceka', 'Čeká na tebe'], ['otazka', 'Otázky'],
   ['cekas', 'Čekáš na ně'], ['resi', 'Řeší se'], ['info', 'Informace']];
+/** Záložky jako v Gmailu: Primární a Aktualizace jsou z Doručené (motor značí `aktualizace`), ostatní se načtou na klepnutí. */
+const KATEGORIE = [['primarni', 'Primární', 'posta'], ['aktualizace', 'Aktualizace', 'info'], ['promo', 'Promoakce', 'stitek'],
+  ['socialni', 'Sociální sítě', 'lide'], ['fora', 'Fóra', 'odpovedet']];
+const NA_KLEPNUTI = ['promo', 'socialni', 'fora'];
+const PREHLED_SKRYTO = 'asistent.prehledSkryto'; // položky přehledu od Clauda, které Michal skryl (klíč → kdy)
 
 // ---------------------------------------------------------------- data
 
@@ -75,11 +80,38 @@ function nactiPostuStitku(nazev, znovu) {
     .then(zmeneno);
 }
 
-/** Konverzace vybraného štítku (s účtem), nebo null, když se ukazuje Doručená pošta. */
+/** Záložka, která se načítá zvlášť (Promoakce, Sociální sítě, Fóra) – a není vybraný štítek. */
+function naKlepnuti() { return !stav.stitekPosty && NA_KLEPNUTI.indexOf(stav.kategoriePosty) >= 0 && umiMotor('postaKategorie'); }
+
+/** Seznam vybraného štítku nebo záložky na klepnutí ({ vlakna, nacita, chyba }; {} = ještě nenačtený), jinak null. */
+function zvlastniSeznam() {
+  return stav.stitekPosty ? stav.postaStitku[stav.stitekPosty] || {} : naKlepnuti() ? stav.postaKategorie[stav.kategoriePosty] || {} : null;
+}
+
+/** Konverzace vybraného štítku nebo záložky na klepnutí (s účtem), nebo null, když se ukazuje Doručená pošta. */
 function vlaknaStitku() {
-  if (!stav.stitekPosty) return null;
-  const s = stav.postaStitku[stav.stitekPosty];
-  return s && s.vlakna ? s.vlakna.map((m) => Object.assign({ ucet: 'osobni' }, m)) : [];
+  const s = zvlastniSeznam();
+  if (!s) return null;
+  return s.vlakna ? s.vlakna.map((m) => Object.assign({ ucet: 'osobni' }, m)) : [];
+}
+
+/** Doručená podle záložky: Primární bez Aktualizací, Aktualizace zvlášť (starší motor bez záložek: všechno). */
+function dorucena() {
+  const z = vsechnyZpravy();
+  if (!umiMotor('postaKategorie')) return z;
+  return stav.kategoriePosty === 'aktualizace' ? z.filter((m) => m.aktualizace) : z.filter((m) => !m.aktualizace);
+}
+
+/** Konverzace kategorie (Promoakce, Sociální sítě, Fóra) – načte se při výběru záložky, pak drží 5 minut. */
+function nactiKategorii(k, znovu) {
+  const s = stav.postaKategorie[k];
+  if (s && (s.nacita || (!znovu && s.vlakna && Date.now() - s.kdy < 5 * 60e3))) return;
+  stav.postaKategorie[k] = Object.assign({}, s, { nacita: true, chyba: null });
+  zmeneno();
+  volej('postaKategorie', { kategorie: k, znovu: !!znovu })
+    .then((d) => { stav.postaKategorie[k] = { vlakna: d.vlakna || [], kdy: Date.now() }; })
+    .catch((e) => { stav.postaKategorie[k] = Object.assign({}, stav.postaKategorie[k], { nacita: false, chyba: e }); })
+    .then(zmeneno);
 }
 
 /** Krátký název štítku: u vnořených jen poslední část („Fotbal/Dorost“ → „Dorost“). */
@@ -119,9 +151,9 @@ export function pocetStavu(stavPripadu) { return vsechnyZpravy().filter((m) => s
 
 /** Souhrn konverzace podle id – ze seznamu, nebo z výsledků hledání v celé poště. */
 export function najdiSouhrn(id) {
-  const zeStitku = () => { for (const k of Object.keys(stav.postaStitku)) { const v = (stav.postaStitku[k].vlakna || []).find((m) => m.id === id); if (v) return v; } return null; };
+  const zeSeznamu = (mapa) => { for (const k of Object.keys(mapa)) { const v = (mapa[k].vlakna || []).find((m) => m.id === id); if (v) return v; } return null; };
   return vsechnyZpravy().find((m) => m.id === id) ||
-    (stav.hledani && stav.hledani.vlakna ? stav.hledani.vlakna.find((m) => m.id === id) : null) || zeStitku() || null;
+    (stav.hledani && stav.hledani.vlakna ? stav.hledani.vlakna.find((m) => m.id === id) : null) || zeSeznamu(stav.postaStitku) || zeSeznamu(stav.postaKategorie) || null;
 }
 
 /** Změna přímo v uložených seznamech (vsechnyZpravy vrací kopie). */
@@ -132,15 +164,15 @@ function upravVSeznamech(id, fn) {
     const i = seznam.findIndex((m) => m.id === id);
     if (i >= 0) fn(seznam[i], i, seznam);
   });
-  Object.keys(stav.postaStitku).forEach((k) => {
-    const seznam = stav.postaStitku[k].vlakna || [];
+  [stav.postaStitku, stav.postaKategorie].forEach((mapa) => Object.keys(mapa).forEach((k) => {
+    const seznam = mapa[k].vlakna || [];
     const i = seznam.findIndex((m) => m.id === id);
     if (i >= 0) fn(seznam[i], i, seznam);
-  });
+  }));
 }
 
 function filtrovane() {
-  let z = vlaknaStitku() || vsechnyZpravy();
+  let z = vlaknaStitku() || dorucena();
   const ucet = aktivniUcet();
   if (ucet !== 'oba') z = z.filter((m) => m.ucet === ucet);
   const f = stav.filtrPosty;
@@ -181,7 +213,7 @@ export function zpravaRadekHtml(m, ukazUcet) {
 
 function filtryHtml() {
   const ucet = aktivniUcet();
-  const zUctu = (vlaknaStitku() || vsechnyZpravy()).filter((m) => ucet === 'oba' || m.ucet === ucet);
+  const zUctu = (vlaknaStitku() || dorucena()).filter((m) => ucet === 'oba' || m.ucet === ucet);
   const pocet = (f) => (f === 'vse' ? zUctu.length : f === 'neprectene' ? zUctu.filter((m) => m.neprectena).length
     : zUctu.filter((m) => stavZpravy(m) === f).length);
   const chipy = FILTRY.filter((f) => f[0] === 'vse' || f[0] === stav.filtrPosty || pocet(f[0]) > 0)
@@ -189,22 +221,91 @@ function filtryHtml() {
       (stav.filtrPosty === f[0]) + '">' + f[1] + '<span class="pocet cisla">' + pocet(f[0]) + '</span></button>').join('');
   const stitky = stav.stitkyGmailu || [];
   const volbaStitku = stitky.length ? '<label class="stitek-volba" title="Štítky z Gmailu">' + IKONY.stitek +
-    '<select data-stitek-posty aria-label="Štítek z Gmailu"><option value="">Doručená pošta</option>' + stitky.map((s) =>
+    '<select data-stitek-posty aria-label="Štítek z Gmailu"><option value="">Doručená pošta</option><optgroup label="Skupiny (štítky Gmailu)">' + stitky.map((s) =>
       '<option value="' + esc(s.nazev) + '"' + (s.nazev === stav.stitekPosty ? ' selected' : '') + '>' + esc(s.nazev) + (s.neprectenych ? ' (' + s.neprectenych + ')' : '') + '</option>').join('') +
-    '</select></label>' : '';
+    '</optgroup></select></label>' : '';
   return '<div class="filtry posta-filtry">' + volbaStitku + '<div class="segment" role="group" aria-label="Stav konverzací">' + chipy + '</div>' +
     (maPracovni() ? segment([['oba', 'Oba účty'], ['osobni', 'Osobní'], ['pracovni', 'Pracovní']], ucet, 'data-ucet-posty', 'Účet') : '') + '</div>';
 }
 
+/** Záložky jako v Gmailu s počtem nepřečtených (Primární a Aktualizace z Doručené, ostatní čísla posílá motor). */
+function kategorieHtml() {
+  if (!umiMotor('postaKategorie')) return '';
+  const ucet = aktivniUcet();
+  const z = vsechnyZpravy().filter((m) => m.neprectena && (ucet === 'oba' || m.ucet === ucet));
+  const pocty = stav.posta.pocty || {};
+  const pocet = { primarni: z.filter((m) => !m.aktualizace).length, aktualizace: z.filter((m) => m.aktualizace).length,
+    promo: pocty.promo, socialni: pocty.socialni, fora: pocty.fora };
+  const aktivni = stav.stitekPosty ? '' : stav.kategoriePosty;
+  return '<div class="posta-kategorie" role="tablist" aria-label="Kategorie pošty">' + KATEGORIE.map(([k, nazev, ikona]) => {
+    const n = pocet[k] || 0;
+    return '<button type="button" role="tab" class="posta-kategorie__tab" data-kategorie-posty="' + k + '" aria-selected="' + (aktivni === k) + '">' +
+      IKONY[ikona] + '<span>' + nazev + '</span>' + (n ? '<b class="cisla">' + (n >= 50 ? '50+' : n) + '</b>' : '') + '</button>';
+  }).join('') + '</div>';
+}
+
+function skrytePrehledu() { return uloziste.cti(PREHLED_SKRYTO) || {}; }
+
+/** Skrýt položku přehledu (vyřízená / nezajímá) – jen v tomhle zařízení, starší než měsíc se zapomenou. */
+function skryjVPrehledu(klic) {
+  const s = skrytePrehledu();
+  const hranice = Date.now() - 30 * 864e5;
+  Object.keys(s).forEach((k) => { if (!(s[k] > hranice)) delete s[k]; });
+  s[klic] = Date.now();
+  uloziste.pis(PREHLED_SKRYTO, s);
+  zmeneno();
+}
+
+/**
+ * Přehled od Clauda (naplánovaná úloha prošla Aktualizace, Promoakce, Sociální sítě a Fóra): co vyřídit a co by tě
+ * mohlo zajímat; v ostatních záložkách navíc zbytek po skupinách jednou větou. V Primární jen, když je co ukázat.
+ */
+function prehledHtml(plny) {
+  const p = stav.posta && stav.posta.prehled;
+  if (!p) {
+    return plny ? '<p class="napoveda posta-prehled-nic">' + IKONY.claude + '<span>Přehled od Clauda tu bude, až ho naplánovaná úloha napíše ' +
+      '(prochází Aktualizace, Promoakce, Sociální sítě a Fóra každé 4 hodiny).</span></p>' : '';
+  }
+  const skryto = skrytePrehledu();
+  const radky = (seznam, druh) => (seznam || []).filter((x) => !skryto[x.id || x.predmet]).map((x) =>
+    '<li class="posta-prehled__polozka posta-prehled--' + druh + '"><button type="button" class="posta-prehled__btn"' + (x.id ? ' data-vlakno="' + esc(x.id) + '"' : ' disabled') + '>' +
+      '<span class="posta-prehled__kdo"><b>' + esc(x.od || '') + '</b><span class="orez-1">' + esc(x.predmet || '') + '</span></span>' +
+      (x.proc ? '<small>' + esc(x.proc) + '</small>' : '') + '</button>' +
+      '<button type="button" class="btn btn--ikona btn--sm" data-prehled-skryt="' + esc(x.id || x.predmet) + '" aria-label="Skrýt z přehledu" title="Skrýt z přehledu">' +
+      IKONY.zavrit + '</button></li>').join('');
+  const dulezite = radky(p.dulezite, 'dulezite');
+  const zajimave = radky(p.zajimave, 'zajimave');
+  const zbytek = plny && p.ostatni && p.ostatni.length ? '<ul class="posta-prehled__zbytek">' + p.ostatni.map((x) => '<li><b>' + esc(x.skupina) + '</b>' +
+    (x.pocet ? ' <span class="cisla">' + x.pocet + '×</span>' : '') + (x.text ? ' – ' + esc(x.text) : '') + '</li>').join('') + '</ul>' : '';
+  if (!dulezite && !zajimave && !zbytek) return '';
+  const kdy = Date.parse(p.vytvoreno);
+  return '<section class="card posta-prehled"><div class="posta-prehled__hlava">' + IKONY.claude + '<b>Přehled od Clauda</b><small>' +
+    [p.prosel ? 'prošel ' + p.prosel + ' e-mailů' : '', isFinite(kdy) ? kdyKratce(kdy) : ''].filter(Boolean).join(' · ') + '</small></div>' +
+    (dulezite ? '<h3 class="posta-prehled__nadpis">Vyřiď</h3><ul class="posta-prehled__seznam">' + dulezite + '</ul>' : '') +
+    (zajimave ? '<h3 class="posta-prehled__nadpis">Mohlo by tě zajímat</h3><ul class="posta-prehled__seznam">' + zajimave + '</ul>' : '') +
+    (zbytek ? '<h3 class="posta-prehled__nadpis">Ostatní stručně</h3>' + zbytek : '') + '</section>';
+}
+
+/** Aktualizace, Promoakce…: „Označit vše jako přečtené“ nad seznamem, když je co. */
+function hromadneHtml(zpravy) {
+  if (stav.kategoriePosty === 'primarni' || !umiMotor('postaPrectene')) return '';
+  const n = zpravy.filter((m) => m.neprectena).length;
+  return n ? '<div class="posta-hromadne"><span>Nepřečtené: ' + n + '</span><button type="button" class="btn btn--ghost btn--sm" data-kategorie-prectene>' +
+    IKONY.fajfka + '<span>Označit vše jako přečtené</span></button></div>' : '';
+}
+
 function seznamHtml() {
   if (!stav.posta) return '<div class="card">' + (stav.chyby.posta ? chybaHtml(stav.chyby.posta, 'data-posta-znovu') : kostra(6)) + '</div>';
-  const st = stav.stitekPosty ? stav.postaStitku[stav.stitekPosty] : null;
-  if (st && !st.vlakna) return '<div class="card">' + (st.chyba ? chybaHtml(st.chyba, 'data-stitek-znovu') : kostra(6)) + '</div>';
+  const st = zvlastniSeznam();
+  if (st && !st.vlakna) return '<div class="card">' + (st.chyba ? chybaHtml(st.chyba, stav.stitekPosty ? 'data-stitek-znovu' : 'data-kategorie-znovu') : kostra(6)) + '</div>';
   const zpravy = filtrovane();
-  const h = stav.chyby.posta ? '<p class="pruh pruh-varovani">' + esc(stav.chyby.posta.message) + ' Ukazuju naposledy načtené.</p>' : '';
+  let h = stav.chyby.posta ? '<p class="pruh pruh-varovani">' + esc(stav.chyby.posta.message) + ' Ukazuju naposledy načtené.</p>' : '';
+  if (!stav.stitekPosty && umiMotor('postaKategorie')) h += prehledHtml(stav.kategoriePosty !== 'primarni') + hromadneHtml(zpravy);
   if (!zpravy.length) {
     const f = stav.filtrPosty;
-    return h + '<div class="card"><div class="prazdne">' + (STAVY[f] ? STAVY[f][3] : f === 'neprectene' ? 'Všechno přečteno.' : stav.stitekPosty ? 'Se štítkem „' + esc(stav.stitekPosty) + '“ nic není.' : 'Doručená pošta je prázdná.') + '</div></div>';
+    const zalozka = umiMotor('postaKategorie') && stav.kategoriePosty !== 'primarni' ? (KATEGORIE.find((k) => k[0] === stav.kategoriePosty) || [])[1] : '';
+    return h + '<div class="card"><div class="prazdne">' + (STAVY[f] ? STAVY[f][3] : f === 'neprectene' ? 'Všechno přečteno.' : stav.stitekPosty ? 'Se štítkem „' + esc(stav.stitekPosty) + '“ nic není.'
+      : zalozka ? 'V záložce „' + zalozka + '“ nic není.' : 'Doručená pošta je prázdná.') + '</div></div>';
   }
   return h + '<div class="card"><ul class="seznam seznam-posta">' + zpravy.map((m) => zpravaRadekHtml(m, maPracovni() && aktivniUcet() === 'oba')).join('') + '</ul></div>';
 }
@@ -219,7 +320,11 @@ export function vykresliPostu(el) {
   nactiStitky();
   nactiKontakty();
   if (stav.stitekPosty) nactiPostuStitku(stav.stitekPosty);
-  el.querySelector('#posta-filtry').innerHTML = stav.posta ? filtryHtml() : '';
+  else if (naKlepnuti()) nactiKategorii(stav.kategoriePosty);
+  el.querySelector('#posta-filtry').innerHTML = stav.posta ? kategorieHtml() + filtryHtml() : '';
+  // úzký displej: vybraná záložka (třeba Fóra) musí být vidět – lišta se po překreslení vrací na začátek
+  const zalozka = el.querySelector('.posta-kategorie [aria-selected="true"]');
+  if (zalozka && zalozka.offsetLeft + zalozka.offsetWidth > zalozka.parentElement.clientWidth) zalozka.parentElement.scrollLeft = zalozka.offsetLeft - 12;
   el.querySelector('#posta-seznam').innerHTML = seznamHtml();
   if (DVA_SLOUPCE.matches) vykresliDetail();
 }
@@ -240,7 +345,7 @@ function vykresliDetail(vynutit) {
   const id = stav.otevreneVlakno;
   if (!id) {
     el.innerHTML = '<div class="posta-prazdny">' + IKONY.posta + '<p>Vyber konverzaci vlevo.</p>' +
-      '<small>Klávesy: j / k další a předchozí · e hotovo · r odpovědět</small></div>';
+      '<small>Klávesy: j / k další a předchozí · e hotovo · v přesunout · r odpovědět</small></div>';
     return;
   }
   el.innerHTML = '<div class="detail-lista">' + akceHlavickyHtml(id, true) + '</div><div class="detail-telo">' + vlaknoHtml(id) + '</div>' +
@@ -255,7 +360,11 @@ export function otevriVlakno(id) {
   if (m && m.zPc) { if (m.odkaz && m.odkaz !== '#') window.open(m.odkaz, '_blank', 'noopener'); return; }
   stav.otevreneVlakno = id;
   stav.rozbaleneZpravy = {};
-  if (m && m.neprectena) upravVSeznamech(id, (x) => { x.neprectena = false; });
+  if (m && m.neprectena) {
+    upravVSeznamech(id, (x) => { x.neprectena = false; });
+    const pocty = stav.posta && stav.posta.pocty;
+    if (naKlepnuti() && pocty && pocty[stav.kategoriePosty] > 0 && pocty[stav.kategoriePosty] < 50) pocty[stav.kategoriePosty]--;
+  }
   if (!DVA_SLOUPCE.matches) {
     otevriPanel({
       id: 'vlakno', trida: 'panel-bocni panel-vlakno', titul: '',
@@ -350,7 +459,8 @@ function akceHlavickyHtml(id, siroke) {
   const tl = (atr, ikona, text, klavesa, sPopiskem) => sPopiskem
     ? '<button type="button" class="btn btn--ghost btn--sm" ' + atr + ' title="' + text + (klavesa ? ' (' + klavesa + ')' : '') + '">' + ikona + '<span>' + text + '</span></button>'
     : '<button type="button" class="btn btn--ikona" ' + atr + ' aria-label="' + text + '" title="' + text + (klavesa ? ' (' + klavesa + ')' : '') + '">' + ikona + '</button>';
-  const hlavni = tl('data-oznacit="archivovat"', IKONY.hotovo, 'Hotovo', 'E', siroke) + tl('data-pripomenout', IKONY.pripomenout, 'Připomenout', 'H', siroke);
+  const hlavni = tl('data-oznacit="archivovat"', IKONY.hotovo, 'Hotovo', 'E', siroke) + tl('data-pripomenout', IKONY.pripomenout, 'Připomenout', 'H', siroke) +
+    (umiMotor('postaPresunout') && !souhrn.zPc ? tl('data-presunout', IKONY.stitek, 'Přesunout', 'V', siroke) : '');
   const dalsi = tl('data-oznacit="neprectene"', IKONY.neprectene, 'Označit jako nepřečtené', 'U') + tl('data-oznacit="spam"', IKONY.spam, 'Spam') +
     (odkaz && odkaz !== '#' ? '<a class="btn btn--ikona" href="' + esc(odkaz) + '" target="_blank" rel="noopener" aria-label="Otevřít v Gmailu" title="Otevřít v Gmailu">' + IKONY.ven + '</a>' : '');
   return siroke ? '<div class="detail-lista__skupina">' + hlavni + '</div><div class="detail-lista__skupina">' + dalsi + '</div>' : hlavni + dalsi;
@@ -717,10 +827,118 @@ async function ulozPripominku(tlacitko) {
   }
 }
 
+// ---------------------------------------------------------------- Přesunout do skupiny (štítek Gmailu), přečíst vše
+
+function otevriPresun() {
+  const id = stav.otevreneVlakno;
+  if (!id || !umiMotor('postaPresunout')) return;
+  stav.presun = { id, nechat: false };
+  nactiStitky();
+  otevriPanel({
+    id: 'presunout', trida: 'panel-okno panel-presun', titul: 'Přesunout do skupiny',
+    vykresli: presunHtml,
+    priZavreni: () => { stav.presun = null; }
+  });
+}
+
+function presunHtml() {
+  const p = stav.presun;
+  if (!p) return '';
+  const souhrn = najdiSouhrn(p.id) || {};
+  const d = stav.vlakna[p.id] && stav.vlakna[p.id].data;
+  const ma = souhrn.stitky || [];
+  const stitky = stav.stitkyGmailu || [];
+  const seznam = stitky.length ? '<ul class="presun__seznam">' + stitky.map((s) => {
+    const je = ma.indexOf(s.nazev) >= 0;
+    return '<li><button type="button" class="presun__stitek' + (je ? ' je' : '') + '" data-presun-stitek="' + esc(s.nazev) + '" style="--h:' + odstin(s.nazev) +
+      ';--hloubka:' + (s.nazev.split('/').length - 1) + '"><span class="presun__barva" aria-hidden="true"></span><span class="presun__nazev">' + esc(kratkyStitek(s.nazev)) + '</span>' +
+      (je ? '<small>' + IKONY.fajfka + 'má – klepnutím odebrat</small>' : '') + '</button></li>';
+  }).join('') + '</ul>' : stav.stitkyGmailu ? '<p class="napoveda">V Gmailu zatím nemáš žádné štítky.</p>' : kostra(4);
+  return '<div class="presun"><p class="pripominka__predmet">' + IKONY.posta + '<span class="orez-2">' + esc((d && d.predmet) || souhrn.predmet || '') +
+    (souhrn.od ? ' <small class="muted">· ' + esc(souhrn.od) + '</small>' : '') + '</span></p>' + seznam +
+    '<label class="presun__nechat"><input type="checkbox" data-presun-nechat' + (p.nechat ? ' checked' : '') + '><span>Nechat i v Doručené (jen přidat štítek)</span></label>' +
+    '<p class="napoveda">Jako „Přesunout do“ v Gmailu: konverzace dostane štítek a zmizí z Doručené. Najdeš ji ve výběru štítku nad seznamem pošty.</p></div>';
+}
+
+async function presun(nazev, tlacitko) {
+  const p = stav.presun;
+  if (!p) return;
+  const id = p.id;
+  const souhrn = najdiSouhrn(id) || {};
+  const odebrat = (souhrn.stitky || []).indexOf(nazev) >= 0;
+  const archivovat = !odebrat && !p.nechat;
+  tlacitko.disabled = true;
+  try {
+    const v = await volej('postaPresunout', { id, stitek: nazev, pridat: !odebrat, archivovat });
+    delete stav.postaStitku[nazev]; // seznam štítku se příště načte znovu
+    upravVSeznamech(id, (m) => { m.stitky = v.stitky || []; });
+    if (archivovat) {
+      // jako Hotovo: pryč ze seznamu, na širokém okně rovnou další konverzace; Vrátit = zpět do Doručené (štítek zůstane)
+      const dalsi = DVA_SLOUPCE.matches ? (sousedni(id, 1) || sousedni(id, -1)) : null;
+      let odebrana = null;
+      upravVSeznamech(id, (m, i, seznam) => { odebrana = { seznam, i, m }; seznam.splice(i, 1); });
+      if (dalsi && dalsi !== id) { zavriPanel(); otevriVlakno(dalsi); }
+      else {
+        if (stav.otevreneVlakno === id) stav.otevreneVlakno = null;
+        zavriAPak(() => { const horni = horniPanel(); if (horni && horni.id === 'vlakno') zavriPanel(); });
+      }
+      toastAkce('Přesunuto do ' + kratkyStitek(nazev), 'Vrátit', () => vratit(id, odebrana));
+    } else {
+      zavriPanel();
+      if (stav.vlakna[id]) stav.vlakna[id].verze = Date.now(); // detail se překresluje podle verze
+      obnovDetail(id);
+      toast(odebrat ? 'Štítek ' + kratkyStitek(nazev) + ' odebrán' : 'Přidán štítek ' + kratkyStitek(nazev));
+    }
+    zmeneno();
+  } catch (e) {
+    tlacitko.disabled = false;
+    toast(e.message, true);
+  }
+}
+
+async function prectiKategorii(tlacitko) {
+  const k = stav.kategoriePosty;
+  const nazev = (KATEGORIE.find((x) => x[0] === k) || [])[1] || '';
+  if (!(await potvrd('Označit vše jako přečtené?', { ikona: IKONY.fajfka, ton: 'ok', ano: 'Označit',
+    text: 'Nepřečtené e-maily v záložce „' + nazev + '“ se v Gmailu označí jako přečtené (nejvýš 100 najednou).' }))) return;
+  tlacitko.disabled = true;
+  try {
+    const v = await volej('postaPrectene', { kategorie: k });
+    const ids = {};
+    (v.ids || []).forEach((id) => { ids[id] = true; });
+    const oznac = (seznam) => (seznam || []).forEach((m) => { if (ids[m.id]) m.neprectena = false; });
+    if (stav.posta) {
+      oznac(stav.posta.osobni);
+      oznac(stav.posta.pracovni);
+      if (stav.posta.pocty && k in stav.posta.pocty) stav.posta.pocty[k] = 0;
+    }
+    [stav.postaStitku, stav.postaKategorie].forEach((mapa) => Object.keys(mapa).forEach((x) => oznac(mapa[x].vlakna)));
+    toast(v.precteno ? 'Označeno jako přečtené: ' + v.precteno : 'Nic nepřečteného tu není');
+    zmeneno();
+  } catch (e) {
+    tlacitko.disabled = false;
+    toast(e.message, true);
+  }
+}
+
 // ---------------------------------------------------------------- ovládání
 
 export function klikPosta(el) {
   if (el.dataset.vlakno) { otevriVlakno(el.dataset.vlakno); return true; }
+  if (el.dataset.kategoriePosty) {
+    stav.kategoriePosty = el.dataset.kategoriePosty;
+    uloziste.pis('asistent.kategoriePosty', stav.kategoriePosty);
+    stav.stitekPosty = '';
+    stav.filtrPosty = 'vse';
+    if (naKlepnuti()) nactiKategorii(stav.kategoriePosty);
+    zmeneno();
+    return true;
+  }
+  if (el.hasAttribute('data-kategorie-znovu')) { nactiKategorii(stav.kategoriePosty, true); return true; }
+  if (el.hasAttribute('data-kategorie-prectene')) { prectiKategorii(el); return true; }
+  if (el.dataset.prehledSkryt) { skryjVPrehledu(el.dataset.prehledSkryt); return true; }
+  if (el.hasAttribute('data-presunout')) { otevriPresun(); return true; }
+  if (el.dataset.presunStitek && stav.presun) { presun(el.dataset.presunStitek, el); return true; }
   if (el.dataset.navrhOdpovedi) {
     const id = stav.otevreneVlakno;
     const d = id && stav.vlakna[id] && stav.vlakna[id].data;
@@ -814,7 +1032,7 @@ export function klavesaPosta(e) {
     return true;
   }
   if (!stav.otevreneVlakno) return false;
-  const akce = { e: () => oznac('archivovat'), u: () => oznac('neprectene'), h: otevriPripominku,
+  const akce = { e: () => oznac('archivovat'), u: () => oznac('neprectene'), h: otevriPripominku, v: otevriPresun,
     r: () => otevriPsani('odpoved'), a: () => otevriPsani('vsem'), f: () => otevriPsani('preposlat') }[k];
   if (!akce) return false;
   akce();
@@ -842,6 +1060,7 @@ function podpisPro(ucet) {
 /** Výběr štítku Gmailu v Poště. Vrací true, když změna patří sem. */
 export function zmenaPosta(e) {
   const t = e.target;
+  if (t.matches && t.matches('[data-presun-nechat]')) { if (stav.presun) stav.presun.nechat = t.checked; return true; }
   if (!t.matches || !t.matches('[data-stitek-posty]')) return false;
   stav.stitekPosty = t.value;
   stav.filtrPosty = 'vse';

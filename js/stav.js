@@ -20,6 +20,9 @@ export const stav = {
   stitkyGmailu: null,       // štítky Gmailu [{ nazev, neprectenych }]
   stitekPosty: '',          // vybraný štítek ('' = Doručená pošta)
   postaStitku: {},          // název štítku → { vlakna, nacita, chyba, kdy }
+  kategoriePosty: ze(uloziste.cti('asistent.kategoriePosty'), ['primarni', 'aktualizace', 'promo', 'socialni', 'fora'], 'primarni'), // záložka jako v Gmailu
+  postaKategorie: {},       // promo | socialni | fora → { vlakna, nacita, chyba, kdy }
+  presun: null,             // rozpracované „Přesunout do skupiny“ { id, nechat }
   chyby: {},                // klíč → ChybaApi (schranka, posta, info)
   nacita: {},               // klíč → true
   naposledy: 0,             // kdy se naposledy načítalo všechno

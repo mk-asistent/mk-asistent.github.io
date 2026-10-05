@@ -60,8 +60,8 @@ let rezimNavrhu = 'obe';
 const posta = {
   osobni: [
     { id: 't1', ucet: 'osobni', stav: 'ceka', od: 'Trenér dorostu', predmet: 'Sobotní zápas – sraz v 8:30', ukazka: 'Ahoj, sraz je výjimečně dřív, autobus jede z náměstí. Vezměte si prosím oba dresy.', kdy: ted - 1.2 * H, neprectena: true, pocet: 2, odkaz: '#', stitky: ['Fotbal', 'Fotbal/Dorost'] },
-    { id: 't2', ucet: 'osobni', stav: 'info', od: 'Banka', predmet: 'Výpis z účtu za září', ukazka: 'Váš výpis je připraven v internetovém bankovnictví.', kdy: ted - 5 * H, neprectena: true, pocet: 1, odkaz: '#', stitky: ['Účty'] },
-    { id: 't3', ucet: 'osobni', stav: 'info', od: 'Google', predmet: 'Bezpečnostní upozornění', ukazka: 'Nové přihlášení na zařízení Windows.', kdy: ted - 28 * H, neprectena: false, pocet: 1, odkaz: '#' },
+    { id: 't2', ucet: 'osobni', stav: 'info', aktualizace: true, od: 'Banka', predmet: 'Výpis z účtu za září', ukazka: 'Váš výpis je připraven v internetovém bankovnictví.', kdy: ted - 5 * H, neprectena: true, pocet: 1, odkaz: '#', stitky: ['Účty'] },
+    { id: 't3', ucet: 'osobni', stav: 'info', aktualizace: true, od: 'Google', predmet: 'Bezpečnostní upozornění', ukazka: 'Nové přihlášení na zařízení Windows.', kdy: ted - 28 * H, neprectena: false, pocet: 1, odkaz: '#' },
     { id: 't4', ucet: 'osobni', stav: 'otazka', navrh: true, od: 'Fotbalový svaz', predmet: 'Změna termínu utkání dorostu', ukazka: 'Utkání 10. kola se přesouvá na neděli 10:15. Stihnete to i s autobusem?', kdy: ted - 75 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Fotbal'] }
   ],
   pracovni: [
@@ -72,6 +72,13 @@ const posta = {
   ],
   pracovniAdresa: 'prace@firma.example',
   firemni: null,
+  pocty: { promo: 2, socialni: 0, fora: 1 },
+  // přehled od Clauda (v aplikaci píše naplánovaná úloha do POSTA_PREHLED.json)
+  prehled: { vytvoreno: new Date(ted - 2 * H).toISOString(), prosel: 14,
+    dulezite: [{ id: 't3', od: 'Google', predmet: 'Bezpečnostní upozornění', proc: 'Nové přihlášení na Windows – jestli jsi to nebyl ty, změň heslo.', kategorie: 'aktualizace' }],
+    zajimave: [{ id: 'k1', od: 'Obchod s doplňky', predmet: 'Dárek k svátku: 200 Kč na nákup', proc: 'Kredit 200 Kč na doplňky, které stejně kupuješ – platí do neděle.', kategorie: 'promo' }],
+    ostatni: [{ skupina: 'Cestovky a výlety', pocet: 2, text: 'Zájezdy a slevy na vstupenky – nic, co by spěchalo.' },
+      { skupina: 'Oznámení', pocet: 3, text: 'Výpis z banky, potvrzení a novinky služeb.' }] },
   ted
 };
 
@@ -134,6 +141,17 @@ const archivovane = [
   { id: 'a2', ucet: 'osobni', stav: 'info', od: 'Elektřina', predmet: 'Vyúčtování za září', ukazka: 'Vyúčtování je k dispozici v zákaznickém portálu.', kdy: ted - 12 * 24 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Účty'] }
 ];
 const skupinyHostu = [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@example.com', 'rodic2@example.com', 'rodic3@example.com'] }];
+// záložky jako v Gmailu: Promoakce a Fóra (Sociální sítě prázdné)
+const kategorieUkazka = {
+  promo: [
+    { id: 'k1', ucet: 'osobni', stav: 'info', od: 'Obchod s doplňky', predmet: 'Dárek k svátku: 200 Kč na nákup', ukazka: 'K svátku od nás máte kredit 200 Kč, platí do neděle.', kdy: ted - 3 * H, neprectena: true, pocet: 1, odkaz: '#' },
+    { id: 'k2', ucet: 'osobni', stav: 'info', od: 'Cestovní kancelář', predmet: 'Lyžování v Alpách od 9 990 Kč', ukazka: 'Poslední volná místa na prosincové zájezdy.', kdy: ted - 20 * H, neprectena: true, pocet: 1, odkaz: '#' },
+    { id: 'k3', ucet: 'osobni', stav: 'info', od: 'Aquapark', predmet: 'Vstupenky se slevou 30 %', ukazka: 'Jen tento týden online.', kdy: ted - 30 * H, neprectena: false, pocet: 1, odkaz: '#' }
+  ],
+  socialni: [],
+  fora: [{ id: 'k4', ucet: 'osobni', stav: 'info', od: 'Fanklub', predmet: 'Nový příspěvek: rozpis zápasů', ukazka: 'Přidali jsme rozpis podzimní části.', kdy: ted - 10 * H, neprectena: true, pocet: 1, odkaz: '#' }]
+};
+const vsechnyKategorie = () => [].concat(...Object.values(kategorieUkazka));
 const vlastni = [];         // události zapsané v ukázce
 const smazane = new Set();  // smazané nebo přepsané ukázkové události
 let citac = 0;
@@ -368,7 +386,11 @@ const akce = {
   },
   posta: () => kopie(Object.assign({}, posta, { ted: Date.now() })),
   vlakno: (d) => {
-    const v = zpravyVlaken[d.id];
+    // konverzace ze záložek ukázky mají jen jednu zprávu (text = ukázka)
+    const k = vsechnyKategorie().find((m) => m.id === d.id);
+    if (k) k.neprectena = false;
+    const v = zpravyVlaken[d.id] || (k ? { predmet: k.predmet, ucet: 'osobni', zpravy: [{ id: 'z-' + k.id, od: k.od, odAdresa: 'info@example.com', odeMe: false,
+      komu: 'ja@example.com', kdy: k.kdy, text: k.ukazka, html: '' }] } : null);
     if (!v) throw new Error('Zpráva nenalezena.');
     [posta.osobni, posta.pracovni].forEach((s) => s.forEach((m) => { if (m.id === d.id) m.neprectena = false; }));
     const navrh = navrhyOdpovedi[d.id] ? { navrhOdpovedi: navrhyOdpovedi[d.id] } : {};
@@ -478,8 +500,36 @@ const akce = {
   postaStitek: (d) => {
     const ids = stitkyGmailu[d.nazev];
     if (!ids) throw new Error('Štítek „' + d.nazev + '“ v Gmailu není.');
-    const vse = posta.osobni.concat(posta.pracovni, archivovane);
+    const vse = posta.osobni.concat(posta.pracovni, archivovane, vsechnyKategorie());
     return { nazev: d.nazev, vlakna: kopie(ids.map((id) => vse.find((m) => m.id === id)).filter(Boolean)), ted: Date.now() };
+  },
+  postaKategorie: (d) => {
+    if (!kategorieUkazka[d.kategorie]) throw new Error('Neznámá kategorie pošty.');
+    return { kategorie: d.kategorie, vlakna: kopie(kategorieUkazka[d.kategorie]), ted: Date.now() };
+  },
+  postaPresunout: (d) => {
+    const ids = stitkyGmailu[d.stitek];
+    if (!ids) throw new Error('Štítek „' + d.stitek + '“ v Gmailu není.');
+    const seznamy = [posta.osobni, posta.pracovni].concat(Object.values(kategorieUkazka));
+    const m = posta.osobni.concat(posta.pracovni, archivovane, vsechnyKategorie()).find((x) => x.id === d.id);
+    if (!m) throw new Error('Zpráva nenalezena.');
+    const pridat = d.pridat !== false;
+    m.stitky = (m.stitky || []).filter((x) => x !== d.stitek).concat(pridat ? [d.stitek] : []);
+    const i = ids.indexOf(d.id);
+    if (pridat && i < 0) ids.unshift(d.id); else if (!pridat && i >= 0) ids.splice(i, 1);
+    if (pridat && d.archivovat) {
+      seznamy.forEach((s) => { const j = s.indexOf(m); if (j >= 0) s.splice(j, 1); });
+      if (archivovane.indexOf(m) < 0) archivovane.push(m);
+    }
+    return { id: d.id, stitky: kopie(m.stitky), archivovano: !!(pridat && d.archivovat) };
+  },
+  postaPrectene: (d) => {
+    const seznam = d.kategorie === 'aktualizace' ? posta.osobni.concat(posta.pracovni).filter((m) => m.aktualizace) : kategorieUkazka[d.kategorie];
+    if (!seznam) throw new Error('Neznámá kategorie pošty.');
+    const ids = seznam.filter((m) => m.neprectena).map((m) => m.id);
+    seznam.forEach((m) => { m.neprectena = false; });
+    if (d.kategorie in posta.pocty) posta.pocty[d.kategorie] = 0;
+    return { precteno: ids.length, ids };
   },
   kontakty: () => kopie(kontakty),
   podpisyUlozit: (d) => { Object.assign(podpisy, { osobni: String((d.podpisy || {}).osobni || ''), pracovni: String((d.podpisy || {}).pracovni || '') }); return akce.info().posta; },

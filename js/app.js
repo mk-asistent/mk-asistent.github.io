@@ -168,7 +168,7 @@ function zkontrolujNovinky(p) {
     text: 'Od posledního otevření (' + kdyKratce(videno) + ')', radky: radky.map((r) => [r[0], r[1], String(r[2])]), ano: 'Ukázat', ne: 'Zavřít' })
     .then((ano) => {
       if (!ano) return;
-      if (hori || nove) { stav.filtrPosty = hori ? 'hori' : 'vse'; prejdi('posta'); } else prejdi('dnes');
+      if (hori || nove) { stav.filtrPosty = hori ? 'hori' : 'vse'; stav.kategoriePosty = 'primarni'; stav.stitekPosty = ''; prejdi('posta'); } else prejdi('dnes');
       if (vystrahy.length && !hori && !nove) pocasi.ukazDetail();
       zmeneno();
     });
@@ -599,7 +599,7 @@ document.addEventListener('click', (e) => {
   if (hledat.klikHledat(el)) return;
   if (el.dataset.cil) {
     // proklik rovnou s filtrem (z čísel a karet na Dnes)
-    if (el.dataset.filtrPosty) { stav.filtrPosty = el.dataset.filtrPosty; }
+    if (el.dataset.filtrPosty) { stav.filtrPosty = el.dataset.filtrPosty; stav.kategoriePosty = 'primarni'; stav.stitekPosty = ''; }
     if (el.dataset.filtrSchranky) { stav.filtrSchranky = el.dataset.filtrSchranky; }
     prejdi(el.dataset.cil);
     zmeneno();

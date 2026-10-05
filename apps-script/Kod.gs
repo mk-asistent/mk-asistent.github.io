@@ -36,7 +36,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.17';
+const VERZE = '2026-10-05.18';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -123,7 +123,7 @@ function doPost(e) {
 
 // akce, které jen čtou – opakovat je jde bez rizika (bez zapamatované odpovědi)
 const CTENI_MOTORU = ['info', 'schranka', 'posta', 'vlakno', 'hledat', 'kalendar', 'kalendare', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka',
-  'stitky', 'kontakty', 'postaStitek', 'auto', 'upozorneni', 'autoUctenkaFoto', 'davka'];
+  'stitky', 'kontakty', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'davka'];
 
 /** Výsledek dřívějšího běhu téhož požadavku (JSON), nebo null; když ještě běží, počká na něj (nejvýš ~25 s). */
 function vysledekRid_(rid) {
@@ -168,6 +168,9 @@ const AKCE = {
   pocasi: function (d) { return pocasi_(!!d.znovu, d.poloha || null); }, // bez polohy z aplikace = výchozí místo
   stitky: function (d) { return stitkyGmailu_(!!d.znovu); },
   postaStitek: function (d) { return postaStitku_(d.nazev); },
+  postaKategorie: function (d) { return postaKategorie_(d.kategorie, !!d.znovu); },
+  postaPresunout: function (d) { return presunDoStitku_(d.id, d.stitek, d.pridat !== false, !!d.archivovat); },
+  postaPrectene: function (d) { return prectiKategorii_(d.kategorie); },
   kontakty: function () { return kontakty_(); },
   podpisyUlozit: function (d) { return ulozPodpisy_(d.podpisy); },
   zdravi: function (d) { return zdravi_(!!d.znovu); },
@@ -590,8 +593,12 @@ function nactiPostu_(znovu) {
     pracovni: pracovni,
     pracovniAdresa: prac,
     firemni: nactiFiremni_(), // souhrny z PC (náhradní zdroj, když se pracovní pošta nepřeposílá)
+    pocty: null,              // nepřečtené v Promoakcích, Sociálních sítích a Fórech (čísla u záložek)
+    prehled: null,            // přehled od Clauda (POSTA_PREHLED.json)
     ted: Date.now()
   };
+  try { vysledek.pocty = poctyKategorii_(znovu); } catch (chyba) { /* záložky bez čísel */ }
+  try { vysledek.prehled = nactiPrehledPosty_(); } catch (chyba) { /* bez přehledu */ }
   // 5 minut: každá změna z aplikace (odeslání, archiv, přečteno…) mezipaměť maže, Obnovit ji obchází
   ulozDoCache_('posta', vysledek, 300);
   return vysledek;
@@ -742,6 +749,7 @@ function seznamVlaken_(dotaz, ja, prac, ucet, max, predem, sPodklady) {
       poTerminu: !!s.termin && s.termin.ms < ted,
       cekasOd: cekas ? posledni.getDate().getTime() : null
     };
+    if (oznameni[vlakno.getId()]) polozka.aktualizace = true; // kategorie Aktualizace – v aplikaci vlastní záložka
     if (kOdpovedi) polozka._odpoved = { zpravaId: odesilatel.getId(), text: vlastniText_(odesilatel) };
     return polozka;
   });
@@ -822,6 +830,144 @@ function postaStitku_(nazev) {
   const ja = mojeAdresa_().toLowerCase();
   const prac = pracovniAdresa_();
   return { nazev: nazev, vlakna: seznamVlaken_(null, ja, prac, null, MAX_VLAKEN_STITKU, stitek.getThreads(0, MAX_VLAKEN_STITKU)), ted: Date.now() };
+}
+
+// ---------------------------------------------------------------- Pošta – kategorie jako v Gmailu, přesun do štítku, přehled od Clauda
+// Doručená (nactiPostu_) nese Primární i Aktualizace – aplikace je rozdělí do dvou záložek podle `aktualizace`.
+// Promoakce, Sociální sítě a Fóra se načtou až na klepnutí na záložku. Balast z kategorií (odesílatel, předmět, začátek
+// textu – za 2 dny) jde jednou za 4 hodiny na Disk do POSTA_K_PREHLEDU.json; naplánovaná úloha Clauda z něj napíše
+// POSTA_PREHLED.json (co vyřídit, co by Michala mohlo zajímat, zbytek jednou větou) a aplikace ho ukáže v Poště.
+
+const KATEGORIE_GMAILU = { aktualizace: 'updates', promo: 'promotions', socialni: 'social', fora: 'forums' };
+const MAX_VLAKEN_KATEGORIE = 40;
+const DNI_KATEGORIE = 30;
+const MAX_POCTU = 50;          // víc nepřečtených se nepočítá („50+“)
+const PREHLED_POSTY_HODIN = 4;
+const MAX_K_PREHLEDU = 30;     // konverzací z jedné kategorie do podkladů
+
+function kategorieGmailu_(k) {
+  const g = KATEGORIE_GMAILU[k];
+  if (!g) throw new Error('Neznámá kategorie pošty.');
+  return g;
+}
+
+/** Konverzace kategorie (v Doručené, posledních 30 dní) – na klepnutí na záložku, 5 minut v mezipaměti. */
+function postaKategorie_(k, znovu) {
+  const g = kategorieGmailu_(k);
+  if (!znovu) {
+    const ulozene = nactiZCache_('posta-' + k);
+    if (ulozene) return ulozene;
+  }
+  const ja = mojeAdresa_().toLowerCase();
+  const prac = pracovniAdresa_();
+  const vysledek = { kategorie: k, vlakna: seznamVlaken_('in:inbox category:' + g + ' newer_than:' + DNI_KATEGORIE + 'd', ja, prac, null, MAX_VLAKEN_KATEGORIE), ted: Date.now() };
+  ulozDoCache_('posta-' + k, vysledek, 300);
+  return vysledek;
+}
+
+/** Nepřečtené v Promoakcích, Sociálních sítích a Fórech (čísla u záložek jako v Gmailu) – 10 minut v mezipaměti. */
+function poctyKategorii_(znovu) {
+  if (!znovu) {
+    const ulozene = nactiZCache_('posta-pocty');
+    if (ulozene) return ulozene;
+  }
+  const pocty = {};
+  ['promo', 'socialni', 'fora'].forEach(function (k) {
+    pocty[k] = GmailApp.search('in:inbox is:unread category:' + KATEGORIE_GMAILU[k], 0, MAX_POCTU).length;
+  });
+  ulozDoCache_('posta-pocty', pocty, 600);
+  return pocty;
+}
+
+/**
+ * Přesun do štítku (skupiny) jako „Přesunout do“ v Gmailu: štítek + pryč z Doručené; s archivovat: false jen štítek,
+ * pridat: false štítek odebere. Vrací štítky konverzace.
+ */
+function presunDoStitku_(id, nazev, pridat, archivovat) {
+  const vlakno = vlakno_(id);
+  nazev = String(nazev || '').trim();
+  const stitek = nazev ? GmailApp.getUserLabelByName(nazev) : null;
+  if (!stitek) throw new Error('Štítek „' + nazev + '“ v Gmailu není.');
+  if (pridat) {
+    stitek.addToThread(vlakno);
+    if (archivovat) {
+      zrusOdlozeni_(vlakno, true); // před archivem – rozhoduje, jestli je teď v Doručených
+      vlakno.moveToArchive();
+    }
+  } else {
+    stitek.removeFromThread(vlakno);
+  }
+  CacheService.getScriptCache().remove('stitky:' + vlakno.getId());
+  smazCache_('posta');
+  smazCache_('stitky');
+  let stitky = [];
+  try { stitky = vlakno.getLabels().map(function (l) { return l.getName(); }); } catch (chyba) { stitky = []; }
+  return { id: vlakno.getId(), stitky: stitky, archivovano: !!(pridat && archivovat) };
+}
+
+/** „Označit vše jako přečtené“ v záložce kategorie – nepřečtené v Doručené, nejvýš 100 najednou. */
+function prectiKategorii_(k) {
+  const g = kategorieGmailu_(k);
+  const vlakna = GmailApp.search('in:inbox is:unread category:' + g, 0, 100);
+  if (vlakna.length) GmailApp.markThreadsRead(vlakna);
+  smazCache_('posta');
+  return { precteno: vlakna.length, ids: vlakna.map(function (v) { return v.getId(); }) };
+}
+
+/**
+ * Podklady pro přehled od Clauda: Aktualizace, Promoakce, Sociální sítě a Fóra za 2 dny (v Doručené) – odesílatel,
+ * předmět, začátek textu. Ze spouštěče jednou za 4 hodiny (7–22 h), soubor se přepíše jen při změně. Jen na Disk.
+ */
+function ulozPostuKPrehledu_(vynutit) {
+  const p = vlastnosti_();
+  const ted = Date.now();
+  if (!vynutit && ted - Number(p.getProperty('PREHLED_POSTY_KDY') || 0) < PREHLED_POSTY_HODIN * 36e5 - 10 * 60e3) return false;
+  p.setProperty('PREHLED_POSTY_KDY', String(ted));
+  const zpravy = [];
+  Object.keys(KATEGORIE_GMAILU).forEach(function (k) {
+    const vlakna = GmailApp.search('in:inbox category:' + KATEGORIE_GMAILU[k] + ' newer_than:2d', 0, MAX_K_PREHLEDU);
+    const obsah = vlakna.length ? GmailApp.getMessagesForThreads(vlakna) : [];
+    vlakna.forEach(function (v, i) {
+      const posledni = obsah[i][obsah[i].length - 1];
+      zpravy.push({ id: v.getId(), kategorie: k, od: jmeno_(posledni.getFrom()), odAdresa: adresa_(posledni.getFrom()),
+        predmet: v.getFirstMessageSubject() || '(bez předmětu)',
+        ukazka: String(posledni.getPlainBody() || '').replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim().slice(0, 300),
+        kdy: v.getLastMessageDate().getTime(), neprectena: v.isUnread() });
+    });
+  });
+  const otisk = md5_(JSON.stringify(zpravy.map(function (z) { return [z.id, z.kdy]; })));
+  if (p.getProperty('PREHLED_POSTY_OTISK') === otisk) return false;
+  const text = JSON.stringify({ vytvoreno: new Date(ted).toISOString(), zpravy: zpravy }, null, 1);
+  const koren = koren_();
+  const it = koren.getFilesByName('POSTA_K_PREHLEDU.json');
+  if (it.hasNext()) it.next().setContent(text); else koren.createFile('POSTA_K_PREHLEDU.json', text, 'application/json');
+  p.setProperty('PREHLED_POSTY_OTISK', otisk);
+  return true;
+}
+
+/** Přehled od Clauda (POSTA_PREHLED.json) pro aplikaci – jen očištěné položky, nebo null. */
+function nactiPrehledPosty_() {
+  const it = koren_().getFilesByName('POSTA_PREHLED.json');
+  if (!it.hasNext()) return null;
+  let d;
+  try { d = JSON.parse(it.next().getBlob().getDataAsString('UTF-8')); } catch (chyba) { return null; }
+  if (!d || typeof d !== 'object') return null;
+  const text = function (x, n) { return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, n); };
+  const polozky = function (seznam) {
+    return (Array.isArray(seznam) ? seznam : []).slice(0, 8).map(function (x) {
+      x = x || {};
+      return { id: /^[0-9a-zA-Z_-]{1,40}$/.test(String(x.id || '')) ? String(x.id) : '', od: text(x.od, 80), predmet: text(x.predmet, 200),
+        proc: text(x.proc, 300), kategorie: KATEGORIE_GMAILU[x.kategorie] ? x.kategorie : '' };
+    }).filter(function (x) { return x.predmet || x.proc; });
+  };
+  return {
+    vytvoreno: text(d.vytvoreno, 40), prosel: Math.max(0, Number(d.prosel) || 0),
+    dulezite: polozky(d.dulezite), zajimave: polozky(d.zajimave),
+    ostatni: (Array.isArray(d.ostatni) ? d.ostatni : []).slice(0, 10).map(function (x) {
+      x = x || {};
+      return { skupina: text(x.skupina, 60), pocet: Math.max(0, Number(x.pocet) || 0), text: text(x.text, 300) };
+    }).filter(function (x) { return x.skupina || x.text; })
+  };
 }
 
 /** Lidé, kterým jsem za rok psal (jméno, adresa, kolikrát) – pro našeptávání adres v aplikaci. */
@@ -2230,6 +2376,10 @@ function overInstagram() {
  *  pak Instagram (čekání na zpracování videa může trvat minuty). */
 function instagramKazdych10Min() {
   try { upozorneniKontrola_(); } catch (chyba) { /* příště */ }
+  try {
+    const hodina = Number(Utilities.formatDate(new Date(Date.now()), CASOVE_PASMO, 'H'));
+    if (hodina >= 7 && hodina <= 22) ulozPostuKPrehledu_();
+  } catch (chyba) { /* příště */ }
   instagramPlan_();
 }
 
@@ -5171,7 +5321,10 @@ function nactiText_(klic) {
 }
 
 function smazCache_(klic) {
-  CacheService.getScriptCache().remove(klic);
+  const cache = CacheService.getScriptCache();
+  cache.remove(klic);
+  // pošta: s Doručenou i čísla a seznamy kategorií (archiv, přečteno a přesun mění i ty)
+  if (klic === 'posta') ['posta-pocty'].concat(Object.keys(KATEGORIE_GMAILU).map(function (k) { return 'posta-' + k; })).forEach(function (k) { cache.remove(k); });
 }
 
 function md5_(text) {

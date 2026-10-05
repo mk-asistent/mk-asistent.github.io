@@ -54,6 +54,7 @@ function prostredi() {
 
   const zpravy = { m1, m2, m3 };
   let aktualizace = []; // vlákna v kategorii Aktualizace (oznámení)
+  let kategorieVlaken = {}; // promotions / social / forums → vlákna (záložky jako v Gmailu)
   let odeslana = [vlakna.v2, vlakna.v3]; // výsledek „in:sent …“ (známí lidé)
   let starsi = { osobni: [], pracovni: [] }; // výsledek druhého okna „older_than:30d newer_than:90d“
   const GmailApp = {
@@ -64,6 +65,8 @@ function prostredi() {
       const m = /rfc822msgid:(\S+)@mail\.test/.exec(q);
       if (m) return zpravy[m[1]] && zpravy[m[1]].getTo() === PRAC && q.indexOf('{to:' + PRAC) >= 0 ? [vlakna.v2] : [];
       if (q.indexOf('category:updates') >= 0) return aktualizace;
+      const kat = /(?:^|\s)category:(promotions|social|forums)\b/.exec(q);
+      if (kat) { const v = kategorieVlaken[kat[1]] || []; return q.indexOf('is:unread') >= 0 ? v.filter((x) => x.isUnread()) : v; }
       if (q.indexOf('in:sent') >= 0) return odeslana;
       if (q.indexOf('older_than:') >= 0) return q.indexOf('{to:') >= 0 ? starsi.pracovni : starsi.osobni;
       return q.indexOf('{to:') >= 0 ? [vlakna.v2] : [vlakna.v1];
@@ -75,7 +78,10 @@ function prostredi() {
     getMessageById: (id) => ({ m1, m2, m3 })[id] || null,
     getAliases: () => aliasy,
     getUserLabels: () => Object.keys(stitkyGmailu).map((n) => ({ getName: () => n, getUnreadCount: () => stitkyGmailu[n].neprectenych })),
-    getUserLabelByName: (n) => (stitkyGmailu[n] ? { getName: () => n, getThreads: (od, max) => stitkyGmailu[n].vlakna.slice(od, od + max) } : null),
+    getUserLabelByName: (n) => (stitkyGmailu[n] ? { getName: () => n, getThreads: (od, max) => stitkyGmailu[n].vlakna.slice(od, od + max),
+      addToThread: (v) => { stitkyVlaken[v.getId()] = (stitkyVlaken[v.getId()] || []).filter((x) => x !== n).concat(n); },
+      removeFromThread: (v) => { stitkyVlaken[v.getId()] = (stitkyVlaken[v.getId()] || []).filter((x) => x !== n); } } : null),
+    markThreadsRead: (v) => v.forEach((x) => x.markRead()),
     getInboxUnreadCount: () => 1,
     sendEmail: (komu, predmet, text, m) => log.odeslano.push({ jak: 'send', komu, predmet, t: text, m })
   };
@@ -413,7 +419,7 @@ function prostredi() {
   const posledniOdeslano = () => JSON.parse(JSON.stringify(log.odeslano.pop()));
   return { volej, surovy, vlastnosti, cache, ttl, log, posledniOdeslano, ctx, zprava, vlakno, vlakna, kalendare, chmu, nastavCas, schranka, vsechnySoubory, whoop,
     zalozTabulku, tabulky, nastavOcr: (t) => { ocrText = t; }, bezPovoleniTabulek: (b) => { bezPovoleniTabulek = b; }, ig,
-    nastavAliasy: (a) => { aliasy = a; }, stitkyVlaken, nastavStitkyGmailu: (o) => { stitkyGmailu = o; }, nastavAktualizace: (a) => { aktualizace = a; }, nastavRozpis: (t) => { rozpis = t; },
+    nastavAliasy: (a) => { aliasy = a; }, stitkyVlaken, nastavStitkyGmailu: (o) => { stitkyGmailu = o; }, nastavAktualizace: (a) => { aktualizace = a; }, nastavKategorie: (o) => { kategorieVlaken = o; }, nastavRozpis: (t) => { rozpis = t; },
     nastavOdeslana: (a) => { odeslana = a; }, nastavStarsi: (osobni, pracovni) => { starsi = { osobni, pracovni: pracovni || [] }; } };
 }
 
@@ -1623,6 +1629,77 @@ test('návrhy odpovědí: podklady pro Clauda na Disk, návrh u konverzace a v d
   p.volej('posta', { znovu: true });
   assert.strictEqual(JSON.parse(podklad().getBlob().getDataAsString()).vlakna.length, 0);
   assert.strictEqual(p.volej('navrhyNastavit', { rezim: 'nesmysl' }).ok, false);
+});
+
+test('pošta: záložky jako v Gmailu – Aktualizace v Doručené označené, Promoakce na klepnutí, čísla nepřečtených, přečíst vše', () => {
+  const p = prostredi();
+  const promo1 = p.vlakno('p1', [p.zprava({ id: 'pm1', od: 'Slevomat <info@slevomat.test>', predmet: 'Dárek k svátku', text: 'Máte 200 Kč kredit.', kdy: Date.UTC(2026, 9, 2, 10), neprectena: true })], true);
+  const promo2 = p.vlakno('p2', [p.zprava({ id: 'pm2', od: 'CK Test <news@ck.test>', predmet: 'Lyže v Alpách', text: 'Zájezdy od 9 990 Kč.', kdy: Date.UTC(2026, 9, 1, 10) })], false);
+  p.nastavKategorie({ promotions: [promo1, promo2] });
+  p.nastavAktualizace([p.vlakna.v1]);
+  let o = p.volej('posta', { znovu: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(o.data.osobni.find((v) => v.id === 'v1').aktualizace, true, 'aktualizace označená');
+  assert.deepStrictEqual(json(o.data.pocty), { promo: 1, socialni: 0, fora: 0 });
+  assert.strictEqual(o.data.prehled, null, 'přehled od Clauda zatím není');
+  o = p.volej('postaKategorie', { kategorie: 'promo' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(o.data.vlakna.map((v) => [v.id, v.od, v.neprectena]), [['p1', 'Slevomat', true], ['p2', 'CK Test', false]]);
+  assert.ok(o.data.vlakna.every((v) => !v.aktualizace), 'promoakce nejsou aktualizace');
+  assert.ok(p.log.dotazy.indexOf('in:inbox category:promotions newer_than:30d') >= 0, JSON.stringify(p.log.dotazy.slice(-3)));
+  assert.ok(/Neznámá kategorie/.test(p.volej('postaKategorie', { kategorie: 'spam' }).chyba));
+  // „Označit vše jako přečtené“ – jen nepřečtené v Doručené
+  o = p.volej('postaPrectene', { kategorie: 'promo' });
+  assert.deepStrictEqual(json(o.data), { precteno: 1, ids: ['p1'] });
+  assert.ok(p.log.precteno.indexOf('p1') >= 0 && p.log.precteno.indexOf('p2') < 0);
+});
+
+test('pošta: přesun do štítku (skupiny) jako v Gmailu – štítek a pryč z Doručené, jen štítek, odebrat', () => {
+  const p = prostredi();
+  p.nastavStitkyGmailu({ AUTO: { neprectenych: 0, vlakna: [] }, 'AUTO/PATRIOT': { neprectenych: 0, vlakna: [] } });
+  let o = p.volej('postaPresunout', { id: 'v1', stitek: 'AUTO', archivovat: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data), { id: 'v1', stitky: ['AUTO'], archivovano: true });
+  assert.deepStrictEqual(p.log.archiv, ['v1']);
+  o = p.volej('postaPresunout', { id: 'v2', stitek: 'AUTO/PATRIOT', archivovat: false });
+  assert.deepStrictEqual([json(o.data.stitky), o.data.archivovano, p.log.archiv.length], [['AUTO/PATRIOT'], false, 1], 'jen štítek');
+  o = p.volej('postaPresunout', { id: 'v1', stitek: 'AUTO', pridat: false });
+  assert.deepStrictEqual(json(o.data.stitky), [], 'odebrat');
+  assert.ok(/není/.test(p.volej('postaPresunout', { id: 'v1', stitek: 'Neexistuje' }).chyba));
+});
+
+test('pošta: podklady pro přehled od Clauda (jednou za 4 hodiny, jen při změně) a přehled v Doručené', () => {
+  const p = prostredi();
+  const promo = p.vlakno('p1', [p.zprava({ id: 'pm1', od: 'Slevomat <info@slevomat.test>', predmet: 'Dárek k svátku',
+    text: 'Máte 200 Kč kredit https://slevomat.test/x?a=1 do neděle.', kdy: Date.UTC(2026, 9, 2, 10), neprectena: true })], true);
+  p.nastavKategorie({ promotions: [promo] });
+  p.nastavAktualizace([p.vlakna.v2]);
+  const soubor = () => p.schranka.soubory.find((f) => f.getName() === 'POSTA_K_PREHLEDU.json' && !f.vKosi);
+  p.nastavCas(Date.parse('2026-10-05T06:30:00+02:00'));
+  p.ctx.instagramKazdych10Min();
+  assert.ok(!soubor(), 'v noci a brzy ráno nic');
+  p.nastavCas(Date.parse('2026-10-05T09:00:00+02:00'));
+  p.ctx.instagramKazdych10Min();
+  const d = JSON.parse(soubor().getBlob().getDataAsString());
+  assert.deepStrictEqual(d.zpravy.map((z) => [z.id, z.kategorie]), [['v2', 'aktualizace'], ['p1', 'promo']]);
+  assert.deepStrictEqual([d.zpravy[1].od, d.zpravy[1].predmet, d.zpravy[1].ukazka, d.zpravy[1].neprectena],
+    ['Slevomat', 'Dárek k svátku', 'Máte 200 Kč kredit do neděle.', true], 'bez odkazů');
+  const dotazu = p.log.dotazy.length;
+  p.nastavCas(Date.parse('2026-10-05T10:00:00+02:00'));
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(p.log.dotazy.length, dotazu, 'do 4 hodin se Gmail znovu neprochází');
+  p.nastavCas(Date.parse('2026-10-05T13:30:00+02:00'));
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(JSON.parse(soubor().getBlob().getDataAsString()).vytvoreno, d.vytvoreno, 'beze změny se nepřepisuje');
+  // Claude napsal přehled → v Doručené (jen očištěné položky)
+  p.schranka.createFile('POSTA_PREHLED.json', JSON.stringify({ vytvoreno: '2026-10-05T09:20:00+02:00', prosel: 2, dulezite: [],
+    zajimave: [{ id: 'p1', od: 'Slevomat', predmet: 'Dárek k svátku', proc: 'Kredit 200 Kč – platí do neděle.', kategorie: 'promo' },
+      { id: '../x', predmet: 'Divné id', proc: 'x', kategorie: 'spam' }],
+    ostatni: [{ skupina: 'Oznámení', pocet: 1, text: 'Protokol ze stavby.' }, { nesmysl: true }] }));
+  const o = p.volej('posta', { znovu: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.prehled.zajimave.map((x) => [x.id, x.proc, x.kategorie])), [['p1', 'Kredit 200 Kč – platí do neděle.', 'promo'], ['', 'x', '']]);
+  assert.deepStrictEqual([o.data.prehled.prosel, o.data.prehled.ostatni.length, o.data.prehled.dulezite.length], [2, 1, 0]);
 });
 
 test('reely: seznam z REELY/reely.json, odkaz na video na Disku, skóre z FOTBAL.json, zveřejněno, jen platná data', () => {

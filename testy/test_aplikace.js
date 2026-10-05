@@ -43,7 +43,17 @@ const motor = {
       { id: 'c2', slozka: 'CEKA', kdy: ted - 2 * H, odkud: 'iPhone', typ: 'email', stav: 'rozhodni', shrnuti: 'E-mail trenérovi', termin: '', tema: '', nadpis: '',
         navrh: { typ: 'email', komu: ['Trenér'], predmet: 'Trénink', text: 'Ahoj, v úterý nepřijdu.' }, text: 'Napiš trenérovi, že v úterý nepřijdu.', vlakno: [] }],
     hotovo: [], ted: Date.now() }),
-  posta: () => ({ osobni: [vlaknoSouhrn.v1], pracovni: [vlaknoSouhrn.v2], pracovniAdresa: 'prace@firma.test', firemni: null, ted: Date.now() }),
+  posta: () => Object.assign({ osobni: [vlaknoSouhrn.v1], pracovni: [vlaknoSouhrn.v2], pracovniAdresa: 'prace@firma.test', firemni: null, ted: Date.now() },
+    JSON.parse(JSON.stringify(postaNavic))),
+  // záložky jako v Gmailu: Promoakce (k1 nepřečtená, k2 přečtená), přesun do štítku, přečíst vše
+  postaKategorie: (d) => ({ kategorie: d.kategorie, vlakna: d.kategorie === 'promo' ? JSON.parse(JSON.stringify(promoVlakna)) : [], ted }),
+  postaPresunout: (d) => { postaPresuny.push({ id: d.id, stitek: d.stitek, pridat: d.pridat, archivovat: d.archivovat }); return { id: d.id, stitky: [d.stitek], archivovano: !!d.archivovat }; },
+  postaPrectene: (d) => {
+    postaPrecteno.push(d.kategorie);
+    const ids = promoVlakna.filter((m) => m.neprectena).map((m) => m.id);
+    promoVlakna.forEach((m) => { m.neprectena = false; });
+    return { precteno: ids.length, ids };
+  },
   vlakno: (d) => ({ id: d.id, predmet: d.id === 'v1' ? 'Sraz v sobotu' : 'Protokol', odkaz: '#', vDorucenych: true, skryto: 0, ucet: d.id === 'v1' ? 'osobni' : 'pracovni',
     navrhOdpovedi: d.id === 'v1' && !navrhZahozen ? { zpravaId: 'm-v1', text: 'Ahoj, budu tam v 8:15.', kdy: new Date(ted).toISOString(), poznamka: '' } : undefined,
     zpravy: (d.id === 'v1' ? [{ id: 'm-starsi', od: 'Já', odAdresa: 'tester@example.com', odeMe: true, komu: 'trener@klub.test', kopie: '', kdy: ted - 30 * H, predmet: 'Sraz',
@@ -185,6 +195,11 @@ let ztratitOdpovedi = 0;          // kolik dalších odpovědí motoru „ztrat�
 const odpovediRid = new Map();    // rid → odpověď (motor opakovaný zápis neprovede)
 let navrhZahozen = false;
 const autoZapisy = [], autoSmazano = [], autoUctenky = [], autoUpravy = [], autoFotky = [], autoTerminy = [];
+let postaNavic = {};              // test záložek: aktualizace v Doručené, čísla záložek a přehled od Clauda
+const postaPresuny = [], postaPrecteno = [];
+const promoVlakna = [
+  { id: 'k1', ucet: 'osobni', stav: 'info', od: 'Obchod Test', predmet: 'Dárek k svátku', ukazka: 'Kredit 200 Kč do neděle.', kdy: ted - 3 * H, neprectena: true, pocet: 1, odkaz: '#' },
+  { id: 'k2', ucet: 'osobni', stav: 'info', od: 'CK Test', predmet: 'Lyže v Alpách', ukazka: 'Zájezdy od 9 990 Kč.', kdy: ted - 20 * H, neprectena: false, pocet: 1, odkaz: '#' }];
 const MALA_FOTKA = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const tank = (dni, castka, km, cena, litry) => ({ list: 'tankovani', datum: den(dni), datumText: '', polozka: 'Tankování', kategorie: 'Palivo', castka, km,
   kdo: 'M', poznamka: 'Pumpa Test', cenaLitr: cena, litry });
@@ -735,6 +750,58 @@ async function novaStranka(prohlizec, v, motiv) {
     jistota(volano.some((d) => d.akce === 'oznacit' && d.id === 'v2' && d.jak === 'archivovat'), 'e nearchivovalo');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
+  });
+
+  // ---------- pošta: záložky jako v Gmailu, přehled od Clauda, přesun do štítku, přečíst vše
+  await test('pošta: záložky jako v Gmailu, přehled od Clauda, Přesunout do skupiny, Označit vše jako přečtené', async () => {
+    postaNavic = { pocty: { promo: 1, socialni: 0, fora: 0 },
+      osobni: [vlaknoSouhrn.v1, { id: 'v5', ucet: 'osobni', stav: 'info', aktualizace: true, od: 'Obchod Test', predmet: 'Zásilka čeká ve výdejním boxu', ukazka: 'Vyzvedněte do pátku.', kdy: ted - 3 * H, neprectena: true, pocet: 1, odkaz: '#' }],
+      prehled: { vytvoreno: new Date(ted - H).toISOString(), prosel: 12, dulezite: [],
+        zajimave: [{ id: 'k1', od: 'Obchod Test', predmet: 'Dárek k svátku', proc: 'Kredit 200 Kč – platí do neděle.', kategorie: 'promo' }],
+        ostatni: [{ skupina: 'Cestovky', pocet: 1, text: 'Zájezdy, nic co by spěchalo.' }] } };
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.click('#rail [data-cil="posta"]');
+    await page.waitForSelector('.posta-kategorie [data-kategorie-posty="primarni"][aria-selected="true"]');
+    await page.waitForSelector('#posta-seznam [data-vlakno="v1"]');
+    jistota(!(await page.locator('#posta-seznam .seznam-posta [data-vlakno="v5"]').count()), 'aktualizace nemá být v Primární');
+    const zalozky = (await page.textContent('.posta-kategorie')).replace(/\s+/g, ' ');
+    jistota(/Primární\s*1/.test(zalozky) && /Aktualizace\s*1/.test(zalozky) && /Promoakce\s*1/.test(zalozky) && !/Fóra\s*\d/.test(zalozky), 'záložky: ' + zalozky);
+    // přehled od Clauda v Primární: jen „Mohlo by tě zajímat“, zbytek až v záložkách
+    let prehled = (await page.textContent('#posta-seznam .posta-prehled')).replace(/\s+/g, ' ');
+    jistota(/Mohlo by tě zajímat/.test(prehled) && /Kredit 200 Kč/.test(prehled) && /prošel 12 e-mailů/.test(prehled) && !/Ostatní stručně/.test(prehled), 'přehled v Primární: ' + prehled);
+    await page.click('.posta-kategorie [data-kategorie-posty="aktualizace"]');
+    await page.waitForSelector('#posta-seznam .seznam-posta [data-vlakno="v5"]');
+    jistota(!(await page.locator('#posta-seznam .seznam-posta [data-vlakno="v1"]').count()), 'v Aktualizacích jen aktualizace');
+    // Promoakce: načtou se na klepnutí, přehled i se zbytkem; Označit vše jako přečtené
+    await page.click('.posta-kategorie [data-kategorie-posty="promo"]');
+    await page.waitForSelector('#posta-seznam .seznam-posta [data-vlakno="k2"]');
+    jistota(volano.some((d) => d.akce === 'postaKategorie' && d.kategorie === 'promo'), 'postaKategorie');
+    prehled = (await page.textContent('#posta-seznam .posta-prehled')).replace(/\s+/g, ' ');
+    jistota(/Ostatní stručně/.test(prehled) && /Cestovky 1×/.test(prehled), 'zbytek v záložce: ' + prehled);
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_posta_zalozky.png') });
+    await page.click('#posta-seznam [data-kategorie-prectene]');
+    await page.click('.okno-pozadi [data-okno="ano"]');
+    await page.waitForFunction(() => /Označeno jako přečtené: 1/.test(document.getElementById('toast').textContent));
+    jistota(postaPrecteno.join() === 'promo', 'přečíst vše: ' + postaPrecteno.join());
+    jistota(!/Promoakce\s*\d/.test(await page.textContent('.posta-kategorie')), 'číslo u Promoakcí pryč');
+    // položka přehledu jde skrýt (v zařízení)
+    await page.click('#posta-seznam .posta-prehled [data-prehled-skryt="k1"]');
+    await page.waitForFunction(() => !document.querySelector('#posta-seznam .posta-prehled [data-vlakno="k1"]'));
+    // Přesunout do skupiny: k2 do štítku Fotbal = štítek a pryč z Doručené
+    await page.click('#posta-seznam [data-vlakno="k2"]');
+    await page.waitForSelector('#posta-detail [data-presunout]');
+    await page.click('#posta-detail [data-presunout]');
+    await page.waitForSelector('[data-panel="presunout"] [data-presun-stitek="Fotbal"]');
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_posta_presun.png') });
+    await page.click('[data-panel="presunout"] [data-presun-stitek="Fotbal"]');
+    await page.waitForFunction(() => /Přesunuto do Fotbal/.test(document.getElementById('toast').textContent));
+    jistota(postaPresuny.length === 1 && postaPresuny[0].id === 'k2' && postaPresuny[0].stitek === 'Fotbal' && postaPresuny[0].pridat === true && postaPresuny[0].archivovat === true,
+      'přesun: ' + JSON.stringify(postaPresuny));
+    jistota(!(await page.locator('#posta-seznam .seznam-posta [data-vlakno="k2"]').count()), 'přesunutá pryč ze seznamu');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+    postaNavic = {};
   });
 
   // ---------- pošta: štítky z Gmailu, nejnovější zpráva nahoře, podpis v psaní, našeptávač adres
