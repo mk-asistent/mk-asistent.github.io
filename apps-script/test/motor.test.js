@@ -2232,6 +2232,19 @@ test('auto: připomínky – přezutí a zima podle data (hotové podle zápisu)
   assert.deepStrictEqual([podle('pneu-letni').stav, podle('pneu-letni').klic], ['brzy', 'pneu-letni-2027']);
 });
 
+test('značky změn: zápis k autu ji posune, čtení ne', () => {
+  const p = prostredi();
+  tabulkaAuta(p);
+  p.vlastnosti.set('AUTO_TABULKA', TAB_AUTO);
+  assert.deepStrictEqual(json(p.volej('zmeny').data), { auto: 0 });
+  p.nastavCas(Date.parse('2026-10-05T21:00:00+02:00'));
+  p.volej('auto');
+  assert.strictEqual(p.volej('zmeny').data.auto, 0, 'čtení značku nemění');
+  assert.strictEqual(p.volej('autoTermin', { id: 'stk', datum: '2028-06-01' }).ok, true);
+  assert.strictEqual(p.volej('zmeny').data.auto, Date.parse('2026-10-05T21:00:00+02:00'));
+  assert.strictEqual(p.volej('autoTermin', { id: 'nesmysl', datum: '' }).ok, false);
+});
+
 test('auto: termíny (známka, STK, pojištění) do AUTO/terminy.json – zápis z aplikace, čtení s daty auta', () => {
   const p = prostredi();
   tabulkaAuta(p);

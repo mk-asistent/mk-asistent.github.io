@@ -1,7 +1,7 @@
 // Test obnovy bez sítě a Firebase: napodobený motor (fetch).  Spuštění: node test.js
 'use strict';
 const assert = require('assert');
-const { obnov, mrizkaMesice, pulnocPraha, volejMotor, otisk, platnePripojeni } = require('./obnova');
+const { obnov, mrizkaMesice, pulnocPraha, volejMotor, otisk, platnePripojeni, coPreskocit } = require('./obnova');
 
 let ok = 0;
 async function test(nazev, fn) {
@@ -51,12 +51,27 @@ function motor(odpovedi, zaznam) {
       return { ok: false, chyba: 'Neznámá akce.' };
     }, zaznam);
     const v = await obnov(P, { fetch: fetchFn, ted: Date.parse('2026-10-05T10:00:00+02:00') });
-    assert.deepStrictEqual(zaznam.sort(), ['davka:info,schranka,fotbal,reely', 'davka:kalendar,kalendar', 'posta']);
-    assert.deepStrictEqual(Object.keys(v.data).sort(), ['fotbal', 'info', 'kalendar_2026-10', 'kalendar_2026-11', 'schranka']);
+    assert.deepStrictEqual(zaznam.sort(), ['davka:info,schranka,fotbal,reely,zmeny', 'davka:kalendar,kalendar', 'posta']);
+    assert.deepStrictEqual(Object.keys(v.data).sort(), ['fotbal', 'info', 'kalendar_2026-10', 'kalendar_2026-11', 'schranka', 'zmeny']);
     assert.ok(!v.data.zdravi && !v.data.pocasi, 'zdraví a počasí na server nepatří');
     assert.deepStrictEqual(v.data['kalendar_2026-10'].parametry, { od: Date.parse('2026-09-28T00:00:00+02:00'), do: Date.parse('2026-11-09T00:00:00+01:00') });
     assert.ok(v.chyby.some((c) => /^reely:/.test(c)) && v.chyby.some((c) => /^posta: Service invoked/.test(c)), v.chyby.join(' | '));
     assert.strictEqual(v.kdy, Date.parse('2026-10-05T10:00:00+02:00'));
+  });
+
+  await test('pomalé věci (fotbal, nastavení, reely) jen po svém intervalu, po změně z aplikace všechno', async () => {
+    const ted = Date.parse('2026-10-05T21:00:00+02:00');
+    const min = 60e3;
+    // fotbal před 50 min (hodinový interval) a info před 20 min čekají; reely před 31 min (půlhodinový) jdou znovu
+    const potvrzeno = { info: ted - 20 * min, fotbal: ted - 50 * min, reely: ted - 31 * min, schranka: ted - 10 * min };
+    assert.deepStrictEqual(coPreskocit(potvrzeno, ted, false), ['info', 'fotbal']);
+    assert.deepStrictEqual(coPreskocit(potvrzeno, ted, true), [], 'vse');
+    assert.deepStrictEqual(coPreskocit(null, ted, false), [], 'první obnova');
+    const zaznam = [];
+    const fetchFn = motor((d) => (d.akce === 'davka' ? { ok: true, data: d.polozky.map((p) => ({ ok: true, data: { co: p.akce } })) } : { ok: true, data: {} }), zaznam);
+    const v = await obnov(P, { fetch: fetchFn, ted, preskocit: coPreskocit(potvrzeno, ted, false) });
+    assert.ok(zaznam.indexOf('davka:schranka,reely,zmeny') >= 0, zaznam.join(' | '));
+    assert.ok(!v.data.info && !v.data.fotbal && v.data.reely && v.data.zmeny, 'přeskočené nejsou v datech (kopie zůstanou)');
   });
 
   await test('motor: špatný klíč a odpověď, která není JSON, dají srozumitelnou chybu', async () => {

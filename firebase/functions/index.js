@@ -1,6 +1,7 @@
 // Firebase Functions pro Asistenta (projekt asistent-michal; funkce v Belgii europe-west1, databáze eur3 – Evropa).
-//   obnovAsistenta – každých 10 minut (6:00–23:00) připraví data z motoru do Firestore: uzivatele/{uid}/data/{id}
-//   obnovHned      – totéž na požádání z aplikace (při otevření se starými daty a po změně), jen pro přihlášeného
+//   obnovAsistenta – každých 10 minut (6:00–23:00) připraví data z motoru do Firestore: uzivatele/{uid}/data/{id};
+//                    co se mění málo (fotbal, nastavení, reely), jen po svém intervalu (obnova.js INTERVALY_MIN)
+//   obnovHned      – totéž na požádání z aplikace (při otevření se starými daty; po změně a Obnovit s vse = všechno)
 // Adresu motoru a klíč čte z Firestore (uzivatele/{uid}.pripojeni) – uloží je tam aplikace po přihlášení účtem.
 // V kódu žádná adresa ani klíč nejsou (repo je veřejné).
 //
@@ -12,7 +13,7 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const logger = require('firebase-functions/logger');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
-const { obnov, otisk, platnePripojeni, mrizkaMesice } = require('./obnova');
+const { obnov, otisk, platnePripojeni, mrizkaMesice, coPreskocit } = require('./obnova');
 
 initializeApp();
 const db = getFirestore();
@@ -20,8 +21,10 @@ const NASTAVENI = { region: 'europe-west1', memory: '256MiB', timeoutSeconds: 12
 const MAX_DOKUMENT = 1000000;      // bajtů – Firestore unese 1 MiB na dokument
 const NEJDRIV_ZNOVU = 45e3;        // obnovHned častěji nepouští (aplikace ho volá při otevření a po změnách)
 
-async function obnovUzivatele(uid, pripojeni) {
-  const v = await obnov(pripojeni);
+async function obnovUzivatele(uid, pripojeni, vse, stavDoc) {
+  const ted = Date.now();
+  const st = stavDoc || await db.doc('uzivatele/' + uid + '/data/_stav').get();
+  const v = await obnov(pripojeni, { ted, preskocit: coPreskocit(st.exists ? st.get('potvrzeno') : null, ted, vse) });
   const ref = (id) => db.doc('uzivatele/' + uid + '/data/' + id);
   const idy = Object.keys(v.data);
   const stare = idy.length ? await db.getAll(...idy.map(ref)) : [];
@@ -50,7 +53,7 @@ async function obnovUzivatele(uid, pripojeni) {
 exports.obnovAsistenta = onSchedule(Object.assign({ schedule: '*/10 6-22 * * *', timeZone: 'Europe/Prague' }, NASTAVENI), async () => {
   const uzivatele = await db.collection('uzivatele').get();
   await Promise.all(uzivatele.docs.filter((d) => platnePripojeni(d.get('pripojeni')))
-    .map((d) => obnovUzivatele(d.id, d.get('pripojeni')).catch((e) => logger.error('obnova selhala', { chyba: String(e && e.message || e) }))));
+    .map((d) => obnovUzivatele(d.id, d.get('pripojeni'), false).catch((e) => logger.error('obnova selhala', { chyba: String(e && e.message || e) }))));
 });
 
 exports.obnovHned = onCall(NASTAVENI, async (pozadavek) => {
@@ -60,6 +63,6 @@ exports.obnovHned = onCall(NASTAVENI, async (pozadavek) => {
   const pripojeni = ucet.exists ? ucet.get('pripojeni') : null;
   if (!platnePripojeni(pripojeni)) throw new HttpsError('failed-precondition', 'V účtu ještě není uložené připojení k motoru.');
   if (stav.exists && Date.now() - (stav.get('kdy') || 0) < NEJDRIV_ZNOVU) return { kdy: stav.get('kdy'), preskoceno: true };
-  const v = await obnovUzivatele(uid, pripojeni);
+  const v = await obnovUzivatele(uid, pripojeni, !!(pozadavek.data && pozadavek.data.vse), stav);
   return { kdy: v.kdy, zmeneno: v.zmeneno, chyby: v.chyby };
 });

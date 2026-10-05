@@ -36,7 +36,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.22';
+const VERZE = '2026-10-05.23';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -113,6 +113,10 @@ function doPost(e) {
       }
       vystup = { ok: true, data: AKCE[data.akce](data) };
       if (rid) ulozText_(rid, JSON.stringify(vystup), 600);
+      // zápis k autu (tabulka, účtenka, termín…) → značka; jiná zařízení si podle ní tabulku načtou znovu
+      if (/^auto/.test(data.akce) && CTENI_MOTORU.indexOf(data.akce) < 0) {
+        try { vlastnosti_().setProperty('AUTO_ZMENA', String(Date.now())); } catch (chyba) { /* jen zrychlení */ }
+      }
     }
   } catch (chyba) {
     vystup = { ok: false, chyba: String((chyba && chyba.message) || chyba) };
@@ -123,7 +127,7 @@ function doPost(e) {
 
 // akce, které jen čtou – opakovat je jde bez rizika (bez zapamatované odpovědi)
 const CTENI_MOTORU = ['info', 'schranka', 'posta', 'vlakno', 'hledat', 'kalendar', 'kalendare', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka',
-  'stitky', 'kontakty', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'davka'];
+  'stitky', 'kontakty', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'davka', 'zmeny'];
 
 /** Výsledek dřívějšího běhu téhož požadavku (JSON), nebo null; když ještě běží, počká na něj (nejvýš ~25 s). */
 function vysledekRid_(rid) {
@@ -201,6 +205,8 @@ const AKCE = {
   autoUctenkaFoto: function (d) { return autoUctenkaFoto_(d); },
   autoPeceZapsat: function (d) { return autoPeceZapsat_(d); },
   autoTermin: function (d) { return autoTermin_(d); },
+  // značky změn: kdy se naposledy zapisovalo (auto) – server je posílá s každou obnovou, aplikace podle nich načítá
+  zmeny: function () { return zmeny_(); },
   // víc čtení v jednom požadavku – aplikace při startu neposílá deset dotazů naráz (ty se pak řadí do fronty)
   davka: function (d) {
     return (Array.isArray(d.polozky) ? d.polozky.slice(0, 12) : []).map(function (p) {
@@ -2572,6 +2578,14 @@ function autoList_(ss, druh) {
   const list = ss.getSheetByName(AUTO_LISTY[druh]);
   if (!list) throw new Error('V tabulce chybí list „' + AUTO_LISTY[druh] + '“.');
   return list;
+}
+
+/**
+ * Značky změn (levné – jen vlastnosti skriptu): auto = kdy se naposledy zapisovalo k autu. Server je chystá při každé
+ * obnově (každých 10 min a hned po změně z aplikace) a aplikace tabulku auta načte znovu, jen když je značka novější.
+ */
+function zmeny_() {
+  return { auto: Number(vlastnosti_().getProperty('AUTO_ZMENA') || 0) };
 }
 
 /** Akce auto: zápisy z listů Náklady a Tankování, kategorie a kdo co zaplatil (z Přehledu). */

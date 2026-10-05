@@ -91,6 +91,7 @@ const motor = {
     rezim: { kofeinDo: '14:00', treninkDny: [], zapasTymy: ['A'], polozky: [{ id: 'kreatin', nazev: 'Kreatin', davka: '5 g', kdy: 'rano' },
       { id: 'kofein', nazev: 'Kofein', davka: 'před výkopem', kdy: 'zapas', jen: 'zapas' }, { id: 'horcik', nazev: 'Hořčík', davka: 'večer', kdy: 'vecer' }] } }),
   zdraviKlic: () => ({ klic: 'testovaci-klic-zdravi' }),
+  zmeny: () => ({ auto: 0 }),
   doplnky: (d) => {
     doplnkyVolani.push({ den: d.den, zmeny: d.zmeny });
     const z = (doplnkyDny[d.den] = doplnkyDny[d.den] || {});
@@ -1519,6 +1520,15 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.click('[data-panel="auto-zapis"] [data-zavrit-panel]');
     await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"]'));
     await page.screenshot({ path: path.join(VYSTUP, 'pc_auto.png'), fullPage: true });
+    // značka změny ze serveru (zápis z jiného zařízení) → tabulka auta znovu; stará značka nic nenačte
+    const nacteniAuta = () => volano.filter((d) => d.akce === 'auto').length;
+    const predZnackou = nacteniAuta();
+    await page.evaluate(() => import('/js/auto.js').then((m) => m.zkontrolujZmenu(1)));
+    await page.waitForTimeout(300);
+    jistota(nacteniAuta() === predZnackou, 'stará značka nemá nic načítat');
+    await page.evaluate(() => import('/js/auto.js').then((m) => m.zkontrolujZmenu(Date.now() + 60000)));
+    for (let i = 0; i < 30 && nacteniAuta() === predZnackou; i++) await page.waitForTimeout(100);
+    jistota(nacteniAuta() === predZnackou + 1, 'novější značka → auto znovu (' + nacteniAuta() + ')');
     // tankování: litry se dopočítají, do tabulky jde číslo (ne text s mezerami a čárkou)
     autoZapisy.length = 0;
     await page.click('[data-auto-zapis="tankovani"]');

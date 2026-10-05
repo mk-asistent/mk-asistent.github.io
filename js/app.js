@@ -2,7 +2,7 @@
 // přehled Dnes (čísla, grafy, co čeká) a ovládání (klepnutí, klávesy). Vzhled: styl „Fixtrack“, skill osobni-vzhled.
 
 import { stav, priZmene, zmeneno, prejdi, umiMotor, staryMotor } from './stav.js';
-import { jePripojeno, jeDemo } from './api.js';
+import { jePripojeno, jeDemo, volej } from './api.js';
 import { esc, pulnoc, datumDlouhe, hhmm, iniciala, odstin, tvar, velkePrvni, rozdilDni, uloziste, terminDatum, dm, kdyKratce, prvniRadek, DNY_KR } from './pomocne.js';
 import { kostra, chybaHtml, hlavickaKarty, okno, toastAkce } from './ui.js';
 import { IKONY, ikonaPocasi } from './ikony.js';
@@ -34,7 +34,7 @@ const $ = (id) => document.getElementById(id);
 
 function start() {
   window.asistentBezi = true; // js/start.js: aplikace nastartovala (žádná záchrana) a rozepsaný text hlídá při nové verzi
-  window.asistentNovaVerze = () => toastAkce('Je tu nová verze aplikace', 'Načíst', () => location.reload());
+  window.asistentNovaVerze = () => toastAkce('Nová verze aplikace – načte se, až ji zavřeš', 'Načíst teď', () => location.reload());
   $('uvod').hidden = true;
   $('aplikace').hidden = false;
   stav.info = uloziste.cti('asistent.info');
@@ -71,8 +71,10 @@ function obnovVse(znovu) {
   posta.nactiPostu(primo);
   kal.nactiKalendar(primo);
   nast.nactiInfo();
-  pocasi.nactiPocasi(znovu);
-  zdravi.nactiZdravi(znovu);
+  // počasí a zdraví server nechystá (jdou z motoru) – při pouhém návratu do aplikace nejvýš jednou za 30 / 15 minut
+  if (znovu || stara('asistent.data.pocasi', 30)) pocasi.nactiPocasi(znovu);
+  if (znovu || stara('asistent.data.zdravi', 15)) zdravi.nactiZdravi(znovu);
+  zkontrolujZmeny();
   fotbal.nactiFotbal();
   reely.nactiReely(primo);
   if (znovu || stav.pohled === 'auto') auto.nactiAuto(znovu); // tabulku auta jen na její stránce nebo při Obnovit
@@ -81,9 +83,22 @@ function obnovVse(znovu) {
   else ucet.obnovStare();
 }
 
+/** Data v zařízení starší než … minut (nebo žádná)? */
+function stara(klic, minut) {
+  const v = uloziste.cti(klic);
+  return !v || !v.kdy || Date.now() - v.kdy > minut * 60e3;
+}
+
+/** Značky změn ze serveru: auto se načte znovu, jen když se k němu od posledního načtení zapisovalo (třeba z mobilu). */
+function zkontrolujZmeny() {
+  if (!umiMotor('zmeny') || !ucet.zapnuty()) return;
+  volej('zmeny').then((z) => auto.zkontrolujZmenu(z && z.auto)).catch(() => { /* jen zrychlení */ });
+}
+
 /** Server obnovil kopie (každých 10 min, po změně nebo při otevření) → načíst znovu, čeho se to týká (z kopie, hned). */
 function poNovychKopiich(idy) {
   const je = (id) => idy.indexOf(id) >= 0;
+  if (je('zmeny')) zkontrolujZmeny();
   if (je('posta')) posta.nactiPostu(false);
   if (je('schranka')) schranka.nactiSchranku();
   if (idy.some((id) => id.indexOf('kalendar_') === 0)) kal.nactiKalendar(false, true);

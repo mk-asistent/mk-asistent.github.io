@@ -19,6 +19,8 @@ const REGION = 'europe-west1';         // funkce v Belgii – vedle databáze (e
 const UCET = 'asistent.ucet';        // { email } – v tomhle zařízení je zapnutý účet (přihlášení drží Firebase)
 const PLATNOST = 'asistent.kopie';   // { zmena: ms, primo: { id: ms } } – co v zařízení proběhlo po kopiích ze serveru
 const MAX_STARI = 30 * 60e3;         // starší kopie = server asi nejede → motor
+// fotbal, nastavení a reely server obnovuje jen jednou za hodinu / půl hodiny (mění se málo) – kopie platí déle
+const MAX_STARI_ID = { info: 3 * 3600e3, fotbal: 3 * 3600e3, reely: 90 * 60e3 };
 const REZERVA = 10e3;                // hodiny zařízení a serveru se můžou o pár vteřin lišit
 const OBNOVIT_PO = 4 * 60e3;         // starší kopie → při otevření požádat server o čerstvé
 const CEKAT_NA_KOPIE = 4000;         // déle se při startu na Firebase nečeká (pak motor jako dřív)
@@ -26,10 +28,10 @@ const OBNOVA_PO_ZMENE = 15e3;        // po změně z aplikace server kopie obnov
 
 // čtení, která můžou přijít z kopie (bez dalších parametrů); kalendář podle mřížky měsíce.
 // Zdraví a počasí server nechystá (zdravotní data jen na Disku, počasí podle polohy telefonu) – ty jdou vždy z motoru.
-const Z_KOPIE = ['info', 'schranka', 'posta', 'fotbal', 'reely'];
+const Z_KOPIE = ['info', 'schranka', 'posta', 'fotbal', 'reely', 'zmeny'];
 // akce, které jen čtou – všechno ostatní mění data (i otevření konverzace: označí ji jako přečtenou)
 export const CTENI = ['info', 'schranka', 'posta', 'kalendar', 'kalendare', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky',
-  'kontakty', 'hledat', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto']; // poslední dvě: čtení bez kopie (nic nezneplatní)
+  'kontakty', 'hledat', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'zmeny']; // čtení bez kopie nic nezneplatní
 
 const s = { fb: null, fbSlib: null, uzivatel: null, kopie: {}, server: null, pripraveno: null, odber: null, prvni: true,
   obnovuje: null, naposledyObnova: 0, casovac: 0, chyba: null, naKopie: [], naStav: [] };
@@ -114,7 +116,7 @@ function potvrzeno(id) { return (s.server && s.server.potvrzeno && s.server.potv
 function pouzitelna(id) {
   const kdy = potvrzeno(id), p = platnost();
   // po změně musí obnova začít až po ní (s rezervou na hodiny); po přímém čtení stačí novější kopie
-  return !!(s.kopie[id] && kdy && Date.now() - kdy < MAX_STARI && kdy > (p.zmena || 0) + REZERVA && kdy > ((p.primo || {})[id] || 0));
+  return !!(s.kopie[id] && kdy && Date.now() - kdy < (MAX_STARI_ID[id] || MAX_STARI) && kdy > (p.zmena || 0) + REZERVA && kdy > ((p.primo || {})[id] || 0));
 }
 
 /** Která kopie odpovídá čtení (nebo null). Kalendář: měsíc mřížky = 7 dní po jejím začátku (pondělí před 1. dnem). */
@@ -169,7 +171,7 @@ export function obnovNaServeru(vzdy) {
   if (!vzdy && Date.now() - s.naposledyObnova < 60e3) return Promise.resolve();
   s.naposledyObnova = Date.now();
   s.obnovuje = nactiFirebase()
-    .then((fb) => fb.fn.httpsCallable(fb.funkce, 'obnovHned', { timeout: 120000 })({}))
+    .then((fb) => fb.fn.httpsCallable(fb.funkce, 'obnovHned', { timeout: 120000 })({ vse: !!vzdy })) // vse: i fotbal, nastavení, reely
     .then((r) => { s.chyba = null; return (r && r.data) || {}; })
     .catch((e) => { s.chyba = e; return null; })
     .finally(() => { s.obnovuje = null; oznam(s.naStav); });

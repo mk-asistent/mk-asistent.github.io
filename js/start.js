@@ -4,21 +4,28 @@
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     var mel = !!navigator.serviceWorker.controller; // první instalace = bez přenačtení
     var znovu = false;
+    var otevreno = Date.now();
+    var cekaNaVerzi = false;
+    // otevřený panel (Nastavení, psaní, detail e-mailu…) – přenačtení by ho zavřelo a hodilo zpátky na stránku
+    var panel = function () { return !!document.querySelector('#panely [data-panel]'); };
+    var nacti = function () { if (!znovu) { znovu = true; location.reload(); } };
     // rozepsaný text (pole s obsahem ve viditelné části) se přenačtením nesmaže
     var pise = function () {
       var pole = document.querySelectorAll('textarea, input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden]):not([readonly])');
       for (var i = 0; i < pole.length; i++) if (pole[i].value && pole[i].getClientRects().length) return true;
       return false;
     };
-    // nový service worker má celou novou verzi → načíst ji (živá verze pár vteřin po otevření)
+    // nový service worker má celou novou verzi → načíst ji: hned jen když aplikaci nikdo nevidí, nebo pár vteřin po
+    // otevření (nic rozdělaného); jinak až půjde do pozadí – ne uprostřed Nastavení nebo psaní (Michal 5. 10.)
     navigator.serviceWorker.addEventListener('controllerchange', function () {
       if (!mel || znovu) return;
-      if (window.asistentBezi && pise()) {
-        if (window.asistentNovaVerze) window.asistentNovaVerze();
-        return;
-      }
-      znovu = true;
-      location.reload();
+      if (document.visibilityState === 'hidden' || (Date.now() - otevreno < 8000 && !pise() && !panel())) { nacti(); return; }
+      cekaNaVerzi = true;
+      if (window.asistentNovaVerze) window.asistentNovaVerze();
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden' && cekaNaVerzi && !pise()) nacti();
+      if (document.visibilityState === 'visible') otevreno = Date.now(); // návrat z pozadí = jako nové otevření
     });
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (r) {

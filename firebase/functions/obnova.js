@@ -8,7 +8,15 @@
 const crypto = require('crypto');
 
 // rychlá čtení v jedné dávce (motor víc souběžných dotazů řadí do fronty)
-const DAVKA = ['info', 'schranka', 'fotbal', 'reely'];
+const DAVKA = ['info', 'schranka', 'fotbal', 'reely', 'zmeny'];
+// co se přes den mění málo: obnoví se jen po svém intervalu (minuty); po změně z aplikace (obnovHned s vse) vždy
+const INTERVALY_MIN = { info: 60, fotbal: 60, reely: 30 };
+
+/** Co se z dávky tentokrát přeskočí: pomalé věci, dokud je jejich kopie mladší než interval (vse = nic). */
+function coPreskocit(potvrzeno, ted, vse) {
+  if (vse || !potvrzeno) return [];
+  return Object.keys(INTERVALY_MIN).filter((id) => potvrzeno[id] && ted - potvrzeno[id] < INTERVALY_MIN[id] * 60e3 - 90e3);
+}
 const ADRESA_MOTORU = /^https:\/\/script\.google\.com\/macros\/(u\/\d+\/)?s\/[\w-]+\/exec$/;
 
 /** Server volá jen motor v Apps Scriptu (nic jiného) a jen s klíčem, který vypadá jako klíč. */
@@ -96,8 +104,9 @@ async function obnov(pripojeni, moznosti) {
       else chyby.push(id + ': ' + ((v && v.chyba) || 'bez odpovědi'));
     });
   });
+  const davka = DAVKA.filter((a) => (o.preskocit || []).indexOf(a) < 0);
   const casti = [
-    ['dávka', zDavky(DAVKA.map((akce) => ({ akce })), DAVKA)],
+    ['dávka', zDavky(davka.map((akce) => ({ akce })), davka)],
     ['posta', volejMotor(pripojeni, 'posta', {}, o.fetch, o.cekat).then((d) => { data.posta = { data: d, parametry: null }; })],
     ['kalendář', zDavky(mesice.map((m) => ({ akce: 'kalendar', od: m.od, do: m.do })), mesice.map((m) => 'kalendar_' + m.klic),
       mesice.map((m) => ({ od: m.od, do: m.do })))]
@@ -107,4 +116,4 @@ async function obnov(pripojeni, moznosti) {
   return { kdy: ted, data, chyby };
 }
 
-module.exports = { volejMotor, pulnocPraha, mrizkaMesice, obnov, otisk, platnePripojeni, DAVKA };
+module.exports = { volejMotor, pulnocPraha, mrizkaMesice, obnov, otisk, platnePripojeni, DAVKA, INTERVALY_MIN, coPreskocit };

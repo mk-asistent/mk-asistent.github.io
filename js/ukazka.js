@@ -572,6 +572,7 @@ const akce = {
     return { pridano: fotbalVKalendari.length * 3, upraveno: 0, beze_zmeny: 0, kalendare: {}, kalendareSeznam: kopie(kalendare) };
   },
   zdravi: () => zdraviUkazka(),
+  zmeny: () => ({ auto: 0 }),
   doplnky: (d) => {
     const z = (doplnkyUkazka[d.den] = doplnkyUkazka[d.den] || {});
     Object.keys(d.zmeny || {}).forEach((id) => { if (d.zmeny[id]) z[id] = true; else delete z[id]; });

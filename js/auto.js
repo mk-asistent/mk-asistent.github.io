@@ -41,6 +41,7 @@ export function nactiZUloziste() {
 
 function uloz(data) {
   stav.auto = data;
+  nactenoKdy = Date.now(); // i po vlastním zápisu – značka změny ze serveru pak nic znovu nenačítá
   uloziste.pis(ULOZISTE, { data, kdy: Date.now() });
 }
 
@@ -56,11 +57,19 @@ export function nactiAuto(znovu) {
 }
 
 /**
- * Při překreslení stránky Auto: data ještě nejsou, nebo jsou starší než 2 minuty (zápis z telefonu, Michal 5. 10.:
- * „na PC nevidím nahrané účtenky z mobilu“) → načíst znovu. Chyba se zkouší až po Obnovit.
+ * Při překreslení stránky Auto: data ještě nejsou, nebo jsou starší než 6 hodin → načíst znovu. Zápis z jiného
+ * zařízení („na PC nevidím nahrané účtenky z mobilu“, 5. 10.) pozná značka změny ze serveru (zkontrolujZmenu) – tabulka
+ * se tak nečte při každém návratu do aplikace (Michal 5. 10.: „auto se během dne moc načítat nemusí“). Chyba až po Obnovit.
  */
-const AUTO_CERSTVA = 2 * 60e3;
+const AUTO_CERSTVA = 6 * 3600e3;
 let nactenoKdy = 0;
+
+/** Server hlásí zápis k autu (značka AUTO_ZMENA) novější než naše data → na stránce Auto hned, jinak při otevření. */
+export function zkontrolujZmenu(znacka) {
+  if (!znacka || znacka <= nactenoKdy) return;
+  nactenoKdy = 0;
+  dotahni();
+}
 export function dotahni() {
   if (stav.pohled !== 'auto' || !umiMotor('auto') || stav.nacita.auto || stav.chyby.auto) return;
   if (Date.now() - nactenoKdy < AUTO_CERSTVA) return;
