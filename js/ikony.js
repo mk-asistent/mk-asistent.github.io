@@ -65,7 +65,8 @@ export const IKONY = {
   prehrat: s('<path d="M8 5.2v13.6L18.8 12z" fill="currentColor"/>'),
   kopirovat: s('<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>'),
   // osobní váha: deska s ciferníkem
-  vaha: s('<rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><path d="M7.6 10.2a6 6 0 0 1 8.8 0"/><path d="M12 10.8l1.6-2.4"/>')
+  vaha: s('<rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><path d="M7.6 10.2a6 6 0 0 1 8.8 0"/><path d="M12 10.8l1.6-2.4"/>'),
+  menu: s('<path d="M4 7h16M4 12h16M4 17h10"/>')
 };
 // ikona počasí podle klíče z motoru (slunce, polojasno, oblacno, dest, bourka, snih, mlha)
 IKONY.zdravi = IKONY.srdce;

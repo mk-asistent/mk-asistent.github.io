@@ -109,6 +109,8 @@ const motor = {
       delka: 42.6, velikost: 30, video: true, odkaz: '', nahled: '', popisek: '',
       zapasy: [{ datum: iso(den(-23)), tym: 'B', domaci: 'Vnorovy B', hoste: 'Lipov', souper: 'Lipov', skore: '4:5', soutez: '9. liga dospělí' }] }] }),
   reelStav: (d) => { if (d.zverejneno) reelyZverejneno[d.id] = iso(ted); else delete reelyZverejneno[d.id]; return { zverejneno: Object.assign({}, reelyZverejneno) }; },
+  // dávka čtení jako v motoru: každá položka zvlášť ok / chyba
+  davka: (d) => (d.polozky || []).map((p) => { try { volano.push(p); return { ok: true, data: motor[p.akce](p) }; } catch (e) { return { ok: false, chyba: e.message }; } }),
   stitky: () => [{ nazev: 'Fotbal', neprectenych: 1 }, { nazev: 'Účty', neprectenych: 0 }],
   postaStitek: (d) => ({ nazev: d.nazev, vlakna: d.nazev === 'Fotbal' ? [vlaknoSouhrn.v1, { id: 'v8', ucet: 'osobni', stav: 'resi', od: 'Rozhodčí', predmet: 'Zápis o utkání', ukazka: 'Zápis v příloze.', kdy: ted - 200 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Fotbal'] }] : [], ted }),
   kontakty: () => [{ j: 'Trenér', a: 'trener@klub.test', n: 5 }, { j: 'Investor', a: 'info@stavba.test', n: 2 }],
@@ -256,8 +258,16 @@ async function novaStranka(prohlizec, v, motiv) {
         await page.screenshot({ path: path.join(VYSTUP, jmeno + '_pocasi.png') });
         await page.click('.okno-pozadi [data-okno="ano"]');
         await page.waitForSelector('.okno-pozadi', { state: 'detached' });
-        // Nastavení: okno uprostřed se záložkami
-        await page.click(v.sirka < 760 ? '.hlava-ja [data-otevri-nastaveni]' : '#rail [data-otevri-nastaveni]');
+        // Nastavení: okno uprostřed se záložkami (na telefonu přes menu z klepnutí na jméno nahoře)
+        if (v.sirka < 760) {
+          await page.click('.hlava-ja [data-menu]');
+          await page.waitForSelector('[data-panel="menu"].otevreny [data-menu-cil="fotbal"]');
+          await page.waitForTimeout(300);
+          await page.screenshot({ path: path.join(VYSTUP, jmeno + '_menu.png') });
+          await page.click('[data-panel="menu"] [data-menu-nastaveni]');
+        } else {
+          await page.click('#rail [data-otevri-nastaveni]');
+        }
         await page.waitForSelector('[data-panel="nastaveni"].otevreny .nast-zalozky');
         await page.click('[data-panel="nastaveni"] [data-nast-sekce="pocasi"]');
         await page.waitForFunction(() => /Veselí nad Moravou|Místo/.test(document.querySelector('[data-panel="nastaveni"] [data-sekce="pocasi"]').textContent));
@@ -1053,6 +1063,61 @@ async function novaStranka(prohlizec, v, motiv) {
     } finally {
       prihlaseniTest = '';
     }
+  });
+
+  // ---------- telefon: menu zleva (klepnutí na jméno) vede i na Fotbal a Reely; klepnutí vedle menu zavře
+  await test('telefon: menu zleva se všemi sekcemi (Fotbal, Reely), zavření klepnutím vedle', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
+    await page.goto(WEB);
+    await page.click('.hlava-ja [data-menu]');
+    await page.waitForSelector('[data-panel="menu"].otevreny');
+    const sekce = await page.$$eval('[data-panel="menu"] [data-menu-cil]', (b) => b.map((x) => x.dataset.menuCil).join());
+    jistota(sekce === 'dnes,schranka,posta,kalendar,zdravi,fotbal,reely', 'sekce v menu: ' + sekce);
+    jistota(await page.locator('[data-panel="menu"] [data-menu-cil="dnes"][aria-current="page"]').count() === 1, 'aktivní sekce');
+    await page.click('[data-panel="menu"] [data-menu-cil="fotbal"]');
+    await page.waitForSelector('#p-fotbal:not([hidden]) .fotbal-stranka');
+    await page.waitForSelector('[data-panel="menu"]', { state: 'detached' });
+    await page.click('.hlava-ja [data-menu]');
+    await page.waitForSelector('[data-panel="menu"].otevreny');
+    await page.mouse.click(370, 400); // vedle menu (menu je široké nejvýš 86 % šířky)
+    await page.waitForSelector('[data-panel="menu"]', { state: 'detached' });
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  // ---------- Nastavení: rozbalený návod zůstane rozbalený, i když se okno překreslí (dorazí data)
+  await test('Nastavení: rozbalený návod se po překreslení nezavře', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.click('#rail [data-otevri-nastaveni]');
+    await page.click('[data-panel="nastaveni"] [data-nast-sekce="zdravi"]');
+    await page.click('[data-panel="nastaveni"] details[data-detail="zkratka-zdravi"] summary');
+    jistota(await page.locator('details[data-detail="zkratka-zdravi"][open]').count() === 1, 'návod rozbalený');
+    // překreslení okna (jako když dorazí data z motoru): přepnout záložku tam a zpět
+    await page.click('[data-panel="nastaveni"] [data-nast-sekce="pocasi"]');
+    await page.click('[data-panel="nastaveni"] [data-nast-sekce="zdravi"]');
+    jistota(await page.locator('details[data-detail="zkratka-zdravi"][open]').count() === 1, 'návod se po překreslení zavřel');
+    jistota(/Teprve potom/.test(await page.textContent('details[data-detail="zkratka-zdravi"]')), 'návod: Zkratky se ve Zdraví objeví až po prvním spuštění');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  // ---------- start: rychlá čtení v jedné dávce (méně souběžných dotazů na motor)
+  await test('start: rychlá čtení jdou v jedné dávce', async () => {
+    const pozadavky = [];
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    page.on('request', (r) => { if (r.url() === MOTOR) { try { pozadavky.push(JSON.parse(r.postData()).akce); } catch (e) { /* nic */ } } });
+    await page.goto(WEB); // první start: info ještě není uložené → bez dávky
+    await page.waitForSelector('#dl-pozornost .seznam');
+    pozadavky.length = 0;
+    await page.reload();
+    await page.waitForSelector('#dl-pozornost .seznam');
+    await page.waitForTimeout(1500);
+    jistota(pozadavky.indexOf('davka') >= 0, 'dávka se neposlala: ' + pozadavky.join());
+    jistota(['info', 'pocasi', 'zdravi', 'fotbal'].every((a) => pozadavky.indexOf(a) < 0), 'rychlá čtení samostatně: ' + pozadavky.join());
+    jistota(pozadavky.length <= 6, 'při startu moc požadavků: ' + pozadavky.join());
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
   });
 
   // ---------- Co je nového: po návratu ukáže, co přibylo (tady nová pošta, která čeká), Ukázat vede do Pošty

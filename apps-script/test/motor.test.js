@@ -159,6 +159,7 @@ function prostredi() {
   // Disk: schránka CLAUDE_SCHRANKA s podsložkami, soubory v paměti
   const iterator = (pole) => { let i = 0; return { hasNext: () => i < pole.length, next: () => pole[i++] }; };
   const vsechnySoubory = {}; // id → soubor (DriveApp.getFileById)
+  let citacZmen = 0;
   const slozka = (nazev, rodic) => {
     const s = { nazev, rodic, deti: {}, soubory: [] };
     s.getId = () => 'slozka-' + nazev; s.getName = () => nazev;
@@ -170,9 +171,10 @@ function prostredi() {
     s.createFolder = (n) => (s.deti[n] = slozka(n, s));
     s.createFile = (n, obsah) => {
       let rodicSouboru = s;
+      let upraveno = Date.now() + (citacZmen++); // jako Disk: čas úpravy se mění se změnou obsahu (motor podle něj pamatuje poznámky)
       const f = { vKosi: false, getId: () => 'soubor-' + nazev + '-' + n, getName: () => n, getBlob: () => ({ getDataAsString: () => obsah }),
-        getDateCreated: () => new Date(), getLastUpdated: () => new Date(), getParents: () => iterator([rodicSouboru]),
-        setContent: (t) => { obsah = t; return f; },
+        getDateCreated: () => new Date(), getLastUpdated: () => new Date(upraveno), getParents: () => iterator([rodicSouboru]),
+        setContent: (t) => { obsah = t; upraveno = Date.now() + (citacZmen++); return f; },
         moveTo: (cil) => { rodicSouboru.soubory = rodicSouboru.soubory.filter((x) => x !== f); cil.soubory.push(f); rodicSouboru = cil; return f; },
         setTrashed: (k) => { f.vKosi = !!k; return f; } };
       s.soubory.push(f); log.soubory = (log.soubory || []).concat({ slozka: nazev, n, obsah });
@@ -1508,6 +1510,30 @@ test('váha: zápis s časem zápisu, česká čárka, nesmysl odmítnut, smazá
   // smazat překlep
   o = p.volej('vaha', { smazat: rano });
   assert.deepStrictEqual(o.data.zaznamy.map((x) => x.kg), [79.9]);
+});
+
+test('dávka: víc čtení v jednom požadavku, chyba jedné akce nezastaví ostatní, zápisy v dávce nejdou; poznámky z mezipaměti', () => {
+  const p = prostredi();
+  p.schranka.createFolder('NOVE').createFile('2026-10-05_090000_ab12.md', '---\nkdy: 2026-10-05T09:00:00+02:00\nodkud: iPhone\n---\n\nPrvní verze.\n');
+  const o = p.volej('davka', { polozky: [{ akce: 'info' }, { akce: 'schranka' }, { akce: 'fotbal' }, { akce: 'vaha', kg: 80 }, { akce: 'neexistuje' }] });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(o.data.map((x) => x.ok), [true, true, true, false, false]);
+  assert.ok(o.data[0].data.akce.indexOf('davka') >= 0, 'info hlásí, že motor dávku umí');
+  assert.strictEqual(o.data[1].data.nove[0].text, 'První verze.');
+  assert.ok(/dávce/.test(o.data[3].chyba), 'zápis váhy v dávce nejde');
+  assert.ok(!p.schranka.deti.ZDRAVI, 'nic se nezapsalo');
+  // poznámka se z Disku čte jen poprvé a po změně
+  const soubor = p.schranka.deti.NOVE.soubory[0];
+  let cteni = 0;
+  const blob = soubor.getBlob;
+  soubor.getBlob = () => { cteni++; return blob(); };
+  p.volej('schranka');
+  assert.strictEqual(cteni, 0, 'nezměněná poznámka z mezipaměti');
+  soubor.setContent('---\nkdy: 2026-10-05T09:00:00+02:00\n---\n\nDruhá verze.\n');
+  assert.strictEqual(p.volej('schranka').data.nove[0].text, 'Druhá verze.');
+  assert.strictEqual(cteni, 1, 'změněná poznámka se přečte znovu');
+  p.volej('posta');
+  assert.strictEqual(p.ttl.get('posta'), 300, 'pošta v mezipaměti 5 minut');
 });
 
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

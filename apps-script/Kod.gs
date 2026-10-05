@@ -30,7 +30,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.2';
+const VERZE = '2026-10-05.3';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -135,8 +135,22 @@ const AKCE = {
   navrhyNastavit: function (d) { return nastavNavrhy_(d.rezim); },
   reely: function (d) { return reely_(!!d.znovu); },
   reelStav: function (d) { return nastavStavReelu_(d.id, d.zverejneno); },
-  vaha: function (d) { return vaha_(d); }
+  vaha: function (d) { return vaha_(d); },
+  // víc čtení v jednom požadavku – aplikace při startu neposílá deset dotazů naráz (ty se pak řadí do fronty)
+  davka: function (d) {
+    return (Array.isArray(d.polozky) ? d.polozky.slice(0, 12) : []).map(function (p) {
+      try {
+        if (!p || DAVKA_AKCE.indexOf(p.akce) < 0) throw new Error('Akci nejde poslat v dávce.');
+        return { ok: true, data: AKCE[p.akce](p) };
+      } catch (chyba) {
+        return { ok: false, chyba: String((chyba && chyba.message) || chyba) };
+      }
+    });
+  }
 };
+
+// akce, které smí jít v dávce: jen čtení (zápisy a pošta zvlášť)
+const DAVKA_AKCE = ['info', 'schranka', 'kalendar', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky', 'kontakty'];
 
 // ---------------------------------------------------------------- nastavení (spouští se ručně v editoru)
 
@@ -292,6 +306,11 @@ function upravPolozku_(id, akce, text) {
 }
 
 function polozka_(soubor, slozka) {
+  // rozebraná poznámka se pamatuje podle id a času úpravy – z Disku se čte jen nová nebo změněná (čtení je pomalé)
+  const upraveno = soubor.getLastUpdated().getTime();
+  const klic = 'pol:' + soubor.getId() + ':' + upraveno;
+  const ulozena = nactiZCache_(klic);
+  if (ulozena) { ulozena.slozka = slozka; return ulozena; }
   // BOM na začátku (soubor uložený z Windows) by schoval hlavičku ---
   const obsah = soubor.getBlob().getDataAsString('UTF-8').replace(/^﻿/, '').replace(/\r\n/g, '\n');
   const hlavicka = {};
@@ -315,11 +334,11 @@ function polozka_(soubor, slozka) {
     });
   }
   const kdy = Date.parse(hlavicka.kdy || '') || soubor.getDateCreated().getTime();
-  return {
+  const polozka = {
     id: soubor.getId(),
     slozka: slozka,
     kdy: kdy,
-    upraveno: soubor.getLastUpdated().getTime(),
+    upraveno: upraveno,
     odkud: hlavicka.odkud || '',
     typ: hlavicka.typ || '',
     stav: hlavicka.stav || '',
@@ -331,6 +350,8 @@ function polozka_(soubor, slozka) {
     text: text,
     vlakno: vlakno
   };
+  ulozDoCache_(klic, polozka, 21600);
+  return polozka;
 }
 
 /** Návrh od Clauda (JSON na jednom řádku): událost nebo e-mail, který Michal v aplikaci jedním klepnutím potvrdí. */
@@ -499,7 +520,8 @@ function nactiPostu_(znovu) {
     firemni: nactiFiremni_(), // souhrny z PC (náhradní zdroj, když se pracovní pošta nepřeposílá)
     ted: Date.now()
   };
-  ulozDoCache_('posta', vysledek, 90);
+  // 5 minut: každá změna z aplikace (odeslání, archiv, přečteno…) mezipaměť maže, Obnovit ji obchází
+  ulozDoCache_('posta', vysledek, 300);
   return vysledek;
 }
 

@@ -1051,6 +1051,20 @@ input.field[type="date"], input.field[type="time"] { min-width: 0; }
 .panel.otevreny { transform: none; }
 .panel.zavira { transform: translateX(100%); }
 .panel.panel-okno.zavira { transform: translateY(100%); }
+/* menu na telefonu: pás zleva se všemi sekcemi (klepnutí na jméno nahoře) – aktivní limetková jako ve spodní liště */
+.panel.panel-menu { right: auto; width: min(320px, 86vw); transform: translateX(-100%); border-right: 1px solid var(--line); box-shadow: var(--shadow-pop); }
+.panel.panel-menu.otevreny { transform: none; }
+.panel.panel-menu.zavira { transform: translateX(-100%); }
+.panel-menu .panel-telo { display: flex; flex-direction: column; padding: 10px 10px calc(16px + env(safe-area-inset-bottom)); background: var(--surface); }
+.menu { display: flex; flex-direction: column; gap: 2px; }
+.menu__btn { display: flex; align-items: center; gap: 13px; width: 100%; min-height: 50px; padding: 0 14px; border: 0; border-radius: 16px; background: none; color: var(--text-soft); font-size: 16px; font-weight: 550; text-align: left; }
+.menu__btn svg { width: 21px; height: 21px; }
+.menu__btn[aria-current="page"] { background: var(--limetka); color: var(--na-limetce); font-weight: 650; }
+.menu__btn .pocet { margin-left: auto; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px; background: var(--oranz); color: #fff; font-size: 12px; font-weight: 700; display: grid; place-items: center; }
+.menu__spodek { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); }
+.menu__ucet { display: flex; align-items: center; gap: 10px; margin: 10px 14px 0; font-size: 13px; }
+.menu__ucet b { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.menu__ucet small { display: block; color: var(--muted); }
 .panel-hlava { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .panel-titul { flex: 1; min-width: 0; margin: 0; font-size: 15.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .panel-vpravo { display: flex; align-items: center; gap: 6px; }
@@ -1245,7 +1259,8 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
     .ja { display: flex; align-items: center; gap: 10px; min-width: 0; border: 0; background: none; padding: 0; color: inherit; text-align: left; }
     .ja .avatar { width: 40px; height: 40px; font-size: 13px; }
     .ja small { display: block; font-size: 12px; color: var(--muted); }
-    .ja b { display: block; font-size: 15px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 52vw; }
+    .ja b { display: block; font-size: 15px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 44vw; }
+    .ja > svg { width: 18px; height: 18px; color: var(--muted); }
     .hlava-ja .btn--ikona { width: 44px; height: 44px; min-height: 44px; background: var(--surface); border-color: transparent; box-shadow: 0 1px 2px rgba(0, 0, 0, .05); }
     .hlava-titul h1 { font-size: 30px; font-weight: 650; letter-spacing: -.025em; }
     .hlava-titul p { font-size: 14px; }

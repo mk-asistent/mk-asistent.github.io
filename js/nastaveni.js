@@ -21,6 +21,18 @@ const AKCENTY = [['#1f3d2c', 'Lesní zelená'], ['#1d4250', 'Ocelová'], ['#2a3f
 const BARVY_KALENDARE = ['#2f5bd3', '#0f7c8c', '#2e7a4d', '#a8620c', '#8e5bd3', '#c0392b', '#b5407a', '#37474f'];
 const n = { upravaPripojeni: false, ukazKod: false, novaBarva: BARVY_KALENDARE[1], pracuje: false, sekce: 'pripojeni', klicZdravi: '',
   prihlaseni: undefined, noveHeslo: false, prihlaseniStazeno: false };
+// Rozbalené návody přežijí překreslení okna (data z motoru dorazí za pár vteřin a okno se překreslí – návod se
+// dřív zavřel a stránka „uskočila“ zpět, Michal 5. 10.). Pamatuje se, co Michal sám rozbalil nebo zavřel.
+const rozbaleno = {};
+function detail(klic, vychozi) {
+  const otevreno = klic in rozbaleno ? rozbaleno[klic] : !!vychozi;
+  return '<details class="napoveda" data-detail="' + klic + '"' + (otevreno ? ' open' : '') + '>';
+}
+document.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (d && d.matches && d.matches('details[data-detail]')) rozbaleno[d.dataset.detail] = d.open;
+}, true); // toggle nebublá – zachytit cestou dolů
+
 // záložky okna Nastavení – vždy je vidět jen jedna
 const ZALOZKY = [['pripojeni', 'Připojení'], ['posta', 'Pošta'], ['kalendare', 'Kalendáře'], ['pocasi', 'Počasí'], ['zdravi', 'Zdraví'], ['vzhled', 'Vzhled'], ['aplikace', 'Aplikace']];
 
@@ -288,7 +300,7 @@ function sekcePosty() {
         '<div class="akce"><button type="button" class="btn btn--ghost" data-nast="znovu-info">Zkontrolovat znovu</button></div>';
     }
   }
-  h += '<details class="napoveda"><summary>Jak dostat pracovní poštu do aplikace</summary><ol>' +
+  h += detail('posta-pracovni') + '<summary>Jak dostat pracovní poštu do aplikace</summary><ol>' +
     '<li>WEDOS WebMail → Nastavení → Filtry → Vytvořit: Všechny zprávy, akce <b>Přeposlat zprávu na</b> tvůj Gmail a tlačítkem + druhá akce ' +
     '<b>Zkopírovat zprávu do → Příchozí pošta</b> (jinak WEDOS přeposlané maže). Gmail sám poštu z jiných serverů od 2026 nestahuje.</li>' +
     '<li>V Gmailu: Nastavení → Účty a import → <b>Přidat další e-mailovou adresu</b> (Odesílat poštu jako) → SMTP serveru WEDOS ' +
@@ -388,7 +400,7 @@ function sekcePocasi() {
     '<p>Místo: <b>' + esc(misto || (jeDemo() ? 'Veselí nad Moravou (ukázka)' : '—')) + '</b>' + (stav.pocasi && stav.pocasi.podlePolohy ? ' <span class="tag">podle polohy</span>' : '') + '</p>' +
     '<p class="napoveda">Na Dnes je jen to důležité: výstrahy ČHMÚ pro tvoje místo (bouřky, vedro, mráz, povodně, smog), povodňový stupeň ' +
     'na řece a krátká předpověď kraje na dnes až tři dny. Klepnutím na kartu Počasí se otevře celý přehled.</p>' +
-    '<details class="napoveda"><summary>Jak změnit místo</summary><ol>' +
+    detail('pocasi-misto') + '<summary>Jak změnit místo</summary><ol>' +
     '<li>V projektu motoru: Nastavení projektu (ozubené kolo) → Vlastnosti skriptu → Přidat: <b>POCASI</b>.</li>' +
     '<li>Hodnota (JSON), např. <code>{"misto":"Hodonín","orp":{"6206":"Hodonín"},"stanice":["0-203-1-421500"],"kraj":"RPJM"}</code> – ' +
     'kód ORP je ve výstrahách ČHMÚ (CISORP), stanice na hydro.chmi.cz, kraj: RPJM = Jihomoravský.</li></ol></details>' +
@@ -413,7 +425,7 @@ function sekceZdravi() {
       '<button type="button" class="btn btn--ghost btn--sm" data-nast="kopirovat-adresu">Kopírovat adresu</button></div>' : '') +
     '<div class="akce">' + (w.propojeno ? '<button type="button" class="btn btn--ghost btn--sm" data-nast="whoop-odpojit">Odpojit WHOOP</button>' : '') +
     (w.nastaveno || jeDemo() ? '<button type="button" class="btn btn--primary btn--sm" data-zdravi="propojit">' + (w.propojeno ? 'Propojit znovu' : 'Propojit WHOOP') + '</button>' : '') + '</div>' +
-    '<details class="napoveda"' + (w.nastaveno ? '' : ' open') + '><summary>Jak nastavit WHOOP (jednou, na PC, asi 10 minut)</summary><ol class="kroky">' +
+    detail('whoop', !w.nastaveno) + '<summary>Jak nastavit WHOOP (jednou, na PC, asi 10 minut)</summary><ol class="kroky">' +
     '<li>Otevři <a href="https://developer-dashboard.whoop.com" target="_blank" rel="noopener">developer-dashboard.whoop.com</a> a přihlas se účtem WHOOP. ' +
       '<b>Get Started</b> → název týmu (např. „Michal – osobní“) → <b>Create Team</b>.</li>' +
     '<li><b>Apps → Create</b>: Name <code>Asistent</code>, Contacts tvůj e-mail, Privacy Policy URL <code>https://mk-asistent.github.io/soukromi.html</code>, ' +
@@ -430,10 +442,10 @@ function sekceZdravi() {
       '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="zdravi-klic-novy">Vyrobit nový</button>' +
       '<button type="button" class="btn btn--primary btn--sm" data-nast="zdravi-klic-kopirovat">Kopírovat klíč</button></div>'
       : '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="zdravi-klic">Ukázat klíč pro zkratku</button></div>') +
-    '<details class="napoveda"><summary>Jak udělat zkratku „Zdraví do Asistenta“</summary><ol class="kroky">' +
-    '<li>Aplikace Zdraví → profil → Soukromí → Aplikace → <b>Zkratky</b> → povol čtení: Kroky, Aktivní energie, Minuty cvičení, Hodiny stání, ' +
-      'Klidová tepová frekvence, Variabilita srdečního tepu, Kardiovaskulární kondice (VO₂ max), Vzdálenost chůze a běhu, Spánek.</li>' +
-    '<li>Zkratky → <b>+</b> → název <code>Zdraví do Asistenta</code>. Pro každý údaj: <b>Hledat vzorky zdravotních dat</b> (typ, Datum zahájení je ' +
+    detail('zkratka-zdravi') + '<summary>Jak udělat zkratku „Zdraví do Asistenta“</summary><ol class="kroky">' +
+    '<li>Aplikace <b>Zkratky</b> → <b>+</b> → název <code>Zdraví do Asistenta</code>. Pro každý údaj (Kroky, Aktivní energie, Minuty cvičení, ' +
+      'Hodiny stání, Klidová tepová frekvence, Variabilita srdečního tepu, Kardiovaskulární kondice, Vzdálenost chůze a běhu): ' +
+      '<b>Hledat vzorky zdravotních dat</b> (typ, Datum zahájení je ' +
       'v posledních 7 dnech, Seskupit podle: Den; u energie, tepu a HRV i Zdroj = tvoje Apple Watch) → <b>Opakovat se všemi položkami</b> → ' +
       '<b>Text</b> <code>[Datum zahájení]=[Hodnota]</code> (datum ve formátu ISO 8601) → Konec opakování → <b>Spojit text</b> oddělovačem <code>;</code> → ' +
       '<b>Nastavit proměnnou</b> → <b>Žádná akce</b>.</li>' +
@@ -441,8 +453,10 @@ function sekceZdravi() {
     '<li><b>Načíst obsah URL</b>: adresa motoru → Metoda POST → Tělo požadavku JSON, pole (Text): <code>klic</code> = klíč výš, <code>akce</code> = ' +
       '<code>zdraviApple</code>, a proměnné: <code>kroky</code>, <code>energie</code>, <code>cviceni</code>, <code>stani</code>, <code>vzdalenost</code>, ' +
       '<code>klidovy_tep</code>, <code>hrv</code>, <code>vo2max</code>, <code>spanek</code>.</li>' +
+    '<li>Zkratku jednou spusť (▶). iPhone se zeptá na <b>přístup ke Zdraví</b> → zapni všechny údaje → Povolit. <i>Teprve potom</i> se Zkratky objeví ' +
+      'v aplikaci Zdraví → profil → Soukromí → Aplikace (tam jde přístup později změnit) – dřív tam nejsou.</li>' +
     '<li>Automatizace → <b>+</b> → Vytvořit osobní automatizaci → <b>Aplikace</b> → WHOOP → je otevřená → <b>Spustit okamžitě</b> → zkratka výš.</li></ol></details>';
-  h += '<h3>Upozornění do iPhonu</h3><details class="napoveda"><summary>Ráno připravenost, výstrahy ČHMÚ (nepovinné, aplikace ntfy)</summary><ol class="kroky">' +
+  h += '<h3>Upozornění do iPhonu</h3>' + detail('upozorneni') + '<summary>Ráno připravenost, výstrahy ČHMÚ (nepovinné, aplikace ntfy)</summary><ol class="kroky">' +
     '<li>V editoru motoru spusť funkci <b>nastavUpozorneni</b> – v protokolu je téma (jméno kanálu, funguje jako heslo).</li>' +
     '<li>iPhone: App Store → <b>ntfy</b> → + → téma z protokolu, server ntfy.sh → povol oznámení.</li>' +
     '<li>Editor → Spouštěče (budík) → Přidat spouštěč → <b>kazdouHodinu</b> → Časový → Hodinový časovač → Každou hodinu.</li></ol></details>';

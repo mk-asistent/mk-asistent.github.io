@@ -19,12 +19,53 @@ export class ChybaApi extends Error {
   }
 }
 
+// Rychlá čtení, která se při startu sejdou najednou, jdou v jednom požadavku (akce motoru „davka“): Apps Script
+// víc souběžných dotazů řadí do fronty – deset naráz znamenalo i půl minuty čekání (měřeno 5. 10.). Pošta, schránka
+// a kalendář jdou zvlášť (jsou pomalejší a Dnes je potřebuje hned), zápisy vždy zvlášť.
+const V_DAVCE = ['info', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky', 'kontakty'];
+let fronta = null;
+
+function umiDavku() {
+  const info = uloziste.cti('asistent.info');
+  return !!(info && Array.isArray(info.akce) && info.akce.indexOf('davka') >= 0);
+}
+
+async function odesliDavku() {
+  const polozky = fronta;
+  fronta = null;
+  if (polozky.length === 1) {
+    const x = polozky[0];
+    volejPrimo(x.akce, x.data).then(x.ok, x.chyba);
+    return;
+  }
+  try {
+    const vysledky = await volejPrimo('davka', { polozky: polozky.map((x) => Object.assign({}, x.data, { akce: x.akce })) });
+    polozky.forEach((x, i) => {
+      const v = vysledky && vysledky[i];
+      if (v && v.ok) x.ok(v.data); else x.chyba(new ChybaApi((v && v.chyba) || 'Motor neodpověděl.', 'motor'));
+    });
+  } catch (e) {
+    polozky.forEach((x) => x.chyba(e));
+  }
+}
+
 /** Zavolá akci motoru; vrací data, nebo vyhodí ChybaApi se srozumitelnou zprávou. */
 export async function volej(akce, data, jinePripojeni) {
   const p = jinePripojeni || pripojeni();
   if (!p) throw new ChybaApi('Aplikace není připojená k motoru.', 'nepripojeno');
   if (p.demo) return ukazkaVolej(akce, data || {});
+  if (!jinePripojeni && V_DAVCE.indexOf(akce) >= 0 && umiDavku()) {
+    return new Promise((ok, chyba) => {
+      if (!fronta) { fronta = []; setTimeout(odesliDavku, 0); }
+      fronta.push({ akce, data: data || {}, ok, chyba });
+    });
+  }
+  return volejPrimo(akce, data, p);
+}
 
+async function volejPrimo(akce, data, jinePripojeni) {
+  const p = jinePripojeni || pripojeni();
+  if (!p) throw new ChybaApi('Aplikace není připojená k motoru.', 'nepripojeno');
   const ovladac = new AbortController();
   const casovac = setTimeout(() => ovladac.abort(), 45000);
   let odpoved;

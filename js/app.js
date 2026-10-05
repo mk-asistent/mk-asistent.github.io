@@ -213,9 +213,9 @@ function vykresliHlavu(p) {
   const nadpis = stav.pohled === 'dnes' && TELEFON.matches ? pozdrav() + (osloveni ? ', ' + osloveni : '') : titul;
   $('hlava').innerHTML =
     '<div class="hlava-ja jen-telefon">' +
-      '<button type="button" class="ja" data-otevri-nastaveni aria-label="Nastavení">' +
+      '<button type="button" class="ja" data-menu aria-label="Menu – všechny sekce a Nastavení">' +
         '<span class="avatar" style="--h:' + odstin(jmeno) + '">' + esc(iniciala(jmeno.replace(/[._\d]+/g, ' '))) + '</span>' +
-        '<span><small>Asistent</small><b>' + esc(jmeno) + '</b></span></button>' +
+        '<span><small>Asistent · menu</small><b>' + esc(jmeno) + '</b></span>' + IKONY.menu + '</button>' +
       '<div class="hlava-akce">' +
         (umiMotor('zdravi') && stav.pohled !== 'zdravi' ? '<button type="button" class="btn btn--ikona" data-cil="zdravi" aria-label="Zdraví">' + IKONY.srdce + '</button>' : '') +
         '<button type="button" class="btn btn--ikona" data-hledat aria-label="Hledat">' + IKONY.hledat + '</button>' +
@@ -252,6 +252,26 @@ function vykresliListu(p) {
   $('lista').innerHTML = tl(SEKCE[0]) + tl(SEKCE[1]) +
     '<button type="button" class="lista__plus" data-rychle aria-label="Přidat – poznámku, e-mail, událost nebo zápas">' + IKONY.plus + '</button>' +
     tl(SEKCE[2]) + tl(SEKCE[3]);
+}
+
+/** Menu na telefonu (klepnutí na jméno nahoře): pás zleva se všemi sekcemi – i Zdraví, Fotbal a Reely, které se
+ *  do spodní lišty nevejdou – a dole Nastavení a kdo je připojený. */
+function otevriMenu() {
+  otevriPanel({ id: 'menu', trida: 'panel-menu', titul: 'Asistent', vykresli: menuHtml });
+}
+
+function menuHtml() {
+  const p = pocty();
+  const ucet = (stav.info && stav.info.ucet) || (jeDemo() ? 'ukázka' : '');
+  return '<nav class="menu" aria-label="Sekce">' + SEKCE.filter(viditelna).map((s) => {
+    const n = odznakSekce(s[0], p);
+    return '<button type="button" class="menu__btn" data-menu-cil="' + s[0] + '"' + (stav.pohled === s[0] ? ' aria-current="page"' : '') + '>' +
+      IKONY[s[0]] + '<span>' + s[1] + '</span>' + (n ? '<span class="pocet cisla">' + n + '</span>' : '') + '</button>';
+  }).join('') + '</nav>' +
+    '<div class="menu__spodek"><button type="button" class="menu__btn" data-menu-nastaveni>' + IKONY.nastaveni + '<span>Nastavení</span></button>' +
+    (ucet ? '<p class="menu__ucet"><span class="avatar" style="--h:' + odstin(ucet) + '">' + esc(iniciala(String(ucet).split('@')[0].replace(/[._\d]+/g, ' '))) + '</span>' +
+      '<span><b>' + esc(ucet) + '</b><small>' + (jeDemo() ? 'ukázková data' : stav.chyby.info ? 'motor nepřipojený' : 'připojeno · motor ' + esc((stav.info && stav.info.verze) || '')) + '</small></span></p>' : '') +
+    '</div>';
 }
 
 /** „+“ v liště: list zespodu s tím, co jde rychle přidat. */
@@ -525,6 +545,9 @@ document.addEventListener('click', (e) => {
   if (!el || el.closest('#uvod')) return;
 
   if (el.hasAttribute('data-zavrit-panel')) { zavriPanel(); return; }
+  if (el.hasAttribute('data-menu')) { otevriMenu(); return; }
+  if (el.dataset.menuCil) { const cil = el.dataset.menuCil; zavriAPak(() => { prejdi(cil); zmeneno(); }); return; }
+  if (el.hasAttribute('data-menu-nastaveni')) { zavriAPak(() => nast.otevriNastaveni()); return; }
   if (el.hasAttribute('data-rychle')) { otevriRychle(); return; }
   if (el.dataset.rychleAkce) { const akce = el.dataset.rychleAkce; zavriAPak(() => rychlaAkce(akce)); return; }
   if (el.dataset.ukazPolozku) { schranka.ukazPolozku(el.dataset.ukazPolozku); return; }
@@ -610,6 +633,8 @@ window.addEventListener('online', () => { zmeneno(); if (jePripojeno()) obnovVse
 window.addEventListener('offline', zmeneno);
 // telefon ↔ iPad/PC (otočení, změna okna): jiná hlavička a přehled Dnes
 TELEFON.addEventListener('change', zmeneno);
+// klepnutí vedle vysunutého menu ho zavře
+document.querySelector('#panely .panel-pozadi').addEventListener('click', () => { const h = horniPanel(); if (h && h.id === 'menu') zavriPanel(); });
 
 // ---------------------------------------------------------------- spuštění
 
