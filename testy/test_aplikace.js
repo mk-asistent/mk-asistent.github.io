@@ -1108,6 +1108,34 @@ async function novaStranka(prohlizec, v, motiv) {
     await ctx.close();
   });
 
+  // ---------- Doplňky zpětně: šipka na minulý týden (den v pásku) → odškrtnutí k tomu dni, tlačítko Dnes zpět
+  await test('Doplňky zpětně: minulý den, odškrtnutí k tomu dni, zpět na dnešek', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.waitForSelector('#dl-doplnky:not([hidden]) .doplnky-tyden');
+    jistota(await page.locator('#dl-doplnky .doplnky-tyden__sipka[aria-label="Další týden"][disabled]').count() === 1, 'v tomto týdnu dál nejde');
+    const pred = new Date(ted); pred.setDate(pred.getDate() - 7);
+    const den = iso(pred.getTime());
+    await page.click('#dl-doplnky .doplnky-tyden__sipka[aria-label="Předchozí týden"]');
+    await page.waitForSelector('#dl-doplnky [data-doplnek="horcik"][data-doplnek-den="' + den + '"]');
+    const hlava = await page.textContent('#dl-doplnky .card-hlava');
+    jistota(!/Doplňky dnes/.test(hlava) && /Dnes/.test(hlava), 'nadpis s minulým dnem a tlačítko Dnes: ' + hlava);
+    jistota(await page.locator('#dl-doplnky .doplnky-tyden li.vybrany [data-doplnky-ukaz="' + den + '"]').count() === 1, 'vybraný den v pásku');
+    jistota(!/Tento týden/.test(await page.textContent('#dl-doplnky .doplnky-tyden')), 'minulý týden má místo „Tento týden“ data');
+    const pocet = doplnkyVolani.length;
+    await page.click('#dl-doplnky [data-doplnek="horcik"]');
+    await page.waitForSelector('#dl-doplnky [data-doplnek="horcik"][aria-pressed="true"]');
+    for (let i = 0; i < 50 && doplnkyVolani.length === pocet; i++) await page.waitForTimeout(100);
+    jistota(JSON.stringify(doplnkyVolani.slice(pocet)) === JSON.stringify([{ den, zmeny: { horcik: true } }]), 'zpětně do motoru: ' + JSON.stringify(doplnkyVolani.slice(pocet)));
+    await page.locator('#dl-doplnky').screenshot({ path: path.join(VYSTUP, 'pc_doplnky_zpetne.png') });
+    // tlačítko Dnes: zpátky na dnešek, dnešní hořčík zůstal neodškrtnutý
+    await page.click('#dl-doplnky [data-doplnky-ukaz="dnes"]');
+    await page.waitForSelector('#dl-doplnky [data-doplnek="horcik"][data-doplnek-den="' + iso(ted) + '"][aria-pressed="false"]');
+    jistota(/Doplňky dnes/.test(await page.textContent('#dl-doplnky .card-hlava')), 'nadpis zpět na dnes');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
   // ---------- kalendář: co ukazovat (zaškrtnutí, jen tento – jen v Kalendáři) a jmeniny s oblíbenými (hvězdička)
   await test('kalendář: zaškrtávání kalendářů, jen tento, jmeniny a oblíbení se zvýrazněním', async () => {
     jmeninyOblibeni = [];

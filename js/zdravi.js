@@ -4,7 +4,7 @@
 
 import { stav, zmeneno, umiMotor, staryMotor, hooky } from './stav.js';
 import { volej } from './api.js';
-import { esc, uloziste, pulnoc, pridejDny, isoDatum, DNY_KR, dm, hhmm, kdyKratce, trvani, rozdilDni, tvar } from './pomocne.js';
+import { esc, uloziste, pulnoc, pridejDny, zacatekTydne, isoDatum, DNY_KR, dm, hhmm, kdyKratce, trvani, rozdilDni, tvar } from './pomocne.js';
 import { IKONY } from './ikony.js';
 import { kostra, chybaHtml, hlavickaKarty, toast, okno, potvrd } from './ui.js';
 import { otevriPanel, zavriPanel, elementPanelu } from './panely.js';
@@ -410,7 +410,18 @@ const KDY = [['rano', 'Ráno'], ['svacina', 'Svačina'], ['obed', 'K obědu'], [
 const VZATO = 'asistent.doplnky.';                 // starší motor: odškrtnutí jen v zařízení (den → { id: true })
 const CEKAJICI = 'asistent.doplnkyCekajici';       // změny, které motor ještě nepotvrdil { den: { id: true | false } }
 const DNY_TYDNE = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
+const DOPLNKY_ZPET = 56;                           // kolik dní zpátky jde karta Doplňky otevřít (motor drží 120)
+const DOPLNKY_VYBER_MIN = 15;                      // vybraný minulý den se bez klepnutí po čtvrthodině vrátí na dnešek
 let casovacDoplnku = 0;
+let denDoplnku = 0, denDoplnkuKdy = 0;             // den, který karta ukazuje (půlnoc v ms; 0 = dnes), a kdy se naposledy klepalo
+
+/** Den karty Doplňky: vybraný minulý den (nejvýš DOPLNKY_ZPET dní zpátky, klepnuto před méně než čtvrthodinou), jinak dnes. */
+function denKartyDoplnku() {
+  const dnes = pulnoc(Date.now());
+  const plati = denDoplnku && denDoplnku < dnes && denDoplnku >= pridejDny(dnes, -DOPLNKY_ZPET) &&
+    Date.now() - denDoplnkuKdy < DOPLNKY_VYBER_MIN * 60000;
+  return plati ? denDoplnku : dnes;
+}
 
 /** Zápas v daný den? Z dat fotbal.cz (týmy v rezim.zapasTymy) nebo ze zápasu v kalendáři. → čas výkopu (ms) nebo null */
 function zapasVDen(rezim, denMs) {
@@ -440,10 +451,11 @@ function vzatoVDen(den) {
   return vzato;
 }
 
-/** Tento týden (pondělí → dnes): kolik z platných položek bylo vzato – po dnech, celkem a u každé položky. */
-function tydenDoplnku(rezim) {
+/** Týden (Po–Ne) se dnem denMs: kolik z platných položek bylo vzato – po dnech, celkem a u každé položky (budoucí dny se nepočítají). */
+function tydenDoplnku(rezim, denMs) {
   const dnes = pulnoc(Date.now());
-  const pondeli = pridejDny(dnes, -((new Date(dnes).getDay() + 6) % 7));
+  const vybrany = pulnoc(denMs);
+  const pondeli = zacatekTydne(vybrany);
   const dny = [];
   const polozky = {};
   let vzato = 0, celkem = 0;
@@ -454,43 +466,59 @@ function tydenDoplnku(rezim) {
     const plati = rezim.polozky.filter(denRezimu(rezim, d).plati);
     const n = plati.filter((p) => x[p.id]).length;
     plati.forEach((p) => { const s = (polozky[p.id] = polozky[p.id] || { vzato: 0, dni: 0 }); s.dni++; if (x[p.id]) s.vzato++; });
-    dny.push({ d, vzato: n, celkem: plati.length, dnes: d === dnes });
+    dny.push({ d, vzato: n, celkem: plati.length, dnes: d === dnes, vybrany: d === vybrany });
     vzato += n;
     celkem += plati.length;
   }
-  return { dny, vzato, celkem, polozky };
+  return { dny, vzato, celkem, polozky, pondeli, tentoTyden: pondeli === zacatekTydne(dnes) };
 }
 
-/** Co dnes brát: položky režimu podle dne (trénink, zápas), odškrtnutí a týden. */
-export function doplnkyDnes() {
+/** Co brát v den (půlnoc v ms; bez něj dnes): položky režimu podle dne (trénink, zápas), odškrtnutí a týden. */
+export function doplnkyDnes(denMs) {
   const rezim = stav.zdravi && stav.zdravi.rezim;
   if (!rezim || !Array.isArray(rezim.polozky) || !rezim.polozky.length) return null;
-  const den = denRezimu(rezim, Date.now());
-  const vzato = vzatoVDen(isoDatum(Date.now()));
+  const d = pulnoc(denMs || Date.now());
+  const den = denRezimu(rezim, d);
+  const vzato = vzatoVDen(isoDatum(d));
   const polozky = rezim.polozky.filter(den.plati).map((p) => Object.assign({ vzato: !!vzato[p.id] }, p))
     .sort((a, b) => KDY.findIndex((k) => k[0] === a.kdy) - KDY.findIndex((k) => k[0] === b.kdy));
-  return { polozky, vykop: den.vykop, trenink: den.trenink, kofeinDo: rezim.kofeinDo || '', chyba: rezim.chyba || '', tyden: tydenDoplnku(rezim) };
+  return { d, dnes: d === pulnoc(Date.now()), polozky, vykop: den.vykop, trenink: den.trenink, kofeinDo: rezim.kofeinDo || '', chyba: rezim.chyba || '',
+    tyden: tydenDoplnku(rezim, d) };
 }
 
 export function kartaDoplnkuHtml() {
-  const d = doplnkyDnes();
+  const d = doplnkyDnes(denKartyDoplnku());
   if (!d) return '';
   const zbyva = d.polozky.filter((p) => !p.vzato).length;
   const nazevKdy = (k) => (KDY.find((x) => x[0] === k) || [k, k])[1];
   const den = d.vykop ? 'den zápasu · výkop ' + hhmm(d.vykop) : d.trenink ? 'tréninkový den' : '';
-  const kofein = !d.vykop && d.kofeinDo && new Date().getHours() < 18 ? 'Kofein naposledy ve ' + d.kofeinDo + '.' : '';
+  const kofein = d.dnes && !d.vykop && d.kofeinDo && new Date().getHours() < 18 ? 'Kofein naposledy ve ' + d.kofeinDo + '.' : '';
   const t = d.tyden;
-  const tyden = t.celkem ? '<div class="doplnky-tyden" title="Kolik doplňků jsi tento týden vzal (z těch, které ten den platily)"><span>Tento týden</span><ol>' +
-    t.dny.map((x, i) => '<li class="' + (x.budouci ? 'budouci' : !x.celkem ? 'volno' : x.vzato >= x.celkem ? 'plny' : x.vzato ? 'cast' : 'nic') + (x.dnes ? ' dnes' : '') +
-      '" title="' + DNY_TYDNE[i] + (x.budouci ? '' : ': ' + x.vzato + ' z ' + x.celkem) + '">' + DNY_TYDNE[i] + '</li>').join('') +
-    '</ol><b class="cisla">' + Math.round(t.vzato / t.celkem * 100) + ' %</b></div>' : '';
-  return hlavickaKarty(IKONY.doplnky, 'Doplňky dnes', '<span class="muted small">' + (zbyva ? 'zbývá ' + zbyva : 'vše ✓') + '</span>') +
+  // týden: klepnutím na den ho karta ukáže (oprava zpětně), šipky o týden; nejdál DOPLNKY_ZPET dní
+  const nejdal = pridejDny(pulnoc(Date.now()), -DOPLNKY_ZPET);
+  const predchozi = pridejDny(d.d, -7), dalsi = Math.min(pridejDny(d.d, 7), pulnoc(Date.now()));
+  const sipka = (cil, smi, ikona, popis) => '<button type="button" class="doplnky-tyden__sipka" data-doplnky-ukaz="' + isoDatum(cil) + '" aria-label="' + popis + '"' +
+    (smi ? '' : ' disabled') + '>' + ikona + '</button>';
+  const tyden = t.celkem ? '<div class="doplnky-tyden" title="Kolik doplňků jsi ten týden vzal (z těch, které ten den platily) – klepnutím na den ho opravíš"><span>' +
+    (t.tentoTyden ? 'Tento týden' : dm(t.pondeli) + '–' + dm(pridejDny(t.pondeli, 6))) + '</span>' +
+    sipka(predchozi, predchozi >= nejdal, IKONY.vlevo, 'Předchozí týden') + sipka(dalsi, !t.tentoTyden, IKONY.vpravo, 'Další týden') +
+    '<b class="cisla">' + Math.round(t.vzato / t.celkem * 100) + ' %</b><ol>' +
+    t.dny.map((x, i) => {
+      const popis = DNY_TYDNE[i] + ' ' + dm(x.d) + (x.budouci ? '' : ': ' + x.vzato + ' z ' + x.celkem);
+      const trida = (x.budouci ? 'budouci' : !x.celkem ? 'volno' : x.vzato >= x.celkem ? 'plny' : x.vzato ? 'cast' : 'nic') + (x.dnes ? ' dnes' : '') + (x.vybrany ? ' vybrany' : '');
+      return '<li class="' + trida + '" title="' + popis + '">' + (x.budouci || !x.celkem || x.d < nejdal ? '<span>' + DNY_TYDNE[i] + '</span>' :
+        '<button type="button" data-doplnky-ukaz="' + isoDatum(x.d) + '" aria-label="' + popis + '"' + (x.vybrany ? ' aria-current="date"' : '') + '>' + DNY_TYDNE[i] + '</button>') + '</li>';
+    }).join('') + '</ol></div>' : '';
+  const nadpis = d.dnes ? 'Doplňky dnes' : 'Doplňky · ' + DNY_KR[new Date(d.d).getDay()] + ' ' + dm(d.d);
+  const stavDne = !zbyva ? 'vše ✓' : d.dnes ? 'zbývá ' + zbyva : 'vzato ' + (d.polozky.length - zbyva) + ' z ' + d.polozky.length;
+  return hlavickaKarty(IKONY.doplnky, nadpis, '<span class="muted small">' + stavDne + '</span>' +
+      (d.dnes ? '' : '<button type="button" class="odkaz small" data-doplnky-ukaz="dnes">Dnes</button>')) +
     (d.chyba ? '<p class="pruh pruh-varovani">' + esc(d.chyba) + '</p>' : '') +
     '<ul class="doplnky">' + d.polozky.map((p) => {
       const s = t.polozky[p.id];
-      return '<li><button type="button" class="doplnek" data-doplnek="' + esc(p.id) + '" aria-pressed="' + p.vzato + '">' +
+      return '<li><button type="button" class="doplnek" data-doplnek="' + esc(p.id) + '" data-doplnek-den="' + isoDatum(d.d) + '" aria-pressed="' + p.vzato + '">' +
         '<i class="zaskrt" aria-hidden="true">' + IKONY.fajfka + '</i><span><b>' + esc(p.nazev) + '</b><small>' + esc(nazevKdy(p.kdy)) + (p.davka ? ' · ' + esc(p.davka) : '') + '</small></span>' +
-        (s && s.dni > 1 ? '<em class="doplnek__tyden cisla" title="tento týden">' + s.vzato + '/' + s.dni + '</em>' : '') + '</button></li>';
+        (s && s.dni > 1 ? '<em class="doplnek__tyden cisla" title="za týden">' + s.vzato + '/' + s.dni + '</em>' : '') + '</button></li>';
     }).join('') + '</ul>' + tyden +
     (den || kofein ? '<p class="doplnky-pozn">' + [den ? velkym(den) : '', kofein].filter(Boolean).join(' · ') + '</p>' : '');
 }
@@ -634,8 +662,16 @@ export function klikZdravi(el) {
     });
     return true;
   }
+  if (el.dataset.doplnkyUkaz !== undefined) {
+    const v = el.dataset.doplnkyUkaz;
+    denDoplnku = /^\d{4}-\d{2}-\d{2}$/.test(v) ? pulnoc(Date.parse(v + 'T12:00:00')) : 0;
+    denDoplnkuKdy = Date.now();
+    zmeneno();
+    return true;
+  }
   if (el.dataset.doplnek) {
-    const den = isoDatum(Date.now());
+    const den = el.dataset.doplnekDen || isoDatum(Date.now());
+    if (den !== isoDatum(Date.now())) denDoplnkuKdy = Date.now(); // opravuje se zpětně – vybraný den nechat
     const id = el.dataset.doplnek;
     const vzato = !vzatoVDen(den)[id];
     if (umiMotor('doplnky')) {

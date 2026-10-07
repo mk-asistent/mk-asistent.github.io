@@ -14,7 +14,7 @@ import { DRUHY } from './kalendar.js';
 import * as pocasi from './pocasi.js';
 import * as ucet from './ucet.js';
 
-export const VERZE_APLIKACE = '2026-10-05';
+export const VERZE_APLIKACE = '2026-10-07';
 
 // předvolby hlavní barvy – tlumené tmavé odstíny jako ve stylu Fixtrack (lesní zelená je výchozí)
 const AKCENTY = [['#1f3d2c', 'Lesní zelená'], ['#1d4250', 'Ocelová'], ['#2a3f8f', 'Modrá'], ['#4b2d63', 'Švestková'], ['#7a3a1d', 'Cihlová'], ['#2b2f33', 'Grafitová']];

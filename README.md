@@ -32,7 +32,7 @@ Každá věc jen jednou: nahoře **výstrahy ČHMÚ** (jen když nějaká platí
 **Další zápas** a **Nepřečtené**, pod tím jeden seznam **Vyžaduje pozornost** (úkoly, rozhodnutí, návrhy od Clauda
 i pošta seřazené podle naléhavosti), vpravo **týden jako krátký výpis**, **Fotbal** (poslední výsledek a další zápas
 každého týmu, šipka na stránku Fotbal), **Doplňky dnes** (odškrtávací seznam podle režimu z Disku – zápasové jen v den
-zápasu, kofein do 14:00) a **poznámka pro Clauda** s malým přehledem schránky a odpověďmi Clauda. Po návratu do aplikace
+zápasu, kofein do 14:00; den v pásku týdne jde otevřít a odškrtat zpětně) a **poznámka pro Clauda** s malým přehledem schránky a odpověďmi Clauda. Po návratu do aplikace
 okno **Co je nového** (hoří, nová pošta, odpovědi Clauda, nové výstrahy).
 
 ## Schránka
@@ -170,7 +170,9 @@ se zapomene.
   rano, svacina, obed, pred, zapas, po, vecer. **Odškrtnutí** jde přes motor (akce `doplnky`) do
   `CLAUDE_SCHRANKA/ZDRAVI/DOPLNKY.json` (120 dní) – stejné na telefonu i PC; neodeslané změny čekají v zařízení
   (`asistent.doplnkyCekajici`) a odejdou s dalším načtením Zdraví. Pod seznamem **Tento týden** (Po–Ne, plný /
-  částečný den, procento) a u položky „vzato/dní“ za týden. Skutečný režim je jen na Disku (zdravotní údaje do repa
+  částečný den, procento) a u položky „vzato/dní“ za týden. **Zpětně:** klepnutí na den v pásku ukáže ten den (nadpis
+  „Doplňky · út 6. 10.“, tlačítko Dnes zpět) a odškrtnutí se zapíše k němu; šipky ‹ › o týden, nejdál 8 týdnů zpátky,
+  bez klepnutí se karta po 15 minutách vrátí na dnešek. Skutečný režim je jen na Disku (zdravotní údaje do repa
   nepatří).
 - **Pití a jídlo** (karta na Dnes i ve Zdraví): voda tlačítky +0,25 / +0,5 l (zpět = poslední vlastní), bílkoviny
   z jídel (okno Jídlo: co, g, kcal) a z odškrtnutých doplňků s `bilkoviny` v režimu, týden pití Po–Ne. Cíle v
