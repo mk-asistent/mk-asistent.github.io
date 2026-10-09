@@ -13,11 +13,15 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex, nofollow">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://api.open-meteo.com https://geocoding-api.open-meteo.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://europe-west1-asistent-michal.cloudfunctions.net; img-src 'self' data: https: http:; style-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; base-uri 'self'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com https://cdnjs.cloudflare.com; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://api.open-meteo.com https://geocoding-api.open-meteo.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://europe-west1-asistent-michal.cloudfunctions.net; img-src 'self' data: https: http:; style-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; base-uri 'self'; form-action 'none'; object-src 'none'">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="ikony/ikona-192.png" type="image/png">
 <link rel="apple-touch-icon" href="ikony/apple-touch-icon.png">
 <link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="plakaty.css">
+<!-- písma plakátu (Anton, Roboto Condensed – Impact a Arial Narrow na iPhonu nejsou): media="print", aby start aplikace
+     na Google Fonts nečekal; na stránce Plakáty je js/plakaty.js přepne na all -->
+<link rel="stylesheet" id="plakat-pisma" media="print" href="https://fonts.googleapis.com/css2?family=Anton&amp;family=Roboto+Condensed:wght@400;600;700&amp;display=swap">
 <script src="js/start.js" defer></script>
 <!-- knihovny účtu (Firebase) hned paralelně s aplikací – service worker je pak vydá ze zařízení -->
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js">
@@ -44,6 +48,7 @@
       <section class="pohled pohled-zdravi" data-pohled="zdravi" id="p-zdravi" hidden></section>
       <section class="pohled pohled-fotbal" data-pohled="fotbal" id="p-fotbal" hidden></section>
       <section class="pohled pohled-reely" data-pohled="reely" id="p-reely" hidden></section>
+      <section class="pohled pohled-plakaty" data-pohled="plakaty" id="p-plakaty" hidden></section>
       <section class="pohled pohled-auto" data-pohled="auto" id="p-auto" hidden></section>
     </main>
   </div>

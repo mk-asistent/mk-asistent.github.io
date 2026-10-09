@@ -127,7 +127,7 @@ const motor = {
     tymy: [{ klic: 'A', nazev: 'A-tým', barva: '#2e7a4d' }, { klic: 'B', nazev: 'B-tým', barva: '#0f7c8c' }, { klic: 'dorost', nazev: 'Dorost', barva: '#a8620c' }],
     zapasy: [zapasFotbal('A', -6, 16, 'FK Agro Vnorovy', 'TJ Lysovice', '1:3'), zapasFotbal('A', 2, 15, 'FK Šardice', 'FK Agro Vnorovy', ''),
       zapasFotbal('B', -5, 15, 'Vnorovy B', 'Nová Lhota', '8:0'), zapasFotbal('dorost', -5, 10, 'FC Kyjov 1919', 'FK Agro Vnorovy', '4:1'),
-      zapasFotbal('dorost', 3, 12, 'FK Agro Vnorovy', 'TJ Sokol Těšany', '')],
+      zapasFotbal('dorost', 3, 12, 'FK Agro Vnorovy', 'TJ Sokol Těšany', '')].concat(fotbalPlakat ? JSON.parse(JSON.stringify(ZAPASY_PLAKAT)) : []),
     // tabulky a detail zápasu (vymyšlení hráči) – stránka Fotbal
     tabulky: { A: { celkem: [{ poradi: 1, klub: 'FK Šardice', z: 9, v: 8, r: 1, p: 0, skore: '30:8', body: 25 }, { poradi: 2, klub: 'FK Agro Vnorovy', z: 9, v: 3, r: 1, p: 5, skore: '16:20', body: 10 }],
       doma: [{ poradi: 1, klub: 'FK Agro Vnorovy', z: 4, v: 3, r: 0, p: 1, skore: '9:5', body: 9 }], venku: [], aktualizovano: new Date(ted).toISOString() } },
@@ -155,6 +155,35 @@ const motor = {
     return { plan: Object.assign({}, reelyPlan), popisky: Object.assign({}, reelyPopisky) };
   },
   reelZrusitPlan: (d) => { delete reelyPlan[d.id]; delete reelyPopisky[d.id]; return { plan: Object.assign({}, reelyPlan), popisky: Object.assign({}, reelyPopisky) }; },
+  // plakáty (motor 2026-10-09.3, CLAUDE_SCHRANKA/PLAKATY): ruční úpravy kol, nastavení, popisky, obrázky a plán na Instagram
+  plakaty: () => JSON.parse(JSON.stringify(Object.assign({}, plakatyData, { ig: plakatyIg }))),
+  plakatUlozit: (d) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(d.tyden || ''))) throw new Error('Víkend má tvar RRRR-MM-DD (sobota).');
+    if (d.smazat) delete plakatyData.kola[d.tyden];
+    else plakatyData.kola[d.tyden] = { stav: JSON.parse(JSON.stringify(d.stav)), upraveno: Date.now() };
+    return { kola: JSON.parse(JSON.stringify(plakatyData.kola)) };
+  },
+  plakatNastaveni: (d) => { plakatyData.nastaveni = JSON.parse(JSON.stringify(d.nastaveni || {})); return { nastaveni: JSON.parse(JSON.stringify(plakatyData.nastaveni)) }; },
+  plakatPopisek: (d) => {
+    plakatyData.popisky[d.tyden] = Object.assign({ text: '', zdroj: '' }, plakatyData.popisky[d.tyden], { styl: d.styl || '', pozadano: Date.now(), cekaNaClauda: true });
+    return { popisky: JSON.parse(JSON.stringify(plakatyData.popisky)) };
+  },
+  plakatPopisekUlozit: (d) => {
+    plakatyData.popisky[d.tyden] = Object.assign({}, plakatyData.popisky[d.tyden], { text: String(d.text || ''), zdroj: d.text ? 'rucne' : '', kdy: Date.now(), cekaNaClauda: false });
+    return { popisky: JSON.parse(JSON.stringify(plakatyData.popisky)) };
+  },
+  plakatObrazky: (d) => {
+    if (!/^data:image\/jpeg;base64,/.test(String(d.prispevek || ''))) throw new Error('Obrázek pro příspěvek chybí nebo není JPEG.');
+    plakatyData.obrazky[d.tyden] = { prispevek: true, pribeh: !!d.pribeh, kdy: Date.now() };
+    return { obrazky: JSON.parse(JSON.stringify(plakatyData.obrazky)) };
+  },
+  plakatNaplanovat: (d) => {
+    if (!plakatyData.obrazky[d.tyden]) throw new Error('Chybí obrázek plakátu – vyrob ho v aplikaci znovu.');
+    if (!(plakatyData.popisky[d.tyden] || {}).text) throw new Error('Plakát nemá popisek – bez něj ho na Instagram nepošlu.');
+    plakatyData.plan[d.tyden] = { kdy: d.kdy, stav: 'ceka', pribeh: !!d.pribeh };
+    return { plan: JSON.parse(JSON.stringify(plakatyData.plan)) };
+  },
+  plakatZrusitPlan: (d) => { delete plakatyData.plan[d.tyden]; return { plan: JSON.parse(JSON.stringify(plakatyData.plan)) }; },
   // auto: tabulka s vymyšlenými čísly (spotřeba 125 l na 2 900 km = 4,3 l/100 km, palivo 4 400 Kč / 2 900 km = 1,52 Kč/km)
   auto: () => JSON.parse(JSON.stringify(autoData)),
   autoNastavit: () => JSON.parse(JSON.stringify(autoData)),
@@ -262,6 +291,23 @@ const reelyPlan = {}, reelyPopisky = {}, reelyNaplanovano = [];
 let vahaZaznamy = [];
 let pocasiDomov = null; // domov pro počasí (akce pocasiDomov)
 let upozorneniStav = { zapnuto: false, tema: '' }, upozorneniOdeslano = 0;
+// plakáty: data motoru (testy si je mění, jako když popisek napíše Claude)
+const plakatyData = { nastaveni: {}, kola: {}, popisky: {}, plan: {}, obrazky: {} };
+const plakatyIg = { nastaveno: true, ucet: 'fkagrovnorovy' };
+// zápasy na plakát 17.–18. a 24.–25. 10. 2026 jako ve FOTBAL.json (přeložené a s poznámkou svazu). Jen v testech plakátů –
+// pevná data by jinak měnila testy, které počítají s dneškem (doplňky v den zápasu áčka, další zápas).
+let fotbalPlakat = false;
+const zapasPlakat = (id, tym, zacatek, domaci, hoste, navic) => Object.assign({ id, tym, zacatek, domaci, hoste, doma: /Vnorovy/.test(domaci), misto: '',
+  vysledek: '', stav: 'naplanovano', url: '#' }, navic);
+const ZAPASY_PLAKAT = [
+  zapasPlakat('pl-d12', 'dorost', '2026-10-17T10:00:00+02:00', 'FK Hodonín "B"', 'FK Agro Vnorovy'),
+  zapasPlakat('pl-a12', 'A', '2026-10-17T14:30:00+02:00', 'FK Agro Vnorovy', 'FK Milotice'),
+  zapasPlakat('pl-b2', 'B', '2026-10-18T14:30:00+02:00', 'Petrov', 'Vnorovy B'),
+  zapasPlakat('pl-a13', 'A', '2026-10-24T14:30:00+02:00', 'TJ Sokol Hroznová Lhota', 'FK Agro Vnorovy', { poznamka: 'schváleno STK' }),
+  zapasPlakat('pl-d13', 'dorost', '2026-10-25T11:45:00+01:00', 'FK Agro Vnorovy', 'TJ Velká nad Veličkou',
+    { puvodniTermin: '2026-10-24 11:45', poznamka: 'Původní termín: 24.10.2026 11:45' }),
+  zapasPlakat('pl-b1', 'B', '2026-10-25T14:30:00+01:00', 'Vnorovy B', 'Kozojídky', { puvodniTermin: '2026-10-24 14:30', poznamka: 'Původní termín: 24.10.2026 14:30' })
+];
 
 // ---------------------------------------------------------------- napodobený Firebase (účet a kopie dat ze serveru)
 // Knihovny z gstatic nahradí malé moduly níž (page.route); přihlášení, databáze a funkce běží tady v testu
@@ -406,8 +452,9 @@ const VELIKOSTI = [
   { nazev: 'pc', sirka: 1440, vyska: 900, dotyk: false }
 ];
 
-async function novaStranka(prohlizec, v, motiv) {
-  const ctx = await prohlizec.newContext({ viewport: { width: v.sirka, height: v.vyska }, colorScheme: motiv || 'light', hasTouch: v.dotyk, isMobile: v.nazev === 'telefon' });
+async function novaStranka(prohlizec, v, motiv, volby) {
+  const ctx = await prohlizec.newContext(Object.assign({ viewport: { width: v.sirka, height: v.vyska }, colorScheme: motiv || 'light', hasTouch: v.dotyk,
+    isMobile: v.nazev === 'telefon' }, volby));
   await ctx.addInitScript(([url, klic]) => {
     if (!localStorage.getItem('asistent.pripojeni')) localStorage.setItem('asistent.pripojeni', JSON.stringify({ url, klic }));
     // záznam historie (ladění zavírání panelů tlačítkem Zpět)
@@ -429,9 +476,59 @@ async function novaStranka(prohlizec, v, motiv) {
   return { ctx, page, chybyStranky };
 }
 
+// html2canvas z cdnjs (stahuje se až při obrázku plakátu) – v testu bez sítě: „vykreslí“ plakát snímkem Playwrightu
+// (__snimekPlakatu) a zapíše, co dostal (neškálovaný uzel 1400 × 990, měřítko)
+const H2C_TEST = `window.html2canvas = async function (uzel, volby) {
+  window.__h2c = (window.__h2c || []).concat([{ sirka: uzel.offsetWidth, vyska: uzel.offsetHeight, meritko: volby.scale,
+    transform: getComputedStyle(uzel).transform, text: uzel.textContent }]);
+  var hostitel = uzel.parentNode;
+  hostitel.classList.add('plakat-export--klon');
+  try {
+    var b64 = await window.__snimekPlakatu();
+    var obr = new Image();
+    await new Promise(function (ok, chyba) { obr.onload = ok; obr.onerror = chyba; obr.src = 'data:image/png;base64,' + b64; });
+    var c = document.createElement('canvas');
+    c.width = Math.round(volby.width * volby.scale);
+    c.height = Math.round(volby.height * volby.scale);
+    c.getContext('2d').drawImage(obr, 0, 0, c.width, c.height);
+    return c;
+  } finally { hostitel.classList.remove('plakat-export--klon'); }
+};`;
+async function napodobHtml2canvas(page) {
+  await page.exposeBinding('__snimekPlakatu', async ({ page: p }) => (await p.locator('.plakat-export .poster').screenshot()).toString('base64'));
+  await page.route('https://cdnjs.cloudflare.com/**', (route) => route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8',
+    headers: { 'Access-Control-Allow-Origin': '*' }, body: H2C_TEST }));
+}
+/** Rozměry JPEG (z dat obrázku) – šířka × výška. */
+function rozmerJpeg(b) {
+  for (let i = 2; i < b.length;) {
+    if (b[i] !== 0xff) { i++; continue; }
+    const m = b[i + 1];
+    if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return [b.readUInt16BE(i + 7), b.readUInt16BE(i + 5)];
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  return null;
+}
+const jpegZDat = (dataUrl) => Buffer.from(String(dataUrl).split(',')[1] || '', 'base64');
+/** Čeká na podmínku v Node (zápis do napodobeného motoru). */
+async function cekej(fn, ms, popis) {
+  const konec = Date.now() + (ms || 5000);
+  while (Date.now() < konec) { if (fn()) return; await new Promise((r) => setTimeout(r, 50)); }
+  throw new Error('Nedočkal jsem se: ' + (popis || ''));
+}
+const PRAHA = { timezoneId: 'Europe/Prague' };
+/** Výchozí víkend jako v aplikaci (nejbližší nadcházející; v sobotu a v neděli ten probíhající). */
+function vychoziVikendTestu() {
+  const d = new Date(); d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + (d.getDay() === 0 ? -1 : 6 - d.getDay()));
+  return iso(d.getTime());
+}
+
 (async () => {
-  await new Promise((r) => server.listen(8766, '127.0.0.1', r));
-  const WEB = 'http://127.0.0.1:8766/';
+  // PORT_TESTU=… → jiný port, když na PC zrovna běží testy z jiné kopie repa (dvě okna naráz)
+  const PORT = Number(process.env.PORT_TESTU) || 8766;
+  await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
+  const WEB = 'http://127.0.0.1:' + PORT + '/';
   const prohlizec = await chromium.launch();
   console.log('Asistent – test v prohlížeči');
 
@@ -1742,6 +1839,342 @@ async function novaStranka(prohlizec, v, motiv) {
     await ctx.close();
   });
 
+  // ---------- Plakáty: program víkendu na A3 jako na webu dorostu (zápasy z fotbal.cz + mládež z rozlosování), tisk, obrázek, Instagram
+  const PL = '#p-plakaty .plakat-stage .poster ';
+  const naVikend = async (page, sobota, text) => {
+    await page.selectOption('#p-plakaty [data-pl-vyber]', sobota);
+    await page.waitForFunction(([s, t]) => document.querySelector('#p-plakaty [data-pl-vyber]').value === s &&
+      new RegExp(t).test(document.querySelector('#p-plakaty .plakat-stage .poster').textContent), [sobota, text]);
+  };
+
+  await test('Plakáty na PC: 17.–18. 10. – áčko doma z fotbal.cz, mládež z rozlosování, hlavička 122 px, tisk A3', async () => {
+    fotbalPlakat = true;
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3], 'light', PRAHA);
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="plakaty"]');
+      await page.waitForSelector('#p-plakaty [data-pl-vyber]');
+      jistota(await page.inputValue('#p-plakaty [data-pl-vyber]') === vychoziVikendTestu(), 'výchozí víkend: ' + await page.inputValue('#p-plakaty [data-pl-vyber]'));
+      await naVikend(page, '2026-10-17', 'MILOTICE');
+      jistota(await page.$eval('#p-plakaty [data-pl-vyber]', (s) => s.selectedOptions[0].textContent) === '10. kolo · 17.–18. 10.', 'popisek kola');
+      jistota(/podle rozlosování/.test(await page.textContent('#p-plakaty [data-pl-stav]')), 'štítek podle rozlosování');
+      jistota(await page.locator(PL + '.blok.single').count() === 1, 'jediná velká dlaždice');
+      const blok = (await page.innerText(PL + '.blok')).replace(/\s+/g, ' ');
+      jistota(/A-TÝM/.test(blok) && /MILOTICE/.test(blok) && /SOBOTA 17\. 10\. \| 14:30/.test(blok), 'áčko doma: ' + blok);
+      jistota(await page.getAttribute(PL + '.blok .duel .badge:last-child', 'src') === 'plakat/znaky/milotice.png', 'znak Milotic');
+      const venku = (await page.innerText(PL + '.rowlist')).replace(/\s+/g, ' ');
+      jistota(/BENFIKA PETROV NE 14:30/.test(venku) && /DOROST HODONÍN B SO 10:00/.test(venku), 'venku: ' + venku);
+      jistota(await page.locator(PL + '.row').count() === 3 && /RATÍŠKOVICE B/.test(await page.textContent(PL + '.left')), 'mládež doma z rozlosování');
+      jistota(/ML\. ŽÁCI.*PÁ 16\. 10\./.test((await page.innerText(PL + '.wk')).replace(/\s+/g, ' ')), 'v týdnu');
+      jistota(!(await page.locator(PL + '.ph').count()), 'čárkovaný rámeček místo znaku');
+      // hlavička + horní okraj čáry = 122 px (náhled je zmenšený – přepočet měřítkem)
+      const hlavicka = await page.evaluate(() => {
+        const ph = document.querySelector('#p-plakaty .poster .phead'), r = document.querySelector('#p-plakaty .poster .rule');
+        const s = ph.getBoundingClientRect().width / ph.offsetWidth;
+        return Math.round((r.getBoundingClientRect().top - ph.getBoundingClientRect().top) / s);
+      });
+      jistota(hlavicka === 122, 'hlavička ' + hlavicka + ' px');
+      jistota(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, 'stránka přetéká');
+      await page.waitForTimeout(600); // písma z Google Fonts
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_plakaty.png'), fullPage: true });
+      await page.locator('#p-plakaty .plakat-nahled').screenshot({ path: path.join(VYSTUP, 'pc_plakat_nahled.png') });
+      // tisk: tlačítko přidá třídu tisk-plakatu a zavolá window.print (sám tisk se v testu nespouští)
+      await page.evaluate(() => { window.__tisk = 0; window.print = () => { window.__tisk++; }; });
+      await page.click('#p-plakaty [data-pl-tisk]');
+      await page.waitForFunction(() => window.__tisk === 1);
+      jistota(await page.evaluate(() => document.documentElement.classList.contains('tisk-plakatu')), 'třída tisk-plakatu');
+      const strana = await page.evaluate(() => {
+        for (const st of Array.from(document.styleSheets)) {
+          let pravidla = [];
+          try { pravidla = Array.from(st.cssRules); } catch (e) { continue; }
+          const r = pravidla.find((x) => x.type === CSSRule.PAGE_RULE);
+          if (r) return r.style.getPropertyValue('size') + ' | ' + r.style.getPropertyValue('margin');
+        }
+        return '';
+      });
+      jistota(/^420mm 297mm \| 0px$/.test(strana), '@page: ' + strana);
+      await page.emulateMedia({ media: 'print' });
+      const tisk = await page.evaluate(() => ({ rail: getComputedStyle(document.querySelector('.rail')).display,
+        editor: document.querySelector('#p-plakaty .pl-editor').getClientRects().length ? 'videt' : 'none', lista: getComputedStyle(document.querySelector('#p-plakaty .plakaty-lista')).display,
+        sirka: Math.round(document.querySelector('#p-plakaty .plakat-stage').getBoundingClientRect().width),
+        meritko: getComputedStyle(document.querySelector('#p-plakaty .plakat-stage .poster')).transform }));
+      jistota(tisk.rail === 'none' && tisk.editor === 'none' && tisk.lista === 'none' && Math.abs(tisk.sirka - 1587) <= 1 && /^matrix\(1\.1338/.test(tisk.meritko),
+        'tisk: ' + JSON.stringify(tisk));
+      await page.pdf({ path: path.join(VYSTUP, 'plakat_tisk_A3.pdf'), preferCSSPageSize: true, printBackground: true });
+      await page.emulateMedia({ media: 'screen' });
+      await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+      jistota(!(await page.evaluate(() => document.documentElement.classList.contains('tisk-plakatu'))), 'po tisku třída pryč');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      fotbalPlakat = false;
+      await ctx.close();
+    }
+  });
+
+  await test('Plakáty: 24.–25. 10. – béčko a dorost doma v neděli, áčko v sobotu venku, v editoru „přeloženo z …“', async () => {
+    fotbalPlakat = true;
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3], 'light', PRAHA);
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="plakaty"]');
+      await page.waitForSelector('#p-plakaty [data-pl-vyber]');
+      const pred = await page.inputValue('#p-plakaty [data-pl-vyber]');
+      await page.click('#p-plakaty [data-pl-posun]:not([disabled])'); // ◀ ▶ mezi víkendy
+      await page.waitForFunction((v) => document.querySelector('#p-plakaty [data-pl-vyber]').value !== v, pred);
+      await naVikend(page, '2026-10-24', 'KOZOJÍDKY');
+      jistota(await page.$eval('#p-plakaty [data-pl-vyber]', (s) => s.selectedOptions[0].textContent) === '11. kolo · 24.–25. 10.', 'popisek kola');
+      const bloky = await page.$$eval(PL + '.blok', (b) => b.map((x) => x.innerText.replace(/\s+/g, ' ')));
+      jistota(bloky.length === 2 && /BENFIKA.*KOZOJÍDKY.*NEDĚLE 25\. 10\. \| 14:30/.test(bloky[0]) && /DOROST.*VELKÁ NAD VELIČKOU.*NEDĚLE 25\. 10\. \| 11:45/.test(bloky[1]),
+        'doma v neděli: ' + JSON.stringify(bloky));
+      const venku = (await page.innerText(PL + '.rowlist')).replace(/\s+/g, ' ');
+      jistota(/A-TÝM HROZNOVÁ LHOTA SO 14:30/.test(venku) && /ST\. ŽÁCI VACENOVICE SO 14:30/.test(venku), 'venku: ' + venku);
+      const znaky = await page.$$eval(PL + '.badge', (b) => b.map((x) => x.getAttribute('src').split('/').pop()));
+      jistota(['kozojidky.png', 'velka-nad-velickou.png', 'hroznova-lhota.png'].every((z) => znaky.indexOf(z) >= 0), 'znaky: ' + znaky.join());
+      const pozn = (await page.textContent('#p-plakaty .pl-upozorneni')).replace(/\s+/g, ' ');
+      jistota(/DOROST – VELKÁ NAD VELIČKOU: přeloženo z so 24\. 10\. 11:45 na ne 25\. 10\. 11:45/.test(pozn) &&
+        /BENFIKA – KOZOJÍDKY: přeloženo z so 24\. 10\. 14:30/.test(pozn) && /A-TÝM – HROZNOVÁ LHOTA: schváleno STK/.test(pozn), 'upozornění: ' + pozn);
+      await page.waitForTimeout(400);
+      await page.locator('#p-plakaty .plakat-nahled').screenshot({ path: path.join(VYSTUP, 'pc_plakat_24-25_10.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      fotbalPlakat = false;
+      await ctx.close();
+    }
+  });
+
+  await test('Plakáty: úprava v editoru hned v náhledu, uloží se 700 ms po psaní (plakatUlozit), Vrátit podle rozlosování', async () => {
+    fotbalPlakat = true;
+    delete plakatyData.kola['2026-10-17'];
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3], 'light', PRAHA);
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="plakaty"]');
+      await page.waitForSelector('#p-plakaty [data-pl-vyber]');
+      await naVikend(page, '2026-10-17', 'MILOTICE');
+      const pred = volano.filter((d) => d.akce === 'plakatUlozit').length;
+      const pole = page.locator('#p-plakaty [data-pl-cesta="doma.0.souper"]');
+      await pole.click();
+      await page.keyboard.press('End');
+      await pole.pressSequentially(' – DERBY', { delay: 40 });
+      // náhled hned, uložení jen jednou po dopsání
+      jistota(/MILOTICE – DERBY/.test(await page.textContent(PL + '.blok .opp')), 'změna v náhledu');
+      await page.waitForFunction(() => /upraveno ručně/.test(document.querySelector('#p-plakaty [data-pl-stav]').textContent), null, { timeout: 6000 });
+      const ulozeni = volano.filter((d) => d.akce === 'plakatUlozit').slice(pred);
+      jistota(ulozeni.length === 1, 'uložení po psaní: ' + ulozeni.length + '×');
+      const u = ulozeni[0];
+      jistota(u.tyden === '2026-10-17' && u.stav.doma[0].souper === 'MILOTICE – DERBY' && u.stav.domaMladez.length === 3 && u.stav.vTydnu.length === 1 &&
+        u.stav.paticka.misto === 'AGRO ARÉNA VNOROVY', 'uložený plakát: ' + JSON.stringify(u.stav).slice(0, 300));
+      jistota(await page.inputValue('#p-plakaty [data-pl-cesta="doma.0.souper"]') === 'MILOTICE – DERBY', 'pole se při ukládání nepřepsalo');
+      // přidat a smazat řádek v týdnu
+      await page.click('#p-plakaty [data-pl-pridat="vTydnu"]');
+      await page.waitForSelector('#p-plakaty [data-pl-cesta="vTydnu.1.kat"]');
+      await page.fill('#p-plakaty [data-pl-cesta="vTydnu.1.kat"]', 'DOROST');
+      await page.fill('#p-plakaty [data-pl-cesta="vTydnu.1.souper"]', 'RATÍŠKOVICE');
+      await page.waitForFunction(() => /AGRO|RATÍŠKOVICE – AGRO/.test(document.querySelector('#p-plakaty .poster .wk').textContent) &&
+        document.querySelectorAll('#p-plakaty .poster .wkr').length === 2);
+      await cekej(() => { const x = volano.filter((d) => d.akce === 'plakatUlozit').pop(); return x && x.stav.vTydnu.length === 2 && x.stav.vTydnu[1].souper === 'RATÍŠKOVICE'; }, 6000, 'uložení nového řádku');
+      await page.click('#p-plakaty [data-pl-smazat="vTydnu:1"]');
+      await page.waitForFunction(() => document.querySelectorAll('#p-plakaty .poster .wkr').length === 1);
+      // po obnovení stránky platí uložená ruční verze
+      await cekej(() => plakatyData.kola['2026-10-17'] && plakatyData.kola['2026-10-17'].stav.vTydnu.length === 1, 6000, 'smazání řádku v motoru');
+      await page.evaluate(() => localStorage.removeItem('asistent.videno')); // po obnovení bez okna Co je nového
+      await page.reload();
+      await page.waitForSelector('#p-plakaty [data-pl-vyber]');
+      await naVikend(page, '2026-10-17', 'MILOTICE – DERBY');
+      jistota(/upraveno ručně/.test(await page.textContent('#p-plakaty [data-pl-stav]')), 'po obnovení upraveno ručně');
+      // Vrátit podle rozlosování: potvrzení, smazání v motoru, plakát zase podle fotbal.cz
+      await page.click('#p-plakaty [data-pl-vratit]');
+      await page.click('.okno-pozadi [data-okno="ano"]');
+      await page.waitForFunction(() => /podle rozlosování/.test(document.querySelector('#p-plakaty [data-pl-stav]').textContent) &&
+        !/DERBY/.test(document.querySelector('#p-plakaty .plakat-stage .poster').textContent));
+      jistota(volano.some((d) => d.akce === 'plakatUlozit' && d.tyden === '2026-10-17' && d.smazat === true) && !plakatyData.kola['2026-10-17'], 'smazání úprav v motoru');
+      jistota(await page.inputValue('#p-plakaty [data-pl-cesta="doma.0.souper"]') === 'MILOTICE', 'editor podle rozlosování');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      fotbalPlakat = false;
+      await ctx.close();
+    }
+  });
+
+  await test('Plakáty: stažení obrázku – html2canvas z cdnjs až při stažení, neškálovaný plakát 1400 × 990, JPEG 2 800 px', async () => {
+    fotbalPlakat = true;
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3], 'light', PRAHA);
+    try {
+      await napodobHtml2canvas(page);
+      const cdnjs = [];
+      page.on('request', (r) => { if (/cdnjs\.cloudflare\.com/.test(r.url())) cdnjs.push(r.url()); });
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="plakaty"]');
+      await page.waitForSelector('#p-plakaty [data-pl-vyber]');
+      await naVikend(page, '2026-10-17', 'MILOTICE');
+      jistota(!cdnjs.length, 'knihovna se stáhla předem');
+      const [stazeni] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), page.click('#p-plakaty [data-pl-stahnout]')]);
+      jistota(stazeni.suggestedFilename() === 'plakat_2026-10-17.jpg', 'název souboru: ' + stazeni.suggestedFilename());
+      jistota(cdnjs.length === 1 && /html2canvas\/1\.4\.1\/html2canvas\.min\.js$/.test(cdnjs[0]), 'knihovna z cdnjs: ' + cdnjs.join());
+      const h2c = await page.evaluate(() => window.__h2c);
+      jistota(h2c.length === 1 && h2c[0].sirka === 1400 && h2c[0].vyska === 990 && h2c[0].meritko === 2 && h2c[0].transform === 'none' && /MILOTICE/.test(h2c[0].text),
+        'html2canvas dostal: ' + JSON.stringify(h2c).slice(0, 200));
+      const soubor = fs.readFileSync(await stazeni.path());
+      jistota(JSON.stringify(rozmerJpeg(soubor)) === '[2800,1980]', 'JPEG ' + JSON.stringify(rozmerJpeg(soubor)));
+      fs.writeFileSync(path.join(VYSTUP, 'plakat_obrazek.jpg'), soubor);
+      await page.waitForFunction(() => /Obrázek plakátu stažený/.test(document.getElementById('toast').textContent));
+      jistota(!(await page.locator('.plakat-export').count()), 'pomocný plakát pro obrázek zůstal v dokumentu');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      fotbalPlakat = false;
+      await ctx.close();
+    }
+  });
+
+  await test('Plakáty: Instagram – popisek od Clauda ve stylu, ruční úprava, naplánovat příspěvek i příběh, zrušit plán', async () => {
+    fotbalPlakat = true;
+    delete plakatyData.popisky['2026-10-17'];
+    delete plakatyData.plan['2026-10-17'];
+    delete plakatyData.kola['2026-10-17'];
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3], 'light', PRAHA);
+    try {
+      await napodobHtml2canvas(page);
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="plakaty"]');
+      await page.waitForSelector('#p-plakaty [data-pl-vyber]');
+      await naVikend(page, '2026-10-17', 'MILOTICE');
+      // požádat Clauda o popisek ve stylu – souhrn víkendu z plakátu (domácí zápasy, hlavní zápas áčka)
+      await page.fill('#p-plakaty [data-pl-styl]', 'vtipně, ať přijde hodně lidí');
+      await page.click('#p-plakaty [data-pl-popisek-claude]');
+      await page.waitForSelector('#p-plakaty [data-pl-ceka]');
+      jistota(/Claude píše popisek… \(do půl hodiny, když běží PC\)/.test(await page.textContent('#p-plakaty [data-pl-ceka]')), 'čeká se na Clauda');
+      const z = volano.filter((d) => d.akce === 'plakatPopisek').pop();
+      jistota(z && z.tyden === '2026-10-17' && z.styl === 'vtipně, ať přijde hodně lidí' && /A-TÝM \(6\. LIGA.*\): sobota 17\. 10\. 14:30 proti MILOTICE/.test(z.souhrn) &&
+        /Hlavní zápas: A-TÝM – MILOTICE/.test(z.souhrn) && /BENFIKA: NE 14:30 PETROV/.test(z.souhrn), 'žádost o popisek: ' + JSON.stringify(z).slice(0, 400));
+      await page.locator('#p-plakaty .pl-ig').screenshot({ path: path.join(VYSTUP, 'pc_plakat_instagram_ceka.png') });
+      // Claude popisek napsal (motor ho vrátí při dalším čtení) → Obnovit
+      plakatyData.popisky['2026-10-17'] = { text: 'Áčko hostí Milotice! ⚽\n\nV sobotu ve 14:30 na Agro Aréně.\n\n#fkagrovnorovy', zdroj: 'claude', kdy: Date.now(),
+        styl: 'vtipně, ať přijde hodně lidí', pozadano: Date.now() - 6e4, cekaNaClauda: false };
+      await page.click('#horni [data-obnovit]');
+      await page.waitForFunction(() => /Áčko hostí Milotice/.test(document.querySelector('#p-plakaty [data-pl-popisek]').value));
+      jistota(/od Clauda/.test(await page.textContent('#p-plakaty [data-pl-popisek-stitek]')) && !(await page.locator('#p-plakaty [data-pl-ceka]').count()), 'popisek od Clauda');
+      // ruční úprava popisku → uloží se, štítek „upraveno“
+      const text = 'Áčko hostí Milotice! ⚽\n\nPřijďte v sobotu ve 14:30 – bude derby.\n\n#fkagrovnorovy';
+      await page.fill('#p-plakaty [data-pl-popisek]', text);
+      jistota(/upraveno/.test(await page.textContent('#p-plakaty [data-pl-popisek-stitek]')), 'štítek upraveno');
+      await cekej(() => volano.some((d) => d.akce === 'plakatPopisekUlozit' && d.tyden === '2026-10-17' && d.text === text), 6000, 'uložení popisku');
+      // naplánovat: výchozí čtvrtek před víkendem 18:00 (když už prošel, za hodinu), i do příběhu
+      await page.click('#p-plakaty [data-pl-ig-naplanovat]');
+      const O = '[data-panel="plakat-ig"] ';
+      await page.waitForSelector(O + '[data-pl-ig="kdy"]');
+      const ctvrtek = new Date(2026, 9, 15, 18, 0).getTime();
+      const vychozi = await page.inputValue(O + '[data-pl-ig="kdy"]');
+      const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(vychozi) || [];
+      const cekany = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]).getTime();
+      // čtvrtek před víkendem 18:00; když už prošel (test běží později), za hodinu zaokrouhleno na 5 minut
+      jistota(ctvrtek > Date.now() + 6 * 60e3 ? cekany === ctvrtek : (cekany - Date.now() >= 59 * 60e3 && cekany - Date.now() <= 66 * 60e3 && +m[5] % 5 === 0),
+        'výchozí čas: ' + vychozi);
+      jistota(await page.isChecked(O + '[data-pl-ig="pribeh"]'), 'i do příběhu zapnuté');
+      await page.waitForSelector(O + '.pl-nahled-pribeh', { timeout: 20000 });
+      // příběh 1080 × 1920 → testy/vystup jako PNG
+      const pribeh = await page.evaluate(() => new Promise((ok) => {
+        const i = new Image();
+        i.onload = () => { const c = document.createElement('canvas'); c.width = i.naturalWidth; c.height = i.naturalHeight; c.getContext('2d').drawImage(i, 0, 0);
+          ok({ w: i.naturalWidth, h: i.naturalHeight, png: c.toDataURL('image/png') }); };
+        i.src = document.querySelector('[data-panel="plakat-ig"] .pl-nahled-pribeh').src;
+      }));
+      jistota(pribeh.w === 1080 && pribeh.h === 1920, 'příběh ' + pribeh.w + ' × ' + pribeh.h);
+      fs.writeFileSync(path.join(VYSTUP, 'plakat_pribeh_1080x1920.png'), Buffer.from(pribeh.png.split(',')[1], 'base64'));
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_plakat_instagram_okno.png') });
+      const pred = volano.length;
+      await page.click(O + '[data-pl-ig-ulozit]');
+      await page.waitForSelector('#p-plakaty .pl-ig .tag--plan');
+      const nove = volano.slice(pred);
+      const obr = nove.find((d) => d.akce === 'plakatObrazky'), plan = nove.find((d) => d.akce === 'plakatNaplanovat');
+      jistota(obr && obr.tyden === '2026-10-17' && JSON.stringify(rozmerJpeg(jpegZDat(obr.prispevek))) === '[1440,1018]' &&
+        JSON.stringify(rozmerJpeg(jpegZDat(obr.pribeh))) === '[1080,1920]', 'obrázky do motoru: ' + (obr ? JSON.stringify([rozmerJpeg(jpegZDat(obr.prispevek)), rozmerJpeg(jpegZDat(obr.pribeh))]) : 'nic'));
+      jistota(plan && plan.tyden === '2026-10-17' && plan.pribeh === true && plan.kdy === cekany && nove.indexOf(obr) < nove.indexOf(plan), 'plán do motoru: ' + JSON.stringify(plan));
+      const karta = (await page.textContent('#p-plakaty .pl-ig')).replace(/\s+/g, ' ');
+      jistota(/vyjde/.test(karta) && /i do příběhu/.test(karta) && /Změnit čas/.test(karta) && /Zrušit plán/.test(karta), 'karta po naplánování: ' + karta.slice(0, 200));
+      await page.waitForTimeout(300);
+      await page.locator('#p-plakaty .pl-ig').screenshot({ path: path.join(VYSTUP, 'pc_plakat_instagram.png') });
+      // zrušit plán
+      await page.click('#p-plakaty [data-pl-ig-zrusit]');
+      await page.click('.okno-pozadi [data-okno="ano"]');
+      await page.waitForFunction(() => !document.querySelector('#p-plakaty .pl-ig .tag--plan') && /Naplánovat na Instagram/.test(document.querySelector('#p-plakaty .pl-ig').textContent));
+      jistota(!plakatyData.plan['2026-10-17'] && volano.some((d) => d.akce === 'plakatZrusitPlan' && d.tyden === '2026-10-17'), 'plán zrušený');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      fotbalPlakat = false;
+      await ctx.close();
+    }
+  });
+
+  await test('Plakáty na telefonu (390 px, tmavý režim): z menu i ze stránky Fotbal, náhled se vejde, nic nepřetéká do strany', async () => {
+    fotbalPlakat = true;
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0], 'dark', PRAHA);
+    try {
+      await page.goto(WEB);
+      await page.click('.hlava-ja [data-menu]');
+      await page.click('[data-panel="menu"] [data-menu-cil="plakaty"]');
+      await page.waitForSelector('#p-plakaty .plakat-stage .poster .design');
+      await naVikend(page, '2026-10-24', 'KOZOJÍDKY');
+      const rozmer = await page.evaluate(() => {
+        const b = document.querySelector('#p-plakaty .plakat-nahled').getBoundingClientRect(), s = document.querySelector('#p-plakaty .plakat-stage').getBoundingClientRect();
+        return { prekryv: document.documentElement.scrollWidth - document.documentElement.clientWidth, box: [Math.round(b.left), Math.round(b.right)],
+          stage: [Math.round(s.left), Math.round(s.right)], sirka: innerWidth };
+      });
+      jistota(rozmer.prekryv <= 0 && rozmer.box[0] >= 0 && rozmer.box[1] <= rozmer.sirka && rozmer.stage[0] >= rozmer.box[0] && rozmer.stage[1] <= rozmer.box[1],
+        'telefon: ' + JSON.stringify(rozmer));
+      // v telefonu je Instagram nad editorem
+      jistota(await page.evaluate(() => document.querySelector('#p-plakaty .pl-ig').getBoundingClientRect().top < document.querySelector('#p-plakaty .pl-editor').getBoundingClientRect().top),
+        'Instagram nad editorem');
+      await page.waitForTimeout(600);
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_plakaty.png'), fullPage: true });
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_plakaty_nahore.png') });
+      // stránka Fotbal: tlačítko Plakát vedle Reely
+      await page.click('.hlava-ja [data-menu]');
+      await page.click('[data-panel="menu"] [data-menu-cil="fotbal"]');
+      await page.waitForSelector('#p-fotbal .reely-tl');
+      await page.click('#p-fotbal .plakat-tl');
+      await page.waitForSelector('#p-plakaty:not([hidden]) .plakat-stage .poster .design');
+      jistota(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, 'stránka přetéká');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      fotbalPlakat = false;
+      await ctx.close();
+    }
+  });
+
+  await test('Plakáty v ukázkovém režimu: plakát z ukázkových zápasů, úprava, popisek od Clauda, naplánování (bez motoru)', async () => {
+    const ctx = await prohlizec.newContext(Object.assign({ viewport: { width: 1440, height: 900 } }, PRAHA));
+    await ctx.addInitScript(() => localStorage.setItem('asistent.pripojeni', JSON.stringify({ demo: true })));
+    const page = await ctx.newPage();
+    const chyby = [];
+    page.on('pageerror', (e) => chyby.push(e.message));
+    page.on('console', (m) => { if (m.type() === 'error') chyby.push(m.text()); });
+    try {
+      await napodobHtml2canvas(page);
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="plakaty"]');
+      await page.waitForSelector('#p-plakaty .plakat-stage .poster .design');
+      jistota(await page.inputValue('#p-plakaty [data-pl-vyber]') === vychoziVikendTestu(), 'výchozí víkend v ukázce');
+      jistota(/Víkend ve Vnorovech/.test(await page.inputValue('#p-plakaty [data-pl-popisek]')), 'ukázkový popisek od Clauda');
+      await page.fill('#p-plakaty [data-pl-cesta="nadpis"]', 'PROGRAM VÍKENDU!');
+      await page.waitForFunction(() => /upraveno ručně/.test(document.querySelector('#p-plakaty [data-pl-stav]').textContent), null, { timeout: 6000 });
+      await page.fill('#p-plakaty [data-pl-styl]', 'derby');
+      await page.click('#p-plakaty [data-pl-popisek-claude]');
+      await page.waitForFunction(() => /Ukázkový popisek od Clauda \(derby\)/.test(document.querySelector('#p-plakaty [data-pl-popisek]').value));
+      await page.click('#p-plakaty [data-pl-ig-naplanovat]');
+      await page.waitForSelector('[data-panel="plakat-ig"] .pl-nahled-pribeh', { timeout: 20000 });
+      await page.click('[data-panel="plakat-ig"] [data-pl-ig-ulozit]');
+      await page.waitForSelector('#p-plakaty .pl-ig .tag--plan');
+      await page.click('#p-plakaty [data-pl-vratit]');
+      await page.click('.okno-pozadi [data-okno="ano"]');
+      await page.waitForFunction(() => /podle rozlosování/.test(document.querySelector('#p-plakaty [data-pl-stav]').textContent));
+      await page.screenshot({ path: path.join(VYSTUP, 'ukazka_plakaty.png') });
+      jistota(!chyby.length, 'chyby stránky: ' + chyby.join(' | '));
+    } finally {
+      await ctx.close();
+    }
+  });
+
   // ---------- Auto: přehled z tabulky, zápis tankování, účtenka z fotky, smazání překlepu
   await test('Auto na PC: přehled z tabulky (najeto, spotřeba, Kč/km), zápis tankování, účtenka z fotky, smazání překlepu', async () => {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
@@ -1919,13 +2352,13 @@ async function novaStranka(prohlizec, v, motiv) {
   });
 
   // ---------- telefon: menu zleva (klepnutí na jméno) vede i na Fotbal a Reely; klepnutí vedle menu zavře
-  await test('telefon: menu zleva se všemi sekcemi (Fotbal, Reely), zavření klepnutím vedle', async () => {
+  await test('telefon: menu zleva se všemi sekcemi (Fotbal, Reely, Plakáty), zavření klepnutím vedle', async () => {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
     await page.goto(WEB);
     await page.click('.hlava-ja [data-menu]');
     await page.waitForSelector('[data-panel="menu"].otevreny');
     const sekce = await page.$$eval('[data-panel="menu"] [data-menu-cil]', (b) => b.map((x) => x.dataset.menuCil).join());
-    jistota(sekce === 'dnes,schranka,posta,kalendar,zdravi,fotbal,reely,auto', 'sekce v menu: ' + sekce);
+    jistota(sekce === 'dnes,schranka,posta,kalendar,zdravi,fotbal,reely,plakaty,auto', 'sekce v menu: ' + sekce);
     jistota(await page.locator('[data-panel="menu"] [data-menu-cil="dnes"][aria-current="page"]').count() === 1, 'aktivní sekce');
     await page.click('[data-panel="menu"] [data-menu-cil="fotbal"]');
     await page.waitForSelector('#p-fotbal:not([hidden]) .fotbal-stranka');

@@ -73,7 +73,12 @@ export const IKONY = {
   auto: s('<path d="M3.5 15.5v-3.2l2-4.6a2 2 0 0 1 1.8-1.2h9.4a2 2 0 0 1 1.8 1.2l2 4.6v3.2a1 1 0 0 1-1 1H4.5a1 1 0 0 1-1-1z"/><path d="M3.5 12.3h17"/><circle cx="7.5" cy="16.5" r="1.8"/><circle cx="16.5" cy="16.5" r="1.8"/>'),
   palivo: s('<path d="M5 20.5V5.5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v15"/><path d="M3.5 20.5h13"/><path d="M5 10h10"/><path d="M15 8.5l2.6 2.2a1.6 1.6 0 0 1 .5 1.2v5.6a1.5 1.5 0 0 0 3 0V9.5l-2.6-2.7"/>'),
   foto: s('<path d="M4 8a2 2 0 0 1 2-2h1.8l1.5-2h5.4l1.5 2H18a2 2 0 0 1 2 2v9.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.8" r="3.6"/>'),
-  odkaz: s('<path d="M14 4.5h5.5V10"/><path d="M19.5 4.5L11 13"/><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>')
+  odkaz: s('<path d="M14 4.5h5.5V10"/><path d="M19.5 4.5L11 13"/><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>'),
+  // plakát na šířku s připínáčkem (stránka Plakáty), tiskárna, stažení, Instagram (fotoaparát v zaobleném čtverci)
+  plakaty: s('<path d="M12 2.8v2.4"/><rect x="2.8" y="5.2" width="18.4" height="14.6" rx="1.8"/><path d="M6.3 9.2h11.4M6.3 12.7h4.6M6.3 15.9h4.6"/><rect x="13.3" y="12.2" width="4.4" height="4.4" rx="1"/>'),
+  tisk: s('<path d="M7 9V3.5h10V9"/><rect x="3.5" y="9" width="17" height="7.5" rx="2"/><path d="M7 14h10v6.5H7z"/><path d="M17 11.8h.01"/>'),
+  stahnout: s('<path d="M12 4v11"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M4.5 19.5h15"/>'),
+  instagram: s('<rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="3.9"/><path d="M17.2 6.8h.01"/>')
 };
 // ikona počasí podle klíče z motoru (slunce, polojasno, oblacno, dest, bourka, snih, mlha)
 IKONY.zdravi = IKONY.srdce;

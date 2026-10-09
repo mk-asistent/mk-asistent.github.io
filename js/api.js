@@ -24,7 +24,7 @@ export class ChybaApi extends Error {
 // Rychlá čtení, která se při startu sejdou najednou, jdou v jednom požadavku (akce motoru „davka“): Apps Script
 // víc souběžných dotazů řadí do fronty – deset naráz znamenalo i půl minuty čekání (měřeno 5. 10.). Pošta, schránka
 // a kalendář jdou zvlášť (jsou pomalejší a Dnes je potřebuje hned), zápisy vždy zvlášť.
-const V_DAVCE = ['info', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky', 'kontakty', 'zmeny'];
+const V_DAVCE = ['info', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky', 'kontakty', 'zmeny', 'plakaty'];
 let fronta = null;
 
 function umiDavku() {
@@ -79,7 +79,7 @@ export async function volej(akce, data, jinePripojeni) {
 }
 
 // akce, které v motoru trvají déle (čtení účtenky přes OCR Disku a zápis do tabulky; Google bývá pomalý)
-const DLOUHE_AKCE = { autoUctenka: 150000, autoUctenkaFoto: 60000, autoUpravit: 60000, autoZapsat: 60000 };
+const DLOUHE_AKCE = { autoUctenka: 150000, autoUctenkaFoto: 60000, autoUpravit: 60000, autoZapsat: 60000, plakatObrazky: 120000 };
 
 // Google odpověď na POST občas ztratí: prohlížeč pak skončí na úvodu motoru (doGet), nebo na 404 / bez CORS. Motor ale
 // akci provedl – proto pokus znovu se stejným rid: motor zápis podruhé neprovede a vrátí výsledek prvního běhu.

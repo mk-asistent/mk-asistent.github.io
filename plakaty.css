@@ -1,0 +1,320 @@
+/* Plakáty – program víkendu FK Agro Vnorovy na A3 (stránka Plakáty z webu dorostu, 9. 10. 2026).
+   1) samotný plakát – přenesený 1:1 z webu dorostu (assets/css/plakat.css): stejné třídy, jen všechno pod .plakat
+      a velký domácí blok .hero → .blok (Asistent má .hero na Dnes v telefonu); 2) stránka kolem (výběr víkendu, editor,
+      Instagram, nastavení) ve vzhledu Asistenta; 3) tisk A3 – úplně na konci souboru.
+   Písma: Impact a Arial Narrow na iPhonu nejsou → Anton (nadpisy, časy) a Roboto Condensed (text) z Google Fonts.
+   Anton má o 9 % vyšší verzálky než Impact → velikost × 0,92 (--pl-a) a výšky řádků tak, aby krabičky vyšly na pixel
+   stejně jako s Impactem (Impact „normal“ = 1,22 → 1,326; řádek 1 → 1,087). Hlavička + horní okraj čáry = 122 px. */
+
+/* ================================================================ 1) PLAKÁT 1400 × 990 px = A3 na šířku (420 × 297 mm) */
+.plakat {
+  --red: #D91E26; --ink: #111111; --paper: #FFFFFF; --grey: #EFEFEF; --grey2: #8A8A8A;
+  --pl-a: .92;
+  --pl-titulek: Anton, Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+  --pl-text: "Roboto Condensed", "Arial Narrow", Arial, Helvetica, sans-serif;
+}
+.plakat, .plakat * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+/* papír = celá A3; uvnitř bílý netisknutelný okraj 32 px (≈ 9,6 mm) a teprve pak grafika */
+.plakat.poster { width: 1400px; height: 990px; background: var(--paper); color: var(--ink); position: relative; overflow: hidden; padding: 32px;
+  display: flex; font-family: var(--pl-text); font-size: 16px; font-weight: 400; line-height: 1.14; letter-spacing: 0; text-align: left; }
+.plakat .design { flex: 1; min-width: 0; position: relative; overflow: hidden; background: var(--paper); padding: 42px; display: flex; flex-direction: column; }
+
+/* rohové trojúhelníky – barva přímo v přechodu (html2canvas currentColor v přechodu nezná) */
+.plakat .t1.k { background: linear-gradient(to bottom right, var(--ink) 49.6%, transparent 50%); }
+.plakat .t1.r { background: linear-gradient(to bottom right, var(--red) 49.6%, transparent 50%); }
+.plakat .t2.k { background: linear-gradient(to bottom left, var(--ink) 49.6%, transparent 50%); }
+.plakat .t2.r { background: linear-gradient(to bottom left, var(--red) 49.6%, transparent 50%); }
+.plakat .t4.k { background: linear-gradient(to top left, var(--ink) 49.6%, transparent 50%); }
+.plakat .t4.r { background: linear-gradient(to top left, var(--red) 49.6%, transparent 50%); }
+.plakat .corner { position: absolute; display: grid; grid-template-columns: repeat(2, 44px); grid-template-rows: repeat(2, 44px); z-index: 0; }
+.plakat .corner.tl { top: 0; left: 0; } .plakat .corner.tr { top: 0; right: 0; } .plakat .corner.br { bottom: 0; right: 0; }
+.plakat .corner i { display: block; }
+.plakat .dots { position: absolute; width: 13px; z-index: 0; background-repeat: repeat-y; background-size: 13px 31px;
+  /* puntík jako SVG místo radial-gradient – html2canvas přechod neopakuje (na obrázku by byl jen jeden puntík) */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='31'%3E%3Ccircle cx='6.5' cy='15.5' r='6.6' fill='%23D91E26'/%3E%3C/svg%3E"); }
+/* tečky: levé shora, pravé jsou svisle překlopené (stejný odstup, ale zdola) */
+.plakat .dots.l { left: 4px; top: 250px; height: 250px; }
+.plakat .dots.rt { right: 2px; bottom: 250px; height: 250px; }
+
+/* Pozor: výška hlavičky + horní okraj .rule musí dát 122 px, jinak se čára pod nadpisem posune a přeskládá se
+   celý zbytek plakátu (Michalovi to vadí). Výšky jsou dané výškou řádků, ne písmem. */
+.plakat .phead { display: flex; align-items: center; gap: 28px; position: relative; z-index: 2; flex: 0 0 auto; }
+.plakat .clublogo { width: 116px; height: 116px; object-fit: contain; flex: 0 0 auto; }
+.plakat .phead-mid { flex: 1; min-width: 0; }
+.plakat .kicker { font-size: 23px; font-weight: 700; letter-spacing: .32em; line-height: 1; }
+.plakat .ptitle { font-family: var(--pl-titulek); font-size: calc(80px * var(--pl-a)); line-height: 72px; letter-spacing: .02em; color: var(--red); margin-top: 7px; }
+.plakat .pdate { text-align: right; flex: 0 0 auto; line-height: 1; }
+.plakat .pdate .d { font-family: var(--pl-titulek); font-size: calc(56px * var(--pl-a)); line-height: 56px; }
+.plakat .pdate .m { font-size: 22px; font-weight: 700; letter-spacing: .26em; margin-top: 8px; color: var(--red); }
+.plakat .rule { height: 7px; background: var(--ink); margin: 6px 0 20px; position: relative; z-index: 2; flex: 0 0 auto; }
+.plakat .rule::after { content: ""; position: absolute; left: 0; top: 0; height: 7px; width: 38%; background: var(--red); }
+
+.plakat .band { display: flex; align-items: center; gap: 16px; padding: 0 20px; height: 56px; color: #fff;
+  font-family: var(--pl-titulek); font-size: calc(34px * var(--pl-a)); line-height: 1.326; letter-spacing: .14em; }
+.plakat .band.home { background: var(--red); }
+.plakat .band.away { background: var(--ink); }
+.plakat .band .sub { margin-left: auto; font-family: var(--pl-text); font-size: 19px; font-weight: 700; line-height: 1.14; letter-spacing: .2em; opacity: .92; }
+
+.plakat .body2 { display: flex; gap: 32px; flex: 1; min-height: 0; position: relative; z-index: 2; }
+.plakat .left { width: 826px; display: flex; flex-direction: column; gap: 11px; flex: 0 0 auto; }
+.plakat .bloky { display: flex; gap: 16px; flex: 1; min-height: 0; }
+.plakat .right { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding-right: 12px; }
+
+/* velký domácí zápas — znaky jsou svisle na středu bloku */
+.plakat .blok { background: var(--paper); border: 4px solid var(--ink); overflow: hidden; display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.plakat .blok .team { font-family: var(--pl-titulek); font-size: calc(44px * var(--pl-a)); letter-spacing: .09em; line-height: 1.087; text-align: center;
+  padding: 18px 18px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plakat .blok .comp { font-size: 16px; font-weight: 700; letter-spacing: .16em; color: #5C5C62; text-align: center; line-height: 1.25; padding: 6px 16px 0; }
+.plakat .blok .mid { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 16px; }
+.plakat .blok .duel { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.plakat .blok .vs { font-family: var(--pl-titulek); font-size: calc(32px * var(--pl-a)); line-height: 1.326; color: var(--red); }
+.plakat .blok .opp { font-size: 25px; font-weight: 700; letter-spacing: .05em; text-align: center; line-height: 1.08; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* červený pruh sedí přesně dovnitř černého rámečku, žádné záporné okraje */
+.plakat .blok .when { background: var(--red); color: #fff; flex: 0 0 auto; font-family: var(--pl-titulek); font-size: calc(34px * var(--pl-a));
+  line-height: 1.326; letter-spacing: .1em; text-align: center; padding: 8px 0 6px; }
+/* jediný domácí zápas → větší, ale jen když je pod ním dost místa (0–1 řádek mládeže) */
+.plakat .blok.single .team { font-size: calc(52px * var(--pl-a)); }
+.plakat .blok.single .comp { font-size: 19px; }
+.plakat .blok.single .duel { gap: 22px; }
+.plakat .blok.single .opp { font-size: 34px; }
+.plakat .blok.single .when { font-size: calc(44px * var(--pl-a)); }
+
+.plakat .badge { width: 158px; height: 158px; object-fit: contain; flex: 0 0 auto; }
+.plakat .blok.single .badge { width: 210px; height: 210px; }
+.plakat .badge.sm { width: 64px; height: 64px; }
+.plakat .badge.xs { width: 48px; height: 48px; }
+.plakat .ph { width: 158px; height: 158px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; text-align: center;
+  font-weight: 700; font-size: 17px; line-height: 1.05; color: #6E6E75; border: 4px dashed #C4C4C9; padding: 6px; }
+.plakat .ph.sm { width: 64px; height: 64px; font-size: 11px; border-width: 3px; padding: 3px; }
+.plakat .ph.xs { width: 48px; height: 48px; font-size: 9px; border-width: 2px; padding: 2px; }
+
+/* mládež doma — bílé pozadí, černý rám, červený pruh = hraje se doma */
+.plakat .row { display: flex; align-items: center; gap: 14px; padding: 7px 16px; background: var(--paper); border: 3px solid var(--ink);
+  border-left: 13px solid var(--red); flex: 0 0 auto; }
+.plakat .row .cat { font-family: var(--pl-titulek); font-size: calc(25px * var(--pl-a)); line-height: 1.326; letter-spacing: .06em; width: 176px; flex: 0 0 auto; }
+.plakat .row .opp { font-size: 23px; font-weight: 700; line-height: 1.14; letter-spacing: .02em; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plakat .row .when { font-family: var(--pl-titulek); font-size: calc(27px * var(--pl-a)); line-height: 1.326; letter-spacing: .04em; flex: 0 0 auto;
+  text-align: right; min-width: 228px; color: var(--red); }
+
+/* venku — bílé pozadí, jen šedý rám */
+.plakat .rowlist { display: flex; flex-direction: column; gap: 11px; flex: 1; min-height: 0; }
+.plakat .awayrow { display: flex; align-items: center; gap: 14px; padding: 10px 14px; background: var(--paper); border: 3px solid var(--grey2); flex: 1 1 0; max-height: 132px; }
+.plakat .awayrow .meta { flex: 1; min-width: 0; }
+.plakat .awayrow .cat { font-family: var(--pl-titulek); font-size: calc(24px * var(--pl-a)); letter-spacing: .05em; line-height: 1.087; }
+.plakat .awayrow .opp { font-size: 21px; font-weight: 700; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plakat .awayrow .when { font-family: var(--pl-titulek); font-size: calc(24px * var(--pl-a)); line-height: 1.326; color: #3A3A40; }
+
+/* když přibude blok „V TÝDNU", venkovní řádky se stáhnou, ať zbude místo */
+.plakat .right.tyden .awayrow { padding: 6px 11px; }
+.plakat .right.tyden .badge.sm, .plakat .right.tyden .ph.sm { width: 52px; height: 52px; }
+.plakat .right.tyden .awayrow .cat { font-size: calc(21px * var(--pl-a)); }
+.plakat .right.tyden .awayrow .opp { font-size: 19px; }
+.plakat .right.tyden .awayrow .when { font-size: calc(21px * var(--pl-a)); }
+.plakat .right.tyden.v4 .awayrow { padding: 4px 9px; gap: 11px; }
+.plakat .right.tyden.v4 .badge.sm, .plakat .right.tyden.v4 .ph.sm { width: 46px; height: 46px; }
+.plakat .right.tyden.v4 .awayrow .cat { font-size: calc(19px * var(--pl-a)); }
+.plakat .right.tyden.v4 .awayrow .opp { font-size: 17px; }
+.plakat .right.tyden.v4 .awayrow .when { font-size: calc(19px * var(--pl-a)); }
+
+/* hodně venkovních zápasů → pravý sloupec se úměrně zmenší */
+.plakat .right.v4 .awayrow { padding: 7px 12px; }
+.plakat .right.v4 .badge.sm, .plakat .right.v4 .ph.sm { width: 52px; height: 52px; }
+.plakat .right.v4 .awayrow .cat { font-size: calc(21px * var(--pl-a)); }
+.plakat .right.v4 .awayrow .opp { font-size: 19px; }
+.plakat .right.v4 .awayrow .when { font-size: calc(21px * var(--pl-a)); }
+.plakat .right.v4 .qr { padding: 8px 0 2px; }
+.plakat .right.v4 .qrbox img { width: 152px; height: 152px; }
+.plakat .right.v4 .qrbox span { font-size: 16px; }
+.plakat .right.v4 .wkr { padding: 4px 10px; }
+.plakat .right.v4 .wkh { font-size: calc(18px * var(--pl-a)); }
+
+.plakat .right.v5 .awayrow { padding: 5px 10px; gap: 10px; }
+.plakat .right.v5 .badge.sm, .plakat .right.v5 .ph.sm { width: 44px; height: 44px; }
+.plakat .right.v5 .awayrow .cat { font-size: calc(19px * var(--pl-a)); }
+.plakat .right.v5 .awayrow .opp { font-size: 17px; }
+.plakat .right.v5 .awayrow .when { font-size: calc(19px * var(--pl-a)); }
+.plakat .right.v5 .qr { padding: 6px 0 2px; }
+.plakat .right.v5 .qrbox img { width: 132px; height: 132px; }
+.plakat .right.v5 .qrbox span { font-size: 15px; }
+.plakat .right.v5 .wkr { padding: 3px 9px; }
+.plakat .right.v5 .wkh { font-size: calc(17px * var(--pl-a)); }
+
+/* zápasy mimo víkend — pod venkovními, se směrem zápasu */
+.plakat .wk { flex: 0 0 auto; border: 3px solid var(--ink); background: var(--paper); }
+.plakat .wkh { background: var(--ink); color: #fff; font-family: var(--pl-titulek); font-size: calc(20px * var(--pl-a)); line-height: 1.326; letter-spacing: .18em; padding: 3px 12px; }
+.plakat .wkr { display: flex; flex-direction: column; gap: 2px; padding: 7px 12px; }
+.plakat .wkr + .wkr { border-top: 2px solid #D6D6DB; }
+.plakat .wkline { display: flex; align-items: baseline; gap: 10px; font-size: 16px; font-weight: 600; line-height: 1.14; letter-spacing: .09em; color: #4A4A50; }
+.plakat .wkline .wkt { margin-left: auto; letter-spacing: .05em; white-space: nowrap; }
+.plakat .wkr .wkm { font-size: 21px; font-weight: 700; letter-spacing: .01em; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* QR na Instagram — bez podkladu, ať se netiskne zbytečná plocha */
+.plakat .qr { margin-top: auto; padding: 12px 0 2px; display: flex; justify-content: center; flex: 0 0 auto; }
+.plakat .qrbox { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.plakat .qrbox img { width: 190px; height: 190px; display: block; background: #fff; }
+.plakat .qrbox span { color: var(--ink); font-size: 18px; font-weight: 700; letter-spacing: .16em; line-height: 1; }
+
+/* 2 řádky mládeže → jediný zápas se vrátí na velikost jako při dvou blocích */
+.plakat .left.m2 .blok.single .team { font-size: calc(44px * var(--pl-a)); }
+.plakat .left.m2 .blok.single .comp { font-size: 16px; }
+.plakat .left.m2 .blok.single .duel { gap: 12px; }
+.plakat .left.m2 .blok.single .opp { font-size: 25px; }
+.plakat .left.m2 .blok.single .when { font-size: calc(34px * var(--pl-a)); }
+.plakat .left.m2 .blok.single .badge, .plakat .left.m2 .blok.single .ph { width: 158px; height: 158px; }
+
+/* když je hodně mládežnických řádků, celý levý sloupec se úměrně zmenší */
+.plakat .left.m3 .blok .team { font-size: calc(36px * var(--pl-a)); padding-top: 14px; }
+.plakat .left.m3 .blok .comp { font-size: 14px; }
+.plakat .left.m3 .blok .duel { gap: 20px; margin-bottom: 10px; }
+.plakat .left.m3 .blok .vs { font-size: calc(27px * var(--pl-a)); }
+.plakat .left.m3 .blok .opp { font-size: 21px; }
+.plakat .left.m3 .blok .when { font-size: calc(28px * var(--pl-a)); padding: 6px 0 5px; }
+.plakat .left.m3 .badge, .plakat .left.m3 .ph { width: 136px; height: 136px; }
+.plakat .left.m3 .ph { font-size: 15px; }
+.plakat .left.m3 .row { padding: 5px 14px; }
+.plakat .left.m3 .row .cat { font-size: calc(22px * var(--pl-a)); width: 166px; }
+.plakat .left.m3 .row .opp { font-size: 21px; }
+.plakat .left.m3 .row .when { font-size: calc(24px * var(--pl-a)); min-width: 206px; }
+.plakat .left.m3 .badge.xs, .plakat .left.m3 .ph.xs { width: 42px; height: 42px; }
+
+.plakat .left.m4 .blok .team { font-size: calc(30px * var(--pl-a)); padding-top: 11px; }
+.plakat .left.m4 .blok .comp { font-size: 12.5px; padding-top: 4px; }
+.plakat .left.m4 .blok .duel { gap: 12px; margin-bottom: 16px; }
+.plakat .left.m4 .blok .vs { font-size: calc(23px * var(--pl-a)); }
+.plakat .left.m4 .blok .opp { font-size: 18px; }
+.plakat .left.m4 .blok .when { font-size: calc(24px * var(--pl-a)); padding: 5px 0 4px; }
+.plakat .left.m4 .badge, .plakat .left.m4 .ph { width: 112px; height: 112px; }
+.plakat .left.m4 .ph { font-size: 13px; border-width: 3px; }
+.plakat .left.m4 .row { padding: 3px 12px; }
+.plakat .left.m4 .row .cat { font-size: calc(20px * var(--pl-a)); width: 154px; }
+.plakat .left.m4 .row .opp { font-size: 19px; }
+.plakat .left.m4 .row .when { font-size: calc(22px * var(--pl-a)); min-width: 190px; }
+.plakat .left.m4 .badge.xs, .plakat .left.m4 .ph.xs { width: 38px; height: 38px; }
+
+/* když se doma nehraje vůbec nic */
+.plakat .nicdoma { flex: 1; border: 4px solid var(--ink); display: flex; align-items: center; justify-content: center; text-align: center;
+  font-family: var(--pl-titulek); font-size: calc(52px * var(--pl-a)); letter-spacing: .1em; line-height: 1.25; color: var(--grey2); }
+
+/* patička sedí na dně levého sloupce, aby pravý mohl jít až dolů */
+.plakat .pfoot { margin-top: auto; display: flex; align-items: center; gap: 22px; position: relative; z-index: 2; padding-top: 18px; flex: 0 0 auto; }
+.plakat .pfoot .venue { font-family: var(--pl-titulek); font-size: calc(40px * var(--pl-a)); letter-spacing: .07em; line-height: 1.087; color: var(--red); }
+.plakat .pfoot .txt { font-size: 23px; font-weight: 700; line-height: 1.14; letter-spacing: .03em; margin-top: 9px; }
+
+/* ================================================================ 2) stránka Plakáty (vzhled Asistenta, světlý i tmavý režim) */
+.pohled-plakaty, [data-oblast="plakaty"] { --o: var(--o-fotbal); }
+.rail__btn[data-cil="plakaty"], .menu__btn[data-menu-cil="plakaty"], .lista__btn[data-cil="plakaty"] { --o: var(--o-fotbal); }
+.pohled-plakaty .card { background: color-mix(in srgb, var(--o) 5%, var(--surface)); border-color: color-mix(in srgb, var(--o) 20%, var(--line)); }
+.pohled-plakaty .card-hlava .nadpis { color: color-mix(in srgb, var(--o) 78%, var(--text)); }
+.plakat-tl svg { width: 15px; height: 15px; }
+.fotbal-odkazy-stranek { display: inline-flex; flex-wrap: wrap; gap: 8px; }  /* stránka Fotbal: Reely a Plakát vedle sebe */
+
+.plakaty { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.plakaty-lista { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.plakaty-vyber { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.plakaty-vyber .field { width: auto; min-width: 210px; font-weight: 600; }
+.plakaty-akce { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* náhled: plakát se zmenší na šířku stránky (--s počítá plakaty.js) */
+.plakat-nahled { --s: .25; display: flex; justify-content: center; overflow: hidden; padding: 14px; border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--o-fotbal) 6%, var(--sand)); border: 1px solid var(--line); }
+.plakat-stage { width: calc(1400px * var(--s)); height: calc(990px * var(--s)); flex: 0 0 auto; overflow: hidden; background: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .25); }
+.plakat-stage .poster { transform: scale(var(--s)); transform-origin: top left; }
+.plakaty-tisk-napoveda { margin: -4px 2px 0; }
+
+/* plakát pro obrázek (html2canvas): v dokumentu, aby šel změřit, ale schovaný v nulovém rámečku */
+.plakat-export { position: fixed; left: 0; top: 0; width: 0; height: 0; overflow: hidden; z-index: -1; pointer-events: none; }
+.plakat-export--klon { width: 1400px; height: 990px; overflow: visible; z-index: 2147483647; }
+
+.plakaty-mrizka { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.plakaty-vpravo { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+@media (min-width: 1100px) { .plakaty-mrizka { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); } }
+
+.pl-telo { padding: 6px 16px 16px; }
+.pl-h { margin: 18px 0 8px; font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.pl-h:first-child { margin-top: 4px; }
+.pl-mrizka { display: grid; gap: 10px 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pl-mrizka--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pl-mrizka > label { display: block; min-width: 0; }
+.pl-cely { grid-column: 1 / -1; }
+.pl-karta { padding: 10px 12px 12px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.pl-karta__hlava { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.pl-karta__hlava b { font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.pl-pridat { margin-top: 2px; }
+.pl-varovani { margin: 14px 0 0; padding: 9px 12px; border-radius: var(--radius); background: var(--oranz-tint); color: var(--oranz); font-size: 13px; }
+.pl-varovani:empty { display: none; }
+.pl-upozorneni { list-style: none; margin: 4px 0 6px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pl-upozorneni li { display: flex; align-items: flex-start; gap: 8px; padding: 8px 11px; border-radius: var(--radius); background: var(--zluta-tint); color: var(--text); font-size: 13px; line-height: 1.4; }
+.pl-upozorneni svg { width: 16px; height: 16px; color: var(--zluta); margin-top: 1px; }
+.pl-alias { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+
+/* Instagram */
+.pl-ig .card-hlava .vpravo { color: var(--muted); font-size: 12.5px; }
+.pl-ig__stav { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 10px; }
+.pl-ig__stav .tag { gap: 4px; }
+.pl-ig__stav .tag svg { width: 12px; height: 12px; }
+.pl-ig__popisek { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.pl-ig__popisek .label { margin: 0; }
+.pl-ig textarea.odpoved { min-height: 170px; line-height: 1.5; }
+.pl-ceka { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 8px 11px; border-radius: var(--radius); background: var(--fialova-tint); color: var(--fialova); font-size: 13px; font-weight: 600; }
+.pl-ceka svg { width: 16px; height: 16px; flex: none; }
+.pl-styl { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
+.pl-styl label { flex: 1; min-width: 0; }
+.pl-ig__akce { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.pl-ig__akce .btn { border-radius: 999px; }
+.pl-chyba { margin: 0 0 8px; font-size: 12.5px; color: var(--danger); }
+.pl-ig-nahled { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; min-height: 60px; }
+.pl-ig-nahled figure { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.pl-ig-nahled img { display: block; border-radius: 8px; border: 1px solid var(--line); background: #111; }
+.pl-ig-nahled .pl-nahled-prispevek { width: 210px; height: auto; }
+.pl-ig-nahled .pl-nahled-pribeh { width: 84px; height: auto; }
+.pl-ig-nahled figcaption { font-size: 11.5px; color: var(--muted); }
+.pl-zaskrtnout { display: flex !important; align-items: center; justify-content: flex-start; gap: 10px; font-size: 14px; font-weight: 550; cursor: pointer; }
+.pl-zaskrtnout input { width: 18px; height: 18px; margin: 0; accent-color: var(--fialova); }
+
+/* nastavení plakátu (sbalitelné) */
+details.plakaty-nastaveni > summary { list-style: none; cursor: pointer; padding-bottom: 12px; }
+details.plakaty-nastaveni > summary::-webkit-details-marker { display: none; }
+details.plakaty-nastaveni > summary .vpravo svg { transition: transform .15s; }
+details.plakaty-nastaveni[open] > summary .vpravo svg { transform: rotate(90deg); }
+
+@media (max-width: 759px) {
+  .plakat-nahled { padding: 8px; }
+  .plakaty-vyber [data-pl-stav] { display: none; } /* totéž je v podnadpisu stránky */
+  .plakaty-vpravo { order: -1; }                   /* v telefonu nejdřív Instagram, dlouhý editor až pod ním */
+  .plakaty-vyber { width: 100%; }
+  .plakaty-vyber .field { flex: 1; min-width: 0; }
+  .plakaty-akce { width: 100%; }
+  .plakaty-akce .btn { flex: 1 1 auto; }
+  .pl-mrizka--3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pl-mrizka--3 > :first-child { grid-column: 1 / -1; }
+  .pl-telo { padding: 6px 12px 14px; }
+  .pl-styl { flex-direction: column; align-items: stretch; }
+}
+
+/* ================================================================ 3) TISK – A3 na šířku
+   MUSÍ zůstat úplně na konci souboru (jako na webu dorostu): média nezvyšují specifičnost, takže pravidlo o stejné síle
+   napsané níž přebije to uvnitř @media print. Platí jen s třídou tisk-plakatu na <html> (tlačítko a beforeprint na
+   stránce Plakáty) – tisk jiné stránky Asistenta zůstane, jak byl. Návod: A3, na šířku, okraje žádné, grafika na pozadí. */
+
+@page { size: 420mm 297mm; margin: 0; }
+
+@media print {
+  html.tisk-plakatu, html.tisk-plakatu body { overflow: visible !important; background: #fff !important; margin: 0 !important; padding: 0 !important; }
+
+  /* z celé aplikace zůstane jen samotný plakát */
+  html.tisk-plakatu .rail, html.tisk-plakatu .horni, html.tisk-plakatu .hlava, html.tisk-plakatu .pruhy, html.tisk-plakatu .lista,
+  html.tisk-plakatu #panely, html.tisk-plakatu .toast, html.tisk-plakatu .okno-pozadi, html.tisk-plakatu #uvod,
+  html.tisk-plakatu .plakat-export, html.tisk-plakatu #p-plakaty .plakaty > :not(.plakat-nahled) { display: none !important; }
+
+  html.tisk-plakatu .aplikace { display: block !important; min-height: 0 !important; }
+  html.tisk-plakatu .hlavni, html.tisk-plakatu main { margin: 0 !important; padding: 0 !important; }
+  html.tisk-plakatu #p-plakaty, html.tisk-plakatu #p-plakaty .plakaty { display: block !important; margin: 0 !important; padding: 0 !important; gap: 0 !important; }
+
+  html.tisk-plakatu .plakat-nahled { display: block !important; padding: 0 !important; margin: 0 !important; border: 0 !important;
+    background: none !important; border-radius: 0 !important; overflow: visible !important; }
+  html.tisk-plakatu .plakat-stage { width: 420mm !important; height: 297mm !important; margin: 0 !important; box-shadow: none !important; overflow: hidden !important; }
+  html.tisk-plakatu .plakat-stage .poster { transform: scale(1.13385) !important; transform-origin: top left !important; }
+}

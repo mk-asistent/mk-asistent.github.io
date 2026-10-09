@@ -18,14 +18,15 @@ import * as zdravi from './zdravi.js';
 import * as fotbal from './fotbal.js';
 import * as dochazka from './dochazka.js';
 import * as reely from './reely.js';
+import * as plakaty from './plakaty.js';
 import * as auto from './auto.js';
 import { vstupAdresy, klavesaAdresy } from './adresy.js';
 import * as ucet from './ucet.js';
 
 const SEKCE = [['dnes', 'Dnes'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář'], ['zdravi', 'Zdraví'], ['fotbal', 'Fotbal'], ['reely', 'Reely'],
-  ['auto', 'Auto']];
+  ['plakaty', 'Plakáty'], ['auto', 'Auto']];
 // sekce, které ukáže jen motor, který je umí (starší verze motoru je schová)
-const viditelna = (s) => ['fotbal', 'reely', 'auto'].indexOf(s[0]) < 0 || umiMotor(s[0]);
+const viditelna = (s) => ['fotbal', 'reely', 'plakaty', 'auto'].indexOf(s[0]) < 0 || umiMotor(s[0]);
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
 const TELEFON = window.matchMedia('(max-width: 759px)');
 const $ = (id) => document.getElementById(id);
@@ -46,6 +47,7 @@ function start() {
   fotbal.nactiZUloziste();
   dochazka.nactiZUloziste();
   reely.nactiZUloziste();
+  plakaty.nactiZUloziste();
   auto.nactiZUloziste();
   if (!SEKCE.some((s) => s[0] === stav.pohled)) stav.pohled = 'dnes';
   kal.pripravGesta($('p-kalendar'));
@@ -79,6 +81,7 @@ function obnovVse(znovu) {
   zkontrolujZmeny();
   fotbal.nactiFotbal();
   reely.nactiReely(primo);
+  if (stav.pohled === 'plakaty') plakaty.nactiPlakaty(znovu); // plakát se čte jen na své stránce
   if (znovu || stav.pohled === 'auto') auto.nactiAuto(znovu); // tabulku auta jen na její stránce nebo při Obnovit
   // Obnovit = i čerstvé kopie na serveru (třeba hned po nasazení motoru); jinak jen když jsou kopie starší
   if (znovu) ucet.obnovNaServeru(true);
@@ -114,6 +117,7 @@ function poNovychKopiich(idy) {
   if (je('info')) nast.nactiInfo();
   if (je('fotbal')) fotbal.nactiFotbal();
   if (je('reely')) reely.nactiReely(false);
+  if (je('plakaty') && (stav.plakaty || stav.pohled === 'plakaty')) plakaty.nactiPlakaty(false);
 }
 
 // ---------------------------------------------------------------- počty
@@ -150,6 +154,7 @@ function vykresli() {
   reely.dotahni();
   auto.dotahni();
   if (stav.pohled === 'kalendar') dochazka.dotahni();
+  if (stav.pohled === 'plakaty') plakaty.dotahni();
   const p = pocty();
   document.querySelectorAll('[data-pohled]').forEach((el) => { el.hidden = el.dataset.pohled !== stav.pohled; });
   vykresliRail(p);
@@ -164,6 +169,7 @@ function vykresli() {
   else if (stav.pohled === 'zdravi') zdravi.vykresliZdravi(el);
   else if (stav.pohled === 'fotbal') fotbal.vykresliFotbal(el);
   else if (stav.pohled === 'reely') reely.vykresliReely(el);
+  else if (stav.pohled === 'plakaty') plakaty.vykresliPlakaty(el);
   else if (stav.pohled === 'auto') auto.vykresliAuto(el);
   else kal.vykresliKalendar(el);
   zkontrolujNovinky(p);
@@ -266,6 +272,8 @@ function vykresliHlavu(p) {
     pod = f ? esc(f.klub || '') + ' · zápasy, tabulky, střelci' : 'Zápasy z fotbal.cz';
   } else if (stav.pohled === 'reely') {
     pod = reely.podnadpis();
+  } else if (stav.pohled === 'plakaty') {
+    pod = plakaty.podnadpis();
   } else if (stav.pohled === 'auto') {
     pod = esc(auto.podnadpis());
   } else if (stav.pohled === 'zdravi') {
@@ -323,7 +331,7 @@ function vykresliListu(p) {
     tl(SEKCE[2]) + tl(SEKCE[3]);
 }
 
-/** Menu na telefonu (klepnutí na jméno nahoře): pás zleva se všemi sekcemi – i Zdraví, Fotbal a Reely, které se
+/** Menu na telefonu (klepnutí na jméno nahoře): pás zleva se všemi sekcemi – i Zdraví, Fotbal, Reely a Plakáty, které se
  *  do spodní lišty nevejdou – a dole Nastavení a kdo je připojený. */
 function otevriMenu() {
   otevriPanel({ id: 'menu', trida: 'panel-menu', titul: 'Asistent', vykresli: menuHtml });
@@ -662,6 +670,7 @@ document.addEventListener('click', (e) => {
   if (posta.klikPosta(el)) return;
   if (zdravi.klikZdravi(el)) return;
   if (reely.klikReely(el)) return;
+  if (plakaty.klikPlakaty(el)) return;
   if (auto.klikAuto(el)) return;
   if (fotbal.klikFotbal(el)) return;
   if (udalost.klikUdalost(el)) return;
@@ -674,13 +683,14 @@ document.addEventListener('input', (e) => {
   if (zdravi.vstupZdravi(e)) return;
   if (auto.vstupAuto(e)) return;
   if (reely.vstupReely(e)) return;
+  if (plakaty.vstupPlakaty(e)) return;
   if (hledat.vstupHledat(e)) return;
   if (udalost.vstupUdalost(e)) return;
   if (schranka.vstupSchranka(e)) return;
   posta.vstupPosta(e);
 });
 
-document.addEventListener('change', (e) => { if (!auto.zmenaAuto(e) && !reely.vstupReely(e) && !posta.zmenaPosta(e) && !udalost.zmenaUdalost(e) && !kal.zmenaKalendar(e)) nast.zmenaNastaveni(e); });
+document.addEventListener('change', (e) => { if (!auto.zmenaAuto(e) && !reely.vstupReely(e) && !plakaty.vstupPlakaty(e) && !posta.zmenaPosta(e) && !udalost.zmenaUdalost(e) && !kal.zmenaKalendar(e)) nast.zmenaNastaveni(e); });
 
 function pise(e) {
   const t = e.target;

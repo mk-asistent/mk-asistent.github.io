@@ -3,7 +3,7 @@
 
 import { stav, zmeneno, umiMotor, hooky } from './stav.js';
 import { volej } from './api.js';
-import { esc, uloziste, dm, hhmm, DNY_KR, rozdilDni, kdyKratce } from './pomocne.js';
+import { esc, uloziste, dm, hhmm, DNY_KR, rozdilDni, kdyKratce, klub } from './pomocne.js';
 import { IKONY } from './ikony.js';
 import { toast, hlavickaKarty } from './ui.js';
 
@@ -43,7 +43,6 @@ function data() { return stav.fotbal && stav.fotbal.data; }
 export function maData() { return !!(data() && data().zapasy && data().zapasy.length); }
 
 const cas = (z) => Date.parse(z.zacatek);
-function klub(n) { return String(n || '').replace(/["„“”]/g, '').replace(/,?\s*z\.\s*s\.?$/i, '').replace(/^((FK|TJ|SK|FC|SFK|MFK|AFC|SC|Sokol|Agro)\s+)+/i, '').trim() || n; }
 function souper(z) { return klub(z.doma ? z.hoste : z.domaci); }
 /** Výhra / remíza / prohra z pohledu našeho týmu. */
 function vrp(z) {
@@ -249,7 +248,8 @@ export function vykresliFotbal(el) {
 
   let h = '<div class="fotbal-stranka"><div class="fotbal-lista"><div class="segment fotbal-vyber" role="group" aria-label="Tým">' + tymy.map((x) =>
     '<button type="button" class="chip chip--tym" style="--b:' + esc(x.barva || 'var(--accent)') + '" data-fotbal-vyber="' + esc(x.klic) + '" aria-pressed="' + (x.klic === t.klic) + '">' +
-    esc(x.nazev) + '</button>').join('') + '</div>' + (hooky.reelyTlacitko ? hooky.reelyTlacitko() : '') + '</div>';
+    esc(x.nazev) + '</button>').join('') + '</div><span class="fotbal-odkazy-stranek">' + (hooky.reelyTlacitko ? hooky.reelyTlacitko() : '') +
+    (hooky.plakatTlacitko ? hooky.plakatTlacitko() : '') + '</span></div>';
   const souhrn = [esc(t.soutez || '')].concat(radekNas ? ['<b>' + radekNas.poradi + '. místo</b>', radekNas.body + ' ' + (radekNas.body === 1 ? 'bod' : radekNas.body >= 2 && radekNas.body <= 4 ? 'body' : 'bodů'),
     radekNas.v + '–' + radekNas.r + '–' + radekNas.p, 'skóre ' + esc(radekNas.skore)] : []).filter(Boolean);
   if (souhrn.length) h += '<p class="fotbal-souhrn">' + souhrn.join(' · ') + '</p>';

@@ -275,6 +275,12 @@ const reelyUkazka = [
 ];
 const reelyZverejneno = { reel_dorost_kyjov: iso(pridejDny(dnes, minulaNedele + 1)) };
 const reelyPlan = {}, reelyPopisky = {};
+// Plakáty v ukázce: výchozí nastavení, bez ručních úprav, k nejbližšímu víkendu už popisek „od Clauda“ (vymyšlený),
+// Instagram propojený na ukázkový účet; obrázky se jen „nahrají“ (v paměti zůstane, že jsou).
+const plakatVikendUkazky = iso(pridejDny(dnes, denTydne === 0 ? -1 : 6 - denTydne));
+const plakatyUkazka = { nastaveni: {}, kola: {}, plan: {}, obrazky: {}, popisky: { [plakatVikendUkazky]: {
+  text: 'Víkend ve Vnorovech! ⚽\n\nV neděli hraje doma béčko i dorost – přijďte fandit, ať je Agro Aréna plná. 💪\n\n#fkagrovnorovy #fotbal',
+  zdroj: 'claude', kdy: ted - 5 * H, styl: '', pozadano: 0, cekaNaClauda: false } } };
 let upozorneniUkazka = { zapnuto: false, tema: '' };
 
 /** Váha v ukázce: občasné ranní vážení za poslední měsíc (vymyšlené hodnoty). */
@@ -556,6 +562,37 @@ const akce = {
     return { plan: kopie(reelyPlan), popisky: kopie(reelyPopisky) };
   },
   reelZrusitPlan: (d) => { delete reelyPlan[d.id]; delete reelyPopisky[d.id]; return { plan: kopie(reelyPlan), popisky: kopie(reelyPopisky) }; },
+  plakaty: () => kopie(Object.assign({}, plakatyUkazka, { ig: { nastaveno: true, ucet: 'klub_ukazka' } })),
+  plakatUlozit: (d) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(d.tyden || ''))) throw new Error('Víkend má tvar RRRR-MM-DD (sobota).');
+    if (d.smazat) delete plakatyUkazka.kola[d.tyden];
+    else plakatyUkazka.kola[d.tyden] = { stav: kopie(d.stav || {}), upraveno: Date.now() };
+    return { kola: kopie(plakatyUkazka.kola) };
+  },
+  plakatNastaveni: (d) => { plakatyUkazka.nastaveni = kopie(d.nastaveni || {}); return { nastaveni: kopie(plakatyUkazka.nastaveni) }; },
+  // v ukázce „odpoví“ Claude hned (skutečný popisek přijde do půl hodiny, když běží PC)
+  plakatPopisek: (d) => {
+    plakatyUkazka.popisky[d.tyden] = { text: 'Ukázkový popisek od Clauda' + (d.styl ? ' (' + d.styl + ')' : '') + ' ⚽\n\nPřijďte fandit na Agro Arénu!\n\n#fkagrovnorovy',
+      zdroj: 'claude', kdy: Date.now(), styl: String(d.styl || ''), pozadano: Date.now(), cekaNaClauda: false };
+    return { popisky: kopie(plakatyUkazka.popisky) };
+  },
+  plakatPopisekUlozit: (d) => {
+    const text = String(d.text || '');
+    plakatyUkazka.popisky[d.tyden] = Object.assign({}, plakatyUkazka.popisky[d.tyden], { text, zdroj: text ? 'rucne' : '', kdy: Date.now(), cekaNaClauda: false });
+    return { popisky: kopie(plakatyUkazka.popisky) };
+  },
+  plakatObrazky: (d) => {
+    if (!/^data:image\/jpeg;base64,/.test(String(d.prispevek || ''))) throw new Error('Obrázek pro příspěvek chybí nebo není JPEG.');
+    plakatyUkazka.obrazky[d.tyden] = { prispevek: true, pribeh: !!d.pribeh, kdy: Date.now() };
+    return { obrazky: kopie(plakatyUkazka.obrazky) };
+  },
+  plakatNaplanovat: (d) => {
+    if (!plakatyUkazka.obrazky[d.tyden]) throw new Error('Chybí obrázek plakátu – vyrob ho v aplikaci znovu.');
+    if (!(plakatyUkazka.popisky[d.tyden] || {}).text) throw new Error('Plakát nemá popisek – bez něj ho na Instagram nepošlu.');
+    plakatyUkazka.plan[d.tyden] = { kdy: Number(d.kdy), stav: 'ceka', pribeh: !!d.pribeh };
+    return { plan: kopie(plakatyUkazka.plan) };
+  },
+  plakatZrusitPlan: (d) => { delete plakatyUkazka.plan[d.tyden]; return { plan: kopie(plakatyUkazka.plan) }; },
   reelStav: (d) => {
     if (!reelyUkazka.some((r) => r.id === d.id)) throw new Error('Neplatný reel.');
     if (d.zverejneno) reelyZverejneno[d.id] = iso(Date.now()); else delete reelyZverejneno[d.id];

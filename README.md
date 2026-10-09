@@ -2,7 +2,8 @@
 
 Osobní přehled v jedné aplikaci: **schránka poznámek pro Clauda**, **pošta** (osobní a pracovní účet), **kalendář**
 (Google + kalendáře z iPhonu), **počasí ČHMÚ**, **zdraví** (WHOOP + Apple Watch), **zápasy klubu** z fotbal.cz
-a hotové **reely** s popisky pro Instagram a **auto** (náklady a tankování z tabulky Google, účtenky z fotky).
+a hotové **reely** s popisky pro Instagram, **plakát na víkend** (A3 k tisku, obrázek a Instagram) a **auto** (náklady
+a tankování z tabulky Google, účtenky z fotky).
 Webová aplikace (PWA) – na iPhonu, iPadu i PC se přidá na plochu a otevírá se jako samostatná aplikace.
 
 ## Z čeho se skládá
@@ -25,7 +26,7 @@ jen u akcí (odeslat, archivovat…) a u zdraví a počasí. Vzhled: styl „Fix
 
 ## Navigace
 Na PC a iPadu postranní panel se všemi sekcemi. Na telefonu spodní lišta (Dnes, Schránka, +, Pošta, Kalendář) a **menu
-zleva** po klepnutí na jméno nahoře – všechny sekce včetně Zdraví, Fotbalu a Reelů, dole Nastavení.
+zleva** po klepnutí na jméno nahoře – všechny sekce včetně Zdraví, Fotbalu, Reelů a Plakátů, dole Nastavení.
 
 ## Dnes
 Každá věc jen jednou: nahoře **výstrahy ČHMÚ** (jen když nějaká platí), karty **Počasí**, **Připravenost** (WHOOP),
@@ -217,6 +218,43 @@ na Instagramu jde o označení osob v reelu – `user_tags`) a **upravit popisek
 - popisek je přesně ten z `popisky\*.txt`, pokud ho Michal v okně plánu neupravil;
 - po vložení klíče jednou spustit `overInstagram` (vypíše účet).
 
+## Plakáty (program víkendu A3 a Instagram)
+Stránka **Plakáty** (levý pruh, na telefonu menu; tlačítko „Plakát“ na stránce Fotbal) = stránka Plakáty z webu dorostu
+FK Agro Vnorovy přenesená do aplikace – tvoření i tisk fungují stejně:
+- **Výběr víkendu** ◀ ▶ (výchozí nejbližší nadcházející víkend; „10. kolo“ = 10. víkend podzimu = 17.–18. 10.), štítek
+  **podle rozlosování / upraveno ručně** a **Vrátit podle rozlosování**.
+- **Náhled** plakátu A3 na šířku (1400 × 990 px) zmenšený na šířku stránky a **editor**: datum, měsíc, nadpis, velké dlaždice
+  doma, řádky mládeže, venku, v týdnu, patička – přidat a smazat, změna hned v náhledu, uložení 700 ms po psaní (motor).
+  Přeložené zápasy a poznámky svazu z fotbal.cz ukáže editor nahoře („přeloženo z so 24. 10. 11:45 na ne 25. 10. 11:45“).
+- **Vytisknout / PDF**: A3, na šířku, okraje žádné, grafika na pozadí (`@page` 420 × 297 mm, tiskne se jen plakát).
+- **Stáhnout obrázek**: JPEG 2 800 px (html2canvas 1.4.1 z cdnjs se stáhne až při prvním obrázku; na iPhonu nabídka sdílení
+  → Uložit obrázek).
+
+Odkud plakát je: zápasy **A-týmu, B-týmu a dorostu** z fotbal.cz (`stav.fotbal`, FOTBAL.json) – doma velké dlaždice, venku
+řádky „SO 14:30“, zápas v pátek před víkendem a po–čt po něm do bloku V TÝDNU; **mládež** (žáci, přípravky) z rozlosování
+podzimu 2026 v `js/plakat_data.js` (`MLADEZ`, pořadí kol `KOLA`; na jaro přepsat). Znaky klubů `plakat/znaky/` (58, z webu
+dorostu; aplikace je nepřednačítá – uloží se při prvním použití do mezipaměti `plakat-znaky`), znak soupeře podle aliasu
+nebo podle obce bez diakritiky (TJ Sokol Hroznová Lhota → `hroznova-lhota.png`); bez znaku čárkovaný rámeček se zkratkou.
+Čisté funkce (víkendy, plakát podle rozlosování, znaky, HTML, souhrn pro Clauda) jsou v `js/plakat.js`, stránka v
+`js/plakaty.js`, vzhled v `plakaty.css`. Písma: Impact a Arial Narrow na iPhonu nejsou → **Anton** a **Roboto Condensed**
+z Google Fonts (velikosti upravené tak, aby krabičky seděly na pixel jako na webu dorostu, hlavička + čára = 122 px).
+
+**Instagram** (karta vedle editoru, na telefonu nad ním): **popisek** – pole **Styl popisku** („vtipně“, „derby“, „ať přijde
+hodně lidí“) a **Popisek od Clauda**: aplikace pošle souhrn víkendu z plakátu (domácí zápasy mužů a dorostu, hlavní zápas
+áčka, venku, tabulka), motor založí úkol v NOVE (`…_plak.md`) a Claude zapíše popisek do `PLAKATY/popisky_claude.json`
+(„Claude píše popisek… do půl hodiny, když běží PC“); od víkendu v nastavení (`popiskyOd`) žádá motor sám v pondělí až
+sobotu. Popisek jde upravit ručně (štítek „upraveno“, uloží se 700 ms po psaní). **Naplánovat na Instagram**: datum a čas
+(výchozí čtvrtek před víkendem 18:00, když už prošel, za hodinu) a **i do příběhu** – aplikace vyrobí příspěvek (plakát
+1440 px) a příběh 1080 × 1920 (plakát na tmavém pozadí, nahoře PROGRAM VÍKENDU a datum, dole výzva a @účet), nahraje je
+(`plakatObrazky`) a naplánuje (`plakatNaplanovat`); motor je zveřejní stejně jako reely (`PLAKATY_PLAN`, spouštěč
+`instagramKazdych10Min`). Stav: vyjde … / nahrává se / na Instagramu (odkaz; „příběh nevyšel: důvod“) / nepovedlo se.
+
+**Nastavení plakátu** (sbalitelný oddíl na stránce): názvy týmů na plakátu, soutěže, nadpis, místo, výzva, druhý řádek
+patičky, náš znak, Instagram, od kdy píše popisky Claude sám a aliasy znaků soupeřů. V motoru je jen rozdíl od výchozích
+hodnot (`NASTAVENI` v `js/plakat_data.js`); platí pro plakáty podle rozlosování, ručně upravená kola si drží své.
+Motor: akce `plakaty`, `plakatUlozit`, `plakatNastaveni`, `plakatPopisek`, `plakatPopisekUlozit`, `plakatObrazky`,
+`plakatNaplanovat`, `plakatZrusitPlan` (data `CLAUDE_SCHRANKA/PLAKATY`); s účtem čte aplikace plakáty z kopie serveru.
+
 ## Auto (náklady a tankování)
 Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**, **Přehled**) – tabulka zůstává hlavní a je i záloha.
 - Přehled: najeto od koupě, spotřeba (litry mezi tankováními se známým stavem km), nafta na 1 km, provoz bez koupě,
@@ -378,6 +416,8 @@ node apps-script/test/ics.test.js      # kalendář .ics: opakování, zóny, v�
 node apps-script/test/motor.test.js    # motor s napodobenými službami Googlu, ČHMÚ, WHOOP
 cd testy && npm i && npx playwright install chromium && node test_aplikace.js   # telefon, iPad, PC, tmavý režim
 JEN=telefon node test_aplikace.js      # jen testy, jejichž název obsahuje „telefon“
+PORT_TESTU=8776 node test_aplikace.js  # jiný port, když na PC zrovna běží testy z jiné kopie repa
+node testy/test_plakat.mjs             # plakát: víkendy, plakát podle rozlosování, znaky soupeřů, souhrn pro Clauda
 node testy/sw_verze.js --zapsat        # po změně souborů aplikace: VERZE service workeru podle obsahu
 node firebase/functions/test.js        # server: obnova kopií z napodobeného motoru
 ```

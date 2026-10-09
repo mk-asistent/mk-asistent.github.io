@@ -75,6 +75,9 @@ export function prvniRadek(s, max) {
 }
 
 export function tvar(n, jedna, dve, pet) { return n === 1 ? jedna : n >= 2 && n <= 4 ? dve : pet; }
+
+/** Název klubu bez právní formy a zkratek: „FK Hodonín "B"“ → „Hodonín B“, „TJ Sokol Těšany, z. s.“ → „Těšany“ (fotbal, plakát). */
+export function klub(n) { return String(n || '').replace(/["„“”]/g, '').replace(/,?\s*z\.\s*s\.?$/i, '').replace(/^((FK|TJ|SK|FC|SFK|MFK|AFC|SC|Sokol|Agro)\s+)+/i, '').trim() || n; }
 export function velkePrvni(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 
 export function iniciala(jmeno) {
