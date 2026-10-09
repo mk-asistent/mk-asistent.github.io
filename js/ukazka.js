@@ -50,8 +50,15 @@ const schranka = {
     { id: 'h1', slozka: 'HOTOVO', kdy: ted - 22 * H, odkud: 'iPhone', typ: 'dotaz', stav: 'hotovo',
       shrnuti: 'Kolik místností má budova ve 2. NP', termin: '', text: 'Kolik místností je ve druhém patře?',
       vlakno: [{ kdo: 'Claude', kdy: iso(ted - 20 * H) + ' 07:32', text: 'Podle tabulky místností je ve 2. NP 48 místností, z toho 6 technických.' }] }
+  ],
+  // moje poznámky „pro mě“ (zkratka Pro mě, aplikace) – Claude je nečte
+  moje: [
+    { id: 'm1', kdy: ted - 1.5 * H, odkud: 'iPhone', text: 'Koupit dárek k narozeninám babičky – něco na zahradu.' },
+    { id: 'm2', kdy: ted - 27 * H, odkud: 'iPhone', text: 'Zjistit cenu zimních pneumatik a přezout do konce října.' },
+    { id: 'm3', kdy: ted - 4 * 24 * H, odkud: 'aplikace', text: 'Film na víkend: projít seznam doporučení od kamaráda.\nVzít i popcorn.' }
   ]
 };
+const mojeHotove = [], smazaneMoje = {}; // hotové moje poznámky (MOJE/HOTOVO) a smazané (koš) – kvůli Vrátit
 
 // návrhy odpovědí od Clauda (v ukázce jeden – na dotaz svazu)
 const navrhyOdpovedi = { t4: { zpravaId: 'z-t4', text: 'Dobrý den,\n\nneděle 10:15 nám vyhovuje, autobus objednáme o hodinu dřív.\n\nDěkuji',
@@ -401,6 +408,39 @@ const akce = {
     schranka[sk] = schranka[sk].filter((x) => x.id !== d.id);
     if (d.jak === 'hotovo' || d.jak === 'zahodit') { p.slozka = 'HOTOVO'; schranka.hotovo.unshift(p); } else { p.slozka = 'NOVE'; schranka.nove.unshift(p); }
     return true;
+  },
+  // smazat (koš) a vrátit – poznámky pro Clauda i moje poznámky
+  schrankaSmazat: (d) => {
+    const i = schranka.moje.findIndex((x) => x.id === d.id);
+    if (i >= 0) { smazaneMoje[d.id] = schranka.moje.splice(i, 1)[0]; return true; }
+    const j = mojeHotove.findIndex((x) => x.id === d.id);
+    if (j >= 0) { smazaneMoje[d.id] = mojeHotove.splice(j, 1)[0]; return true; }
+    return akce.polozka({ id: d.id, jak: 'smazat' });
+  },
+  schrankaObnovit: (d) => {
+    if (smazaneMoje[d.id]) { schranka.moje.unshift(smazaneMoje[d.id]); schranka.moje.sort((a, b) => b.kdy - a.kdy); delete smazaneMoje[d.id]; return true; }
+    najdiPolozku(d.id); // vrátí ji ze „smazaných“
+    return true;
+  },
+  mojePridat: (d) => {
+    const text = String(d.text || '').trim();
+    if (!text) throw new Error('Prázdná poznámka.');
+    const p = { id: 'm' + Date.now(), kdy: Date.now(), odkud: 'aplikace', text };
+    schranka.moje.unshift(p);
+    return kopie(p);
+  },
+  mojeHotovo: (d) => {
+    const z = d.zpet ? mojeHotove : schranka.moje, na = d.zpet ? schranka.moje : mojeHotove;
+    const i = z.findIndex((x) => x.id === d.id);
+    if (i < 0) throw new Error(d.zpet ? 'Poznámka není mezi hotovými.' : 'Poznámka není mezi mými poznámkami.');
+    const p = z.splice(i, 1)[0];
+    na.unshift(p);
+    if (d.zpet) schranka.moje.sort((a, b) => b.kdy - a.kdy);
+    return kopie(p);
+  },
+  mojeSmazat: (d) => {
+    if (!schranka.moje.some((x) => x.id === d.id) && !mojeHotove.some((x) => x.id === d.id)) throw new Error('Poznámka není mezi mými poznámkami.');
+    return akce.schrankaSmazat(d);
   },
   posta: () => kopie(Object.assign({}, posta, { ted: Date.now() })),
   vlakno: (d) => {

@@ -47,7 +47,10 @@ const motor = {
   schranka: () => ({ nove: [{ id: 'n1', slozka: 'NOVE', kdy: ted - H, odkud: 'iPhone', typ: '', stav: '', shrnuti: '', termin: '', text: 'Zkušební poznámka z iPhonu', vlakno: [] }],
     ceka: [{ id: 'c1', slozka: 'CEKA', kdy: ted - 5 * H, odkud: 'iPhone', typ: 'ukol-michal', stav: 'tvuj-ukol', shrnuti: 'Zavolat kvůli lešení', termin: '', text: 'Připomeň mi zavolat.', vlakno: [] },
       { id: 'c2', slozka: 'CEKA', kdy: ted - 2 * H, odkud: 'iPhone', typ: 'email', stav: 'rozhodni', shrnuti: 'E-mail trenérovi', termin: '', tema: '', nadpis: '',
-        navrh: { typ: 'email', komu: ['Trenér'], predmet: 'Trénink', text: 'Ahoj, v úterý nepřijdu.' }, text: 'Napiš trenérovi, že v úterý nepřijdu.', vlakno: [] }],
+        navrh: { typ: 'email', komu: ['Trenér'], predmet: 'Trénink', text: 'Ahoj, v úterý nepřijdu.' }, text: 'Napiš trenérovi, že v úterý nepřijdu.', vlakno: [] }]
+      .filter((p) => !smazanoSchranka.has(p.id)),
+    // moje poznámky „pro mě“ (MOJE) – aktivní, bez hotových a smazaných, nejnovější nahoře
+    moje: mojePoznamkyTest.filter((p) => !smazanoSchranka.has(p.id) && !mojeHotoveTest.has(p.id)).sort((a, b) => b.kdy - a.kdy).map((p) => Object.assign({}, p)),
     hotovo: [], ted: Date.now() }),
   posta: () => Object.assign({ osobni: [vlaknoSouhrn.v1], pracovni: [vlaknoSouhrn.v2], pracovniAdresa: 'prace@firma.test', firemni: null, ted: Date.now() },
     JSON.parse(JSON.stringify(postaNavic))),
@@ -86,6 +89,23 @@ const motor = {
     termin: d.termin, text: 'Připomenutí e-mailu.', vlakno: [] }),
   polozka: (d) => (d.jak === 'nadpis' || d.jak === 'tema' || d.jak === 'termin' ? Object.assign(motor.schranka().ceka.find((x) => x.id === d.id), { [d.jak]: d.text }) : true),
   poznamka: (d) => ({ id: 'n' + Date.now(), slozka: 'NOVE', kdy: Date.now(), odkud: 'aplikace', typ: '', stav: '', shrnuti: '', termin: '', text: d.text, vlakno: [] }),
+  // smazání do koše a Vrátit (poznámky pro Clauda i moje), moje poznámky: přidat, hotovo (a zpět), smazat
+  schrankaSmazat: (d) => { smazanoSchranka.add(d.id); return true; },
+  schrankaObnovit: (d) => { smazanoSchranka.delete(d.id); return true; },
+  mojePridat: (d) => {
+    const text = String(d.text || '').trim();
+    if (!text) throw new Error('Prázdná poznámka.');
+    const p = { id: 'moje-' + (mojePoznamkyTest.length + 1), text, kdy: Date.now(), odkud: 'aplikace' };
+    mojePoznamkyTest.push(p);
+    return Object.assign({}, p);
+  },
+  mojeHotovo: (d) => {
+    const p = mojePoznamkyTest.find((x) => x.id === d.id);
+    if (!p || (d.zpet ? !mojeHotoveTest.has(d.id) : mojeHotoveTest.has(d.id))) throw new Error('Poznámka není mezi mými poznámkami.');
+    if (d.zpet) mojeHotoveTest.delete(d.id); else mojeHotoveTest.add(d.id);
+    return Object.assign({}, p);
+  },
+  mojeSmazat: (d) => { if (!mojePoznamkyTest.some((x) => x.id === d.id)) throw new Error('Poznámka není mezi mými poznámkami.'); smazanoSchranka.add(d.id); return true; },
   zdravi: () => ({ vytvoreno: ted, dny: [
       { den: iso(den(-1, 12)), whoop: { pripravenost: { skore: 55, hrv: 70, klidovyTep: 52 }, zatez: { zatez: 12.1, kroky: 9000 } },
         apple: { kroky: 10234, energie: 640, cviceni: 45, vzdalenost: 7.8, vo2max: 41.2 } },
@@ -248,6 +268,17 @@ const volano = [];
 let ztratitOdpovedi = 0;          // kolik dalších odpovědí motoru „ztratí Google“ (test opakování)
 const odpovediRid = new Map();    // rid → odpověď (motor opakovaný zápis neprovede)
 let navrhZahozen = false;
+// schránka: smazané poznámky (koš na Disku – Vrátit je vrátí) a moje poznámky „pro mě“ (MOJE, hotové = MOJE/HOTOVO)
+const smazanoSchranka = new Set(), mojeHotoveTest = new Set();
+const MOJE_VYCHOZI = [{ id: 'moje-a', text: 'Koupit žárovky do garáže', kdy: ted - 2 * H, odkud: 'iPhone' },
+  { id: 'moje-b', text: 'Zjistit cenu zimních pneumatik a přezout do konce října, ať nečekám na první sníh. Ceník: https://example.com/pneu', kdy: ted - 30 * H, odkud: 'iPhone' }];
+const mojePoznamkyTest = MOJE_VYCHOZI.map((p) => Object.assign({}, p));
+/** Schránka zpět do výchozího stavu (testy schránky po sobě uklidí). */
+function vycistiSchranku() {
+  smazanoSchranka.clear();
+  mojeHotoveTest.clear();
+  mojePoznamkyTest.splice(0, mojePoznamkyTest.length, ...MOJE_VYCHOZI.map((p) => Object.assign({}, p)));
+}
 const autoZapisy = [], autoSmazano = [], autoUctenky = [], autoUpravy = [], autoFotky = [], autoTerminy = [];
 let postaNavic = {};              // test záložek: aktualizace v Doručené, čísla záložek a přehled od Clauda
 const doplnkyDny = {}, doplnkyVolani = []; // odškrtnuté doplňky (motor: ZDRAVI/DOPLNKY.json)
@@ -663,7 +694,10 @@ function vychoziVikendTestu() {
         const klikNaSekci = async (s) => page.click((v.sirka < 760 ? '#lista' : '#rail') + ' [data-cil="' + s + '"]');
         await klikNaSekci('schranka');
         await page.waitForSelector('#sk-ukol');
+        await page.waitForSelector('#sb-tyden .sb-cisla');
         jistota(await pretika() <= 0, 'Schránka přetéká');
+        await page.waitForFunction(() => !document.querySelector('.panel')); // Nastavení dojede (zavírá se ještě 260 ms)
+        await page.screenshot({ path: path.join(VYSTUP, jmeno + '_schranka.png'), fullPage: v.nazev !== 'pc' });
         await page.click('#p-schranka [data-filtr-schranky="nove"]');
         await page.waitForFunction(() => !document.querySelector('#sk-ukol') && document.querySelector('#sk-nove'));
         await page.click('#p-schranka [data-filtr-schranky="vse"]');
@@ -1011,13 +1045,16 @@ function vychoziVikendTestu() {
     await page.waitForFunction(() => document.querySelector('#p-schranka [data-polozka-id="c2"] .stitek-gmail'));
     jistota(volano.some((d) => d.akce === 'polozka' && d.id === 'c2' && d.jak === 'tema' && d.text === 'fotbal'), 'téma nedorazilo do motoru');
     jistota(await page.locator('#p-schranka [data-tema-schranky="fotbal"]').count() === 1, 'filtr podle tématu');
-    // smazat: potvrzení, zmizí ze seznamu, nabídne Vrátit
+    // smazat: bez dotazu hned pryč (Michal 9. 10.), v oznámení Vrátit – poznámka jde do koše na Disku
     await page.click('#p-schranka [data-polozka-akce="smazat"][data-id="c2"]');
-    await page.waitForSelector('.okno-pozadi.videt [data-okno="ano"]');
-    await page.click('.okno-pozadi [data-okno="ano"]');
     await page.waitForFunction(() => !document.querySelector('#p-schranka [data-polozka-id="c2"]') && /Vrátit/.test(document.getElementById('toast').textContent));
-    jistota(volano.some((d) => d.akce === 'polozka' && d.id === 'c2' && d.jak === 'smazat'), 'smazání nedorazilo do motoru');
+    jistota(!(await page.locator('.okno-pozadi').count()), 'smazání se nemá ptát');
+    await cekej(() => volano.some((d) => d.akce === 'schrankaSmazat' && d.id === 'c2'), 3000, 'smazání do motoru');
+    await page.click('#toast .toast__akce');
+    await page.waitForSelector('#p-schranka [data-polozka-id="c2"]');
+    await cekej(() => volano.some((d) => d.akce === 'schrankaObnovit' && d.id === 'c2'), 3000, 'Vrátit do motoru');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    vycistiSchranku();
     await ctx.close();
   });
 
@@ -1101,6 +1138,218 @@ function vychoziVikendTestu() {
       await ctx.close();
     } finally {
       motor.schranka = puvodni;
+    }
+  });
+
+  // ---------- stránka Schránka (Michal 9. 10.: „je taková prázdná“): přehled vpravo, pravé tlačítko na položce
+  /** Schránka s úkolem po termínu a na zítra, nápadem a Claudovou odpovědí – pro přehled vpravo. */
+  const schrankaPlna = (puvodni) => () => {
+    const s = puvodni();
+    const c1 = s.ceka.find((p) => p.id === 'c1');
+    if (c1) c1.termin = iso(den(-2));
+    s.ceka.push({ id: 'c3', slozka: 'CEKA', kdy: ted - 26 * H, odkud: 'aplikace', typ: 'ukol-michal', stav: 'tvuj-ukol', shrnuti: 'Objednat dresy pro dorost', termin: iso(den(1)),
+      text: 'Objednat dresy.', vlakno: [] });
+    s.ceka.push({ id: 'c5', slozka: 'CEKA', kdy: ted - 50 * H, odkud: 'iPhone', typ: 'napad', stav: 'napad', shrnuti: 'Taktická tabule ve 3D', termin: '', tema: 'fotbal',
+      text: 'Nápad: taktická tabule ve 3D.', vlakno: [] });
+    s.hotovo = [{ id: 'h1', slozka: 'HOTOVO', kdy: ted - 20 * H, odkud: 'iPhone', typ: 'dotaz', stav: 'hotovo', shrnuti: 'Kolik místností má 2. NP', termin: iso(den(-3)), text: 'Kolik je místností?',
+      vlakno: [{ kdo: 'Claude', kdy: iso(ted - 3 * H) + ' 07:30', text: 'Ve 2. NP je 48 místností.' }] }].filter((p) => !smazanoSchranka.has(p.id));
+    s.zpracovano = ted - 30 * 6e4;
+    return s;
+  };
+  await test('pc: Schránka ve dvou sloupcích – týden v číslech, moje poznámky, termíny, nápady; pravé tlačítko → Smazat bez dotazu, Vrátit, Hotovo', async () => {
+    const puvodni = motor.schranka;
+    motor.schranka = schrankaPlna(puvodni);
+    try {
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, { nazev: 'pc', sirka: 1650, vyska: 1000, dotyk: false });
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="schranka"]');
+      await page.waitForSelector('#sb-tyden .sb-cisla');
+      await page.waitForSelector('#sb-moje .moje-polozka');
+      // vlevo seznam, vpravo přehled – vedle sebe, nahoře zarovnané
+      const r = await page.evaluate(() => {
+        const box = (s) => { const b = document.querySelector(s).getBoundingClientRect(); return { l: b.left, r: b.right, t: b.top, w: b.width }; };
+        return { hlavni: box('.schranka-hlavni'), bok: box('.schranka-bok'), stranka: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+      });
+      jistota(r.bok.l >= r.hlavni.r && Math.abs(r.bok.t - r.hlavni.t) < 2 && r.bok.w >= 320 && r.hlavni.w > 700 && r.stranka <= 0, 'rozvržení: ' + JSON.stringify(r));
+      const tyden = await page.textContent('#sb-tyden');
+      jistota(/Zadáno\s*\d+/.test(tyden) && /Vyřízeno\s*1/.test(tyden) && /Čeká\s*3\s*na tebe/.test(tyden) && /Claude naposledy (dnes|včera) \d/.test(tyden), 'týden v číslech: ' + tyden);
+      jistota(await page.locator('#sb-tyden .sb-graf__den').count() === 7 && await page.locator('#sb-tyden .sb-graf__sloupec.dnes').count() === 1, 'sloupce po dnech');
+      const terminy = await page.locator('#sb-terminy .sb-termin').allTextContents();
+      jistota(terminy.length === 2 && /po termínu/.test(terminy[0]) && /lešení/.test(terminy[0]) && /zítra/.test(terminy[1]), 'termíny: ' + JSON.stringify(terminy));
+      // nápady ve „Vše“ vpravo, ne v seznamu; ve filtru Nápady v seznamu a karta vpravo pryč
+      jistota(await page.locator('#sb-napady [data-polozka-id="c5"]').count() === 1 && !(await page.locator('#schranka-obsah [data-polozka-id="c5"]').count()), 'nápad vpravo');
+      jistota(/Koupit žárovky/.test(await page.textContent('#sb-moje')), 'moje poznámky vpravo');
+      // vyřízený úkol není „po termínu“
+      jistota(!/po termínu/.test(await page.textContent('#schranka-obsah [data-polozka-id="h1"]')), 'vyřízená položka bez „po termínu“');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_schranka_cela.png'), fullPage: true });
+      await page.click('#sb-napady [data-sb-filtr="napad"]');
+      await page.waitForFunction(() => document.querySelector('#schranka-obsah [data-polozka-id="c5"]') && document.querySelector('#sb-napady').hidden);
+      await page.click('#p-schranka [data-filtr-schranky="vse"]');
+      // termín → položka rozbalená v seznamu
+      await page.click('#sb-terminy [data-sb-polozka="c3"]');
+      await page.waitForSelector('#schranka-obsah [data-polozka-id="c3"] .detail');
+      await page.waitForTimeout(200); // stránka dojede k položce (posun by otevřenou nabídku zavřel)
+      // pravé tlačítko na řádku: nabídka u kurzoru, Esc ji zavře
+      await page.click('#schranka-obsah [data-prepni="c1"]', { button: 'right' });
+      await page.waitForSelector('.nabidka.videt');
+      const nab = await page.locator('.nabidka [data-nabidka-i]').allTextContents();
+      jistota(nab.join('|') === 'Otevřít|Hotovo|Dopsat|Smazat', 'nabídka úkolu: ' + nab.join('|'));
+      await page.waitForTimeout(200); // dojede animace
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_schranka_nabidka.png') });
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.nabidka', { state: 'detached' });
+      // Smazat: hned pryč bez okna, Vrátit v oznámení
+      await page.click('#schranka-obsah [data-prepni="c1"]', { button: 'right' });
+      await page.click('.nabidka [data-nabidka-i="3"]');
+      await page.waitForFunction(() => !document.querySelector('#p-schranka [data-polozka-id="c1"]') && /Vrátit/.test(document.getElementById('toast').textContent));
+      jistota(!(await page.locator('.okno-pozadi').count()) && !(await page.locator('.nabidka').count()), 'bez dotazu');
+      await cekej(() => volano.some((d) => d.akce === 'schrankaSmazat' && d.id === 'c1'), 3000, 'smazání do motoru');
+      jistota(!(await page.locator('#sb-terminy [data-sb-polozka="c1"]').count()), 'smazaný úkol zmizí i z termínů');
+      await page.click('#toast .toast__akce');
+      await page.waitForSelector('#schranka-obsah [data-polozka-id="c1"]');
+      await cekej(() => volano.some((d) => d.akce === 'schrankaObnovit' && d.id === 'c1'), 3000, 'Vrátit do motoru');
+      // vyřízená položka: bez Hotovo, s Navázat
+      await page.click('#schranka-obsah [data-prepni="h1"]', { button: 'right' });
+      const nabH = await page.locator('.nabidka [data-nabidka-i]').allTextContents();
+      jistota(nabH.join('|') === 'Otevřít|Navázat|Smazat', 'nabídka vyřízené: ' + nabH.join('|'));
+      await page.keyboard.press('Escape');
+      // Hotovo z nabídky → do motoru, položka mezi vyřízenými
+      await page.click('#schranka-obsah [data-prepni="c1"]', { button: 'right' });
+      await page.click('.nabidka [data-nabidka-i="1"]');
+      await cekej(() => volano.some((d) => d.akce === 'polozka' && d.id === 'c1' && d.jak === 'hotovo'), 3000, 'Hotovo do motoru');
+      // v rozbaleném textu odpovědi zůstává nabídka prohlížeče (kopírování) – vlastní se neotevře
+      await page.click('#schranka-obsah [data-prepni="h1"]');
+      await page.click('#schranka-obsah [data-polozka-id="h1"] .b-claude', { button: 'right' });
+      await page.waitForTimeout(150);
+      jistota(!(await page.locator('.nabidka').count()), 'v textu odpovědi nabídka prohlížeče');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    } finally {
+      motor.schranka = puvodni;
+      vycistiSchranku();
+    }
+  });
+
+  // ---------- Moje poznámky na Dnes (Michal 9. 10.: „poznámka sám pro sebe na později … na hlavní stránce pro mě“)
+  await test('pc: Moje poznámky na Dnes – přidat Enterem, Hotovo s Vrátit, pravé tlačítko → Smazat a Vrátit, celý text, ⋯', async () => {
+    try {
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-moje:not([hidden]) .moje-polozka');
+      jistota(/Moje poznámky · 2/.test(await page.textContent('#dl-moje .card-hlava')), 'hlavička s počtem');
+      // přidat: Enter v poli, nahoře nová, pole prázdné a s fokusem (další poznámka hned)
+      await page.fill('#dl-moje [data-moje-pole]', 'Vyzvednout boty z opravy');
+      await page.press('#dl-moje [data-moje-pole]', 'Enter');
+      await page.waitForFunction(() => /Vyzvednout boty/.test((document.querySelector('#dl-moje .moje-polozka') || {}).textContent || ''));
+      jistota(volano.some((d) => d.akce === 'mojePridat' && d.text === 'Vyzvednout boty z opravy'), 'přidání do motoru');
+      jistota(await page.inputValue('#dl-moje [data-moje-pole]') === '' && await page.evaluate(() => document.activeElement.matches('#dl-moje [data-moje-pole]')), 'pole prázdné s fokusem');
+      // rozepsaný text přežije překreslení Dnes (data ze serveru, jiná karta) – i s kurzorem
+      await page.type('#dl-moje [data-moje-pole]', 'Rozepsáno');
+      await page.evaluate(() => import('/js/stav.js').then((m) => m.zmeneno()));
+      await page.waitForTimeout(50);
+      jistota(await page.inputValue('#dl-moje [data-moje-pole]') === 'Rozepsáno' && await page.evaluate(() => document.activeElement.matches('#dl-moje [data-moje-pole]')), 'rozepsaný text po překreslení');
+      await page.fill('#dl-moje [data-moje-pole]', '');
+      const nova = volano.filter((d) => d.akce === 'mojePridat').length;
+      // Hotovo: kroužek → hned pryč, Vrátit
+      const id = await page.getAttribute('#dl-moje .moje-polozka', 'data-moje-id');
+      await page.click('#dl-moje [data-moje-hotovo="' + id + '"]');
+      await page.waitForFunction((i) => !document.querySelector('#dl-moje [data-moje-id="' + i + '"]') && /Vrátit/.test(document.getElementById('toast').textContent), id);
+      await cekej(() => volano.some((d) => d.akce === 'mojeHotovo' && d.id === id && !d.zpet), 3000, 'hotovo do motoru');
+      await page.click('#toast .toast__akce');
+      await page.waitForSelector('#dl-moje [data-moje-id="' + id + '"]');
+      await cekej(() => volano.some((d) => d.akce === 'mojeHotovo' && d.id === id && d.zpet), 3000, 'Vrátit hotovo');
+      // pravé tlačítko → Smazat (bez dotazu) → Vrátit = obnovit z koše
+      await page.click('#dl-moje [data-moje-id="moje-a"] .moje-obsah', { button: 'right' });
+      await page.waitForSelector('.nabidka.videt');
+      const nab = await page.locator('.nabidka [data-nabidka-i]').allTextContents();
+      jistota(nab.join('|') === 'Hotovo|Předat Claudovi|Kopírovat text|Smazat', 'nabídka mé poznámky: ' + nab.join('|'));
+      await page.waitForTimeout(200); // dojede animace
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_dnes_moje_nabidka.png') });
+      await page.click('.nabidka [data-nabidka-i="3"]');
+      await page.waitForFunction(() => !document.querySelector('#dl-moje [data-moje-id="moje-a"]'));
+      jistota(!(await page.locator('.okno-pozadi').count()), 'smazání se nemá ptát');
+      await cekej(() => volano.some((d) => d.akce === 'mojeSmazat' && d.id === 'moje-a'), 3000, 'smazání do motoru');
+      await page.click('#toast .toast__akce');
+      await page.waitForSelector('#dl-moje [data-moje-id="moje-a"]');
+      await cekej(() => volano.some((d) => d.akce === 'schrankaObnovit' && d.id === 'moje-a'), 3000, 'obnovit z koše');
+      // klepnutí na text = celý text s odkazem; ⋯ otevře stejnou nabídku
+      await page.click('#dl-moje [data-moje-id="moje-b"] .moje-obsah');
+      await page.waitForSelector('#dl-moje [data-moje-id="moje-b"] .moje-text--cely a[href="https://example.com/pneu"]');
+      await page.hover('#dl-moje [data-moje-id="moje-a"]');
+      await page.click('#dl-moje [data-moje-id="moje-a"] [data-moje-nabidka]');
+      await page.waitForSelector('.nabidka.videt');
+      await page.click('#hlava', { position: { x: 5, y: 5 } }); // klepnutí vedle nabídku zavře
+      await page.waitForSelector('.nabidka', { state: 'detached' });
+      // Předat Claudovi: nová poznámka do schránky, moje do hotových
+      await page.click('#dl-moje [data-moje-id="moje-a"] .moje-obsah', { button: 'right' });
+      await page.click('.nabidka [data-nabidka-i="1"]');
+      await cekej(() => volano.some((d) => d.akce === 'poznamka' && d.text === 'Koupit žárovky do garáže') &&
+        volano.some((d) => d.akce === 'mojeHotovo' && d.id === 'moje-a' && !d.zpet), 3000, 'předat Claudovi');
+      await page.waitForFunction(() => !document.querySelector('#dl-moje [data-moje-id="moje-a"]'));
+      jistota(volano.filter((d) => d.akce === 'mojePridat').length === nova, 'nic navíc nepřidáno');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_dnes_moje.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    } finally {
+      vycistiSchranku();
+    }
+  });
+
+  await test('telefon: + → Moje poznámka, dlouhé podržení = nabídka (moje poznámka i úkol na Dnes), Schránka pod sebou', async () => {
+    try {
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-moje:not([hidden]) .moje-polozka');
+      // + v liště → Moje poznámka → okno s polem
+      await page.click('#lista [data-rychle]');
+      await page.click('[data-panel="rychle"] [data-rychle-akce="moje"]');
+      await page.waitForSelector('.okno-pozadi.videt .okno__pole textarea');
+      await page.fill('.okno-pozadi .okno__pole textarea', 'Zavolat babičce v neděli');
+      await page.click('.okno-pozadi [data-okno="ano"]');
+      await cekej(() => volano.some((d) => d.akce === 'mojePridat' && d.text === 'Zavolat babičce v neděli'), 3000, 'z okna do motoru');
+      await page.waitForFunction(() => /Zavolat babičce/.test(document.querySelector('#dl-moje').textContent));
+      // dlouhé podržení prstu na mé poznámce → nabídka; klepnutí po podržení poznámku nerozbalí
+      const podrz = async (sel) => {
+        await page.locator(sel).first().scrollIntoViewIfNeeded();
+        await page.waitForTimeout(100); // posun dojede (posun stránky nabídku zavírá)
+        const b = await page.locator(sel).first().boundingBox();
+        const bod = { pointerType: 'touch', isPrimary: true, pointerId: 7, clientX: b.x + b.width / 2, clientY: b.y + b.height / 2 };
+        await page.locator(sel).first().dispatchEvent('pointerdown', bod);
+        await page.waitForTimeout(650);
+        await page.locator(sel).first().dispatchEvent('pointerup', bod);
+        await page.locator(sel).first().dispatchEvent('click');
+      };
+      await podrz('#dl-moje [data-moje-id="moje-b"] .moje-obsah');
+      await page.waitForSelector('.nabidka.videt');
+      jistota(await page.getAttribute('#dl-moje [data-moje-id="moje-b"] .moje-obsah', 'aria-expanded') === 'false', 'klepnutí po podržení nemá rozbalit');
+      const r = await page.evaluate(() => { const b = document.querySelector('.nabidka').getBoundingClientRect(); return [b.left, b.right, innerWidth]; });
+      jistota(r[0] >= 0 && r[1] <= r[2], 'nabídka na obrazovce: ' + r.join());
+      await page.waitForTimeout(200); // dojede animace
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_moje_nabidka.png') });
+      await page.tap('.nabidka [data-nabidka-i="0"]'); // Hotovo
+      await cekej(() => volano.some((d) => d.akce === 'mojeHotovo' && d.id === 'moje-b'), 3000, 'hotovo z nabídky');
+      // úkol ve Vyžaduje pozornost: podržení → Otevřít / Hotovo / Dopsat / Smazat; posun stránky nabídku zavře
+      await podrz('.pozornost [data-ukaz-polozku="c1"]');
+      await page.waitForSelector('.nabidka.videt');
+      jistota(/Smazat/.test(await page.textContent('.nabidka')) && /Otevřít/.test(await page.textContent('.nabidka')), 'nabídka úkolu na telefonu');
+      await page.evaluate(() => window.scrollBy(0, 40));
+      await page.waitForSelector('.nabidka', { state: 'detached' });
+      // krátké klepnutí nabídku neotevře
+      await page.tap('#dl-moje [data-moje-id="moje-a"] .moje-obsah');
+      await page.waitForTimeout(600);
+      jistota(!(await page.locator('.nabidka').count()), 'klepnutí není podržení');
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_dnes_moje.png'), fullPage: true });
+      // Schránka na telefonu: přehled pod seznamem, nic nepřetéká
+      await page.click('.lista__btn[data-cil="schranka"]');
+      await page.waitForSelector('#sb-moje:not([hidden]) .moje-polozka');
+      const s = await page.evaluate(() => ({ seznam: document.querySelector('.schranka-hlavni').getBoundingClientRect().bottom,
+        bok: document.querySelector('.schranka-bok').getBoundingClientRect().top, pretika: document.documentElement.scrollWidth - document.documentElement.clientWidth }));
+      jistota(s.bok >= s.seznam && s.pretika <= 0, 'telefon: ' + JSON.stringify(s));
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_schranka_cela.png'), fullPage: true });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    } finally {
+      vycistiSchranku();
     }
   });
 
