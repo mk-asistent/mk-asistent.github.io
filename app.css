@@ -1874,6 +1874,10 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
     .dnes-mobil { display: flex; flex-direction: column; gap: 14px; }
     #p-dnes .kpi-mrizka, #p-dnes .dl-pozornost { display: none; }
     .dnes-mrizka { grid-template-areas: "vpravo"; }
+    /* karty pod hlavní kartou a seznamy (moje poznámky, týden, doplňky, pití…) prohlížeč skládá až při posunu k nim – první
+       vykreslení (i okamžitý snímek) jen pro to, co je vidět (měřeno 9. 10.: první obraz o ~0,4 s dřív, návrat na Dnes 93 → 40 ms) */
+    .dnes-vpravo > section { content-visibility: auto; contain-intrinsic-size: auto 360px; }
+    .zdravi-mrizka-karet > section { content-visibility: auto; contain-intrinsic-size: auto 420px; }
 
     .hero { border-radius: 26px; background: #3d7a56; padding: 8px; color: #fff; }
     .hero__hlava { display: flex; align-items: center; justify-content: space-between; padding: 6px 4px 10px 6px; }

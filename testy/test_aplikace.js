@@ -1954,6 +1954,14 @@ function vychoziVikendTestu() {
           const t = await page.innerHTML('#p-zdravi .tyden-claude');
           jistota(/<b>bílkoviny<\/b>/.test(t) && /<li>víc vody<\/li>/.test(t) && /&lt;b&gt;ne HTML/.test(t), 'týden od Clauda (tučně, odrážky, bez HTML): ' + t);
           jistota(/odešlo i e-mailem/.test(await page.textContent('#p-zdravi .zd-tyden')), 'štítek e-mailu');
+          // telefon: karty mimo obrazovku prohlížeč skládá až při posunu k nim (content-visibility) – projet stránku jako Michal
+          await page.evaluate(async () => {
+            for (const k of document.querySelectorAll('#p-zdravi .zdravi-mrizka-karet > *')) {
+              k.scrollIntoView({ block: 'center' });
+              await new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)));
+            }
+            window.scrollTo(0, 0);
+          });
           const mira = await page.evaluate(() => {
             const m = document.querySelector('#p-zdravi .zdravi-mrizka-karet');
             const karty = Array.from(m.children);
