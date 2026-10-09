@@ -17,6 +17,7 @@ import { nactiSchranku, ulozMistne } from './schranka.js';
 export const IKONA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
   '<path d="M5.5 4h13A1.5 1.5 0 0 1 20 5.5V14l-6 6H5.5A1.5 1.5 0 0 1 4 18.5v-13A1.5 1.5 0 0 1 5.5 4z"/><path d="M20 14h-4.5a1.5 1.5 0 0 0-1.5 1.5V20"/><path d="M8 8.5h8M8 12h5"/></svg>';
 
+const MYS = window.matchMedia('(hover: hover) and (pointer: fine)'); // klávesnice a myš (PC) – nápověda Ctrl+Enter
 const NA_DNES = 5;          // na Dnes nejnovějších pět, zbytek ve Schránce
 const NA_STRANCE = 12;      // ve Schránce dvanáct, pak „Ukázat všech“
 let rozepsano = '';         // text v poli rychlého přidání – karta se překresluje, text (i kurzor) se vrátí
@@ -161,7 +162,7 @@ async function pridej(text) {
 /** „+“ → Moje poznámka: okno s polem (víc řádků, Ctrl+Enter uloží). */
 export async function otevriPridani() {
   const text = await okno({ ikona: IKONA, nadpis: 'Moje poznámka', text: 'Jen pro tebe, na později – Claude ji nečte. Uvidíš ji na Dnes.',
-    pole: { popisek: 'Poznámka', radku: 3, placeholder: 'Co si chceš zapamatovat… (Ctrl+Enter uloží)' }, ano: 'Uložit' });
+    pole: { popisek: 'Poznámka', radku: 3, placeholder: 'Co si chceš zapamatovat…' + (MYS.matches ? ' (Ctrl+Enter uloží)' : '') }, ano: 'Uložit' });
   // neuložená (bez sítě) se neztratí – zůstane rozepsaná v poli karty
   if (text && !(await pridej(text)) && !rozepsano.trim()) { rozepsano = text.replace(/\s+/g, ' '); zmeneno(); }
 }

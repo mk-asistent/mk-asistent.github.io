@@ -181,8 +181,9 @@ export function agenda(dni, max) {
     h += '<li class="agenda__den' + (ukazat.length ? '' : ' agenda__den--volny') + (svatekObl.length ? ' agenda__den--oblibeny' : '') + '">' +
       '<button type="button" class="agenda__den-btn" data-skoc-den="' + t + '" title="' + esc(velkePrvni(datumDlouhe(t))) + ' – otevřít v kalendáři">' +
       '<b>' + nazevDne + '</b><small>' + new Date(t).getDate() + '. ' + (new Date(t).getMonth() + 1) + '.</small>' +
+      // skryté události dne hned u data („+2 další“) – vpravo za jménem svátku se četly jako další jmeniny
+      (ud.length > ukazat.length ? '<em class="agenda__skryto cisla" title="Další události v kalendáři">+' + (ud.length - ukazat.length) + ' další</em>' : '') +
       agendaSvatekHtml(t, svatekObl) +
-      (ud.length > ukazat.length ? '<em class="agenda__skryto cisla" title="Další události v kalendáři">+' + (ud.length - ukazat.length) + '</em>' : '') +
       '</button></li>';
     ukazat.forEach((u) => {
       const celyDen = u.celodenni || (u.zacatek < t && u.konec > pridejDny(t, 1));
@@ -353,9 +354,13 @@ function svatkySekceHtml(vOkne) {
     '<span class="orez-1">' + esc(r[1]) + (r[2] ? ' <small>' + esc(r[2]) + '</small>' : '') + '</span>' + kontrolka(r) + '</li>').join('') + '</ul>';
 }
 
+// Pozice časové osy se pamatuje při posunu (čtení scrollTop před překreslením nutilo prohlížeč složit stránku navíc)
+// a stránka se přepíše, jen když se její HTML změnilo – překreslení kvůli jiným datům (pošta, zdraví) na ni nesahá
+// a rozjetá osa zůstane, kde je.
+let posledniHtml = null;
+document.addEventListener('scroll', (e) => { if (e.target && e.target.id === 'cas-svitek') posunOsy = e.target.scrollTop; }, true);
+
 function vykresliKalendarFiltr(el) {
-  const osa = el.querySelector('#cas-svitek');
-  if (osa) posunOsy = osa.scrollTop;
   let telo;
   if (k.pohled === 'tyden') telo = tydenHtml();
   else if (k.pohled === 'seznam') telo = seznamHtml();
@@ -364,8 +369,11 @@ function vykresliKalendarFiltr(el) {
   const varovani = chyby.length
     ? '<p class="pruh pruh-varovani">Některý kalendář se nepodařilo načíst: ' + esc(Array.from(new Set(chyby.map((c) => c.kalendar))).join(', ')) + '</p>'
     : '';
-  el.innerHTML = '<div class="kal-rozlozeni"><div class="kal-hlavni">' + listaHtml() + varovani + telo + '</div>' +
+  const html = '<div class="kal-rozlozeni"><div class="kal-hlavni">' + listaHtml() + varovani + telo + '</div>' +
     '<aside class="kal-boc" aria-label="Kalendáře a nejbližší události">' + bocniPanelHtml() + '</aside></div>';
+  if (html === posledniHtml && el.querySelector('.kal-rozlozeni')) return;
+  posledniHtml = html;
+  el.innerHTML = html;
   const novaOsa = el.querySelector('#cas-svitek');
   if (novaOsa) {
     if (posunOsy == null) {
@@ -731,6 +739,17 @@ function prekresliNahled() {
   if (s) s.textContent = souhrnPridani(p);
   const b = el.querySelector('[data-jmeniny-pridat]');
   if (b) { b.disabled = !(p.pridano || p.doplneno); b.querySelector('span').textContent = popisPridani(p); }
+  ukazNahled(el);
+}
+
+/** Náhled a tlačítko Přidat pod polem musí být vidět (okno je dlouhé – na PC a iPadu byly pod jeho spodním okrajem):
+ *  okno se posune tak, aby byly vidět, ale pole, do kterého se píše, zůstane v okně. */
+function ukazNahled(el) {
+  const svitek = el.querySelector('.panel-telo'), akce = el.querySelector('.jmeniny-akce'), pole = el.querySelector('[data-jmeniny-hromadne]');
+  if (!svitek || !akce || !pole) return;
+  const s = svitek.getBoundingClientRect(), a = akce.getBoundingClientRect(), p = pole.getBoundingClientRect();
+  const chybi = a.bottom + 12 - s.bottom;
+  if (chybi > 0) svitek.scrollTop += Math.min(chybi, Math.max(0, p.top - s.top - 8));
 }
 
 document.addEventListener('input', (e) => {

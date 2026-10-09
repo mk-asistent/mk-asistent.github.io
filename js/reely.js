@@ -123,7 +123,7 @@ function stitekPlanu(r) {
 function planAkceHtml(r) {
   const p = plan(r);
   if (p && p.stav === 'hotovo' && p.odkaz) {
-    return '<a class="btn btn--ghost" href="' + esc(p.odkaz) + '" target="_blank" rel="noopener noreferrer">' + IKONY.odkaz + '<span>Na Instagramu</span></a>';
+    return '<a class="btn btn--ghost reel__plan-cele" href="' + esc(p.odkaz) + '" target="_blank" rel="noopener noreferrer">' + IKONY.odkaz + '<span>Na Instagramu</span></a>';
   }
   if (!instagram().nastaveno || zverejneno(r) || !r.odkaz || !r.popisek || !umiMotor('reelNaplanovat')) return '';
   if (p && (p.stav === 'nahrava' || p.stav === 'zverejnuji')) return '';
@@ -131,7 +131,7 @@ function planAkceHtml(r) {
     return '<button type="button" class="btn btn--plan" data-reel-naplanovat="' + esc(r.id) + '">' + IKONY.kalendar + '<span>Změnit čas</span></button>' +
       '<button type="button" class="btn btn--ghost" data-reel-zrusit-plan="' + esc(r.id) + '">' + IKONY.zavrit + '<span>Zrušit plán</span></button>';
   }
-  return '<button type="button" class="btn btn--plan" data-reel-naplanovat="' + esc(r.id) + '">' + IKONY.kalendar + '<span>Naplánovat na Instagram</span></button>';
+  return '<button type="button" class="btn btn--plan reel__plan-cele" data-reel-naplanovat="' + esc(r.id) + '">' + IKONY.kalendar + '<span>Naplánovat na Instagram</span></button>';
 }
 
 /** Výchozí čas: nejbližší 18:00 (večer mají reely klubu nejvíc přehrání), u změny dosavadní čas. */

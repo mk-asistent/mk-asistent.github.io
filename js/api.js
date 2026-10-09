@@ -3,7 +3,6 @@
 // Volání je „jednoduchý“ POST s text/plain – prohlížeč nedělá předběžný dotaz CORS a Apps Script ho umí obsloužit.
 
 import { uloziste } from './pomocne.js';
-import { ukazkaVolej } from './ukazka.js';
 import * as ucet from './ucet.js';
 
 const KLIC = 'asistent.pripojeni';
@@ -55,7 +54,8 @@ async function odesliDavku() {
 export async function volej(akce, data, jinePripojeni) {
   const p = jinePripojeni || pripojeni();
   if (!p) throw new ChybaApi('Aplikace není připojená k motoru.', 'nepripojeno');
-  if (p.demo) return ukazkaVolej(akce, data || {});
+  // ukázková data (63 kB) jen v ukázkovém režimu – se skutečným motorem se nestahují ani nespouští (rychlejší start)
+  if (p.demo) return import('./ukazka.js').then((m) => m.ukazkaVolej(akce, data || {}));
   if (!jinePripojeni && ucet.zapnuty()) {
     // s účtem: čtení z kopie, kterou chystá server (hned, bez motoru); změna zneplatní kopie své oblasti z doby před
     // ní, zápis ke zdraví / k autu pošle ostatním zařízením signál

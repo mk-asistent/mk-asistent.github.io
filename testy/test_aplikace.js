@@ -82,7 +82,7 @@ const motor = {
     zpravy: (d.id === 'v1' ? [{ id: 'm-starsi', od: 'Já', odAdresa: 'tester@example.com', odeMe: true, komu: 'trener@klub.test', kopie: '', kdy: ted - 30 * H, predmet: 'Sraz',
       text: 'Kdy je sraz?', html: '', prilohy: [] }] : []).concat([{ id: 'm-' + d.id, od: 'Trenér', odAdresa: 'trener@klub.test', odeMe: false, komu: 'tester@example.com', kopie: '', kdy: kdySouhrnu(d.id), predmet: 'Sraz',
       text: 'Ahoj, sraz v 8:30.', html: d.id === 'v2' ? '<p>Protokol <img src="https://sledovani.example/pixel.gif" width="1" height="1"></p>' : '', prilohy: [] }]) }),
-  kalendar: (d) => ({ udalosti: [
+  kalendar: (d) => ({ udalosti: kalendarPrazdny ? [] : [
     { id: 'u1|' + den(0, 9), nazev: 'Porada', zacatek: den(0, 9), konec: den(0, 10), celodenni: false, misto: 'kancelář', popis: '', kalendar: 'Osobní', kalendarId: 'g1', barva: '#2f6bff', zdroj: 'google', opakovana: true },
     { id: 'u3|' + den(0, 23), nazev: 'Pozdní hovor', zacatek: den(0, 23), konec: den(0, 23.5), celodenni: false, misto: '', popis: '', kalendar: 'Osobní', kalendarId: 'g1', barva: '#2f6bff', zdroj: 'google', opakovana: false },
     { id: 'u2|' + den(1), nazev: 'Narozeniny', zacatek: den(1), konec: den(2), celodenni: true, misto: '', popis: '', kalendar: 'Rodina', kalendarId: 'ics-1', barva: '#e2860a', zdroj: 'icloud' },
@@ -340,6 +340,7 @@ let reelyZverejneno = {};
 const reelyPlan = {}, reelyPopisky = {}, reelyNaplanovano = [];
 let vahaZaznamy = [];
 let pocasiDomov = null; // domov pro počasí (akce pocasiDomov)
+let kalendarPrazdny = false;  // test prázdného týdne na Dnes (žádné události)
 let upozorneniStav = { zapnuto: false, tema: '' }, upozorneniOdeslano = 0;
 // plakáty: data motoru (testy si je mění, jako když popisek napíše Claude)
 const plakatyData = { nastaveni: {}, kola: {}, popisky: {}, plan: {}, obrazky: {} };
@@ -524,6 +525,14 @@ async function novaStranka(prohlizec, v, motiv, volby) {
     if (m.type() === 'error' && !/Content Security Policy directive: "img-src data: cid:"/.test(m.text())) chybyStranky.push(m.text());
   });
   await pripravMotor(page);
+  // snímek celé stránky: obsah mimo obrazovku aplikace neskládá (content-visibility: auto – Pošta, karty na telefonu) a prohlížeč
+  // by ho na snímku nechal prázdný → na dobu snímku vše vykreslit (jen kvůli kontrole očima, aplikace se nemění)
+  const snimek = page.screenshot.bind(page);
+  page.screenshot = async (volby) => {
+    if (!(volby && volby.fullPage)) return snimek(volby);
+    await page.evaluate(() => { const s = document.createElement('style'); s.id = '__cv'; s.textContent = '* { content-visibility: visible !important; }'; document.head.appendChild(s); });
+    try { return await snimek(volby); } finally { await page.evaluate(() => { const s = document.getElementById('__cv'); if (s) s.remove(); }).catch(() => { /* stránka zavřená */ }); }
+  };
   return { ctx, page, chybyStranky };
 }
 
@@ -603,6 +612,25 @@ function vychoziVikendTestu() {
     const v = require('./sw_verze.js').zkontroluj();
     jistota(v.ok, 'sw.js VERZE ' + v.ma + ' nesedí, má být ' + v.mel + ' → node testy/sw_verze.js --zapsat');
   });
+  // rychlý start: index.html přednačte všechny moduly, které app.js při startu importuje (jinak je prohlížeč objevuje po
+  // patrech); každý modul js/*.js musí být v sw.js SOUBORY (bez sítě by aplikace nenastartovala – 9. 10. chyběl jmeniny.js)
+  await test('index.html: modulepreload = moduly, které app.js načítá při startu; sw.js: všechny moduly v SOUBORY', async () => {
+    const poradi = [], fronta = ['app.js'], videno = new Set(['app.js']);
+    while (fronta.length) {
+      const src = fs.readFileSync(path.join(KOREN, 'js', fronta.shift()), 'utf8');
+      const re = /^\s*import\s[^'"]*?from\s*['"]\.\/([^'"]+)['"]/gm;
+      let m;
+      while ((m = re.exec(src))) if (!videno.has(m[1])) { videno.add(m[1]); poradi.push(m[1]); fronta.push(m[1]); }
+    }
+    const html = fs.readFileSync(path.join(KOREN, 'index.html'), 'utf8');
+    const preload = Array.from(html.matchAll(/<link rel="modulepreload" href="js\/([^"]+)">/g)).map((m) => m[1]);
+    const chybi = poradi.filter((f) => preload.indexOf(f) < 0), navic = preload.filter((f) => poradi.indexOf(f) < 0);
+    jistota(!chybi.length && !navic.length, 'modulepreload v index.html – chybí: ' + chybi.join(', ') + ' · navíc: ' + navic.join(', '));
+    jistota(poradi.indexOf('ukazka.js') < 0, 'ukázková data (ukazka.js) se mají načítat až v ukázkovém režimu');
+    const sw = fs.readFileSync(path.join(KOREN, 'sw.js'), 'utf8');
+    const bezSw = fs.readdirSync(path.join(KOREN, 'js')).filter((f) => /\.js$/.test(f) && sw.indexOf("'js/" + f + "'") < 0);
+    jistota(!bezSw.length, 'moduly chybí v sw.js SOUBORY: ' + bezSw.join(', '));
+  });
   await test('start.js: když se moduly nenačtou (smíchané verze), za 8 s nabídne Načíst znovu', async () => {
     const ctx = await prohlizec.newContext({ viewport: { width: 390, height: 844 } });
     const page = await ctx.newPage();
@@ -612,6 +640,93 @@ function vychoziVikendTestu() {
     await page.waitForSelector('.zachrana button', { timeout: 12000 });
     jistota(/nenačetla/.test(await page.textContent('.zachrana')), 'text záchrany');
     await ctx.close();
+  });
+
+  // ---------- okamžitý snímek (Michal 9. 10.: „co nejrychlejší práce na stránce“): js/start.js ukáže poslední stránku hned po
+  // načtení HTML, ještě než naběhnou moduly; aplikace ji pak smaže a vykreslí znovu – žádná dvojí id, klepnutí fungují
+  await test('start.js: okamžitý snímek poslední stránky před moduly, aplikace ho vymění; jiný den / rozložení bez snímku; záchrana i pod snímkem; smazání dat ho smaže', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    const snimek = () => page.evaluate(() => JSON.parse(localStorage.getItem('asistent.data.snimek') || 'null'));
+    let pust = null;
+    const zdrz = async (route) => { await new Promise((r) => { pust = r; }); await route.continue(); };
+    try {
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-pozornost .seznam [data-polozka-id="c1"]');
+      await page.waitForSelector('#dl-tyden .agenda__den');
+      await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); // odchod z aplikace
+      const s = await snimek();
+      jistota(s && s.pohled === 'dnes' && s.rozlozeni === 'pc' && /dl-pozornost/.test(s.casti.stranka) && /rail__btn/.test(s.casti.rail) && /dnes-kpi/.test(s.casti.horni),
+        'snímek se neuložil: ' + JSON.stringify(s && { pohled: s.pohled, rozlozeni: s.rozlozeni }));
+      // moduly aplikace se zdrží (pomalý telefon, pomalá síť) – snímek je vidět dřív než aplikace
+      await page.route('**/js/app.js', zdrz);
+      await page.reload({ waitUntil: 'commit' });
+      await page.waitForFunction(() => document.documentElement.classList.contains('snimek') && !window.asistentBezi);
+      jistota(await page.locator('#dl-pozornost [data-polozka-id="c1"]').count() === 1 && await page.isVisible('#rail .rail__btn') &&
+        await page.isVisible('#dnes-kpi [data-pocasi]'), 'snímek: Dnes, levý pás a dlaždice hned');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_snimek_pred_aplikaci.png') });
+      pust();
+      await page.waitForFunction(() => window.asistentBezi && !document.documentElement.classList.contains('snimek'));
+      await page.unroute('**/js/app.js');
+      await page.waitForSelector('#dl-pozornost [data-polozka-id="c1"]');
+      jistota(await page.evaluate(() => ['dl-pozornost', 'rail', 'dnes-kpi', 'dl-tyden', 'dl-moje'].every((id) => document.querySelectorAll('#' + id).length === 1)),
+        'po startu aplikace dvojí id');
+      await page.waitForTimeout(300);
+      if (await page.locator('.okno-pozadi').count()) { await page.keyboard.press('Escape'); await page.waitForSelector('.okno-pozadi', { state: 'detached' }); } // Co je nového
+      await page.click('#rail [data-cil="schranka"]');
+      await page.waitForSelector('#p-schranka:not([hidden]) #sk-ukol');
+      await page.click('#rail [data-cil="dnes"]');
+      await page.waitForSelector('#p-dnes:not([hidden]) #dl-pozornost .seznam');
+      // snímek z jiného dne ani z jiného rozložení (PC × iPad) se neukáže; aplikace se při odchodu neuloží (asistentBezSnimku)
+      for (const [popis, den, sirka] of [['jiný den', '2000-1-1', 1440], ['jiné rozložení (PC → iPad)', '', 900]]) {
+        await page.evaluate((d) => {
+          const x = JSON.parse(localStorage.getItem('asistent.data.snimek'));
+          const t = new Date();
+          x.den = d || t.getFullYear() + '-' + (t.getMonth() + 1) + '-' + t.getDate();
+          x.rozlozeni = 'pc';
+          localStorage.setItem('asistent.data.snimek', JSON.stringify(x));
+          window.asistentBezSnimku = true; // přenačtení ho nepřepíše
+        }, den);
+        await page.setViewportSize({ width: sirka, height: 900 });
+        await page.route('**/js/app.js', zdrz);
+        await page.reload({ waitUntil: 'commit' });
+        await page.waitForTimeout(400);
+        jistota(await page.evaluate(() => !document.documentElement.classList.contains('snimek') && document.getElementById('aplikace').hidden), popis + ': snímek se neměl ukázat');
+        pust();
+        await page.waitForFunction(() => window.asistentBezi);
+        await page.unroute('**/js/app.js');
+      }
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.waitForSelector('#p-dnes #dl-pozornost .seznam');
+      await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+      jistota((await snimek()).den !== '2000-1-1', 'nový snímek po odchodu');
+      // moduly se nenačtou (smíchané verze) a snímek je vidět → záchrana přesto za 8 s
+      await page.route('**/js/app.js', (route) => route.fulfill({ contentType: 'text/javascript', body: "import { neexistuje } from './pomocne.js'; neexistuje();" }));
+      await page.reload({ waitUntil: 'commit' });
+      await page.waitForFunction(() => document.documentElement.classList.contains('snimek'));
+      await page.waitForSelector('.zachrana button', { timeout: 12000 });
+      await page.unroute('**/js/app.js');
+      // Nastavení → Aplikace → Smazat uložená data: snímek pryč a před přenačtením se znovu neuloží
+      await page.reload();
+      await page.waitForFunction(() => window.asistentBezi);
+      await page.waitForSelector('#dl-pozornost .seznam');
+      await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+      jistota(!!(await snimek()), 'snímek před smazáním dat');
+      await page.evaluate(() => import('/js/nastaveni.js').then((m) => m.otevriNastaveni('aplikace')));
+      await page.route('**/js/app.js', zdrz);
+      const prenacteni = page.waitForEvent('framenavigated');
+      await page.click('[data-panel="nastaveni"] [data-nast="smazat-data"]');
+      await prenacteni;
+      await page.waitForTimeout(400);
+      jistota(await page.evaluate(() => !document.documentElement.classList.contains('snimek') && !localStorage.getItem('asistent.data.snimek')),
+        'po smazání dat snímek zůstal');
+      pust();
+      await page.waitForFunction(() => window.asistentBezi);
+      await page.unroute('**/js/app.js');
+      jistota(!chybyStranky.filter((c) => !/neexistuje|Failed to load module|does not provide an export/.test(c)).length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      if (pust) pust();
+      await ctx.close();
+    }
   });
 
   // ---------- připojení: úvodní obrazovka, špatný klíč, správný klíč
@@ -851,8 +966,9 @@ function vychoziVikendTestu() {
         jistota(m.akce.r <= m.horni.r && m.horni.h <= 80 && m.strana <= 0, kde + 'lišta přetéká nebo je moc vysoká: ' + JSON.stringify([m.horni, m.akce, m.strana]));
         jistota(/°C/.test(m.texty[0]) && /^72/.test(m.texty[1]) && /Připravenost · spánek 6:30/.test(m.texty[1]) && m.texty[2] === '1 | 1 čeká',
           kde + 'obsah dlaždic: ' + m.texty.join(' ¦ '));
-        jistota(/Voda 0,0 \/ 2,5 l/.test(m.krouzky) && /Bílkoviny 0 \/ 130 g/.test(m.krouzky) && /Pohyb 4\s000 \/ 8\s000 kroků \(50 %\)/.test(m.krouzky) && m.kruhy === 4,
-          kde + 'kroužky: ' + m.krouzky + ' · kruhů ' + m.kruhy);
+        // čtvrtý kroužek Doplňky: dnes platí kreatin a hořčík (kofein jen v den zápasu) – 4 dráhy + hodnota jen u pohybu
+        jistota(/Voda 0,0 \/ 2,5 l/.test(m.krouzky) && /Bílkoviny 0 \/ 130 g/.test(m.krouzky) && /Pohyb 4\s000 \/ 8\s000 kroků \(50 %\)/.test(m.krouzky) &&
+          /Doplňky 0 z 2 \(0 %\)/.test(m.krouzky) && m.kruhy === 5, kde + 'kroužky: ' + m.krouzky + ' · kruhů ' + m.kruhy);
         jistota(!m.velkaCisla, kde + 'na Dnes zůstala řada velkých čísel');
         await page.locator('#horni').screenshot({ path: path.join(VYSTUP, v.nazev + (motiv === 'dark' ? '-tmavy' : '') + '_horni_dlazdice.png') });
         jistota(!chybyStranky.length, kde + 'chyby stránky: ' + chybyStranky.join(' | '));
@@ -1847,6 +1963,14 @@ function vychoziVikendTestu() {
           const t = await page.innerHTML('#p-zdravi .tyden-claude');
           jistota(/<b>bílkoviny<\/b>/.test(t) && /<li>víc vody<\/li>/.test(t) && /&lt;b&gt;ne HTML/.test(t), 'týden od Clauda (tučně, odrážky, bez HTML): ' + t);
           jistota(/odešlo i e-mailem/.test(await page.textContent('#p-zdravi .zd-tyden')), 'štítek e-mailu');
+          // telefon: karty mimo obrazovku prohlížeč skládá až při posunu k nim (content-visibility) – projet stránku jako Michal
+          await page.evaluate(async () => {
+            for (const k of document.querySelectorAll('#p-zdravi .zdravi-mrizka-karet > *')) {
+              k.scrollIntoView({ block: 'center' });
+              await new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)));
+            }
+            window.scrollTo(0, 0);
+          });
           const mira = await page.evaluate(() => {
             const m = document.querySelector('#p-zdravi .zdravi-mrizka-karet');
             const karty = Array.from(m.children);
@@ -2085,6 +2209,10 @@ function vychoziVikendTestu() {
       jistota(poradi === 'kreatin,horcik(ostatní)', 'hlavní nahoře, ostatní pod čarou: ' + poradi);
       jistota(/vše ✓/.test(await page.textContent('#dl-doplnky .card-hlava')), 'hořčík nevzatý, a přesto vše ✓ (nepočítá se)');
       jistota(await page.locator('#dl-doplnky .doplnky-tyden li.dnes.plny').count() === 1, 'dnešek v týdnu plný');
+      // denní kroužky berou totéž plnění (doplnkyDnes().plneni): Doplňky 1 z 1 hlavních = ✓ v legendě
+      const krouzky = () => page.getAttribute('#dnes-kpi [data-krouzky]', 'aria-label');
+      jistota(/Doplňky 1 z 1 hlavních \(100 %\)/.test(await krouzky()), 'kroužky: ' + await krouzky());
+      jistota((await page.textContent('#dnes-kpi .krouzky-legenda .krouzky--doplnky')).trim() === '✓', 'legenda kroužku Doplňky');
       await page.locator('#dl-doplnky').screenshot({ path: path.join(VYSTUP, 'pc_doplnky_hlavni.png') });
       // odškrtnout jde i ostatní; zrušit hlavní → zbývá 1
       await page.click('#dl-doplnky [data-doplnek="horcik"]');
@@ -2092,6 +2220,8 @@ function vychoziVikendTestu() {
       await page.click('#dl-doplnky [data-doplnek="kreatin"]');
       await page.waitForSelector('#dl-doplnky [data-doplnek="kreatin"][aria-pressed="false"]');
       jistota(/zbývá 1/.test(await page.textContent('#dl-doplnky .card-hlava')), 'zbývá jen hlavní: ' + await page.textContent('#dl-doplnky .card-hlava'));
+      jistota(/Doplňky 0 z 1 hlavních \(0 %\)/.test(await krouzky()), 'kroužky po zrušení hlavního: ' + await krouzky());
+      jistota((await page.textContent('#dnes-kpi .krouzky-legenda .krouzky--doplnky')).trim() === '0/1', 'legenda kroužku Doplňky 0/1');
       const den = await page.getAttribute('#dl-doplnky .doplnky-tyden li.dnes > *', 'aria-label');
       jistota(/0 z 1 hlavních/.test(den), 'den v týdnu: ' + den);
       jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
@@ -2270,6 +2400,31 @@ function vychoziVikendTestu() {
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
     jmeninyOblibeni = [];
+  });
+
+  await test('Dnes: prázdný týden (7 dní bez událostí) – svátky u dnů zůstanou, oblíbený ★, pod nimi „nic v kalendáři“', async () => {
+    const { za, jmeno } = await oblibenyZa(1);
+    jmeninyOblibeni = [{ jmeno, kdo: 'kamarádka' }];
+    kalendarPrazdny = true;
+    try {
+      for (const v of [VELIKOSTI[3], VELIKOSTI[0]]) {
+        const { ctx, page, chybyStranky } = await novaStranka(prohlizec, v, v.nazev === 'telefon' ? 'dark' : 'light');
+        await page.goto(WEB);
+        await page.waitForSelector('#dl-tyden .agenda__prazdno');
+        jistota(await page.locator('#dl-tyden .agenda__den').count() === 7 && !(await page.locator('#dl-tyden .agenda__u').count()), v.nazev + ': sedm dní bez událostí');
+        jistota(/nic v kalendáři/.test(await page.textContent('#dl-tyden .agenda__prazdno')), v.nazev + ': věta o prázdném týdnu');
+        const obl = await page.locator('#dl-tyden .agenda__den').nth(za).locator('.agenda__svatek--oblibeny').textContent();
+        jistota(obl.indexOf('★ ' + jmeno) === 0, v.nazev + ': oblíbený v prázdném týdnu: ' + obl);
+        jistota(await page.locator('#dl-tyden .agenda__svatek').count() >= 6, v.nazev + ': svátky u dnů');
+        jistota(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), v.nazev + ': přetéká do strany');
+        await page.locator('#dl-tyden').screenshot({ path: path.join(VYSTUP, v.nazev + '_dnes_tyden_prazdny.png') });
+        jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+        await ctx.close();
+      }
+    } finally {
+      kalendarPrazdny = false;
+      jmeninyOblibeni = [];
+    }
   });
 
   await test('telefon (tmavý režim): svátky v týdnu na Dnes, ★ v měsíci, Brzy má svátek, okno s hromadným přidáním bez přetékání', async () => {
@@ -2558,6 +2713,98 @@ function vychoziVikendTestu() {
   });
 
   // ---------- schránka: termín u tvého úkolu, Claudova odpověď s odkazem a formátem, upozornění na nezpracovanou schránku
+  // ---------- hlídání rychlosti (Michal 9. 10.: „co nejrychlejší práce na stránce“): bez zpomalení procesoru jde o řády, ne
+  // o milisekundy – limity jsou volné, ať test netrpí náhodou; pořadí snímek → aplikace a „bez motoru“ platí přesně.
+  // Podrobné měření (telefon CPU 4×, pomalé 4G, studený / teplý start): node testy/mereni_rychlosti.js
+  await test('rychlost: snímek dřív než moduly, Dnes do 3 s; Pošta se 150 konverzacemi se přepne pod 300 ms; druhé kolo stránek bez čtení z motoru', async () => {
+    postaNavic = { osobni: Array.from({ length: 150 }, (x, i) => ({ id: 'r' + i, ucet: 'osobni', stav: ['ceka', 'info', 'resi', 'otazka'][i % 4], od: 'Odesílatel ' + i,
+      predmet: 'Předmět ' + i, ukazka: 'Text zprávy ' + i + ' – posílám podklady k připomínkám, prosím o kontrolu do pátku.', kdy: ted - i * H / 2, neprectena: i < 8,
+      pocet: 1 + (i % 3), odkaz: '#' })) };
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-pozornost .seznam');
+      await page.waitForSelector('#dl-tyden .agenda__den');
+      await page.waitForTimeout(500);
+      if (await page.locator('.okno-pozadi').count()) { await page.keyboard.press('Escape'); await page.waitForSelector('.okno-pozadi', { state: 'detached' }); }
+      // přepnutí (klepnutí → další snímek obrazovky), jako v testy/mereni_rychlosti.js
+      const prepni = (cil) => page.evaluate(async (c) => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.dataset.cil = c; b.hidden = true;
+        document.body.appendChild(b);
+        const t = performance.now();
+        b.click();
+        b.remove();
+        await new Promise((ok) => requestAnimationFrame(() => setTimeout(ok, 0)));
+        return performance.now() - t;
+      }, cil);
+      const casy = [];
+      for (let i = 0; i < 3; i++) {
+        casy.push(await prepni('posta'));
+        await page.waitForSelector('#posta-seznam .seznam-posta [data-vlakno="r149"]', { state: 'attached' });
+        await prepni('dnes');
+        await page.waitForTimeout(150);
+      }
+      casy.sort((a, b) => a - b);
+      jistota(casy[1] < 300, 'přepnutí do Pošty (150 konverzací) trvá ' + casy.map(Math.round).join(' / ') + ' ms');
+      jistota(await page.evaluate(() => getComputedStyle(document.querySelector('#posta-seznam .seznam-posta > li:last-child')).contentVisibility === 'auto'),
+        'řádky pošty mimo obrazovku se mají přeskočit (content-visibility)');
+      // první kolo stránek dotáhne, co patří ke stránce (štítky, kontakty, docházka); druhé už jen z paměti
+      const kolo = async () => { for (const c of ['schranka', 'posta', 'kalendar', 'zdravi', 'dnes']) { await prepni(c); await page.waitForTimeout(120); } };
+      await kolo();
+      await page.waitForTimeout(800);
+      volano.length = 0;
+      await kolo();
+      const cteni = volano.map((d) => d.akce).filter((a) => ['postaDetaily', 'oznacit'].indexOf(a) < 0);
+      jistota(!cteni.length, 'druhé kolo přepínání stránek volalo motor: ' + cteni.join(', '));
+      // teplé otevření: snímek dřív než moduly aplikace, aplikace vykreslená do 3 s
+      await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+      await page.reload();
+      await page.waitForFunction(() => window.asistentBezi && performance.getEntriesByName('asistent-vykresleno').length);
+      const z = await page.evaluate(() => ['asistent-start-js', 'asistent-snimek', 'asistent-start', 'asistent-vykresleno']
+        .map((n) => { const e = performance.getEntriesByName(n)[0]; return e ? Math.round(e.startTime) : -1; }));
+      jistota(z[1] >= 0 && z[1] <= z[2], 'snímek se má ukázat dřív než aplikace: ' + z.join(' / '));
+      jistota(z[3] > 0 && z[3] < 3000, 'aplikace vykreslená za ' + z[3] + ' ms');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      postaNavic = {};
+      await ctx.close();
+    }
+  });
+
+  // ---------- práce na stránce: překreslení kvůli novým datům nesmaže rozepsanou odpověď Claudovi (dřív každé načtení dat
+  // – kopie ze serveru, zdraví – vyměnilo kartu i s polem) a nepřepisuje karty, které se nezměnily
+  await test('Dnes: rozepsaná odpověď Claudovi přežije překreslení (i se změnou karty – text, fokus, kurzor); nezměněné karty se nepřepisují', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.waitForSelector('#dl-pozornost [data-prepni="c2"]');
+    await page.waitForTimeout(600);
+    if (await page.locator('.okno-pozadi').count()) { await page.keyboard.press('Escape'); await page.waitForSelector('.okno-pozadi', { state: 'detached' }); }
+    await page.click('#dl-pozornost [data-prepni="c2"]');
+    const pole = '#dl-pozornost textarea[data-odpoved="c2"]';
+    await page.waitForSelector(pole);
+    await page.click(pole);
+    await page.keyboard.type('Ano, pošli');
+    // jiná data (zdraví) se načtou → Dnes se překreslí; karta Vyžaduje pozornost se nezměnila → zůstane stejný prvek
+    await page.evaluate(() => { window.__pole = document.querySelector('#dl-pozornost textarea[data-odpoved="c2"]'); window.__tyden = document.querySelector('#dl-tyden .agenda'); });
+    await page.evaluate(() => import('/js/zdravi.js').then((m) => m.nactiZdravi(true)));
+    await page.waitForTimeout(300);
+    jistota(await page.evaluate(() => window.__pole.isConnected && window.__tyden.isConnected), 'nezměněné karty se přepsaly');
+    // nový úkol ve schránce → karta se změní a vymění; text, fokus i kurzor zůstanou
+    await page.evaluate(() => import('/js/stav.js').then(({ stav, zmeneno }) => {
+      stav.schranka.ceka.push({ id: 'c-novy', slozka: 'CEKA', kdy: Date.now(), odkud: 'test', typ: 'ukol-michal', stav: 'tvuj-ukol', shrnuti: 'Nový úkol', termin: '', text: 'x', vlakno: [] });
+      zmeneno();
+    }));
+    await page.waitForSelector('#dl-pozornost [data-polozka-id="c-novy"]');
+    jistota(await page.evaluate(() => !window.__pole.isConnected), 'karta se měla vyměnit (test)');
+    jistota(await page.inputValue(pole) === 'Ano, pošli', 'rozepsaná odpověď zmizela: „' + await page.inputValue(pole) + '“');
+    jistota(await page.evaluate((s) => document.activeElement === document.querySelector(s), pole), 'fokus se nevrátil do pole');
+    await page.keyboard.type(' to.');
+    jistota(await page.inputValue(pole) === 'Ano, pošli to.', 'kurzor na konci: „' + await page.inputValue(pole) + '“');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
   await test('schránka: termín úkolu, odpověď Clauda s odkazem, upozornění na nezpracovanou schránku', async () => {
     const puvodni = motor.schranka;
     motor.schranka = () => {
@@ -2823,6 +3070,16 @@ function vychoziVikendTestu() {
     await page.evaluate(() => import('/js/posta.js').then((m) => m.nactiPostu(false)));
     jistota(volano.some((d) => d.akce === 'posta'), 'po změně pošty se pošta nečetla z motoru');
     await page.waitForSelector('#posta-seznam :text("Sraz v sobotu")');
+    // Připomenout = odložení e-mailu + úkol do schránky → zneplatní poštu i schránku a server obnoví obojí
+    // (dřív jen poštu – úkol se z kopie ztratil a na druhém zařízení se ukázal až za 10 minut)
+    fbVolanoData.length = 0;
+    await page.waitForFunction(() => import('/js/stav.js').then((m) => !m.stav.nacita.schranka));
+    await page.evaluate(() => import('/js/api.js').then((m) => m.volej('pripomenout', { id: 'v1', termin: '2030-01-01' })));
+    volano.length = 0;
+    await page.evaluate(() => import('/js/schranka.js').then((m) => m.nactiSchranku()));
+    jistota(volano.some((d) => d.akce === 'schranka'), 'po Připomenout se schránka nečetla z motoru (kopie bez nového úkolu)');
+    for (let i = 0; i < 50 && !fbVolanoData.some((d) => d.jen); i++) await page.waitForTimeout(100);
+    jistota(fbVolanoData.some((d) => d.jen && d.jen.indexOf('schranka') >= 0 && d.jen.indexOf('posta') >= 0), 'obnova pošty i schránky po Připomenout: ' + JSON.stringify(fbVolanoData));
     // stará kopie (40 min – server nejel) → motor a žádost o obnovu na serveru; nová kopie pak přijde živě
     const stare = Date.now() - 40 * 60e3;
     kopie('Stará kopie', stare);

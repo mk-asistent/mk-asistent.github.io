@@ -37,8 +37,13 @@ const $ = (id) => document.getElementById(id);
 // ---------------------------------------------------------------- start
 
 function start() {
+  if (performance.mark) performance.mark('asistent-start');
   window.asistentBezi = true; // js/start.js: aplikace nastartovala (žádná záchrana) a rozepsaný text hlídá při nové verzi
-  window.asistentNovaVerze = () => toastAkce('Nová verze aplikace – načte se, až ji zavřeš', 'Načíst teď', () => location.reload());
+  window.asistentNovaVerze = () => toastAkce('Nová verze aplikace – načte se, až ji zavřeš', 'Načíst teď', () => {
+    window.asistentBezSnimku = true; // snímek staré verze nová neukáže
+    uloziste.smaz(SNIMEK);
+    location.reload();
+  });
   $('uvod').hidden = true;
   $('aplikace').hidden = false;
   stav.info = uloziste.cti('asistent.info');
@@ -64,8 +69,52 @@ function start() {
     const el = elementPanelu('nastaveni');
     if (jeOtevreny('nastaveni') && !(el && el.contains(document.activeElement) && document.activeElement.matches('input, textarea'))) obnovPanel('nastaveni');
   });
+  zrusSnimek(); // snímek z js/start.js pryč – ve stejném kroku se vykreslí aplikace (nic neblikne)
   vykresli();
+  if (performance.mark) performance.mark('asistent-vykresleno');
   obnovVse(false);
+}
+
+// ---------------------------------------------------------------- okamžitý snímek (js/start.js ho ukáže při dalším otevření)
+// Michal 9. 10.: „co nejrychlejší práce na stránce“ – při odchodu z aplikace (do pozadí, zavření) a 4 s po posledním
+// překreslení se uloží HTML viditelné stránky a lišt. Při dalším otevření ho js/start.js ukáže hned po načtení HTML,
+// ještě než se stáhnou a spustí moduly; start() ho pak smaže a vykreslí aplikaci s aktuálními daty. Jen stránky bez
+// vložených e-mailů a videí, nejvýš ~600 000 znaků; klíč asistent.data.* = smaže se s uloženými daty i při odpojení.
+const SNIMEK = 'asistent.data.snimek';
+const SNIMEK_STRANKY = ['dnes', 'schranka', 'posta', 'kalendar', 'zdravi'];
+let casovacSnimku = 0;
+
+const rozlozeni = () => (TELEFON.matches ? 'telefon' : SIROKY.matches ? 'pc' : 'ipad');
+function naplanujSnimek() {
+  clearTimeout(casovacSnimku);
+  casovacSnimku = setTimeout(ulozSnimek, 4000);
+}
+
+function ulozSnimek() {
+  clearTimeout(casovacSnimku);
+  if (window.asistentBezSnimku || !window.asistentBezi) return;
+  if (!jePripojeno() || $('aplikace').hidden || SNIMEK_STRANKY.indexOf(stav.pohled) < 0 || uloziste.cti('asistent.bezSnimku')) {
+    uloziste.smaz(SNIMEK);
+    return;
+  }
+  const stranka = $('p-' + stav.pohled).cloneNode(true);
+  stranka.querySelectorAll('iframe, video, audio, canvas, #posta-detail > *').forEach((x) => x.remove());
+  const casti = { rail: $('rail').innerHTML, horni: $('horni').innerHTML, hlava: $('hlava').innerHTML, pruhy: $('pruhy').innerHTML,
+    lista: $('lista').innerHTML, stranka: stranka.innerHTML };
+  const d = new Date();
+  const snimek = { den: d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(), kdy: Date.now(), pohled: stav.pohled, rozlozeni: rozlozeni(),
+    trida: $('aplikace').className, horniTrida: $('horni').className, styl: document.documentElement.getAttribute('style') || '', casti };
+  const delka = Object.keys(casti).reduce((s, k) => s + casti[k].length, 0);
+  if (delka > 600000 || !uloziste.pis(SNIMEK, snimek)) uloziste.smaz(SNIMEK);
+}
+
+/** Snímek z js/start.js pryč (lišty i stránka) – start() hned potom vykreslí aplikaci. */
+function zrusSnimek() {
+  if (!document.documentElement.classList.contains('snimek')) return;
+  ['rail', 'horni', 'hlava', 'pruhy', 'lista'].forEach((id) => { $(id).innerHTML = ''; });
+  document.querySelectorAll('#aplikace [data-pohled]').forEach((el) => { el.innerHTML = ''; });
+  document.documentElement.classList.remove('snimek');
+  window.asistentSnimek = false;
 }
 
 function obnovVse(znovu) {
@@ -186,6 +235,12 @@ function vykresli() {
   vykresliPruhy();
   vykresliListu(p);
   const el = $('p-' + stav.pohled);
+  sFokusem(() => vykresliStranku(el, p));
+  zkontrolujNovinky(p);
+  naplanujSnimek();
+}
+
+function vykresliStranku(el, p) {
   if (stav.pohled === 'dnes') vykresliDnes(el, p);
   else if (stav.pohled === 'schranka') schranka.vykresliSchranku(el);
   else if (stav.pohled === 'posta') posta.vykresliPostu(el);
@@ -195,7 +250,6 @@ function vykresli() {
   else if (stav.pohled === 'plakaty') plakaty.vykresliPlakaty(el);
   else if (stav.pohled === 'auto') auto.vykresliAuto(el);
   else kal.vykresliKalendar(el);
-  zkontrolujNovinky(p);
 }
 
 // ---------------------------------------------------------------- Co je nového (okno při otevření, vzor CaseDraft)
@@ -379,7 +433,7 @@ function vykresliHlavu(p) {
   const jmeno = uloziste.cti('asistent.jmeno') || ucet.split('@')[0] || 'Asistent';
   const osloveni = uloziste.cti('asistent.osloveni');
   const nadpis = stav.pohled === 'dnes' && TELEFON.matches ? pozdrav() + (osloveni ? ', ' + osloveni : '') : titul;
-  $('hlava').innerHTML =
+  nastavHtml($('hlava'),
     '<div class="hlava-ja jen-telefon">' +
       '<button type="button" class="ja" data-menu aria-label="Menu – všechny sekce a Nastavení">' +
         '<span class="avatar" style="--h:' + odstin(jmeno) + '">' + esc(iniciala(jmeno.replace(/[._\d]+/g, ' '))) + '</span>' +
@@ -390,7 +444,7 @@ function vykresliHlavu(p) {
         '<button type="button" class="btn btn--ikona' + (tociSe() ? ' toci' : '') + '" data-obnovit aria-label="Obnovit">' + IKONY.obnovit + '</button>' +
       '</div></div>' +
     '<div class="hlava-radek"><div class="hlava-titul"><h1>' + (stav.pohled !== 'dnes' ? '<span class="hlava-ikona" data-oblast="' +
-      (stav.pohled === 'reely' ? 'fotbal' : stav.pohled) + '">' + IKONY[stav.pohled] + '</span>' : '') + esc(nadpis) + '</h1>' + (pod ? '<p>' + pod + '</p>' : '') + '</div></div>';
+      (stav.pohled === 'reely' ? 'fotbal' : stav.pohled) + '">' + IKONY[stav.pohled] + '</span>' : '') + esc(nadpis) + '</h1>' + (pod ? '<p>' + pod + '</p>' : '') + '</div></div>');
 }
 
 function pozdrav() {
@@ -407,7 +461,7 @@ function vykresliPruhy() {
     pruhy.push('<p class="pruh pruh-varovani spread"><span>Motor není připojený: ' + esc(stav.chyby.info.message) + '</span>' +
       '<button type="button" class="btn btn--ghost btn--sm" data-otevri-nastaveni="pripojeni">Nastavení připojení</button></p>');
   }
-  $('pruhy').innerHTML = pruhy.join('');
+  nastavHtml($('pruhy'), pruhy.join(''));
 }
 
 /** Spodní lišta na telefonu: plovoucí černá pilulka, aktivní sekce limetková s popiskem, uprostřed „+“. */
@@ -418,9 +472,9 @@ function vykresliListu(p) {
       (stav.pohled === s[0] ? ' aria-current="page"' : '') + '>' + IKONY[s[0]] + '<span>' + s[1] + '</span>' +
       (n ? '<span class="odznak cisla">' + n + '</span>' : '') + '</button>';
   };
-  $('lista').innerHTML = tl(SEKCE[0]) + tl(SEKCE[1]) +
+  nastavHtml($('lista'), tl(SEKCE[0]) + tl(SEKCE[1]) +
     '<button type="button" class="lista__plus" data-rychle aria-label="Přidat – poznámku, e-mail, událost nebo zápas">' + IKONY.plus + '</button>' +
-    tl(SEKCE[2]) + tl(SEKCE[3]);
+    tl(SEKCE[2]) + tl(SEKCE[3]));
 }
 
 /** Menu na telefonu (klepnutí na jméno nahoře): pás zleva se všemi sekcemi – i Zdraví, Fotbal, Reely a Plakáty, které se
@@ -598,7 +652,8 @@ function kartaTydne() {
   const a = kal.agenda(7, 9);
   let telo;
   if (!kal.mameData(Date.now())) telo = kal.chybaKalendare() ? chybaHtml(kal.chybaKalendare(), 'data-kal-znovu') : kostra(3);
-  else if (!a.celkem) telo = '<div class="prazdne">Příštích 7 dní nic v kalendáři.</div>';
+  // prázdný týden: dny se svátky zůstanou (svátky nejsou v kalendáři Google – oblíbený ★ by jinak zmizel), pod nimi věta
+  else if (!a.celkem) telo = a.html + '<p class="agenda__prazdno">Příštích 7 dní nic v kalendáři.</p>';
   else telo = a.html + (a.celkem > a.pocet ? '<button type="button" class="agenda__vic" data-cil="kalendar">+ ' + (a.celkem - a.pocet) + ' další v kalendáři</button>' : '');
   return hlavickaKarty(IKONY.kalendar, 'Týden' + (a.celkem ? ' · ' + a.celkem : ''), sipkaKarty('data-cil="kalendar"', 'Otevřít kalendář')) +
     '<div class="dlazdice__telo">' + telo + '</div>';
@@ -633,48 +688,71 @@ function vykresliDnes(el, p) {
     '</div>';
   }
   const dnes = pulnoc(Date.now());
-  el.querySelector('#dnes-vystrahy').innerHTML = pocasi.pruhVystrahHtml();
+  // karty se přepíšou jen při změně (nastavHtml) – načtení pošty nepřekresluje zdraví, týden ani rozepsanou odpověď Claudovi
+  nastavHtml(el.querySelector('#dnes-vystrahy'), pocasi.pruhVystrahHtml());
   // pošta: karta jen, když něco čeká nebo je nepřečtené (a dokud se načítá); na telefonu je v dnesMobilHtml
   const postaEl = el.querySelector('#dl-posta');
   const ukazPostu = !TELEFON.matches && (!stav.posta || p.postaDnes.celkem > 0);
   postaEl.hidden = !ukazPostu;
-  postaEl.innerHTML = ukazPostu ? kartaPosty(p.postaDnes) : '';
-  if (TELEFON.matches) el.querySelector('#dnes-mobil').innerHTML = dnesMobilHtml(p, dnes);
-  else el.querySelector('#dl-pozornost').innerHTML = kartaPozornosti(p);
-  el.querySelector('#dl-tyden').innerHTML = kartaTydne();
+  nastavHtml(postaEl, ukazPostu ? kartaPosty(p.postaDnes) : '');
+  if (TELEFON.matches) nastavHtml(el.querySelector('#dnes-mobil'), dnesMobilHtml(p, dnes));
+  else nastavHtml(el.querySelector('#dl-pozornost'), kartaPozornosti(p));
+  nastavHtml(el.querySelector('#dl-tyden'), kartaTydne());
   // moje poznámky (zkratka „Pro mě“) – kartu skládá js/moje.js; když se do jejího pole zrovna píše, překreslí jen hlavičku
   // a seznam (pole, rozepsaný text i klávesnice v iPhonu zůstanou, nová poznámka se po Enteru hned ukáže)
   const mojeEl = el.querySelector('#dl-moje');
   mojeEl.hidden = !moje.vykresliMojeDnes(mojeEl);
   const doplnkyHtml = umiMotor('zdravi') ? zdravi.kartaDoplnkuHtml() : '';
   el.querySelector('#dl-doplnky').hidden = !doplnkyHtml;
-  el.querySelector('#dl-doplnky').innerHTML = doplnkyHtml;
+  nastavHtml(el.querySelector('#dl-doplnky'), doplnkyHtml);
   const pitiHtml = umiMotor('zdravi') ? zdravi.kartaPitiHtml() : '';
   el.querySelector('#dl-piti').hidden = !pitiHtml;
-  el.querySelector('#dl-piti').innerHTML = pitiHtml;
+  nastavHtml(el.querySelector('#dl-piti'), pitiHtml);
   // váha: když se do pole zrovna píše, kartu nepřekreslovat (zmizela by rozepsaná hodnota i klávesnice)
   const vahaEl = el.querySelector('#dl-vaha');
   const piseVahu = document.activeElement && vahaEl.contains(document.activeElement) && document.activeElement.matches('[data-vaha-pole]');
   if (!piseVahu) {
     const vahaHtml = umiMotor('vaha') ? zdravi.kartaVahyDnesHtml() : '';
     vahaEl.hidden = !vahaHtml;
-    vahaEl.innerHTML = vahaHtml;
+    nastavHtml(vahaEl, vahaHtml);
   }
   // čerstvý nezveřejněný reel: na PC v pravém sloupci, na telefonu hned pod malými čísly (dnesMobilHtml)
   const reelHtml = umiMotor('reely') && !TELEFON.matches ? reely.kartaDnesHtml() : '';
   el.querySelector('#dl-reel').hidden = !reelHtml;
-  el.querySelector('#dl-reel').innerHTML = reelHtml;
+  nastavHtml(el.querySelector('#dl-reel'), reelHtml);
   const fotbalHtml = fotbal.maData() ? fotbal.kartaDnesHtml() : '';
   el.querySelector('#dl-fotbal').hidden = !fotbalHtml;
-  el.querySelector('#dl-fotbal').innerHTML = fotbalHtml;
-  el.querySelector('#dl-schranka-mini').innerHTML = miniSchrankaHtml();
+  nastavHtml(el.querySelector('#dl-fotbal'), fotbalHtml);
+  nastavHtml(el.querySelector('#dl-schranka-mini'), miniSchrankaHtml());
   // pod polem: co Claude odpověděl za poslední týden (celá odpověď je v rozbalené položce)
   const odpovedi = schranka.odpovedi(7);
-  el.querySelector('#dl-zapis-seznam').innerHTML = odpovedi.length
+  nastavHtml(el.querySelector('#dl-zapis-seznam'), odpovedi.length
     ? '<div class="dlazdice__mezinadpis">Odpověděl jsem · ' + odpovedi.length + '</div><ul class="seznam">' +
       odpovedi.slice(0, 3).map((x) => schranka.polozkaHtml(x, false)).join('') + '</ul>' +
       (odpovedi.length > 3 ? '<button type="button" class="agenda__vic" data-cil="schranka" data-filtr-schranky="hotovo">+ ' + (odpovedi.length - 3) + ' další ve schránce</button>' : '')
-    : '<p class="poznamka-pod dlazdice__napoveda">Co sem napíšeš, zpracuju při další schránce a odpověď uvidíš tady. Z iPhonu jde totéž hlasem přes zkratku „Pro Clauda“.</p>';
+    : '<p class="poznamka-pod dlazdice__napoveda">Co sem napíšeš, zpracuju při další schránce a odpověď uvidíš tady. Z iPhonu jde totéž hlasem přes zkratku „Pro Clauda“.</p>');
+  schranka.obnovRozepsane(el);
+}
+
+/** innerHTML jen při změně: Dnes se překresluje při každém načtení dat (kopie ze serveru, zdraví, počasí…) – stejný obsah
+ *  znovu by prohlížeč zbytečně skládal a zmizel by rozepsaný text, fokus i otevřená bublina grafu. */
+const posledniObsah = new WeakMap();
+function nastavHtml(el, html) {
+  if (posledniObsah.get(el) === html) return;
+  posledniObsah.set(el, html);
+  el.innerHTML = html;
+}
+
+/** Když se při překreslení přece jen vymění pole, do kterého se píše (odpověď Claudovi), vrátit do nového fokus a kurzor. */
+function sFokusem(vykresleni) {
+  const a = document.activeElement;
+  const sel = a && a.matches && a.matches('textarea[data-odpoved]') ? 'textarea[data-odpoved="' + CSS.escape(a.dataset.odpoved) + '"]' : '';
+  const kde = sel && a.closest('[data-pohled]');
+  const z = sel ? [a.selectionStart, a.selectionEnd] : null;
+  vykresleni();
+  if (!sel || a.isConnected || !kde) return;
+  const n = kde.querySelector(sel);
+  if (n) { n.focus({ preventScroll: true }); try { n.setSelectionRange(z[0], z[1]); } catch (e) { /* nic */ } }
 }
 
 // ---------------------------------------------------------------- Dnes na telefonu (vzor PriorAuth)
@@ -876,7 +954,10 @@ document.addEventListener('keydown', (e) => {
   if (posta.klavesaPosta(e)) e.preventDefault();
 });
 
+// odchod z aplikace (do pozadí, zavření, přenačtení): snímek pro okamžitý start příště (js/start.js)
+window.addEventListener('pagehide', ulozSnimek);
 document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') ulozSnimek();
   if (document.visibilityState === 'visible' && jePripojeno() && Date.now() - stav.naposledy > 60000) {
     // po delší pauze (aplikace v pozadí) zase ukázat, co je nového
     if (Date.now() - stav.naposledy > 30 * 60000) novinkyUkazany = false;

@@ -107,7 +107,21 @@ const UVOD_CITACE = /(?:^|\s)(?:dne|on)\s(?=.{0,40}\d).{4,200}?(?:napsal\(a\)|na
 const bezPredpon = (s) => String(s || '').replace(/^\s*((re|fwd?|fw|odp|vs|tr)\s*:\s*)+/i, '').trim();
 const regexText = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// V\u00fdsledky \u010di\u0161t\u011bn\u00ed si pamatuje (stejn\u00fd n\u00e1hled a p\u0159edm\u011bt = stejn\u00fd v\u00fdsledek): \u0159\u00e1dek seznamu se skl\u00e1d\u00e1 p\u0159i ka\u017ed\u00e9m p\u0159ekreslen\u00ed
+// a souhrny p\u0159i ka\u017ed\u00e9 kopii ze serveru \u2013 regul\u00e1rn\u00ed v\u00fdrazy nad 150 n\u00e1hledy by se jinak po\u010d\u00edtaly po\u0159\u00e1d znovu.
+const CISTE = new Map();
 export function cistaUkazka(s, predmet) {
+  const klic = String(s || '') + '\u0000' + String(predmet || '');
+  let v = CISTE.get(klic);
+  if (v === undefined) {
+    v = cistaUkazkaBezPameti(s, predmet);
+    if (CISTE.size > 3000) CISTE.clear();
+    CISTE.set(klic, v);
+  }
+  return v;
+}
+
+function cistaUkazkaBezPameti(s, predmet) {
   let t = String(s || '').replace(/[\u00ad\u034f\u200b-\u200f\u2060-\u2064\ufeff]/g, '').replace(/\s+/g, ' ').trim();
   if (!t) return '';
   // odpověď: od „Dne … napsal(a):“ / „On … wrote:“ dál je starší zpráva (když nic nepředchází, jen ten úvod pryč)
@@ -444,12 +458,16 @@ function pracovniPrazdnaHtml() {
     '<button type="button" class="btn btn--ghost btn--sm" data-kategorie-posty="aktualizace">' + IKONY.info + '<span>Ukázat Aktualizace</span></button></div></div>' : '';
 }
 
-/** Pohled Pošta: filtry nahoře, pod nimi seznam | detail. Detail se překresluje jen při změně vlákna. */
+/** Pohled Pošta: filtry nahoře, pod nimi seznam | detail. Detail se překresluje jen při změně vlákna.
+ *  Lišty a seznam se přepíší, jen když se jejich HTML změnilo (rychlost: překreslení kvůli jiným datům – zdraví, počasí –
+ *  nesahá na 150 řádků pošty, prohlížeč je nemusí znovu skládat; fokus z klávesnice a posun lišt zůstanou). */
+let posledniFiltry = null, posledniSeznam = null;
 export function vykresliPostu(el) {
   if (!el.querySelector('.posta-rozlozeni')) {
     el.innerHTML = '<div id="posta-filtry"></div><div class="posta-rozlozeni"><div class="posta-seznam" id="posta-seznam"></div>' +
       '<div class="posta-detail" id="posta-detail"></div></div>';
     posledniDetail = null;
+    posledniFiltry = posledniSeznam = null;
   }
   nactiStitky();
   nactiKontakty();
@@ -457,16 +475,42 @@ export function vykresliPostu(el) {
   else if (naKlepnuti()) nactiKategorii(stav.kategoriePosty);
   // během přetahování e-mailu nic nepřekreslovat (tažený řádek i cílová skupina by zmizely pod rukou)
   if (tah.id) { tah.odlozeno = true; return; }
-  el.querySelector('#posta-filtry').innerHTML = stav.posta ? kategorieHtml() + listaStitkuHtml() + filtryHtml() : '';
-  // úzký displej: vybraná záložka (třeba Fóra) a vybraná skupina musí být vidět – lišty se po překreslení vrací na začátek
-  el.querySelectorAll('.posta-kategorie [aria-selected="true"], .posta-stitky [aria-pressed="true"]').forEach((x) => {
-    const lista = x.parentElement;
-    if (lista.scrollWidth > lista.clientWidth && x.offsetLeft + x.offsetWidth > lista.clientWidth) lista.scrollLeft = x.offsetLeft - 12;
-  });
-  el.querySelector('#posta-seznam').innerHTML = seznamHtml();
-  if (DVA_SLOUPCE.matches) vykresliDetail();
+  const filtry = stav.posta ? kategorieHtml() + listaStitkuHtml() + filtryHtml() : '';
+  const noveFiltry = filtry !== posledniFiltry;
+  if (noveFiltry) { el.querySelector('#posta-filtry').innerHTML = filtry; posledniFiltry = filtry; }
+  const seznam = seznamHtml();
+  if (seznam !== posledniSeznam) { el.querySelector('#posta-seznam').innerHTML = seznam; posledniSeznam = seznam; }
+  // úzký displej: vybraná záložka (třeba Fóra) a vybraná skupina musí být vidět – nové lišty začínají vlevo. Jen když je
+  // vybraná jiná než první záložka nebo skupina (čtení rozměrů nutí prohlížeč složit stránku hned – u Primární zbytečně).
+  if (noveFiltry && (stav.stitekPosty || stav.kategoriePosty !== 'primarni')) {
+    el.querySelectorAll('.posta-kategorie [aria-selected="true"], .posta-stitky [aria-pressed="true"]').forEach((x) => {
+      const lista = x.parentElement;
+      if (lista.scrollWidth > lista.clientWidth && x.offsetLeft + x.offsetWidth > lista.clientWidth) lista.scrollLeft = x.offsetLeft - 12;
+    });
+  }
+  if (DVA_SLOUPCE.matches) { vykresliDetail(); zmerVyskuDetailu(); }
   naplanujPrednacteni();
 }
+
+/** Detail vedle seznamu (PC, iPad na šířku) má sahat od svého horního okraje po spodek okna – nad ním je proměnlivá výška
+ *  (lišta skupin, zalomené filtry, pruhy) → změřit po vykreslení snímku (rozměry jsou pak hotové, nic se nepřepočítává
+ *  navíc) a dát do CSS (app.css .posta-detail). Měří se mřížka, ne detail – ten se při posunu stránky lepí nahoru. */
+let mereniVysky = 0;
+function zmerVyskuDetailu() {
+  cancelAnimationFrame(mereniVysky);
+  mereniVysky = requestAnimationFrame(() => setTimeout(() => {
+    const m = document.querySelector('#p-posta .posta-rozlozeni');
+    if (!m || !DVA_SLOUPCE.matches || stav.pohled !== 'posta') return;
+    const nahore = Math.round(m.getBoundingClientRect().top + window.scrollY) + 'px';
+    const html = document.documentElement;
+    if (html.style.getPropertyValue('--posta-detail-nahore') !== nahore) html.style.setProperty('--posta-detail-nahore', nahore);
+  }, 0));
+}
+let casovacOkna = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(casovacOkna);
+  casovacOkna = setTimeout(() => { if (stav.pohled === 'posta') zmerVyskuDetailu(); }, 150);
+});
 
 function klicDetailu() {
   const id = stav.otevreneVlakno;
@@ -1176,7 +1220,7 @@ function presunHtml() {
   }).join('') + '</ul>' : stav.stitkyGmailu ? '<p class="napoveda">V Gmailu zatím nemáš žádné štítky.</p>' : kostra(4);
   return '<div class="presun"><p class="pripominka__predmet">' + IKONY.posta + '<span class="orez-2">' + esc((d && d.predmet) || souhrn.predmet || '') +
     (souhrn.od ? ' <small class="muted">· ' + esc(souhrn.od) + '</small>' : '') + '</span></p>' + seznam +
-    '<div class="presun__novy"><input class="field" data-presun-novy maxlength="40" placeholder="Nová skupina, např. VÝVOJ" aria-label="Název nové skupiny">' +
+    '<div class="presun__novy"><input class="field" data-presun-novy maxlength="40" placeholder="Nová skupina" aria-label="Název nové skupiny">' +
       '<button type="button" class="btn btn--ghost btn--sm" data-presun-vytvorit>' + IKONY.plus + '<span>Vytvořit a přesunout</span></button></div>' +
     '<label class="presun__nechat"><input type="checkbox" data-presun-nechat' + (p.nechat ? ' checked' : '') + '><span>Nechat i v Doručené (jen přidat štítek)</span></label>' +
     '<p class="napoveda">Jako „Přesunout do“ v Gmailu: konverzace dostane štítek a zmizí z Doručené. Najdeš ji v liště skupin nad seznamem pošty' +

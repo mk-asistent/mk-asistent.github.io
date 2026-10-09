@@ -32,6 +32,7 @@
     --ok:          #2f7a4f;  --ok-tint:    #e4f0e8;
     --danger:      #d9482b;  --danger-tint: #fbe6df;
     --fialova:     #7a5cc4;  --fialova-tint: #efeafa;
+    --oranz-text:  #b8441d;  --zluta-text: #93640f;   /* text v korálové / žluté na světlém nádechu (kontrast ≥ 4,5) */
     --sklo:        rgba(255, 255, 255, .9);
     --avatar-s: 38%; --avatar-l: 90%; --avatar-ts: 34%; --avatar-tl: 30%;
 
@@ -60,6 +61,7 @@
         --tmava: #1d3828; --tmava-text: #e6f0e8;
         --oranz: #f07a4e; --oranz-hover: #f48d66; --oranz-tint: rgba(240, 122, 78, .16);
         --zluta: #e6ad45; --zluta-tint: rgba(230, 173, 69, .15); --ok: #5cc185; --ok-tint: rgba(92, 193, 133, .14);
+        --oranz-text: #f07a4e; --zluta-text: #e6ad45;
         --danger: #ff7a5c; --danger-tint: rgba(255, 122, 92, .15); --fialova: #a990f0; --fialova-tint: rgba(169, 144, 240, .16); --limetka-tint: rgba(213, 238, 94, .12);
         --sklo: rgba(23, 29, 26, .9); --shadow: none; --shadow-pop: 0 26px 56px -14px rgba(0, 0, 0, .75);
         --avatar-s: 28%; --avatar-l: 24%; --avatar-ts: 50%; --avatar-tl: 74%;
@@ -73,6 +75,7 @@
     --tmava: #1d3828; --tmava-text: #e6f0e8;
     --oranz: #f07a4e; --oranz-hover: #f48d66; --oranz-tint: rgba(240, 122, 78, .16);
     --zluta: #e6ad45; --zluta-tint: rgba(230, 173, 69, .15); --ok: #5cc185; --ok-tint: rgba(92, 193, 133, .14);
+    --oranz-text: #f07a4e; --zluta-text: #e6ad45;
     --danger: #ff7a5c; --danger-tint: rgba(255, 122, 92, .15); --fialova: #a990f0; --fialova-tint: rgba(169, 144, 240, .16); --limetka-tint: rgba(213, 238, 94, .12);
     --sklo: rgba(23, 29, 26, .9); --shadow: none; --shadow-pop: 0 26px 56px -14px rgba(0, 0, 0, .75);
     --avatar-s: 28%; --avatar-l: 24%; --avatar-ts: 50%; --avatar-tl: 74%;
@@ -179,6 +182,8 @@ svg { flex: none; width: 1.25em; height: 1.25em; } /* výchozí velikost – kon
 
 /* ================================================================ rozvržení */
 .aplikace { min-height: 100vh; }
+/* okamžitý snímek poslední stránky (js/start.js), než naběhne aplikace: jen k vidění, klepnutí čekají na aplikaci */
+.snimek .aplikace { pointer-events: none; }
 .rail { display: none; }
 .hlavni { min-width: 0; }
 main { padding: 4px var(--mezera) calc(var(--lista-h) + env(safe-area-inset-bottom) + 28px); }
@@ -380,7 +385,7 @@ main { padding: 4px var(--mezera) calc(var(--lista-h) + env(safe-area-inset-bott
 .agenda { list-style: none; margin: 0; padding: 2px 0 8px; }
 .agenda__den { display: flex; align-items: baseline; gap: 7px; padding: 10px 16px 3px; }
 .agenda__den b { font-size: 12px; font-weight: 650; letter-spacing: .02em; }
-.agenda__den small { font-size: 11.5px; color: var(--dim); }
+.agenda__den small { font-size: 11.5px; color: var(--muted); }
 .agenda li:first-child { padding-top: 4px; }
 .agenda__u { display: flex; align-items: center; gap: 9px; width: 100%; padding: 5px 16px; border: 0; background: none; color: inherit; text-align: left; font-size: 13.5px; }
 .agenda__u:hover { background: var(--bg-soft); }
@@ -472,7 +477,7 @@ button.legenda-radek { width: 100%; background: none; border: 0; text-align: lef
 .hd__hori { font-style: normal; font-weight: 650; color: var(--oranz); }
 /* připravenost: číslo v barvě zóny WHOOP (zelená ≥ 67, žlutá 34–66, červená ≤ 33) */
 .hd--zelena .hd__hodnota { color: var(--ok); }
-.hd--zluta .hd__hodnota { color: var(--zluta); }
+.hd--zluta .hd__hodnota { color: var(--zluta-text); }
 .hd--cervena .hd__hodnota { color: var(--danger); }
 .hd--zelena .hd__hodnota small, .hd--zluta .hd__hodnota small, .hd--cervena .hd__hodnota small { color: inherit; opacity: .75; }
 /* užší dlaždice: ikona s číslem v řádku, popisek pod nimi přes celou šířku */
@@ -493,8 +498,17 @@ button.legenda-radek { width: 100%; background: none; border: 0; text-align: lef
 .krouzky--voda { --k: var(--o-pocasi); }
 .krouzky--bilkoviny { --k: var(--oranz); }
 .krouzky--pohyb { --k: var(--o-fotbal); }
+.krouzky--doplnky { --k: var(--fialova); }
+.krouzky--ctyri circle { stroke-width: 3.5; }
 .krouzky-legenda { display: flex; flex-direction: column; min-width: 0; font-size: 10.5px; line-height: 1.22; font-weight: 650; color: var(--text-soft);
     font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* čtyři kroužky (s doplňky): v úzké dlaždici čtyři menší řádky, v širší liště dva sloupce */
+.krouzky-legenda--ctyri { font-size: 9.5px; line-height: 1.1; }
+.krouzky-legenda--ctyri .krouzky-legenda__radek i { width: 5px; height: 5px; }
+@container hd (min-width: 860px) {
+    .krouzky-legenda--ctyri { display: grid; grid-template-columns: auto auto; gap: 1px 8px; font-size: 10.5px; line-height: 1.22; }
+    .krouzky-legenda--ctyri .krouzky-legenda__radek i { width: 6px; height: 6px; }
+}
 .krouzky-legenda__radek { display: flex; align-items: center; gap: 4px; }
 .krouzky-legenda__radek i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--k); }
 @container horni (max-width: 1239px) { .hledat-tl { width: 280px; } }
@@ -835,7 +849,8 @@ a.reel__nahled:hover .reel__play { background: var(--limetka); }
     .reel__popisek, .reel__bez, .reel__akce { grid-column: 1 / -1; }
     /* Kopírovat přes celou šířku, pod ním Video a Zveřejněno vedle sebe */
     .reel__akce { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-    .reel__akce > [data-reel-kopirovat], .reel__akce > [data-reel-kopirovat] + :last-child, .reel__akce > :only-child { grid-column: 1 / -1; }
+    .reel__akce > [data-reel-kopirovat], .reel__akce > [data-reel-kopirovat] + :last-child, .reel__akce > :only-child,
+    .reel__akce > .reel__plan-cele { grid-column: 1 / -1; } /* Naplánovat na Instagram se do půlky nevešlo */
     .reel__akce .btn { min-width: 0; padding: 0 10px; }
 }
 /* počasí: příštích 12 hodin (Open-Meteo) */
@@ -867,12 +882,12 @@ a.reel__nahled:hover .reel__play { background: var(--limetka); }
 .doplnek small { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doplnek[aria-pressed="true"] b { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--dim); }
 .doplnky-pozn { margin: 0; padding: 0 16px 12px; font-size: 12px; color: var(--muted); }
-.doplnek__tyden { margin-left: auto; flex: none; font-style: normal; font-size: 11.5px; font-weight: 650; color: var(--dim); }
+.doplnek__tyden { margin-left: auto; flex: none; font-style: normal; font-size: 11.5px; font-weight: 650; color: var(--muted); }
 /* hlavní doplňky nahoře, ostatní šedě pod čarou – ukazují se, ale do plnění se nepočítají (ZDRAVI_REZIM.json → hlavni) */
 .doplnky__oddel { margin: 6px 8px 0; padding: 8px 0 2px; border-top: 1px dashed var(--line); font-size: 10.5px; font-weight: 650; letter-spacing: .06em;
-    text-transform: uppercase; color: var(--dim); }
-.doplnek--vedlejsi { opacity: .62; }
-.doplnek--vedlejsi b { font-weight: 550; }
+    text-transform: uppercase; color: var(--muted); }
+.doplnek--vedlejsi b { font-weight: 550; color: var(--text-soft); }
+.doplnek--vedlejsi .zaskrt { opacity: .7; }
 .doplnek--vedlejsi[aria-pressed="true"] .zaskrt { background: var(--sand-2); border-color: var(--sand-2); color: var(--text-soft); }
 /* Pití a jídlo: voda tlačítky, bílkoviny z jídel a doplňků, týden pití */
 .piti { display: flex; flex-direction: column; gap: 10px; padding: 4px 16px 14px; }
@@ -895,9 +910,9 @@ a.reel__nahled:hover .reel__play { background: var(--limetka); }
 .piti__tyden li { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .piti__tyden li > span { width: 100%; max-width: 26px; height: 34px; display: flex; align-items: flex-end; border-radius: 7px; background: var(--bg-soft); overflow: hidden; }
 .piti__tyden i { display: block; width: 100%; background: #3b9ae1; }
-.piti__tyden small { font-size: 10.5px; color: var(--dim); font-weight: 650; }
+.piti__tyden small { font-size: 10.5px; color: var(--muted); font-weight: 650; }
 .piti__tyden li.dnes small { color: var(--accent); }
-.piti__tyden li.budouci { opacity: .45; }
+.piti__tyden li.budouci > span { opacity: .45; }
 .jidlo-form { display: flex; flex-direction: column; gap: 12px; }
 .jidlo-form textarea { resize: vertical; min-height: 64px; font-size: 16px; }
 .jidlo-cisla { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-top: 8px; }
@@ -938,7 +953,7 @@ a.reel__nahled:hover .reel__play { background: var(--limetka); }
 .doplnky-tyden li.plny { background: var(--limetka); border-color: var(--limetka); color: var(--na-limetce); }
 .doplnky-tyden li.cast { background: linear-gradient(to top, var(--limetka) 50%, var(--surface) 50%); border-color: var(--limetka); color: var(--text); }
 .doplnky-tyden li.nic { border-color: var(--sand-2); color: var(--text-soft); }
-.doplnky-tyden li.budouci, .doplnky-tyden li.volno { opacity: .55; }
+.doplnky-tyden li.budouci, .doplnky-tyden li.volno { color: var(--muted); border-style: dashed; }
 .doplnky-tyden li.vybrany { outline: 2px solid var(--accent); outline-offset: 1px; }
 .doplnky-tyden li.dnes:not(.vybrany) { outline: 1px dashed var(--accent); outline-offset: 1px; }
 .doplnky-tyden b { margin-left: auto; color: var(--text); font-size: 13px; }
@@ -1154,6 +1169,10 @@ button.moje-kdy:hover { color: var(--accent); }
 /* řádek konverzace (Pošta i Dnes, Michal 9. 10.): odesílatel · předmět · text · čas; stav jen proužkem vlevo,
    návrh od Clauda malou ikonou, účet drobně jen v zobrazení obou účtů */
 .radek-posta { position: relative; }
+/* dlouhý seznam pošty: řádky mimo obrazovku prohlížeč neskládá ani nekreslí (rychlé přepnutí do Pošty i se 150 konverzacemi);
+   rámeček fokusu dovnitř řádku – obsah řádku je oříznutý jeho hranicí */
+.seznam-posta > li { content-visibility: auto; contain-intrinsic-size: auto 78px; }
+.seznam-posta .radek-posta:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .radek-posta::before { content: ''; position: absolute; left: 0; top: 11px; bottom: 11px; width: 3px; border-radius: 0 3px 3px 0; background: transparent; }
 li.st-hori > .radek-posta::before { background: var(--oranz); }
 li.st-ceka > .radek-posta::before { background: var(--ok); }
@@ -1210,8 +1229,10 @@ li.aktivni > .radek-posta { box-shadow: none; } /* vybraný řádek = písková 
 .posta-prace-prazdna p { margin: 4px 0 10px; font-size: 13px; line-height: 1.5; color: var(--text-soft); }
 @media (min-width: 1000px) {
     .posta-rozlozeni { display: grid; grid-template-columns: minmax(320px, 400px) minmax(0, 1fr); gap: 16px; align-items: start; }
+    /* výška detailu = od jeho horního okraje po spodek okna (--posta-detail-nahore měří js/posta.js – nad ním jsou lišta,
+       nadpis, záložky, skupiny a filtry; s pevnými 210 px byla patička s Odpovědět pod okrajem okna) */
     .posta-detail {
-        display: flex; flex-direction: column; position: sticky; top: 16px; height: calc(100vh - 210px); min-height: 440px;
+        display: flex; flex-direction: column; position: sticky; top: 16px; height: calc(100vh - var(--posta-detail-nahore, 210px) - 16px); min-height: 440px;
         background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden;
     }
     .detail-lista { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); }
@@ -1264,17 +1285,17 @@ li.aktivni > .radek-posta { box-shadow: none; } /* vybraný řádek = písková 
 /* kalendář: sekce Svátky – jmeniny a oblíbení lidé (★), okno „Kalendáře a svátky“, Brzy má svátek, svátky v týdnu na Dnes.
    Jmeniny šedě a nenápadně (vpravo v buňce měsíce, pod datem v týdnu, v nadpisu dne), oblíbení korálově a tučně jako
    celodenní položka sekce Svátky (čip v měsíci a v „celý den“, řádek v seznamu dne). */
-.svatek { display: block; font-size: 10.5px; font-weight: 500; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
-.svatek--oblibeny { color: var(--oranz); font-weight: 700; }
+.svatek { display: block; font-size: 10.5px; font-weight: 500; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
+.svatek--oblibeny { color: var(--oranz-text); font-weight: 700; }
 .den-nadpis .svatek, .kal-den__hlava .svatek { display: inline; font-size: 12px; margin-left: 4px; }
 .svatek--hlava { margin-top: 1px; max-width: 100%; }
-.cip-udalost.cip-svatek { background: var(--oranz-tint); color: var(--oranz); font-weight: 700; }
+.cip-udalost.cip-svatek { background: var(--oranz-tint); color: var(--oranz-text); font-weight: 700; }
 .udalost.udalost--svatek, .udalost.udalost--svatek:hover { background: color-mix(in srgb, var(--oranz-tint) 70%, transparent); cursor: default; }
-.udalost--svatek .cas { color: var(--oranz); font-size: 12px; font-weight: 650; }
+.udalost--svatek .cas { color: var(--oranz-text); font-size: 12px; font-weight: 650; }
 .udalost--svatek .udalost-barva { background: var(--oranz); }
-.udalost--svatek .nazev { color: var(--oranz); font-weight: 700; }
+.udalost--svatek .nazev { color: var(--oranz-text); font-weight: 700; }
 .mini__den.svatek-oblibeny { box-shadow: inset 0 -2px 0 var(--oranz); }
-.mini__den.svatek-oblibeny:not(.dnes):not(.vybrany) { color: var(--oranz); font-weight: 700; }
+.mini__den.svatek-oblibeny:not(.dnes):not(.vybrany) { color: var(--oranz-text); font-weight: 700; }
 .pas-den { position: relative; }
 .pas-den__svatek { position: absolute; top: 2px; right: 4px; font-style: normal; font-size: 10px; color: var(--oranz); }
 .kal-zobrazeni-btn b { margin-left: 2px; padding: 0 6px; border-radius: 9px; background: var(--accent-tint); color: var(--accent); font-size: 11px; }
@@ -1288,7 +1309,7 @@ li.aktivni > .radek-posta { box-shadow: none; } /* vybraný řádek = písková 
 .brzy-seznam { list-style: none; margin: 0; padding: 4px 0 8px; }
 .brzy__radek { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; padding: 6px 14px; border: 0; background: none; color: inherit; text-align: left; }
 .brzy__radek:hover { background: var(--bg-soft); }
-.brzy__datum { display: flex; flex-direction: column; align-items: center; padding: 4px 0 3px; border-radius: 9px; background: var(--oranz-tint); color: var(--oranz); line-height: 1.15; }
+.brzy__datum { display: flex; flex-direction: column; align-items: center; padding: 4px 0 3px; border-radius: 9px; background: var(--oranz-tint); color: var(--oranz-text); line-height: 1.15; }
 .brzy__datum b { font-size: 12.5px; font-weight: 700; }
 .brzy__datum small { font-size: 10px; font-weight: 650; text-transform: uppercase; opacity: .85; }
 .brzy__kdo { min-width: 0; }
@@ -1308,7 +1329,8 @@ li.aktivni > .radek-posta { box-shadow: none; } /* vybraný řádek = písková 
 .agenda__den--volny + .agenda__den--volny .agenda__den-btn { padding-top: 2px; }
 .agenda__den--volny b { color: var(--text-soft); font-weight: 600; }
 .agenda__svatek { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); }
-.agenda__svatek--oblibeny { padding: 0 8px; border-radius: 7px; background: var(--oranz-tint); color: var(--oranz); font-weight: 700; }
+.agenda__svatek--oblibeny { padding: 0 8px; border-radius: 7px; background: var(--oranz-tint); color: var(--oranz-text); font-weight: 700; }
+.agenda__prazdno { margin: 0; padding: 0 16px 14px; color: var(--muted); font-size: 12.5px; }
 .agenda__skryto { flex: none; padding: 0 6px; border-radius: 6px; background: var(--sand); color: var(--muted); font-style: normal; font-size: 11px; font-weight: 650; }
 /* okno „Kalendáře a svátky“ */
 .kal-zobrazeni { display: flex; flex-direction: column; gap: 18px; }
@@ -1345,9 +1367,9 @@ li.aktivni > .radek-posta { box-shadow: none; } /* vybraný řádek = písková 
 .jn--uz-je { color: var(--muted); }
 .jn--uz-je .jn__znak { background: var(--sand); color: var(--muted); }
 .jn--vyber { background: var(--zluta-tint); }
-.jn--vyber .jn__znak { background: var(--zluta); color: #fff; }
+.jn--vyber .jn__znak { background: var(--zluta); color: var(--na-limetce); }
 .jn--nezname { background: var(--oranz-tint); }
-.jn--nezname .jn__znak { background: var(--oranz); color: #fff; }
+.jn--nezname .jn__znak { background: var(--oranz); color: var(--na-limetce); }
 .jn__volby { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; padding-left: 32px; }
 .jn__volba { padding: 4px 11px; font-size: 13px; }
 .jn__volba small { font-size: 11px; color: var(--muted); }
@@ -1501,11 +1523,12 @@ li.aktivni > .radek-posta { box-shadow: none; } /* vybraný řádek = písková 
 .cas-svitek { max-height: calc(100vh - 300px); min-height: 360px; overflow-y: auto; overscroll-behavior: contain; position: relative; }
 .cas-hlava, .cas-celodenni { display: grid; grid-template-columns: 48px repeat(var(--dnu), minmax(0, 1fr)); position: sticky; z-index: 3; background: var(--surface); }
 .cas-hlava { top: 0; border-bottom: 1px solid var(--line-soft); }
-.cas-celodenni { top: 56px; border-bottom: 1px solid var(--line); padding: 4px 0; }
+.cas-celodenni { top: 64px; border-bottom: 1px solid var(--line); padding: 4px 0; }
 .cas-svitek > .cas-celodenni:first-child { top: 0; }
 .cas-celodenni > div { display: flex; flex-direction: column; gap: 2px; padding: 0 2px; min-width: 0; }
 .cas-popisek { font-size: 10px; font-weight: 650; color: var(--dim); align-self: center; text-align: center; }
-.cas-den-nadpis { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; height: 56px; border: 0; background: none; color: inherit; }
+/* den, číslo a svátek (Svátky 9. 10.) – výška 64 px; řádek „celý den“ se lepí pod hlavičku (.cas-celodenni top) */
+.cas-den-nadpis { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; height: 64px; border: 0; background: none; color: inherit; }
 .cas-den-nadpis small { font-size: 10.5px; font-weight: 650; text-transform: uppercase; color: var(--dim); }
 .cas-den-nadpis b { font-size: 16px; font-weight: 650; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 10px; }
 .cas-den-nadpis.dnes b { background: var(--tmava); color: #fff; }
@@ -1851,6 +1874,10 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
     .dnes-mobil { display: flex; flex-direction: column; gap: 14px; }
     #p-dnes .kpi-mrizka, #p-dnes .dl-pozornost { display: none; }
     .dnes-mrizka { grid-template-areas: "vpravo"; }
+    /* karty pod hlavní kartou a seznamy (moje poznámky, týden, doplňky, pití…) prohlížeč skládá až při posunu k nim – první
+       vykreslení (i okamžitý snímek) jen pro to, co je vidět (měřeno 9. 10.: první obraz o ~0,4 s dřív, návrat na Dnes 93 → 40 ms) */
+    .dnes-vpravo > section { content-visibility: auto; contain-intrinsic-size: auto 360px; }
+    .zdravi-mrizka-karet > section { content-visibility: auto; contain-intrinsic-size: auto 420px; }
 
     .hero { border-radius: 26px; background: #3d7a56; padding: 8px; color: #fff; }
     .hero__hlava { display: flex; align-items: center; justify-content: space-between; padding: 6px 4px 10px 6px; }
@@ -2017,6 +2044,9 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 .auto-sloupec:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .auto-sloupec small i { display: block; font-style: normal; font-size: 10px; opacity: .75; }
 .auto-sloupec__cislo { font-size: 10.5px; font-weight: 650; color: var(--text-soft); text-align: center; white-space: nowrap; margin-bottom: 3px; }
+.auto-sloupec__cislo i { font-style: normal; }
+/* telefon: 13 úzkých sloupců – „tis.“ pod číslem, ať se popisky sousedních měsíců nepřekrývají */
+@media (max-width: 759px) { .auto-sloupec__cislo { font-size: 10px; line-height: 1.1; } .auto-sloupec__cislo i { display: block; font-size: 8.5px; opacity: .8; } }
 .auto-sloupec__palivo { background: var(--o); border-radius: 0 0 4px 4px; }
 .auto-sloupec__ostatni { background: var(--oranz); border-radius: 4px 4px 0 0; opacity: .85; }
 .auto-sloupec__ostatni[style*="height:0px"] + .auto-sloupec__palivo { border-radius: 4px; }

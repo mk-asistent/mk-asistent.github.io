@@ -35,7 +35,8 @@ const OBNOVA_PO_ZMENE = 2e3;         // po změně z aplikace server obnoví zm�
 const KOPIE_ZAPISU = {
   poznamka: ['schranka'], polozka: ['schranka'],
   schrankaSmazat: ['schranka'], schrankaObnovit: ['schranka'], mojePridat: ['schranka'], mojeHotovo: ['schranka'], mojeSmazat: ['schranka'],
-  vlakno: ['posta'], odeslat: ['posta'], oznacit: ['posta'], pripomenout: ['posta'], postaPresunout: ['posta'], postaPrectene: ['posta'],
+  // Připomenout = odložení e-mailu (archiv) + úkol do schránky (CEKA) – mění obojí
+  vlakno: ['posta'], odeslat: ['posta'], oznacit: ['posta'], pripomenout: ['posta', 'schranka'], postaPresunout: ['posta'], postaPrectene: ['posta'],
   navrhZahodit: ['posta'], navrhyNastavit: ['posta', 'info'], nastavPostu: ['posta', 'info'], podpisyUlozit: ['info'],
   udalostUlozit: ['kalendar'], udalostSmazat: ['kalendar'], zapasyImport: ['kalendar'], fotbalKalendar: ['kalendar', 'info', 'fotbal'],
   kalendarPridat: ['kalendar', 'info'], kalendarUpravit: ['kalendar', 'info'], kalendarOdebrat: ['kalendar', 'info'], kalendarZalozit: ['kalendar', 'info'],
