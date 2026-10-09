@@ -6,7 +6,11 @@
 //   do Firestore (uzivatele/{uid}/data). Aplikace je ukáže hned po otevření a změny dostává živě; na motor
 //   (Apps Script, 2–10 s) čeká jen u akcí a u kopií, které nejsou aktuální.
 // - Kopie se nepoužije, když je starší než 30 min (server nejede) nebo když po ní v tomhle zařízení proběhla změna
-//   (archivace, zápis, otevření konverzace…) či přímé čtení z motoru (Obnovit) – pak jde čtení na motor jako dřív.
+//   téže oblasti (archivace a otevření konverzace jen poštu, poznámka jen schránku…; neznámý zápis všechno) či přímé
+//   čtení z motoru (Obnovit) – pak jde čtení na motor jako dřív. Server pak za 5 s obnoví jen změněné oblasti.
+// - Zdraví a auto server nekopíruje: po zápisu (voda, doplňky, váha, tankování…) zapíše aplikace do účtu signál
+//   (data/_signal = { zdravi: ms, auto: ms }) a ostatní zařízení si podle něj data hned načtou z motoru
+//   (Michal 9. 10.: „na mobilu jsem přidal vodu a na PC to není – má to být aktuální hned“).
 // Knihovny Firebase se stahují, až když je účet v zařízení zapnutý; bez účtu jede aplikace jen s motorem.
 
 import { uloziste } from './pomocne.js';
@@ -21,10 +25,29 @@ const PLATNOST = 'asistent.kopie';   // { zmena: ms, primo: { id: ms } } – co 
 const MAX_STARI = 30 * 60e3;         // starší kopie = server asi nejede → motor
 // fotbal, nastavení a reely server obnovuje jen jednou za hodinu / půl hodiny (mění se málo) – kopie platí déle
 const MAX_STARI_ID = { info: 3 * 3600e3, fotbal: 3 * 3600e3, reely: 90 * 60e3 };
-const REZERVA = 10e3;                // hodiny zařízení a serveru se můžou o pár vteřin lišit
+const REZERVA = 3e3;                 // hodiny zařízení a serveru se můžou o vteřinu dvě lišit
 const OBNOVIT_PO = 4 * 60e3;         // starší kopie → při otevření požádat server o čerstvé
 const CEKAT_NA_KOPIE = 4000;         // déle se při startu na Firebase nečeká (pak motor jako dřív)
-const OBNOVA_PO_ZMENE = 15e3;        // po změně z aplikace server kopie obnoví (ať jsou zase k použití)
+const OBNOVA_PO_ZMENE = 5e3;         // po změně z aplikace server obnoví změněné kopie (víc klepnutí za sebou = jedna obnova)
+
+// Které kopie zápis mění (ostatní zápisy: všechny – bezpečná výchozí volba). Zdraví a auto server nekopíruje – zápis
+// kopie neovlivní a ostatním zařízením to hned řekne signál.
+const KOPIE_ZAPISU = {
+  poznamka: ['schranka'], polozka: ['schranka'],
+  vlakno: ['posta'], odeslat: ['posta'], oznacit: ['posta'], pripomenout: ['posta'], postaPresunout: ['posta'], postaPrectene: ['posta'],
+  navrhZahodit: ['posta'], navrhyNastavit: ['posta', 'info'], nastavPostu: ['posta', 'info'], podpisyUlozit: ['info'],
+  udalostUlozit: ['kalendar'], udalostSmazat: ['kalendar'], zapasyImport: ['kalendar'], fotbalKalendar: ['kalendar', 'info', 'fotbal'],
+  kalendarPridat: ['kalendar', 'info'], kalendarUpravit: ['kalendar', 'info'], kalendarOdebrat: ['kalendar', 'info'], kalendarZalozit: ['kalendar', 'info'],
+  jmeninyUlozit: ['info'], skupinyHostuUlozit: ['info'], pocasiDomov: ['info'], reelStav: ['reely'], reelNaplanovat: ['reely'], reelZrusitPlan: ['reely'],
+  vaha: [], doplnky: [], pitiJidlo: [], whoopPropojit: [], whoopOdpojit: [], zdraviKlic: [], upozorneniZapnout: [], upozorneniVypnout: [], upozorneniTest: []
+};
+const SIGNAL_ZAPISU = { vaha: 'zdravi', doplnky: 'zdravi', pitiJidlo: 'zdravi', whoopPropojit: 'zdravi', whoopOdpojit: 'zdravi' };
+/** Oblasti kopií, které zápis mění ([] = žádné, null = všechny). */
+function kopieZapisu(akce) { return /^auto/.test(akce) ? [] : KOPIE_ZAPISU[akce] || null; }
+/** Signál pro ostatní zařízení po zápisu: 'zdravi' | 'auto' | ''. */
+function signalZapisu(akce) { return /^auto/.test(akce) ? 'auto' : SIGNAL_ZAPISU[akce] || ''; }
+/** Oblast kopie: kalendar_2026-10 → kalendar, ostatní podle id. */
+const oblastKopie = (id) => (id.indexOf('kalendar_') === 0 ? 'kalendar' : id);
 
 // čtení, která můžou přijít z kopie (bez dalších parametrů); kalendář podle mřížky měsíce.
 // Zdraví a počasí server nechystá (zdravotní data jen na Disku, počasí podle polohy telefonu) – ty jdou vždy z motoru.
@@ -34,7 +57,8 @@ export const CTENI = ['info', 'schranka', 'posta', 'kalendar', 'kalendare', 'poc
   'kontakty', 'hledat', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'zmeny']; // čtení bez kopie nic nezneplatní
 
 const s = { fb: null, fbSlib: null, uzivatel: null, kopie: {}, server: null, pripraveno: null, odber: null, prvni: true,
-  obnovuje: null, naposledyObnova: 0, casovac: 0, chyba: null, naKopie: [], naStav: [] };
+  obnovuje: null, naposledyObnova: 0, casovac: 0, chyba: null, naKopie: [], naStav: [], naSignal: [],
+  signal: {}, moje: {}, cekaVse: false, cekaJen: [], dalsi: null };
 
 export const nastaveno = () => !!KONFIGURACE.apiKey;
 export const zapnuty = () => nastaveno() && !!uloziste.cti(UCET);
@@ -46,9 +70,11 @@ export function stavUctu() {
     server: s.server, obnovuje: !!s.obnovuje, chyba: s.chyba };
 }
 
-/** fn(idy) – změnily se kopie, které se dají použít (aplikace je načte znovu); fn() – změnil se stav účtu. */
+/** fn(idy) – změnily se kopie, které se dají použít (aplikace je načte znovu); fn() – změnil se stav účtu;
+ *  fn({ zdravi, auto }) – signál zápisu z jiného zařízení (i ten, co v účtu ležel při otevření). */
 export function naKopie(fn) { s.naKopie.push(fn); }
 export function naStav(fn) { s.naStav.push(fn); }
+export function naSignal(fn) { s.naSignal.push(fn); }
 function oznam(seznam, arg) { seznam.forEach((fn) => { try { fn(arg); } catch (e) { /* další posluchač */ } }); }
 
 // ---------------------------------------------------------------- Firebase (stahuje se až při použití)
@@ -87,9 +113,11 @@ function odebirej(fb) {
   return new Promise((hotovo) => {
     s.odber = fb.fs.onSnapshot(fb.fs.collection(fb.db, 'uzivatele', s.uzivatel.uid, 'data'), (snimek) => {
       const zmenene = [];
+      let signal = false;
       snimek.docChanges().forEach((z) => {
         const id = z.doc.id;
         if (id === '_stav') { s.server = z.type === 'removed' ? null : z.doc.data(); return; }
+        if (id === '_signal') { s.signal = z.type === 'removed' ? {} : z.doc.data(); signal = true; return; }
         if (z.type === 'removed') delete s.kopie[id];
         else { s.kopie[id] = z.doc.data(); zmenene.push(id); }
       });
@@ -103,6 +131,7 @@ function odebirej(fb) {
         const k = zmenene.filter(pouzitelna);
         if (k.length) oznam(s.naKopie, k);
       }
+      if (signal) oznamSignal();
       oznam(s.naStav);
     }, (chyba) => { s.chyba = chyba; s.odber = null; hotovo(); oznam(s.naStav); });
   });
@@ -110,13 +139,15 @@ function odebirej(fb) {
 
 // ---------------------------------------------------------------- kopie pro čtení
 
-function platnost() { return uloziste.cti(PLATNOST) || { zmena: 0, primo: {} }; }
+function platnost() { return uloziste.cti(PLATNOST) || { zmena: 0, zmeny: {}, primo: {} }; }
 function potvrzeno(id) { return (s.server && s.server.potvrzeno && s.server.potvrzeno[id]) || 0; }
 
 function pouzitelna(id) {
   const kdy = potvrzeno(id), p = platnost();
-  // po změně musí obnova začít až po ní (s rezervou na hodiny); po přímém čtení stačí novější kopie
-  return !!(s.kopie[id] && kdy && Date.now() - kdy < (MAX_STARI_ID[id] || MAX_STARI) && kdy > (p.zmena || 0) + REZERVA && kdy > ((p.primo || {})[id] || 0));
+  // po změně (té oblasti, nebo neznámé = všeho) musí obnova začít až po ní (s rezervou na hodiny); po přímém čtení
+  // stačí novější kopie
+  const zmena = Math.max(p.zmena || 0, (p.zmeny || {})[oblastKopie(id)] || 0);
+  return !!(s.kopie[id] && kdy && Date.now() - kdy < (MAX_STARI_ID[id] || MAX_STARI) && kdy > zmena + REZERVA && kdy > ((p.primo || {})[id] || 0));
 }
 
 /** Která kopie odpovídá čtení (nebo null). Kalendář: měsíc mřížky = 7 dní po jejím začátku (pondělí před 1. dnem). */
@@ -156,25 +187,68 @@ export function primeCteni(akce, data) {
   uloziste.pis(PLATNOST, p);
 }
 
-/** Změna z aplikace (před odesláním i po odpovědi motoru): kopie z doby před ní neplatí; server je za chvíli obnoví. */
-export function poZmene() {
+/** Změna z aplikace (před odesláním i po odpovědi motoru): kopie dotčených oblastí z doby před ní neplatí; server je
+ *  za chvíli obnoví (jen ty oblasti). Zápis ke zdraví nebo k autu kopie nemění – nic se nezneplatní ani neobnovuje. */
+export function poZmene(akce) {
   if (!zapnuty()) return;
-  uloziste.pis(PLATNOST, Object.assign(platnost(), { zmena: Date.now() }));
+  const oblasti = kopieZapisu(akce);
+  if (oblasti && !oblasti.length) return;
+  const p = platnost(), ted = Date.now();
+  if (!oblasti) p.zmena = ted;
+  else { p.zmeny = Object.assign({}, p.zmeny); oblasti.forEach((o) => { p.zmeny[o] = ted; }); }
+  uloziste.pis(PLATNOST, p);
+  if (!oblasti) s.cekaVse = true;
+  else oblasti.forEach((o) => { if (s.cekaJen.indexOf(o) < 0) s.cekaJen.push(o); });
   clearTimeout(s.casovac);
-  s.casovac = setTimeout(() => obnovNaServeru(true), OBNOVA_PO_ZMENE);
+  s.casovac = setTimeout(() => {
+    const jen = s.cekaVse ? null : s.cekaJen.slice();
+    s.cekaVse = false;
+    s.cekaJen = [];
+    obnovNaServeru(true, jen);
+  }, OBNOVA_PO_ZMENE);
 }
 
-/** Požádá server o čerstvé kopie (funkce obnovHned); výsledek přijde živě přes odběr. */
-export function obnovNaServeru(vzdy) {
+/** Po zápisu ke zdraví / k autu: signál do účtu – ostatní zařízení si data hned načtou (viz naSignal). */
+export function oznamZmenu(akce) {
+  const oblast = signalZapisu(akce);
+  if (!oblast || !zapnuty() || !s.uzivatel) return;
+  const t = Date.now();
+  s.moje[oblast] = t; // vlastní signál tohle zařízení znovu nenačítá
+  nactiFirebase()
+    .then((fb) => fb.fs.setDoc(fb.fs.doc(fb.db, 'uzivatele', s.uzivatel.uid, 'data', '_signal'), { [oblast]: t }, { merge: true }))
+    .catch(() => { /* jen zrychlení – jiná zařízení to poznají podle značek změn ze serveru */ });
+}
+
+/** Signál z jiného zařízení (nebo ze starší relace) → posluchačům { oblast: ms } bez vlastních zápisů. */
+function oznamSignal() {
+  const cizi = {};
+  Object.keys(s.signal || {}).forEach((o) => { if (typeof s.signal[o] === 'number' && s.signal[o] !== s.moje[o]) cizi[o] = s.signal[o]; });
+  if (Object.keys(cizi).length) oznam(s.naSignal, cizi);
+}
+
+/** Požádá server o čerstvé kopie (funkce obnovHned); výsledek přijde živě přes odběr.
+ *  jen = jen tyhle oblasti (po změně z aplikace, rychlé); bez něj všechno (vzdy: i fotbal, nastavení, reely). */
+export function obnovNaServeru(vzdy, jen) {
   if (!zapnuty() || !s.uzivatel) return Promise.resolve();
-  if (s.obnovuje) return s.obnovuje;
+  if (s.obnovuje) {
+    // běží obnova, která mohla začít před změnou – po ní ještě jednou (jen změněné oblasti)
+    if (jen !== undefined) s.dalsi = jen === null || s.dalsi === 'vse' ? 'vse' : Array.from(new Set((s.dalsi || []).concat(jen)));
+    return s.obnovuje;
+  }
   if (!vzdy && Date.now() - s.naposledyObnova < 60e3) return Promise.resolve();
-  s.naposledyObnova = Date.now();
+  if (!jen) s.naposledyObnova = Date.now();
+  const data = jen ? { vse: true, jen } : { vse: !!vzdy };
   s.obnovuje = nactiFirebase()
-    .then((fb) => fb.fn.httpsCallable(fb.funkce, 'obnovHned', { timeout: 120000 })({ vse: !!vzdy })) // vse: i fotbal, nastavení, reely
+    .then((fb) => fb.fn.httpsCallable(fb.funkce, 'obnovHned', { timeout: 120000 })(data))
     .then((r) => { s.chyba = null; return (r && r.data) || {}; })
     .catch((e) => { s.chyba = e; return null; })
-    .finally(() => { s.obnovuje = null; oznam(s.naStav); });
+    .finally(() => {
+      s.obnovuje = null;
+      oznam(s.naStav);
+      const dalsi = s.dalsi;
+      s.dalsi = null;
+      if (dalsi) obnovNaServeru(true, dalsi === 'vse' ? null : dalsi);
+    });
   oznam(s.naStav);
   return s.obnovuje;
 }
@@ -230,7 +304,7 @@ export async function odhlas() {
   clearTimeout(s.casovac);
   uloziste.smaz(UCET);
   uloziste.smaz(PLATNOST);
-  Object.assign(s, { kopie: {}, server: null, pripraveno: null, prvni: true, chyba: null });
+  Object.assign(s, { kopie: {}, server: null, pripraveno: null, prvni: true, chyba: null, signal: {}, moje: {}, cekaVse: false, cekaJen: [], dalsi: null });
   if (s.fb && s.uzivatel) await s.fb.auth.signOut(s.fb.ov).catch(() => { /* odhlášení v zařízení stačí */ });
   s.uzivatel = null;
   oznam(s.naStav);

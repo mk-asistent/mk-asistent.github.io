@@ -143,14 +143,17 @@ jen kopíruje – mění se na PC. Do Fotek v iPhonu: aplikace Disk → ⋯ → 
 ## Počasí (ČHMÚ)
 Motor čte otevřená data ČHMÚ (CC BY 4.0): výstrahy CAP pro ORP, vodní stav řeky s povodňovými stupni a textovou
 předpověď kraje na dnes až 3 dny. Stahuje šetrně (ETag → 304, výpis předpovědí jednou za hodinu), přehled drží 15 minut.
-Místo: vlastnost skriptu `POCASI` (JSON, např. `{"misto":"Hodonín","orp":{"6206":"Hodonín"},"stanice":[],"kraj":"RPJM"}`);
-bez ní Veselí nad Moravou.
+Místo bez polohy: **Domov** (Nastavení → Počasí → Domov: obec podle jména přes Open-Meteo geocoding, akce `pocasiDomov`
+uloží do vlastnosti `POCASI` místo, ORP, kraj, stanice a `domov` {lat, lon}); bez něj Veselí nad Moravou. Platí pro
+všechna zařízení.
 
 **Podle polohy** (Nastavení → Počasí, na každém zařízení zvlášť): aplikace pošle polohu zaokrouhlenou na 0,01° (~1 km),
 motor z ní přes RÚIAN (ČÚZK) zjistí ORP a obec, vezme výstrahy pro ten ORP, předpověď kraje a dvě nejbližší vodoměrné
 stanice s povodňovými stupni (místa si pamatuje ve `POCASI_MISTA`). Teplotu teď a příštích 12 hodin bere telefon přímo
 z **Open-Meteo** (model ČHMÚ ALADIN, bez klíče). Ranní upozornění použijí poslední polohu (nejvýš den starou); po vypnutí
-se zapomene.
+se zapomene. Aplikace žádá **přesnou polohu** (GPS) a posílá i přesnost: poloha z Wi-Fi bývá o pár km vedle (u Michala
+telefon i PC hlásily sousední obec, 9. 10.) – proto **v okolí domova** (8 km, při velké nejistotě i dál) ukáže domov;
+přibližná poloha mimo domov má „≈“ a v detailu radu (iPhone: Polohové služby → Weby Safari → Přesná poloha).
 
 ## Zdraví (WHOOP + Apple Watch)
 - **WHOOP** (API v2, OAuth): vlastní aplikace na developer-dashboard.whoop.com (Sandbox, jen pro sebe; Privacy Policy URL
@@ -265,7 +268,8 @@ Vlastnosti skriptu (⚙ → Vlastnosti skriptu) – všechny nepovinné kromě k
 |---|---|
 | `API_KLIC` | klíč aplikace (heslo k poště) – vytváří `nastavApi`, nový `novyKlic` |
 | `PRACOVNI_ADRESA`, `PODPISY` | pracovní pošta a podpisy (nastavuje aplikace) |
-| `POCASI` | jiné místo pro počasí (výchozí Veselí nad Moravou) |
+| `POCASI` | domov pro počasí (nastavuje aplikace: Nastavení → Počasí → Domov; výchozí Veselí nad Moravou) |
+| `AUTO_ZMENA`, `ZDRAVI_ZMENA`, `WHOOP_OTISK` | značky změn auta a zdraví (`zmeny`); otisk posledních dat WHOOP (spravuje motor) |
 | `WHOOP_CLIENT_ID`, `WHOOP_CLIENT_SECRET`, `WHOOP_REDIRECT_URI` | propojení s WHOOP (zadá Michal sám) |
 | `ZDRAVI_KLIC` | klíč zkratky Zdraví (vytvoří aplikace v Nastavení → Zdraví) |
 | `NTFY_TEMA`, `UPOZORNENI_WHOOP` | upozornění do iPhonu (zapíná aplikace v Nastavení → Upozornění), poslední hodina stažení WHOOP pro upozornění |
@@ -300,12 +304,22 @@ Adresa: <https://mk-asistent.github.io> (organizace `mk-asistent`, vlastní adre
 | Pošta, schránka, kalendář | každých 10 min (pošta s otiskem – beze změny bez načítání zpráv) | z kopie hned |
 | Fotbal, nastavení (`info`) | jednou za hodinu | kopie platí 3 h |
 | Reely | jednou za půl hodiny | kopie platí 90 min |
-| Značky změn (`zmeny`) | každá obnova (jen vlastnosti skriptu) | auto se načte, když se k němu zapisovalo odjinud |
-| Počasí, zdraví | – (jen motor) | při návratu do aplikace nejvýš 1× za 30 / 15 min |
-| Auto (tabulka) | – | na stránce Auto: poprvé, po 6 h nebo podle značky změny |
+| Značky změn (`zmeny`) | každá obnova (v dávce – do 9. 10. ji motor v dávce odmítal, aplikace se proto ptala zvlášť) | auto a zdraví se načtou, když se k nim zapisovalo odjinud (i zkratka, Claude, WHOOP) |
+| Zdraví (voda, jídlo, doplňky, váha) | – (jen motor, zdravotní data jen na Disku) | hned po zápisu na jiném zařízení (signál), jinak při návratu nejvýš 1× za 15 min |
+| WHOOP | spouštěč motoru každých 10 min stáhne nová data nejvýš 1× za 30 min | čtení Zdraví na WHOOP nečeká (dřív 10 s) |
+| Počasí | – (jen motor, podle polohy zařízení) | při návratu nejvýš 1× za 30 min |
+| Auto (tabulka) | – | na stránce Auto: poprvé, po 6 h, podle značky změny nebo hned po signálu |
 
-Po změně z aplikace (zápis) a po **Obnovit** obnoví server všechno hned (`obnovHned` s `vse`). Intervaly: `INTERVALY_MIN`
-v `firebase/functions/obnova.js`, platnost kopií `MAX_STARI_ID` v `js/ucet.js`.
+**Hned na všech zařízeních** (Michal 9. 10.: „na mobilu jsem přidal vodu a na PC to není – má to být aktuální hned“):
+- Zápis ke zdraví nebo k autu → aplikace zapíše do účtu signál `data/_signal` (`{ zdravi: ms, auto: ms }` – jen čas, žádná
+  zdravotní data; pravidla `firestore.rules` nic jiného nepustí). Ostatní zařízení ho dostanou živě a načtou si zdraví / auto
+  z motoru; zařízení, které zapisovalo, svůj signál znovu nenačítá. Zápis ke zdraví ani autu kopie na serveru nezneplatní.
+- Ostatní zápisy zneplatní jen kopie své oblasti (poznámka → schránka, archivace → pošta, událost → kalendář; neznámý zápis
+  všechno) a server za 5 s obnoví jen je (`obnovHned` s `jen`, bez omezení 45 s) – poznámka je na druhém zařízení za pár
+  vteřin, bez čekání na poštu. Běží-li zrovna jiná obnova, ta po změně se pustí hned po ní.
+- **Obnovit** a otevření se staršími kopiemi (> 4 min) = celá obnova (`vse`, nejvýš 1× za 45 s). Server jede 6:00–23:50.
+Intervaly: `INTERVALY_MIN` v `firebase/functions/obnova.js`, platnost kopií `MAX_STARI_ID` a oblasti zápisů `KOPIE_ZAPISU`
+v `js/ucet.js`.
 
 **Nová verze aplikace** (service worker, `js/start.js`): přenačte se hned jen ve skryté aplikaci nebo do 8 s po otevření /
 návratu z pozadí, a to bez otevřeného panelu a rozepsaného textu; jinak toast „načte se, až ji zavřeš“ a přenačtení při

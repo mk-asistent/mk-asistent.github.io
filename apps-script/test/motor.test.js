@@ -1289,6 +1289,32 @@ test('zdraví: propojení WHOOP – odkaz se state, návrat do doGet (špatný s
   assert.strictEqual(p.ctx.doGet({ parameter: { verze: '' } }).text, /const VERZE = '([^']+)'/.exec(fs.readFileSync(path.join(__dirname, '..', 'Kod.gs'), 'utf8'))[1], 'verze pro nasazovací skript');
 });
 
+test('zdraví: WHOOP stahuje spouštěč na pozadí (nejvýš 1× za 30 min) – čtení Zdraví na WHOOP nečeká; nová data → značka zdraví', () => {
+  const p = zdraviProstredi();
+  p.vlastnosti.set('WHOOP_TOKEN', JSON.stringify({ access_token: 'a1', refresh_token: 'r1', expiresAt: Date.parse('2026-10-02T09:00:00Z') }));
+  p.nastavCas(Date.parse('2026-10-02T06:00:00Z')); // 8:00 v Praze
+  p.ctx.instagramKazdych10Min();
+  const po = p.whoop.volani.length;
+  assert.ok(po > 0, 'spouštěč stáhl WHOOP');
+  const znacka = p.volej('zmeny').data.zdravi;
+  assert.ok(znacka >= Date.parse('2026-10-02T06:00:00Z'), 'nová data z WHOOP → značka změny zdraví');
+  p.nastavCas(Date.parse('2026-10-02T06:10:00Z'));
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(p.whoop.volani.length, po, 'do 30 minut znovu ne');
+  p.nastavCas(Date.parse('2026-10-02T06:40:00Z'));
+  assert.strictEqual(p.volej('zdravi').ok, true);
+  assert.strictEqual(p.whoop.volani.length, po, 'otevření Zdraví na WHOOP nečeká (spouštěč jede)');
+  p.ctx.instagramKazdych10Min();
+  assert.ok(p.whoop.volani.length > po, 'po 30 minutách spouštěč znovu');
+  assert.strictEqual(p.volej('zmeny').data.zdravi, znacka, 'stejná data → značka stojí (zařízení nic znovu nenačítají)');
+  // spouštěč nejede (data starší 2 h) → čtení Zdraví WHOOP dotáhne samo
+  const po2 = p.whoop.volani.length;
+  p.nastavCas(Date.parse('2026-10-02T09:00:00Z'));
+  p.vlastnosti.set('WHOOP_TOKEN', JSON.stringify({ access_token: 'a1', refresh_token: 'r1', expiresAt: Date.parse('2026-10-02T12:00:00Z') }));
+  assert.strictEqual(p.volej('zdravi').ok, true);
+  assert.ok(p.whoop.volani.length > po2, 'záloha při otevření');
+});
+
 test('zdraví: přehled po dnech (den probuzení), recovery přes spánek, zátěž cyklu, tréninky; obnova tokenu s rotací; 401 odpojí', () => {
   const p = zdraviProstredi();
   p.vlastnosti.set('WHOOP_TOKEN', JSON.stringify({ access_token: 'a1', refresh_token: 'r1', expiresAt: Date.parse('2026-10-02T09:00:00Z') }));
@@ -1575,6 +1601,39 @@ test('počasí podle polohy: ORP z ČÚZK → výstrahy pro CISORP, obec jako m�
   assert.strictEqual(p.volej('pocasi', { poloha: { lat: 52.5, lon: 13.4 } }).data.misto, 'Veselí nad Moravou');
   const C = vm.runInContext('CHMU_', p.ctx);
   assert.deepStrictEqual(json(C.nejblizsi([['a', 'A', 'x', 49, 17, 1], ['b', 'B', 'x', 49.1, 17, 1], ['c', 'C', 'x', 49.01, 17, 0], ['d', 'D', 'x', 50, 17, 1]], 49, 17, 30, 2)), ['a', 'b']);
+});
+
+test('počasí: domov – v okolí 8 km (poloha z Wi-Fi o pár km vedle) i bez polohy domov, dál skutečné místo, přibližná poloha s přesností', () => {
+  const p = prostredi();
+  p.nastavCas(Date.parse('2026-10-09T16:00:00Z'));
+  assert.deepStrictEqual(json(p.volej('info').data.pocasi), { misto: 'Veselí nad Moravou', domov: false });
+  let o = p.volej('pocasiDomov', { lat: 48.85, lon: 17.13, nazev: 'Hodonín' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual([o.data.misto, json(o.data.domov)], ['Hodonín', { lat: 48.85, lon: 17.13 }]);
+  assert.deepStrictEqual(json(p.volej('info').data.pocasi), { misto: 'Hodonín', domov: true });
+  // telefon / PC hlásí bod ~5,5 km vedle (Wi-Fi) s malou „přesností“ → domov
+  o = p.volej('pocasi', { poloha: { lat: 48.80, lon: 17.13, presnost: 40 } });
+  assert.deepStrictEqual([o.data.misto, o.data.domov, o.data.podlePolohy, o.data.presnost], ['Hodonín', true, true, undefined]);
+  // bez polohy (vypnutá na PC) → taky domov se jménem
+  o = p.volej('pocasi', { poloha: null });
+  assert.deepStrictEqual([o.data.misto, o.data.domov], ['Hodonín', true]);
+  // daleko (Brno, přesně) → skutečné místo podle ČÚZK, ne domov
+  o = p.volej('pocasi', { poloha: { lat: 49.2, lon: 16.6, presnost: 30 } });
+  assert.ok(o.data.misto !== 'Hodonín' && !o.data.domov && o.data.podlePolohy, JSON.stringify([o.data.misto, o.data.domov]));
+  // přibližná poloha (iPhone bez Přesné polohy) mimo domov → přesnost pro „≈“ v aplikaci (ne z mezipaměti předchozího volání)
+  o = p.volej('pocasi', { poloha: { lat: 49.2, lon: 16.6, presnost: 6000 } });
+  assert.strictEqual(o.data.presnost, 6000);
+  o = p.volej('pocasi', { poloha: { lat: 49.2, lon: 16.6, presnost: 25 } });
+  assert.strictEqual(o.data.presnost, undefined, 'přesnost z mezipaměti nepřetrvá');
+  // přibližná poloha 9 km od domova, ale s nejistotou 7 km → domov (kruh nejistoty domov pokrývá)
+  o = p.volej('pocasi', { poloha: { lat: 48.77, lon: 17.13, presnost: 7000 } });
+  assert.deepStrictEqual([o.data.misto, o.data.domov], ['Hodonín', true]);
+  assert.strictEqual(p.volej('pocasiDomov', { lat: 52.5, lon: 13.4, nazev: 'Berlín' }).ok, false, 'domov jen v Česku');
+  // zrušení domova → výchozí místo
+  o = p.volej('pocasiDomov', { smazat: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(p.volej('info').data.pocasi), { misto: 'Veselí nad Moravou', domov: false });
+  assert.strictEqual(p.volej('pocasi', { poloha: null }).data.domov, undefined);
 });
 
 test('nedělní přehled: události po dnech bez zápasů, zápasy týmů, úkoly s termínem, počasí – bez názvů', () => {
@@ -2272,13 +2331,38 @@ test('značky změn: zápis k autu ji posune, čtení ne', () => {
   const p = prostredi();
   tabulkaAuta(p);
   p.vlastnosti.set('AUTO_TABULKA', TAB_AUTO);
-  assert.deepStrictEqual(json(p.volej('zmeny').data), { auto: 0 });
+  assert.deepStrictEqual(json(p.volej('zmeny').data), { auto: 0, zdravi: 0 });
   p.nastavCas(Date.parse('2026-10-05T21:00:00+02:00'));
   p.volej('auto');
   assert.strictEqual(p.volej('zmeny').data.auto, 0, 'čtení značku nemění');
   assert.strictEqual(p.volej('autoTermin', { id: 'stk', datum: '2028-06-01' }).ok, true);
   assert.strictEqual(p.volej('zmeny').data.auto, Date.parse('2026-10-05T21:00:00+02:00'));
   assert.strictEqual(p.volej('autoTermin', { id: 'nesmysl', datum: '' }).ok, false);
+  assert.strictEqual(p.volej('zmeny').data.zdravi, 0, 'zápis k autu zdraví neposune');
+});
+
+test('značky změn: voda, doplňky a váha z aplikace i Claudův soubor na Disku posunou zdraví; značky jdou i v dávce (server)', () => {
+  const p = prostredi();
+  p.nastavCas(Date.parse('2026-10-09T15:00:00+02:00'));
+  p.volej('zdravi');
+  assert.strictEqual(p.volej('zmeny').data.zdravi, 0, 'čtení zdraví značku nemění');
+  assert.strictEqual(p.volej('pitiJidlo', { den: '2026-10-09', jak: 'piti', ml: 500 }).ok, true);
+  assert.strictEqual(p.volej('zmeny').data.zdravi, Date.parse('2026-10-09T15:00:00+02:00'));
+  p.nastavCas(Date.parse('2026-10-09T15:05:00+02:00'));
+  assert.strictEqual(p.volej('doplnky', { den: '2026-10-09', zmeny: { kreatin: true } }).ok, true);
+  assert.strictEqual(p.volej('zmeny').data.zdravi, Date.parse('2026-10-09T15:05:00+02:00'));
+  assert.strictEqual(p.volej('zmeny').data.auto, 0);
+  // Claude zapíše diktát „vypil jsem…“ rovnou na Disk (bez motoru) → značka podle času úpravy souboru (po minutě mezipaměti)
+  p.nastavCas(Date.parse('2026-10-09T15:20:00+02:00'));
+  const zdraviSlozka = p.schranka.deti.ZDRAVI;
+  zdraviSlozka.createFile('PITI_JIDLO_CLAUDE.json', JSON.stringify({ zapisy: [] }));
+  p.cache.delete('zmena:claude');
+  assert.ok(p.volej('zmeny').data.zdravi >= Date.parse('2026-10-09T15:20:00+02:00'), 'Claudův soubor posune značku zdraví');
+  // server bere značky v dávce s ostatními rychlými čteními
+  const d = p.volej('davka', { polozky: [{ akce: 'info' }, { akce: 'zmeny' }] });
+  assert.strictEqual(d.ok, true, d.chyba);
+  assert.strictEqual(d.data[1].ok, true, d.data[1].chyba);
+  assert.ok(d.data[1].data.zdravi >= Date.parse('2026-10-09T15:20:00+02:00'));
 });
 
 test('auto: termíny (známka, STK, pojištění) do AUTO/terminy.json – zápis z aplikace, čtení s daty auta', () => {

@@ -53,6 +53,7 @@ function start() {
   // účet Firebase: kopie dat ze serveru (načtou se hned, změny chodí živě) – bez účtu se nic nestahuje
   ucet.spust();
   ucet.naKopie(poNovychKopiich);
+  ucet.naSignal(poSignalu);
   ucet.naStav(() => {
     // stav účtu v Nastavení (ne když se zrovna píše do pole – překreslení by ho smazalo)
     const el = elementPanelu('nastaveni');
@@ -89,10 +90,17 @@ function stara(klic, minut) {
   return !v || !v.kdy || Date.now() - v.kdy > minut * 60e3;
 }
 
-/** Značky změn ze serveru: auto se načte znovu, jen když se k němu od posledního načtení zapisovalo (třeba z mobilu). */
+/** Značky změn ze serveru: auto a zdraví se načtou znovu, jen když se k nim od posledního načtení zapisovalo – i mimo
+ *  aplikaci (zkratka Zdraví, Claude zapsal diktát „vypil jsem…“). */
 function zkontrolujZmeny() {
   if (!umiMotor('zmeny') || !ucet.zapnuty()) return;
-  volej('zmeny').then((z) => auto.zkontrolujZmenu(z && z.auto)).catch(() => { /* jen zrychlení */ });
+  volej('zmeny').then((z) => { auto.zkontrolujZmenu(z && z.auto); zdravi.zkontrolujZmenu(z && z.zdravi); }).catch(() => { /* jen zrychlení */ });
+}
+
+/** Signál z jiného zařízení (voda, doplňky, váha, tankování…) → načíst hned, ne až za čtvrt hodiny. */
+function poSignalu(sig) {
+  zdravi.zkontrolujZmenu(sig.zdravi);
+  auto.zkontrolujZmenu(sig.auto);
 }
 
 /** Server obnovil kopie (každých 10 min, po změně nebo při otevření) → načíst znovu, čeho se to týká (z kopie, hned). */
@@ -531,6 +539,8 @@ function kdyTerminu(t) {
 }
 
 function pozorKartaHtml(x) {
+  // připomínka auta (přezutí, STK…) není e-mail – dřív se ukázala jako pošta s časem místo názvu a otevřením „Neplatný argument“
+  if (x.typ === 'auto') return auto.pripominkaPozorHtml(x.x);
   if (x.typ === 'schranka') {
     const p = x.x;
     return '<li><button type="button" class="pozor" data-ukaz-polozku="' + esc(p.id) + '">' +

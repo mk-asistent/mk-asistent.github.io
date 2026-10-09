@@ -88,14 +88,26 @@ function otisk(data) {
   return crypto.createHash('sha1').update(JSON.stringify(bezCasu) || '').digest('hex');
 }
 
+// oblasti, které jde obnovit zvlášť (obnovHned s jen – po změně z aplikace jen to, čeho se týkala)
+const OBLASTI = DAVKA.concat(['posta', 'kalendar']);
+
+/** Oblasti z požadavku aplikace: jen známé, bez opakování; nic platného → null (= všechno). */
+function platneOblasti(jen) {
+  if (!Array.isArray(jen)) return null;
+  const x = jen.filter((o, i) => OBLASTI.indexOf(o) >= 0 && jen.indexOf(o) === i);
+  return x.length ? x : null;
+}
+
 /**
  * Jedna obnova: dávka rychlých čtení, pošta a kalendář na tento a příští měsíc – tři dotazy souběžně.
+ * jen = jen tyto oblasti (po změně z aplikace: poznámka → schránka za ~2 s místo celé obnovy s poštou).
  * Vrací { kdy, data: { id: { data, parametry } }, chyby: [text] }; chyba jedné části nezastaví ostatní.
  */
 async function obnov(pripojeni, moznosti) {
   const o = moznosti || {};
   const ted = o.ted || Date.now();
   const data = {}, chyby = [];
+  const chce = (id) => !o.jen || o.jen.indexOf(id) >= 0;
   const mesice = [0, 1].map((n) => mrizkaMesice(ted, n));
   const zDavky = (polozky, idy, parametry) => volejMotor(pripojeni, 'davka', { polozky }, o.fetch, o.cekat).then((vysledky) => {
     idy.forEach((id, i) => {
@@ -104,16 +116,17 @@ async function obnov(pripojeni, moznosti) {
       else chyby.push(id + ': ' + ((v && v.chyba) || 'bez odpovědi'));
     });
   });
-  const davka = DAVKA.filter((a) => (o.preskocit || []).indexOf(a) < 0);
-  const casti = [
-    ['dávka', zDavky(davka.map((akce) => ({ akce })), davka)],
-    ['posta', volejMotor(pripojeni, 'posta', {}, o.fetch, o.cekat).then((d) => { data.posta = { data: d, parametry: null }; })],
-    ['kalendář', zDavky(mesice.map((m) => ({ akce: 'kalendar', od: m.od, do: m.do })), mesice.map((m) => 'kalendar_' + m.klic),
-      mesice.map((m) => ({ od: m.od, do: m.do })))]
-  ];
+  const davka = DAVKA.filter((a) => (o.preskocit || []).indexOf(a) < 0 && chce(a));
+  const casti = [];
+  if (davka.length) casti.push(['dávka', zDavky(davka.map((akce) => ({ akce })), davka)]);
+  if (chce('posta')) casti.push(['posta', volejMotor(pripojeni, 'posta', {}, o.fetch, o.cekat).then((d) => { data.posta = { data: d, parametry: null }; })]);
+  if (chce('kalendar')) {
+    casti.push(['kalendář', zDavky(mesice.map((m) => ({ akce: 'kalendar', od: m.od, do: m.do })), mesice.map((m) => 'kalendar_' + m.klic),
+      mesice.map((m) => ({ od: m.od, do: m.do })))]);
+  }
   const vysledky = await Promise.allSettled(casti.map((c) => c[1]));
   vysledky.forEach((v, i) => { if (v.status === 'rejected') chyby.push(casti[i][0] + ': ' + String((v.reason && v.reason.message) || v.reason)); });
   return { kdy: ted, data, chyby };
 }
 
-module.exports = { volejMotor, pulnocPraha, mrizkaMesice, obnov, otisk, platnePripojeni, DAVKA, INTERVALY_MIN, coPreskocit };
+module.exports = { volejMotor, pulnocPraha, mrizkaMesice, obnov, otisk, platnePripojeni, DAVKA, INTERVALY_MIN, coPreskocit, OBLASTI, platneOblasti };

@@ -1,7 +1,8 @@
 // Firebase Functions pro Asistenta (projekt asistent-michal; funkce v Belgii europe-west1, databáze eur3 – Evropa).
-//   obnovAsistenta – každých 10 minut (6:00–23:00) připraví data z motoru do Firestore: uzivatele/{uid}/data/{id};
+//   obnovAsistenta – každých 10 minut (6:00–23:50) připraví data z motoru do Firestore: uzivatele/{uid}/data/{id};
 //                    co se mění málo (fotbal, nastavení, reely), jen po svém intervalu (obnova.js INTERVALY_MIN)
-//   obnovHned      – totéž na požádání z aplikace (při otevření se starými daty; po změně a Obnovit s vse = všechno)
+//   obnovHned      – totéž na požádání z aplikace (při otevření se starými daty; Obnovit s vse = všechno); po změně
+//                    z aplikace s jen = jen dotčené oblasti (poznámka → schránka za pár vteřin, bez čekání na poštu)
 // Adresu motoru a klíč čte z Firestore (uzivatele/{uid}.pripojeni) – uloží je tam aplikace po přihlášení účtem.
 // V kódu žádná adresa ani klíč nejsou (repo je veřejné).
 //
@@ -13,7 +14,7 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const logger = require('firebase-functions/logger');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
-const { obnov, otisk, platnePripojeni, mrizkaMesice, coPreskocit } = require('./obnova');
+const { obnov, otisk, platnePripojeni, mrizkaMesice, coPreskocit, platneOblasti } = require('./obnova');
 
 initializeApp();
 const db = getFirestore();
@@ -21,10 +22,10 @@ const NASTAVENI = { region: 'europe-west1', memory: '256MiB', timeoutSeconds: 12
 const MAX_DOKUMENT = 1000000;      // bajtů – Firestore unese 1 MiB na dokument
 const NEJDRIV_ZNOVU = 45e3;        // obnovHned častěji nepouští (aplikace ho volá při otevření a po změnách)
 
-async function obnovUzivatele(uid, pripojeni, vse, stavDoc) {
+async function obnovUzivatele(uid, pripojeni, vse, stavDoc, jen) {
   const ted = Date.now();
   const st = stavDoc || await db.doc('uzivatele/' + uid + '/data/_stav').get();
-  const v = await obnov(pripojeni, { ted, preskocit: coPreskocit(st.exists ? st.get('potvrzeno') : null, ted, vse) });
+  const v = await obnov(pripojeni, { ted, jen, preskocit: jen ? [] : coPreskocit(st.exists ? st.get('potvrzeno') : null, ted, vse) });
   const ref = (id) => db.doc('uzivatele/' + uid + '/data/' + id);
   const idy = Object.keys(v.data);
   const stare = idy.length ? await db.getAll(...idy.map(ref)) : [];
@@ -40,17 +41,22 @@ async function obnovUzivatele(uid, pripojeni, vse, stavDoc) {
     zapis.set(ref(id), { json, otisk: o, kdy: v.kdy, parametry: v.data[id].parametry || null });
     zmeneno.push(id);
   });
-  // minulý měsíc kalendáře už se neobnovuje – pryč, ať v aplikaci nezůstane stará kopie
-  const minuly = 'kalendar_' + mrizkaMesice(v.kdy, -1).klic;
-  zapis.delete(ref(minuly));
-  potvrzeno[minuly] = FieldValue.delete();
-  zapis.set(ref('_stav'), { kdy: v.kdy, potvrzeno, chyby: v.chyby.slice(0, 10) }, { merge: true });
+  if (jen) {
+    // částečná obnova: jen potvrzení obnovených kopií – čas celé obnovy (kdy) zůstává, podle něj se řídí otevření aplikace
+    zapis.set(ref('_stav'), { potvrzeno, castecne: { kdy: v.kdy, jen, chyby: v.chyby.slice(0, 5) } }, { merge: true });
+  } else {
+    // minulý měsíc kalendáře už se neobnovuje – pryč, ať v aplikaci nezůstane stará kopie
+    const minuly = 'kalendar_' + mrizkaMesice(v.kdy, -1).klic;
+    zapis.delete(ref(minuly));
+    potvrzeno[minuly] = FieldValue.delete();
+    zapis.set(ref('_stav'), { kdy: v.kdy, potvrzeno, chyby: v.chyby.slice(0, 10) }, { merge: true });
+  }
   await zapis.commit();
-  if (v.chyby.length) logger.warn('obnova s chybami', { chyby: v.chyby.slice(0, 10) });
+  if (v.chyby.length) logger.warn('obnova s chybami', { jen: jen || 'vse', chyby: v.chyby.slice(0, 10) });
   return { kdy: v.kdy, zmeneno, chyby: v.chyby };
 }
 
-exports.obnovAsistenta = onSchedule(Object.assign({ schedule: '*/10 6-22 * * *', timeZone: 'Europe/Prague' }, NASTAVENI), async () => {
+exports.obnovAsistenta = onSchedule(Object.assign({ schedule: '*/10 6-23 * * *', timeZone: 'Europe/Prague' }, NASTAVENI), async () => {
   const uzivatele = await db.collection('uzivatele').get();
   await Promise.all(uzivatele.docs.filter((d) => platnePripojeni(d.get('pripojeni')))
     .map((d) => obnovUzivatele(d.id, d.get('pripojeni'), false).catch((e) => logger.error('obnova selhala', { chyba: String(e && e.message || e) }))));
@@ -62,7 +68,10 @@ exports.obnovHned = onCall(NASTAVENI, async (pozadavek) => {
   const [ucet, stav] = await db.getAll(db.doc('uzivatele/' + uid), db.doc('uzivatele/' + uid + '/data/_stav'));
   const pripojeni = ucet.exists ? ucet.get('pripojeni') : null;
   if (!platnePripojeni(pripojeni)) throw new HttpsError('failed-precondition', 'V účtu ještě není uložené připojení k motoru.');
-  if (stav.exists && Date.now() - (stav.get('kdy') || 0) < NEJDRIV_ZNOVU) return { kdy: stav.get('kdy'), preskoceno: true };
-  const v = await obnovUzivatele(uid, pripojeni, !!(pozadavek.data && pozadavek.data.vse), stav);
-  return { kdy: v.kdy, zmeneno: v.zmeneno, chyby: v.chyby };
+  const d = pozadavek.data || {};
+  // po změně z aplikace jen dotčené oblasti – bez omezení 45 s (jinak by se změna ostatním zařízením ukázala až za 10 min)
+  const jen = platneOblasti(d.jen);
+  if (!jen && stav.exists && Date.now() - (stav.get('kdy') || 0) < NEJDRIV_ZNOVU) return { kdy: stav.get('kdy'), preskoceno: true };
+  const v = await obnovUzivatele(uid, pripojeni, !!d.vse, stav, jen);
+  return { kdy: v.kdy, zmeneno: v.zmeneno, chyby: v.chyby, jen: jen || undefined };
 });

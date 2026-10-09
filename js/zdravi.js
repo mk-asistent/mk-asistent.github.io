@@ -32,6 +32,24 @@ export function dotahni() {
   if (umiMotor('zdravi') && !stav.zdravi && !stav.nacita.zdravi && !stav.chyby.zdravi) nactiZdravi();
 }
 
+let cekaZmena = 0; // značka, která přišla během načítání – po něm se načte ještě jednou
+
+/**
+ * Značka změny zdraví – signál z jiného zařízení (voda z mobilu) nebo ze serveru (zkratka, Claude): je novější než data
+ * v zařízení (načtená i po vlastním zápisu) → načíst znovu z motoru. Vlastní zápisy signál neposílá zpět (ucet.js).
+ */
+export function zkontrolujZmenu(znacka) {
+  if (!znacka || !umiMotor('zdravi')) return;
+  const v = uloziste.cti(ULOZISTE);
+  if (v && v.kdy && znacka <= v.kdy) return;
+  if (stav.nacita.zdravi) { cekaZmena = Math.max(cekaZmena, znacka); return; }
+  nactiZdravi(false).then(() => {
+    const z = cekaZmena;
+    cekaZmena = 0;
+    if (z) zkontrolujZmenu(z);
+  });
+}
+
 // ---------------------------------------------------------------- data
 
 const SPORTY = {

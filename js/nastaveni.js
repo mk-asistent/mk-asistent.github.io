@@ -20,7 +20,7 @@ export const VERZE_APLIKACE = '2026-10-07';
 const AKCENTY = [['#1f3d2c', 'Lesní zelená'], ['#1d4250', 'Ocelová'], ['#2a3f8f', 'Modrá'], ['#4b2d63', 'Švestková'], ['#7a3a1d', 'Cihlová'], ['#2b2f33', 'Grafitová']];
 const BARVY_KALENDARE = ['#2f5bd3', '#0f7c8c', '#2e7a4d', '#a8620c', '#8e5bd3', '#c0392b', '#b5407a', '#37474f'];
 const n = { upravaPripojeni: false, ukazKod: false, novaBarva: BARVY_KALENDARE[1], pracuje: false, sekce: 'pripojeni', klicZdravi: '',
-  upozorneni: null, upozorneniNacitam: false, upozorneniChyba: '' };
+  upozorneni: null, upozorneniNacitam: false, upozorneniChyba: '', domovDotaz: '', domovVysledky: null, domovChyba: '' };
 // Rozbalené návody přežijí překreslení okna (data z motoru dorazí za pár vteřin a okno se překreslí – návod se
 // dřív zavřel a stránka „uskočila“ zpět, Michal 5. 10.). Pamatuje se, co Michal sám rozbalil nebo zavřel.
 const rozbaleno = {};
@@ -432,17 +432,41 @@ function sekcePocasi() {
     (zap && stav.chybaPolohy ? '<p class="nast-stav chyba"><i></i>' + esc(stav.chybaPolohy) + '</p>' : '') +
     '<p class="napoveda">Poloha (zaokrouhlená na ~1 km) jde jen tvému motoru, mapové službě ČÚZK (kód obce) a Open-Meteo (teplota teď). ' +
     'Motor si pamatuje poslední místo pro ranní upozornění – po vypnutí ho zapomene.</p>' +
-    '<p>Místo: <b>' + esc(misto || (jeDemo() ? 'Veselí nad Moravou (ukázka)' : '—')) + '</b>' + (stav.pocasi && stav.pocasi.podlePolohy ? ' <span class="tag">podle polohy</span>' : '') + '</p>' +
+    '<p>Teď: <b>' + esc(pocasi.nazevMista() || misto || (jeDemo() ? 'Veselí nad Moravou (ukázka)' : '—')) + '</b>' +
+      (stav.pocasi && stav.pocasi.domov ? ' <span class="tag">domov</span>' : stav.pocasi && stav.pocasi.podlePolohy ? ' <span class="tag">podle polohy</span>' : '') + '</p>' +
+    (umiMotor('pocasiDomov') ? domovHtml(misto) : '') +
     '<p class="napoveda">Na Dnes je jen to důležité: výstrahy ČHMÚ pro tvoje místo (bouřky, vedro, mráz, povodně, smog), povodňový stupeň ' +
     'na řece a krátká předpověď kraje na dnes až tři dny. Klepnutím na kartu Počasí se otevře celý přehled.</p>' +
-    detail('pocasi-misto') + '<summary>Jak změnit místo</summary><ol>' +
-    '<li>V projektu motoru: Nastavení projektu (ozubené kolo) → Vlastnosti skriptu → Přidat: <b>POCASI</b>.</li>' +
-    '<li>Hodnota (JSON), např. <code>{"misto":"Hodonín","orp":{"6206":"Hodonín"},"stanice":["0-203-1-421500"],"kraj":"RPJM"}</code> – ' +
-    'kód ORP je ve výstrahách ČHMÚ (CISORP), stanice na hydro.chmi.cz, kraj: RPJM = Jihomoravský.</li></ol></details>' +
     '<p class="napoveda">Data: Český hydrometeorologický ústav (otevřená data, CC BY 4.0). Motor je stahuje šetrně – ' +
     'jen když se změní, přehled drží 15 minut.</p>';
   return h + '</section>';
 }
+
+/** Domov pro počasí: obec podle jména (Open-Meteo, jen název – žádná poloha), uloží se v motoru pro všechna zařízení. */
+function domovHtml(misto) {
+  const domov = !!(stav.info && stav.info.pocasi && stav.info.pocasi.domov);
+  const v = n.domovVysledky;
+  return '<div class="nast-domov"><h4>Domov</h4>' +
+    '<p>' + (domov ? 'Domov: <b>' + esc(misto) + '</b> <button type="button" class="odkaz" data-nast="domov-zrusit">zrušit</button>'
+      : 'Domov není nastavený – bez polohy se ukazuje ' + esc(misto || 'výchozí místo') + '.') + '</p>' +
+    '<p class="napoveda">V okolí domova (do 8 km) ukáže počasí pro domov, i když telefon nebo PC hlásí polohu o pár km vedle ' +
+    '(poloha podle Wi-Fi). Dál od domova podle skutečné polohy, s vypnutou polohou vždy domov. Platí pro všechna zařízení.</p>' +
+    '<div class="nast-domov__hledat"><input class="field" data-domov-hledat maxlength="60" placeholder="obec, např. Strážnice" value="' + esc(n.domovDotaz || '') + '">' +
+    '<button type="button" class="btn btn--sm" data-nast="domov-najit">Najít</button></div>' +
+    (n.domovChyba ? '<p class="nast-stav chyba"><i></i>' + esc(n.domovChyba) + '</p>' : '') +
+    (v ? (v.length ? '<ul class="nast-domov__vysledky">' + v.map((x, i) => '<li><button type="button" class="btn btn--ghost btn--sm" data-nast="domov-vybrat" data-index="' + i + '">' +
+      '<b>' + esc(x.nazev) + '</b>' + (x.kde ? '<small>' + esc(x.kde) + '</small>' : '') + '</button></li>').join('') + '</ul>'
+      : '<p class="napoveda">Nic nenalezeno – zkus jiný tvar názvu.</p>') : '') +
+    '</div>';
+}
+
+// Enter v poli domova = Najít
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || !e.target || !e.target.matches || !e.target.matches('[data-domov-hledat]')) return;
+  e.preventDefault();
+  const b = e.target.closest('.nast-domov').querySelector('[data-nast="domov-najit"]');
+  if (b) b.click();
+});
 
 function sekceZdravi() {
   let h = '<section class="card nast-sekce" data-sekce="zdravi"><h3>Zdraví · WHOOP</h3>';
@@ -594,6 +618,30 @@ export function klikNastaveni(el) {
     const adresa = (pripojeni() || {}).url || '';
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(adresa).then(() => toast('Adresa motoru zkopírovaná'), () => toast(adresa));
     else toast(adresa);
+    return true;
+  }
+  if (akce === 'domov-najit') {
+    const pole = panel && panel.querySelector('[data-domov-hledat]');
+    n.domovDotaz = pole ? pole.value.trim() : '';
+    if (n.domovDotaz.length < 2) { toast('Napiš název obce', true); return true; }
+    el.disabled = true;
+    pocasi.hledejDomov(n.domovDotaz)
+      .then((v) => { n.domovVysledky = v; n.domovChyba = ''; })
+      .catch((e) => { n.domovVysledky = null; n.domovChyba = 'Hledání teď nejde (' + e.message + ') – zkus to za chvíli.'; })
+      .then(() => obnovPanel('nastaveni'));
+    return true;
+  }
+  if (akce === 'domov-vybrat') {
+    const m = (n.domovVysledky || [])[Number(el.dataset.index)];
+    if (!m) return true;
+    el.disabled = true;
+    pocasi.ulozDomov(m)
+      .then((r) => { toast('Domov: ' + r.misto + ' ✓'); n.domovVysledky = null; n.domovDotaz = ''; obnovPanel('nastaveni'); })
+      .catch((e) => { el.disabled = false; toast(e.message, true); });
+    return true;
+  }
+  if (akce === 'domov-zrusit') {
+    pocasi.ulozDomov(null).then(() => { toast('Domov zrušený'); obnovPanel('nastaveni'); }).catch((e) => toast(e.message, true));
     return true;
   }
   if (akce === 'zmenit-pripojeni') { n.upravaPripojeni = true; obnovPanel('nastaveni'); return true; }

@@ -1,6 +1,8 @@
 rules_version = '2';
 // Databáze Asistenta: každý přihlášený vidí jen svůj dokument uzivatele/{uid} (připojení k motoru) a jeho kopie dat.
 // Kopie (uzivatele/{uid}/data) zapisuje jen server (Cloud Functions přes Admin SDK – pravidla se ho netýkají).
+// Jedinou výjimkou je data/_signal: aplikace do něj po zápisu ke zdraví / k autu dá čas (jen čísla), ostatní zařízení
+// si podle něj data hned načtou. Zdravotní údaje do databáze nejdou – jen kdy se něco změnilo.
 // Registrace nových účtů je ve Firebase vypnutá; účet zakládá Michal v konzoli.
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -14,6 +16,12 @@ service cloud.firestore {
         && p.klic.size() >= 32 && p.klic.size() <= 200;
     }
 
+    // signál změn: jen čas posledního zápisu ke zdraví a k autu (celá čísla, ms)
+    function platnySignal(d) {
+      return d.keys().hasOnly(['zdravi', 'auto'])
+        && (!('zdravi' in d) || d.zdravi is int) && (!('auto' in d) || d.auto is int);
+    }
+
     match /uzivatele/{uid} {
       allow read, delete: if jeVlastnik(uid);
       allow create, update: if jeVlastnik(uid)
@@ -23,7 +31,8 @@ service cloud.firestore {
 
       match /data/{id} {
         allow read: if jeVlastnik(uid);
-        allow write: if false;
+        allow create, update: if id == '_signal' && jeVlastnik(uid) && platnySignal(request.resource.data);
+        allow delete: if false;
       }
     }
 

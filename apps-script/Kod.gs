@@ -36,7 +36,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-05.25';
+const VERZE = '2026-10-09.1';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -84,6 +84,7 @@ function doPost(e) {
     if (data.akce === 'zdraviApple' || odZkratky) {
       if (odZkratky) {
         vystup = { ok: true, data: zapisApple_(data) };
+        oznacZmenu_('zdravi');
       } else {
         // výsledek pokusu ukáže aplikace (Nastavení → Zdraví) a důvod dostane i zkratka – klíč se nikam nezapisuje
         const zprava = klicZpravy && klicZpravy === klicApi_()
@@ -113,10 +114,9 @@ function doPost(e) {
       }
       vystup = { ok: true, data: AKCE[data.akce](data) };
       if (rid) ulozText_(rid, JSON.stringify(vystup), 600);
-      // zápis k autu (tabulka, účtenka, termín…) → značka; jiná zařízení si podle ní tabulku načtou znovu
-      if (/^auto/.test(data.akce) && CTENI_MOTORU.indexOf(data.akce) < 0) {
-        try { vlastnosti_().setProperty('AUTO_ZMENA', String(Date.now())); } catch (chyba) { /* jen zrychlení */ }
-      }
+      // zápis k autu (tabulka, účtenka, termín…) nebo ke zdraví (voda, jídlo, doplňky, váha) → značka změny; server ji
+      // posílá s kopiemi a jiná zařízení si podle ní data načtou znovu
+      oznacZmenu_(oblastZapisu_(data.akce));
     }
   } catch (chyba) {
     vystup = { ok: false, chyba: String((chyba && chyba.message) || chyba) };
@@ -147,7 +147,7 @@ const SCHOPNOSTI = ['polozkaUpravy', 'polozkaTermin'];
 const AKCE = {
   info: function () {
     return { verze: VERZE, akce: Object.keys(AKCE).concat(SCHOPNOSTI), ucet: mojeAdresa_(), posta: nastaveniPosty_(), kalendare: seznamKalendaru_(),
-      skupinyHostu: skupinyHostu_(), pocasi: { misto: mistoPocasi_() }, jmeniny: jmeninyOblibeni_() };
+      skupinyHostu: skupinyHostu_(), pocasi: infoPocasi_(), jmeniny: jmeninyOblibeni_() };
   },
   skupinyHostuUlozit: function (d) { return ulozSkupinyHostu_(d.skupiny); },
   jmeninyUlozit: function (d) { return ulozJmeniny_(d.oblibeni); },
@@ -170,7 +170,8 @@ const AKCE = {
   udalostUlozit: function (d) { return ulozUdalost_(d); },
   udalostSmazat: function (d) { return smazUdalost_(d.kalendarId, d.udalost, !!d.cela); },
   zapasyImport: function (d) { return importujZapasy_(d); },
-  pocasi: function (d) { return pocasi_(!!d.znovu, d.poloha || null); }, // bez polohy z aplikace = výchozí místo
+  pocasi: function (d) { return pocasi_(!!d.znovu, d.poloha || null); }, // bez polohy z aplikace = výchozí místo (domov)
+  pocasiDomov: function (d) { return pocasiDomov_(d); },
   stitky: function (d) { return stitkyGmailu_(!!d.znovu); },
   postaStitek: function (d) { return postaStitku_(d.nazev); },
   postaKategorie: function (d) { return postaKategorie_(d.kategorie, !!d.znovu); },
@@ -207,7 +208,7 @@ const AKCE = {
   autoUctenkaFoto: function (d) { return autoUctenkaFoto_(d); },
   autoPeceZapsat: function (d) { return autoPeceZapsat_(d); },
   autoTermin: function (d) { return autoTermin_(d); },
-  // značky změn: kdy se naposledy zapisovalo (auto) – server je posílá s každou obnovou, aplikace podle nich načítá
+  // značky změn: kdy se naposledy zapisovalo (auto, zdraví) – server je posílá s každou obnovou, aplikace podle nich načítá
   zmeny: function () { return zmeny_(); },
   // víc čtení v jednom požadavku – aplikace při startu neposílá deset dotazů naráz (ty se pak řadí do fronty)
   davka: function (d) {
@@ -223,7 +224,8 @@ const AKCE = {
 };
 
 // akce, které smí jít v dávce: jen čtení (zápisy a pošta zvlášť)
-const DAVKA_AKCE = ['info', 'schranka', 'kalendar', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky', 'kontakty'];
+// (zmeny chyběly – server je chtěl v dávce každých 10 min a dostával „Akci nejde poslat v dávce“, kopie značek nevznikla)
+const DAVKA_AKCE = ['info', 'schranka', 'kalendar', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky', 'kontakty', 'zmeny'];
 
 // ---------------------------------------------------------------- nastavení (spouští se ručně v editoru)
 
@@ -2444,7 +2446,24 @@ function instagramKazdych10Min() {
     const hodina = Number(Utilities.formatDate(new Date(Date.now()), CASOVE_PASMO, 'H'));
     if (hodina >= 7 && hodina <= 22) ulozPostuKPrehledu_();
   } catch (chyba) { /* příště */ }
+  try { whoopNaPozadi_(); } catch (chyba) { /* příště (chyba je ve WHOOP_SYNC, aplikace ji ukáže) */ }
   instagramPlan_();
+}
+
+/**
+ * WHOOP na pozadí (spouštěč, 6–23 h, nejvýš jednou za 30 min): otevření Zdraví pak na WHOOP API nečeká (dřív 10 s).
+ * Přišlo něco nového → značka změny zdraví; aplikace na PC i v telefonu si data načtou samy.
+ */
+function whoopNaPozadi_() {
+  const hodina = Number(Utilities.formatDate(new Date(Date.now()), CASOVE_PASMO, 'H'));
+  const whoop = whoopStav_();
+  if (hodina < 6 || !whoop.propojeno || Date.now() - whoop.sync.kdy < ZDRAVI_SYNC_MIN * 60000) return;
+  const z = whoopSync_(whoop.sync.kdy ? 5 : ZDRAVI_DNI);
+  const otisk = md5_(JSON.stringify(z));
+  if (otisk !== vlastnosti_().getProperty('WHOOP_OTISK')) {
+    vlastnosti_().setProperty('WHOOP_OTISK', otisk);
+    oznacZmenu_('zdravi');
+  }
 }
 
 /** Obnova klíče a zveřejnění reelu, který je na řadě (jeden za běh). */
@@ -2586,8 +2605,53 @@ function autoList_(ss, druh) {
  * Značky změn (levné – jen vlastnosti skriptu): auto = kdy se naposledy zapisovalo k autu. Server je chystá při každé
  * obnově (každých 10 min a hned po změně z aplikace) a aplikace tabulku auta načte znovu, jen když je značka novější.
  */
+// značky změn: kdy se naposledy zapisovalo k autu a ke zdraví – server je posílá s kopiemi (akce zmeny v dávce),
+// aplikace podle nich data načte znovu (zdraví i auto jdou přímo z motoru, kopie na serveru nemají)
+const ZNACKY_ZMEN = { auto: 'AUTO_ZMENA', zdravi: 'ZDRAVI_ZMENA' };
+const ZAPISY_ZDRAVI = ['vaha', 'doplnky', 'pitiJidlo', 'whoopPropojit', 'whoopOdpojit'];
+
+/** Oblast, které se zápis týká (auto | zdravi), nebo '' – čtení značku nemění. */
+function oblastZapisu_(akce) {
+  if (CTENI_MOTORU.indexOf(akce) >= 0) return '';
+  if (/^auto/.test(akce)) return 'auto';
+  return ZAPISY_ZDRAVI.indexOf(akce) >= 0 ? 'zdravi' : '';
+}
+
+function oznacZmenu_(oblast) {
+  if (!ZNACKY_ZMEN[oblast]) return;
+  try { vlastnosti_().setProperty(ZNACKY_ZMEN[oblast], String(Date.now())); } catch (chyba) { /* jen zrychlení */ }
+}
+
+/** Akce zmeny: { auto, zdravi } (ms). Zdraví i podle souborů, které Claude píše rovnou na Disk (diktát pití a jídla, režim). */
 function zmeny_() {
-  return { auto: Number(vlastnosti_().getProperty('AUTO_ZMENA') || 0) };
+  const vl = vlastnosti_();
+  return { auto: Number(vl.getProperty('AUTO_ZMENA') || 0),
+    zdravi: Math.max(Number(vl.getProperty('ZDRAVI_ZMENA') || 0), zmenaSouboruClauda_()) };
+}
+
+/** Kdy Claude naposledy upravil ZDRAVI/PITI_JIDLO_CLAUDE.json nebo ZDRAVI_REZIM.json (id souborů v mezipaměti 6 h, výsledek 1 min). */
+function zmenaSouboruClauda_() {
+  const cache = CacheService.getScriptCache();
+  const hotovo = cache.get('zmena:claude');
+  if (hotovo) return Number(hotovo);
+  let nejnovejsi = 0;
+  [['ZDRAVI', 'PITI_JIDLO_CLAUDE.json'], ['', 'ZDRAVI_REZIM.json']].forEach(function (x) {
+    try {
+      const klic = 'id:' + x[1];
+      let soubor = null;
+      const id = cache.get(klic);
+      if (id) { try { soubor = DriveApp.getFileById(id); } catch (chyba) { soubor = null; } }
+      if (!soubor) {
+        const it = (x[0] ? podslozka_(koren_(), x[0]) : koren_()).getFilesByName(x[1]);
+        if (!it.hasNext()) return;
+        soubor = it.next();
+        cache.put(klic, soubor.getId(), 21600);
+      }
+      nejnovejsi = Math.max(nejnovejsi, soubor.getLastUpdated().getTime());
+    } catch (chyba) { /* bez značky – zdraví se načte podle stáří dat */ }
+  });
+  cache.put('zmena:claude', String(nejnovejsi), 60);
+  return nejnovejsi;
 }
 
 /** Oblíbení lidé, jejichž jmeniny aplikace v kalendáři zvýrazní (bez upozornění): [{ jmeno, kdo }] – vlastnost JMENINY_OBLIBENI. */
@@ -4016,8 +4080,12 @@ const POCASI_VYCHOZI = {
   orp: { '6218': 'Veselí nad Moravou' },           // ORP (kód CISORP z výstrah ČHMÚ) → název
   stanice: ['0-203-1-421500', '0-203-1-413000'],    // vodoměrné stanice (objID z hydro.chmi.cz): Morava – Strážnice, Spytihněv
   kraj: 'RPJM',                                     // textové předpovědi: RPJM = Jihomoravský kraj
-  dny: ['0', '1', '2', '3']                         // pCK0 dnes … pCK3 za tři dny
+  dny: ['0', '1', '2', '3'],                        // pCK0 dnes … pCK3 za tři dny
+  domov: null                                       // { lat, lon } – nastavený domov (akce pocasiDomov); místo výše je pak domov
 };
+// Domov: poloha z Wi-Fi bývá o pár km vedle (telefon i PC hlásily sousední obec – Michal 9. 10.: „nevím proč mám počasí
+// jinde“), proto v okolí domova (do 8 km, při nepřesné poloze i dál podle přesnosti) ukáže počasí pro domov.
+const DOMOV_OKOLI_M = 8000;
 const POCASI_URL = {
   cap: 'https://vystrahy-cr.chmi.cz/data2/XOCZ50_OKPR.xml',
   capArchiv: 'https://opendata.chmi.cz/meteorology/weather/alerts/cap/',
@@ -4039,9 +4107,9 @@ function nastaveniPocasi_() {
   return n;
 }
 
-/** Název místa pro aplikaci (chybná vlastnost POCASI nesmí shodit info). */
-function mistoPocasi_() {
-  try { return nastaveniPocasi_().misto; } catch (chyba) { return ''; }
+/** Pro info (Nastavení → Počasí): místo bez polohy a jestli je to nastavený domov (chybná vlastnost POCASI nesmí shodit info). */
+function infoPocasi_() {
+  try { const n = nastaveniPocasi_(); return { misto: n.misto, domov: !!n.domov }; } catch (chyba) { return { misto: '', domov: false }; }
 }
 
 /**
@@ -4052,16 +4120,29 @@ function mistoPocasi_() {
  */
 function pocasi_(znovu, poloha) {
   let p = polohaPocasi_(poloha);
-  if (p) vlastnosti_().setProperty('POCASI_POLOHA', JSON.stringify({ lat: p.lat, lon: p.lon, kdy: Date.now() }));
+  if (p) vlastnosti_().setProperty('POCASI_POLOHA', JSON.stringify({ lat: p.lat, lon: p.lon, presnost: p.presnost, kdy: Date.now() }));
   else if (poloha === undefined) p = posledniPoloha_(); // upozornění: poslední poloha z aplikace (nejvýš den stará)
   else if (vlastnosti_().getProperty('POCASI_POLOHA')) vlastnosti_().deleteProperty('POCASI_POLOHA'); // poloha vypnutá
   let n = null, chybaPolohy = '';
-  if (p) { try { n = nastaveniZPolohy_(p); } catch (chyba) { chybaPolohy = String(chyba.message || chyba); } }
+  // v okolí domova domov (poloha z Wi-Fi bývá o pár km vedle); jinak místo podle polohy
+  const vychozi = (function () { try { return nastaveniPocasi_(); } catch (chyba) { return null; } })();
+  const doma = !!(p && vychozi && vychozi.domov && vzdalenostM_(p, vychozi.domov) <= Math.max(DOMOV_OKOLI_M, (p.presnost || 0) + 3000));
+  if (doma) n = Object.assign({}, vychozi, { poloha: vychozi.domov });
+  else if (p) { try { n = nastaveniZPolohy_(p); } catch (chyba) { chybaPolohy = String(chyba.message || chyba); } }
   if (!n) n = nastaveniPocasi_();
   const klic = n.poloha ? 'pocasi:prehled:' + klicMista_(n) : 'pocasi:prehled';
+  // domov: aplikace ukáže jméno místa i bez polohy; přibližná poloha mimo domov → „≈ místo“ a rada v detailu
+  // (mění se s každým měřením – do mezipaměti jde jen přehled místa)
+  const dopln = function (x) {
+    const y = Object.assign({}, x);
+    delete y.domov; delete y.presnost;
+    if (doma || (!p && vychozi && vychozi.domov)) y.domov = true;
+    if (p && !doma && p.presnost > 1500) y.presnost = p.presnost;
+    return y;
+  };
   if (!znovu) {
     const hotovo = nactiZCache_(klic);
-    if (hotovo) return hotovo;
+    if (hotovo) return dopln(hotovo);
   }
   const ted = Date.now();
   const chyby = [];
@@ -4074,7 +4155,34 @@ function pocasi_(znovu, poloha) {
   if (n.poloha) prehled.podlePolohy = true;
   if (chyby.length) prehled.chyby = chyby;
   ulozDoCache_(klic, prehled, chyby.length ? 300 : POCASI_SEKUND);
-  return prehled;
+  return dopln(prehled);
+}
+
+/** Vzdálenost dvou bodů { lat, lon } v metrech (na pár km stačí rovinná aproximace). */
+function vzdalenostM_(a, b) {
+  const dy = (Number(a.lat) - Number(b.lat)) * 111320;
+  const dx = (Number(a.lon) - Number(b.lon)) * 111320 * Math.cos(Number(a.lat) * Math.PI / 180);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
+ * Akce pocasiDomov: { lat, lon, nazev } = domov (obec vybraná v Nastavení → Počasí; aplikace ji najde podle jména),
+ * { smazat: true } = zpět na výchozí místo. Domov = místo bez polohy a v okolí domova (vlastnost POCASI).
+ */
+function pocasiDomov_(d) {
+  const vl = vlastnosti_();
+  if (d.smazat) {
+    vl.deleteProperty('POCASI');
+    smazCache_('pocasi:prehled');
+    return { misto: POCASI_VYCHOZI.misto, domov: null };
+  }
+  const p = polohaPocasi_(d);
+  if (!p) throw new Error('Domov musí být v Česku.');
+  const n = nastaveniZPolohy_(p);
+  const nazev = String(d.nazev || '').replace(/\s+/g, ' ').trim().slice(0, 60) || n.misto;
+  vl.setProperty('POCASI', JSON.stringify({ misto: nazev, orp: n.orp, stanice: n.stanice, kraj: n.kraj, domov: { lat: p.lat, lon: p.lon } }));
+  smazCache_('pocasi:prehled');
+  return { misto: nazev, domov: { lat: p.lat, lon: p.lon }, orp: n.orp };
 }
 
 // ---- počasí podle polohy: ORP z ČÚZK (RÚIAN), kód výstrah CISORP, kraj předpovědi, nejbližší vodoměrné stanice
@@ -4084,11 +4192,12 @@ const RUIAN_CISORP = {19:1100,27:2101,35:2125,43:2126,51:2102,60:2108,78:2109,86
 const KRAJ_PREDPOVEDI = { 11: 'RPPH', 21: 'RPSC', 31: 'RPCB', 32: 'RPPL', 41: 'RPKV', 42: 'RPUL', 51: 'RPLB', 52: 'RPHK', 53: 'RPPU',
   61: 'RPVY', 62: 'RPJM', 71: 'RPOL', 72: 'RPZL', 81: 'RPMS' };
 
-/** Poloha z aplikace zaokrouhlená na 0,01° (~1 km); mimo ČR (nebo nesmysl) → null. */
+/** Poloha z aplikace zaokrouhlená na 0,01° (~1 km) s přesností měření (m, 0 = neznámá); mimo ČR (nebo nesmysl) → null. */
 function polohaPocasi_(p) {
   if (!p || typeof p !== 'object') return null;
   const lat = Math.round(Number(p.lat) * 100) / 100, lon = Math.round(Number(p.lon) * 100) / 100;
-  return lat > 48.5 && lat < 51.1 && lon > 12 && lon < 18.9 ? { lat: lat, lon: lon } : null;
+  const presnost = Math.max(0, Math.min(100000, Math.round(Number(p.presnost) || 0)));
+  return lat > 48.5 && lat < 51.1 && lon > 12 && lon < 18.9 ? { lat: lat, lon: lon, presnost: presnost } : null;
 }
 
 function posledniPoloha_() {
@@ -4098,7 +4207,8 @@ function posledniPoloha_() {
   } catch (chyba) { return null; }
 }
 
-function klicMista_(n) { return Object.keys(n.orp).join(',') + '|' + n.kraj + '|' + (n.stanice || []).join(','); }
+// i se jménem místa: dvě sousední obce v jednom ORP se stejnými stanicemi by jinak sdílely název v mezipaměti
+function klicMista_(n) { return Object.keys(n.orp).join(',') + '|' + n.kraj + '|' + (n.stanice || []).join(',') + '|' + n.misto; }
 
 function cuzkBod_(vrstva, p) {
   const r = UrlFetchApp.fetch(CUZK_RUIAN + vrstva + '/query?geometry=' + p.lon + ',' + p.lat +
@@ -4640,7 +4750,8 @@ const WHOOP_ = {
   scope: 'offline read:recovery read:cycles read:sleep read:workout read:body_measurement'
 };
 const ZDRAVI_DNI = 30;          // přehled v aplikaci
-const ZDRAVI_SYNC_MIN = 30;     // WHOOP se při otevření aplikace dotahuje nejvýš jednou za 30 minut
+const ZDRAVI_SYNC_MIN = 30;     // WHOOP dotahuje spouštěč (whoopNaPozadi_) nejvýš jednou za 30 minut
+const ZDRAVI_SYNC_ZALOHA_MIN = 120; // při otevření Zdraví jen když spouštěč nejede (data starší 2 h) nebo Obnovit
 
 function vlastnosti_() { return PropertiesService.getScriptProperties(); }
 
@@ -4875,11 +4986,11 @@ function ulozZdravi_(dny, zdroj, treninky) {
   }
 }
 
-/** Akce zdravi: přehled za 30 dní; WHOOP se předtím dotáhne, když je propojený a data jsou starší než 30 minut. */
+/** Akce zdravi: přehled za 30 dní; WHOOP dotahuje spouštěč na pozadí – tady jen při Obnovit, nebo když spouštěč nejede. */
 function zdravi_(znovu) {
   const whoop = whoopStav_();
   let chybaSync = '';
-  if (whoop.propojeno && (znovu || Date.now() - whoop.sync.kdy > ZDRAVI_SYNC_MIN * 60000)) {
+  if (whoop.propojeno && (znovu || Date.now() - whoop.sync.kdy > ZDRAVI_SYNC_ZALOHA_MIN * 60000)) {
     try { whoopSync_(whoop.sync.kdy ? 5 : ZDRAVI_DNI); } catch (chyba) { chybaSync = String(chyba.message || chyba); }
   }
   const slozka = slozkaZdravi_();

@@ -368,9 +368,13 @@ function najdiPolozku(id) {
   throw new Error('Položka nenalezena.');
 }
 
+let domovUkazka = ''; // domov pro počasí v ukázce (Nastavení → Počasí → Domov)
+
 const akce = {
   info: () => ({ verze: 'ukázka', ucet: 'ja@example.com', skupinyHostu: kopie(skupinyHostu), jmeniny: kopie(jmeninyUkazka),
-    posta: { osobniAdresa: 'ja@example.com', pracovniAdresa: posta.pracovniAdresa, lzeOdesilatZPracovni: true, podpisy: kopie(podpisy), navrhyOdpovedi: rezimNavrhu }, kalendare }),
+    posta: { osobniAdresa: 'ja@example.com', pracovniAdresa: posta.pracovniAdresa, lzeOdesilatZPracovni: true, podpisy: kopie(podpisy), navrhyOdpovedi: rezimNavrhu }, kalendare,
+    pocasi: { misto: domovUkazka || 'Veselí nad Moravou', domov: !!domovUkazka } }),
+  pocasiDomov: (d) => { domovUkazka = d.smazat ? '' : String(d.nazev || ''); return { misto: domovUkazka || 'Veselí nad Moravou', domov: domovUkazka ? { lat: d.lat, lon: d.lon } : null }; },
   nastavPostu: (d) => { posta.pracovniAdresa = String(d.pracovniAdresa || '').trim(); return akce.info().posta; },
   schranka: () => Object.assign(kopie(schranka), { ted: Date.now() }),
   poznamka: (d) => {
@@ -579,7 +583,7 @@ const akce = {
     return { pridano: fotbalVKalendari.length * 3, upraveno: 0, beze_zmeny: 0, kalendare: {}, kalendareSeznam: kopie(kalendare) };
   },
   zdravi: () => zdraviUkazka(),
-  zmeny: () => ({ auto: 0 }),
+  zmeny: () => ({ auto: 0, zdravi: 0 }),
   pitiJidlo: (d) => {
     const z = (pitiUkazka[d.den] = pitiUkazka[d.den] || { piti: [], jidlo: [] });
     if (d.jak === 'piti') z.piti.push({ id: 'p' + Date.now(), kdy: Date.now(), ml: Number(d.ml) });
@@ -655,7 +659,7 @@ const akce = {
     const dnyPred = [['slunce', 'Převážně jasno', [19, 23], null], ['bourka', 'Odpoledne bouřky', [24, 28], [12, 15]],
       ['polojasno', 'Polojasno, ochlazení', [17, 21], [9, 12]], ['dest', 'Oblačno, místy déšť', [14, 17], [8, 11]]];
     return {
-      vytvoreno: Date.now(), misto: 'Veselí nad Moravou', souhrn: 'Silné bouřky', zdroj: 'ČHMÚ',
+      vytvoreno: Date.now(), misto: domovUkazka || 'Veselí nad Moravou', domov: !!domovUkazka || undefined, souhrn: 'Silné bouřky', zdroj: 'ČHMÚ',
       vystrahy: [{ typ: 'vystraha', uroven: 'zluta', nazev: 'Silné bouřky', od: den(1, 14, 0), do: den(1, 22, 0), oblast: 'Veselí nad Moravou',
         celyKraj: true, text: 'Je třeba dbát na bezpečnost především s ohledem na nebezpečí zásahu bleskem a úrazu padajícími předměty.', popis: '' }],
       reky: [{ typ: 'hladina', uroven: 'zelena', nazev: 'Morava – Strážnice', stav: 'bez povodně', kdy: ted - H, hladina: 82, trend: 'ustálená',

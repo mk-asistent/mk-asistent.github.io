@@ -472,6 +472,14 @@ export function pripominkaDnesHtml(x) {
     '<span class="auto-resit__kdy">' + esc(kdyPripominky(x)) + '</span></button></li>';
 }
 
+/** Totéž na telefonu: karta jako ostatní položky „Vyžaduje pozornost“ (vzor PriorAuth) – klepnutí otevře stránku Auto. */
+export function pripominkaPozorHtml(x) {
+  return '<li><button type="button" class="pozor" data-cil="auto">' +
+    '<span class="pozor__hora"><span class="kruh kruh--auto-tint" aria-hidden="true">' + (IKONA_PRIPOMINKY[x.id] || '🚗') + '</span>' +
+    '<span class="pozor__text"><b>' + esc(x.nazev) + '</b><small>' + esc(x.text) + '</small></span></span>' +
+    '<span class="pozor__radek">' + IKONY.cas + '<span>Auto</span><em>' + esc(kdyPripominky(x)) + '</em></span></button></li>';
+}
+
 // ---------------------------------------------------------------- panel Péče o auto (tlačítko na liště stránky Auto)
 
 const IKONA_ODDILU = [[/plán/i, '🗓️'], [/podle km/i, '📍'], [/celková|celý rok/i, '🔧'], [/zima/i, '❄️'], [/léto/i, '☀️'], [/dsg|automat/i, '⚙️'],

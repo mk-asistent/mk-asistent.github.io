@@ -24,7 +24,7 @@ export class ChybaApi extends Error {
 // Rychlá čtení, která se při startu sejdou najednou, jdou v jednom požadavku (akce motoru „davka“): Apps Script
 // víc souběžných dotazů řadí do fronty – deset naráz znamenalo i půl minuty čekání (měřeno 5. 10.). Pošta, schránka
 // a kalendář jdou zvlášť (jsou pomalejší a Dnes je potřebuje hned), zápisy vždy zvlášť.
-const V_DAVCE = ['info', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky', 'kontakty'];
+const V_DAVCE = ['info', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky', 'kontakty', 'zmeny'];
 let fronta = null;
 
 function umiDavku() {
@@ -57,10 +57,11 @@ export async function volej(akce, data, jinePripojeni) {
   if (!p) throw new ChybaApi('Aplikace není připojená k motoru.', 'nepripojeno');
   if (p.demo) return ukazkaVolej(akce, data || {});
   if (!jinePripojeni && ucet.zapnuty()) {
-    // s účtem: čtení z kopie, kterou chystá server (hned, bez motoru); změna zneplatní kopie z doby před ní
+    // s účtem: čtení z kopie, kterou chystá server (hned, bez motoru); změna zneplatní kopie své oblasti z doby před
+    // ní, zápis ke zdraví / k autu pošle ostatním zařízením signál
     if (ucet.CTENI.indexOf(akce) < 0) {
-      ucet.poZmene();
-      return volejPrimo(akce, data, p).finally(ucet.poZmene);
+      ucet.poZmene(akce);
+      return volejPrimo(akce, data, p).then((v) => { ucet.oznamZmenu(akce); return v; }).finally(() => ucet.poZmene(akce));
     }
     if (!(data && data.znovu)) {
       const k = await ucet.kopie(akce, data);

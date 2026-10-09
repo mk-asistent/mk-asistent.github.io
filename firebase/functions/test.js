@@ -1,7 +1,7 @@
 // Test obnovy bez sítě a Firebase: napodobený motor (fetch).  Spuštění: node test.js
 'use strict';
 const assert = require('assert');
-const { obnov, mrizkaMesice, pulnocPraha, volejMotor, otisk, platnePripojeni, coPreskocit } = require('./obnova');
+const { obnov, mrizkaMesice, pulnocPraha, volejMotor, otisk, platnePripojeni, coPreskocit, platneOblasti, OBLASTI } = require('./obnova');
 
 let ok = 0;
 async function test(nazev, fn) {
@@ -72,6 +72,26 @@ function motor(odpovedi, zaznam) {
     const v = await obnov(P, { fetch: fetchFn, ted, preskocit: coPreskocit(potvrzeno, ted, false) });
     assert.ok(zaznam.indexOf('davka:schranka,reely,zmeny') >= 0, zaznam.join(' | '));
     assert.ok(!v.data.info && !v.data.fotbal && v.data.reely && v.data.zmeny, 'přeskočené nejsou v datech (kopie zůstanou)');
+  });
+
+  await test('po změně z aplikace jen dotčené oblasti: poznámka → jen schránka (bez pošty a kalendáře), událost → kalendář', async () => {
+    assert.deepStrictEqual(platneOblasti(['schranka', 'schranka', 'zdravi', 'x']), ['schranka'], 'zdraví server nekopíruje');
+    assert.strictEqual(platneOblasti([]), null);
+    assert.strictEqual(platneOblasti('posta'), null);
+    const ted = Date.parse('2026-10-09T16:00:00+02:00');
+    const fetchFn = (zaznam) => motor((d) => (d.akce === 'davka' ? { ok: true, data: d.polozky.map((p) => ({ ok: true, data: { co: p.akce } })) } : { ok: true, data: { posta: 1 } }), zaznam);
+    let zaznam = [];
+    let v = await obnov(P, { fetch: fetchFn(zaznam), ted, jen: ['schranka'] });
+    assert.deepStrictEqual(zaznam, ['davka:schranka']);
+    assert.deepStrictEqual(Object.keys(v.data), ['schranka']);
+    zaznam = [];
+    v = await obnov(P, { fetch: fetchFn(zaznam), ted, jen: ['kalendar', 'info'] });
+    assert.deepStrictEqual(zaznam.sort(), ['davka:info', 'davka:kalendar,kalendar']);
+    assert.deepStrictEqual(Object.keys(v.data).sort(), ['info', 'kalendar_2026-10', 'kalendar_2026-11']);
+    zaznam = [];
+    v = await obnov(P, { fetch: fetchFn(zaznam), ted, jen: ['posta'] });
+    assert.deepStrictEqual(zaznam, ['posta']);
+    assert.deepStrictEqual(OBLASTI.slice().sort(), ['fotbal', 'info', 'kalendar', 'posta', 'reely', 'schranka', 'zmeny']);
   });
 
   await test('motor: špatný klíč a odpověď, která není JSON, dají srozumitelnou chybu', async () => {

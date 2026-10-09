@@ -1242,6 +1242,15 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 .nast-sekce { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .nast-sekce > h3 { margin: 0; font-size: 11px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
 .nast-sekce p { margin: 0; font-size: 13.5px; }
+/* Nastavení → Počasí → Domov: hledání obce podle jména */
+.nast-domov { display: flex; flex-direction: column; gap: 8px; padding: 12px 0 4px; border-top: 1px solid var(--line); }
+.nast-domov h4 { margin: 0; font-size: 14px; }
+.nast-domov p { margin: 0; }
+.nast-domov__hledat { display: flex; gap: 8px; align-items: center; }
+.nast-domov__hledat .field { flex: 1; min-width: 0; }
+.nast-domov__vysledky { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.nast-domov__vysledky .btn { width: 100%; justify-content: flex-start; gap: 8px; text-align: left; }
+.nast-domov__vysledky small { color: var(--muted); font-weight: 400; }
 .nast-stav { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
 .nast-stav i { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
 .nast-stav.ok i { background: var(--ok); }
@@ -1528,6 +1537,7 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 .hlava-ikona svg { width: 19px; height: 19px; }
 .kruh--zdravi { background: color-mix(in srgb, var(--o-zdravi) 85%, #fff); color: #fff; }
 .kruh--auto { background: var(--o-auto); color: #fff; }
+.kruh--auto-tint { background: var(--oranz-tint); font-size: 18px; }
 
 /* ================================================================ Auto: náklady a tankování (tabulka Google) */
 .pohled-auto { max-width: 1180px; }

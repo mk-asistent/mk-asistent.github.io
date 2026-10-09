@@ -37,7 +37,12 @@ const zapasFotbal = (tym, dni, h, domaci, hoste, vysledek) => ({ id: tym + dni, 
   doma: /Vnorovy/.test(domaci), misto: '', vysledek, stav: vysledek ? 'odehrano' : 'naplanovano', url: '#' });
 const motor = {
   info: () => ({ verze: 'test', akce: Object.keys(motor).concat(['polozkaUpravy', 'polozkaTermin']), ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false, podpisy: { osobni: 'Michal', pracovni: '' } },
-    kalendare: KALENDARE, skupinyHostu: [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@x.test', 'rodic2@x.test'] }], jmeniny: jmeninyOblibeni.slice() }),
+    kalendare: KALENDARE, skupinyHostu: [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@x.test', 'rodic2@x.test'] }], jmeniny: jmeninyOblibeni.slice(),
+    pocasi: { misto: pocasiDomov ? pocasiDomov.misto : 'Veselí nad Moravou', domov: !!pocasiDomov } }),
+  pocasiDomov: (d) => {
+    pocasiDomov = d.smazat ? null : { misto: d.nazev, lat: d.lat, lon: d.lon };
+    return { misto: pocasiDomov ? pocasiDomov.misto : 'Veselí nad Moravou', domov: pocasiDomov ? { lat: d.lat, lon: d.lon } : null };
+  },
   jmeninyUlozit: (d) => { jmeninyOblibeni = (d.oblibeni || []).map((o) => ({ jmeno: o.jmeno, kdo: o.kdo || '' })); return jmeninyOblibeni.slice(); },
   schranka: () => ({ nove: [{ id: 'n1', slozka: 'NOVE', kdy: ted - H, odkud: 'iPhone', typ: '', stav: '', shrnuti: '', termin: '', text: 'Zkušební poznámka z iPhonu', vlakno: [] }],
     ceka: [{ id: 'c1', slozka: 'CEKA', kdy: ted - 5 * H, odkud: 'iPhone', typ: 'ukol-michal', stav: 'tvuj-ukol', shrnuti: 'Zavolat kvůli lešení', termin: '', text: 'Připomeň mi zavolat.', vlakno: [] },
@@ -93,7 +98,7 @@ const motor = {
     rezim: { kofeinDo: '14:00', treninkDny: [], zapasTymy: ['A'], polozky: [{ id: 'kreatin', nazev: 'Kreatin', davka: '5 g', kdy: 'rano' },
       { id: 'kofein', nazev: 'Kofein', davka: 'před výkopem', kdy: 'zapas', jen: 'zapas' }, { id: 'horcik', nazev: 'Hořčík', davka: 'večer', kdy: 'vecer' }] } }),
   zdraviKlic: () => ({ klic: 'testovaci-klic-zdravi' }),
-  zmeny: () => ({ auto: 0 }),
+  zmeny: () => ({ auto: 0, zdravi: 0 }),
   pitiJidlo: (d) => {
     pitiVolani.push({ den: d.den, jak: d.jak, ml: d.ml, co: d.co, bilkoviny: d.bilkoviny, id: d.id });
     const z = (pitiDny[d.den] = pitiDny[d.den] || { piti: [], jidlo: [] });
@@ -201,7 +206,9 @@ const motor = {
   postaStitek: (d) => ({ nazev: d.nazev, vlakna: d.nazev === 'Fotbal' ? [vlaknoSouhrn.v1, { id: 'v8', ucet: 'osobni', stav: 'resi', od: 'Rozhodčí', predmet: 'Zápis o utkání', ukazka: 'Zápis v příloze.', kdy: ted - 200 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Fotbal'] }] : [], ted }),
   kontakty: () => [{ j: 'Trenér', a: 'trener@klub.test', n: 5 }, { j: 'Investor', a: 'info@stavba.test', n: 2 }],
   podpisyUlozit: (d) => ({ osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false, podpisy: d.podpisy }),
-  pocasi: (d) => ({ vytvoreno: Date.now(), misto: d && d.poloha ? 'Strážnice' : 'Veselí nad Moravou', podlePolohy: !!(d && d.poloha), souhrn: 'Silné bouřky', zdroj: 'ČHMÚ',
+  pocasi: (d) => ({ vytvoreno: Date.now(), misto: d && d.poloha ? 'Strážnice' : pocasiDomov ? pocasiDomov.misto : 'Veselí nad Moravou', podlePolohy: !!(d && d.poloha),
+    domov: !(d && d.poloha) && !!pocasiDomov || undefined, presnost: d && d.poloha && d.poloha.presnost > 1500 ? d.poloha.presnost : undefined,
+    souhrn: 'Silné bouřky', zdroj: 'ČHMÚ',
     vystrahy: [{ typ: 'vystraha', uroven: 'zluta', nazev: 'Silné bouřky', od: den(1, 14), do: den(1, 22), celyKraj: true, text: 'Je třeba dbát na bezpečnost.', popis: '' }],
     reky: [{ typ: 'hladina', uroven: 'zelena', nazev: 'Morava – Strážnice', stav: 'bez povodně', kdy: ted - H, hladina: 82, trend: 'ustálená', spa: 0, spaPredpoved: 0, maxPredpoved: 82, kdyMax: ted, spa1: 530, text: 'Hladina 82 cm, ustálená.' }],
     predpovedi: [0, 1, 2, 3].map((i) => ({ nazev: 'Předpověď', od: den(i, 0), do: den(i + 1, 0), den: iso(den(i, 12)), oblast: 'Jihomoravský kraj', uvod: ['Jasno', 'Bouřky', 'Polojasno', 'Déšť'][i],
@@ -252,6 +259,7 @@ const autoData = {
 let reelyZverejneno = {};
 const reelyPlan = {}, reelyPopisky = {}, reelyNaplanovano = [];
 let vahaZaznamy = [];
+let pocasiDomov = null; // domov pro počasí (akce pocasiDomov)
 let upozorneniStav = { zapnuto: false, tema: '' }, upozorneniOdeslano = 0;
 
 // ---------------------------------------------------------------- napodobený Firebase (účet a kopie dat ze serveru)
@@ -260,14 +268,19 @@ let upozorneniStav = { zapnuto: false, tema: '' }, upozorneniOdeslano = 0;
 const FB_UZIVATEL = { email: 'michal@test.cz', heslo: 'zelena louka u hriste 7', uid: 'uid-michal' };
 const fbDocs = {};       // cesta → data dokumentu
 const fbVolano = [];     // volané serverové funkce
+const fbVolanoData = []; // s jakými daty (obnovHned: vse, jen)
 let fbObnova = null;     // co udělá obnovHned (nastaví test)
 function fbObsluha(op, a) {
   const smi = (cesta) => !!a.uid && cesta.indexOf('uzivatele/' + a.uid) === 0;
   if (op === 'prihlas') return a.email === FB_UZIVATEL.email && a.heslo === FB_UZIVATEL.heslo ? { uid: FB_UZIVATEL.uid } : { chyba: 'auth/invalid-credential' };
   if (op === 'cti') return smi(a.cesta) ? { data: fbDocs[a.cesta] || null } : { chyba: 'permission-denied' };
   if (op === 'zapis') {
-    if (!smi(a.cesta) || a.cesta.indexOf('/data/') >= 0) return { chyba: 'permission-denied' };
-    fbDocs[a.cesta] = a.merge ? Object.assign({}, fbDocs[a.cesta], a.data) : a.data;
+    // kopie (data/…) zapisuje jen server – výjimka data/_signal: jen celá čísla zdravi a auto (jako firestore.rules)
+    const signal = a.cesta === 'uzivatele/' + a.uid + '/data/_signal';
+    if (!smi(a.cesta) || (a.cesta.indexOf('/data/') >= 0 && !signal)) return { chyba: 'permission-denied' };
+    const nove = a.merge ? Object.assign({}, fbDocs[a.cesta], a.data) : a.data;
+    if (signal && !Object.keys(nove).every((k) => ['zdravi', 'auto'].indexOf(k) >= 0 && Number.isInteger(nove[k]))) return { chyba: 'permission-denied' };
+    fbDocs[a.cesta] = nove;
     return {};
   }
   if (op === 'kolekce') {
@@ -278,6 +291,7 @@ function fbObsluha(op, a) {
   }
   if (op === 'funkce') {
     fbVolano.push(a.nazev);
+    fbVolanoData.push(a.data || {});
     // server chvíli pracuje (motor) – kopie přijdou až potom
     return new Promise((hotovo) => setTimeout(() => { if (fbObnova) fbObnova(); hotovo({ data: { kdy: Date.now() } }); }, 500));
   }
@@ -1266,6 +1280,56 @@ async function novaStranka(prohlizec, v, motiv) {
     jistota(meteo >= 1, 'Open-Meteo se nezavolalo');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
+    // přibližná poloha (iPhone bez Přesné polohy, PC podle Wi-Fi) → přesnost do motoru a „≈“ u místa
+    const b = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await b.ctx.grantPermissions(['geolocation']);
+    await b.ctx.setGeolocation({ latitude: 48.93312, longitude: 17.29765, accuracy: 6000 });
+    await b.ctx.addInitScript(() => localStorage.setItem('asistent.pocasi.poloha', 'true'));
+    await b.page.route('https://api.open-meteo.com/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '{}' }));
+    await b.page.goto(WEB);
+    await b.page.waitForFunction(() => /Počasí( zítra)? · ≈ Strážnice/.test((document.getElementById('dnes-kpi') || {}).textContent || ''));
+    jistota(volano.filter((d) => d.akce === 'pocasi' && d.poloha).pop().poloha.presnost === 6000, 'přesnost polohy do motoru');
+    jistota(!b.chybyStranky.length, 'chyby stránky: ' + b.chybyStranky.join(' | '));
+    await b.ctx.close();
+  });
+
+  // ---------- počasí: domov v Nastavení (obec podle jména) – bez polohy a v okolí domova se ukáže domov
+  await test('počasí: domov – najít obec, uložit do motoru, karta ukáže domov, zrušit', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    let hledano = '';
+    await page.route('https://geocoding-api.open-meteo.com/**', (route) => {
+      hledano = new URL(route.request().url()).searchParams.get('name');
+      route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ results: [
+        { name: 'Lhota', latitude: 49.2441, longitude: 17.7362, admin1: 'Zlínský kraj', admin2: 'Okres Zlín', country_code: 'CZ' },
+        { name: 'Lhota', latitude: 50.1694, longitude: 14.0177, admin1: 'Středočeský kraj', admin2: 'Okres Kladno', country_code: 'CZ' }] }) });
+    });
+    await page.goto(WEB);
+    await page.click('#rail [data-otevri-nastaveni]');
+    await page.click('[data-panel="nastaveni"] [data-nast-sekce="pocasi"]');
+    const S = '[data-panel="nastaveni"] [data-sekce="pocasi"]';
+    await page.waitForSelector(S + ' [data-domov-hledat]');
+    jistota(/Domov není nastavený/.test(await page.textContent(S)), 'bez domova');
+    await page.fill(S + ' [data-domov-hledat]', 'Lhota');
+    await page.press(S + ' [data-domov-hledat]', 'Enter');
+    await page.waitForSelector(S + ' [data-nast="domov-vybrat"]');
+    jistota(hledano === 'Lhota', 'hledání podle jména: ' + hledano);
+    jistota(/Okres Zlín/.test(await page.textContent(S + ' .nast-domov__vysledky')), 'okres u výsledku (dvě obce stejného jména)');
+    await page.locator(S).screenshot({ path: path.join(VYSTUP, 'pc_pocasi_domov.png') });
+    await page.click(S + ' [data-nast="domov-vybrat"][data-index="0"]');
+    await page.waitForFunction((s) => /Domov: Lhota/.test((document.querySelector(s) || {}).textContent || ''), S);
+    const d = volano.filter((x) => x.akce === 'pocasiDomov').pop();
+    jistota(d && d.nazev === 'Lhota' && d.lat === 49.2441 && d.lon === 17.7362, 'domov do motoru: ' + JSON.stringify(d));
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => /Počasí( zítra)? · Lhota/.test((document.getElementById('dnes-kpi') || {}).textContent || ''));
+    // zrušit domov → výchozí místo bez jména na kartě
+    await page.click('#rail [data-otevri-nastaveni]');
+    await page.click('[data-panel="nastaveni"] [data-nast-sekce="pocasi"]');
+    await page.click(S + ' [data-nast="domov-zrusit"]');
+    await page.waitForFunction((s) => /Domov není nastavený/.test((document.querySelector(s) || {}).textContent || ''), S);
+    jistota(volano.filter((x) => x.akce === 'pocasiDomov').pop().smazat === true, 'zrušení do motoru');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+    pocasiDomov = null;
   });
 
   // ---------- schránka: termín u tvého úkolu, Claudova odpověď s odkazem a formátem, upozornění na nezpracovanou schránku
@@ -1514,11 +1578,22 @@ async function novaStranka(prohlizec, v, motiv) {
     kopie('Živě ze serveru', Date.now());
     await page.waitForSelector('#posta-seznam :text("Živě ze serveru")');
     jistota(!volano.some((d) => d.akce === 'posta'), 'živá změna bez motoru');
-    // změna z aplikace (poznámka do schránky) → kopie z doby před ní neplatí, čtení jde na motor
+    // změna z aplikace (poznámka do schránky) → kopie schránky z doby před ní neplatí (čtení jde na motor), pošta platí dál
+    fbVolano.length = 0;
+    fbVolanoData.length = 0;
     await page.evaluate(() => import('/js/api.js').then((m) => m.volej('poznamka', { text: 'test' })));
     volano.length = 0;
+    await page.evaluate(() => Promise.all([import('/js/posta.js').then((m) => m.nactiPostu(false)), import('/js/schranka.js').then((m) => m.nactiSchranku())]));
+    jistota(volano.some((d) => d.akce === 'schranka'), 'po poznámce se schránka nečetla z motoru');
+    jistota(!volano.some((d) => d.akce === 'posta'), 'poznámka nemá zneplatnit kopii pošty: ' + volano.map((d) => d.akce).join());
+    // server za 5 s obnoví jen schránku (ne celou obnovu s poštou)
+    for (let i = 0; i < 50 && fbVolano.indexOf('obnovHned') < 0; i++) await page.waitForTimeout(200);
+    jistota(fbVolanoData.some((d) => d.jen && d.jen.join() === 'schranka'), 'obnova jen schránky: ' + JSON.stringify(fbVolanoData));
+    // zápis k poště (označit přečtené) → pošta z motoru
+    await page.evaluate(() => import('/js/api.js').then((m) => m.volej('oznacit', { id: 'v1', jak: 'precteno' })));
+    volano.length = 0;
     await page.evaluate(() => import('/js/posta.js').then((m) => m.nactiPostu(false)));
-    jistota(volano.some((d) => d.akce === 'posta'), 'po změně se pošta nečetla z motoru');
+    jistota(volano.some((d) => d.akce === 'posta'), 'po změně pošty se pošta nečetla z motoru');
     await page.waitForSelector('#posta-seznam :text("Sraz v sobotu")');
     // stará kopie (40 min – server nejel) → motor a žádost o obnovu na serveru; nová kopie pak přijde živě
     const stare = Date.now() - 40 * 60e3;
@@ -1541,6 +1616,44 @@ async function novaStranka(prohlizec, v, motiv) {
     jistota(fbVolano.indexOf('obnovHned') >= 0, 'Obnovit nepožádal server o nové kopie');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
+  });
+
+  // ---------- dvě zařízení: voda zapsaná v telefonu je na PC hned (signál v účtu → zdraví z motoru), bez obnovení stránky
+  await test('účet: voda z telefonu se na PC ukáže hned (signál zdraví), telefon svůj zápis znovu nenačítá', async () => {
+    const u = 'uzivatele/' + FB_UZIVATEL.uid;
+    Object.keys(fbDocs).forEach((k) => delete fbDocs[k]);
+    fbDocs[u] = { pripojeni: { url: MOTOR, klic: KLIC }, upraveno: Date.now() };
+    fbDocs[u + '/data/_stav'] = { kdy: Date.now(), potvrzeno: {}, chyby: [] };
+    const prihlasit = (ctx) => ctx.addInitScript((ja) => {
+      if (!localStorage.getItem('asistent.ucet')) {
+        localStorage.setItem('asistent.ucet', JSON.stringify({ email: ja.email }));
+        localStorage.setItem('__fb.user', JSON.stringify({ uid: ja.uid, email: ja.email }));
+      }
+    }, FB_UZIVATEL);
+    const pc = await novaStranka(prohlizec, VELIKOSTI[3]);
+    const tel = await novaStranka(prohlizec, VELIKOSTI[0]);
+    await prihlasit(pc.ctx);
+    await prihlasit(tel.ctx);
+    await pc.page.goto(WEB);
+    await tel.page.goto(WEB);
+    await pc.page.waitForSelector('#dl-piti:not([hidden]) [data-piti="500"]');
+    await tel.page.waitForSelector('#dl-piti:not([hidden]) [data-piti="250"]');
+    await pc.page.waitForTimeout(500);
+    const pred = await pc.page.textContent('#dl-piti .piti__text b');
+    volano.length = 0;
+    fbVolano.length = 0;
+    fbVolanoData.length = 0;
+    await tel.page.click('#dl-piti [data-piti="250"]');
+    await pc.page.waitForFunction((p) => document.querySelector('#dl-piti .piti__text b').textContent !== p, pred, { timeout: 6000 });
+    const sig = fbDocs[u + '/data/_signal'];
+    jistota(sig && Number.isInteger(sig.zdravi), 'signál zdraví v účtu: ' + JSON.stringify(sig));
+    await pc.page.waitForTimeout(500);
+    jistota(volano.filter((d) => d.akce === 'zdravi').length === 1, 'zdraví znovu jen na PC: ' + volano.map((d) => d.akce).join());
+    await pc.page.waitForTimeout(5500); // obnova po změně by přišla za 5 s
+    jistota(!fbVolano.length, 'zápis ke zdraví nemá spouštět obnovu kopií na serveru: ' + JSON.stringify(fbVolanoData));
+    jistota(!pc.chybyStranky.length && !tel.chybyStranky.length, 'chyby stránky: ' + pc.chybyStranky.concat(tel.chybyStranky).join(' | '));
+    await pc.ctx.close();
+    await tel.ctx.close();
   });
 
   // ---------- Reely: naplánovat na Instagram (motor reel v daný čas zveřejní sám), zrušit plán
@@ -1735,6 +1848,14 @@ async function novaStranka(prohlizec, v, motiv) {
     const prekryv = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     jistota(prekryv <= 0, 'stránka přetéká do strany o ' + prekryv + ' px');
     await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_auto.png'), fullPage: true });
+    // Dnes: připomínka auta je karta Auta – ne e-mail s časem v ms místo názvu, „NaN“ místo data a „Neplatný argument“ po klepnutí
+    await page.click('#lista [data-cil="dnes"]');
+    await page.waitForSelector('.pozornost .pozor[data-cil="auto"]');
+    const pozor = await page.textContent('.pozornost');
+    jistota(/Přezout na zimní/.test(pozor) && !/NaN|\d{13}/.test(pozor), 'telefon: připomínka auta ve Vyžaduje pozornost: ' + pozor.slice(0, 200));
+    jistota(await page.locator('.pozornost [data-vlakno="pneu-zimni"]').count() === 0, 'připomínka auta se otevírá jako e-mail');
+    await page.click('.pozornost .pozor[data-cil="auto"]');
+    await page.waitForSelector('.auto-hero');
     await page.click('.lista__plus');
     await page.waitForSelector('[data-panel="rychle"] [data-rychle-akce="tankovani"]');
     jistota(await page.locator('[data-panel="rychle"] .rychle__foto input[data-auto-foto]').count() === 1, 'účtenka v „+“');
