@@ -1976,6 +1976,174 @@ test('hodnocení dne: od 21:30 jednou denně poznámka pro Clauda, jen když se 
   p.ctx.instagramKazdych10Min();
   assert.strictEqual(hodn().length, 1, 'jednou za den');
   assert.ok(/typ: hodnoceni-jidla/.test(hodn()[0].getBlob().getDataAsString()) && /2026-10-09/.test(hodn()[0].getBlob().getDataAsString()));
+  assert.ok(/hlavni/.test(hodn()[0].getBlob().getDataAsString()), 'pokyn: doplňky jen hlavní');
+});
+
+// týdenní shrnutí zdraví (Michal 9. 10.: „nedělní shrnutí … napsat mailem tu moji aktivitu“) – vymyšlená data, týden 5.–11. 10. 2026
+const REZIM_TYDNE = { bilkovinyCil: 130, pitiCil: 2500, treninkDny: [3, 5], zapasTymy: ['A'], hlavni: ['kreatin', 'omega3', 'horcik', 'kofein'],
+  polozky: [{ id: 'kreatin', nazev: 'Kreatin', kdy: 'rano' }, { id: 'omega3', nazev: 'Omega-3', kdy: 'obed' }, { id: 'horcik', nazev: 'Hořčík', kdy: 'vecer' },
+    { id: 'multi', nazev: 'Multivitamin', kdy: 'rano' }, { id: 'kofein', nazev: 'Kofein', kdy: 'zapas', jen: 'zapas' },
+    { id: 'whey', nazev: 'Protein', kdy: 'po', jen: 'zatez', bilkoviny: 20 }] };
+const ms = (s) => Date.parse(s);
+
+test('týdenní shrnutí: čísla týdne – jídlo a voda po dnech, jen hlavní doplňky (k zápasu jen v den zápasu), ranní váha, WHOOP proti minulému týdnu', () => {
+  const p = prostredi();
+  p.nastavCas(ms('2026-10-11T18:00:00+02:00'));
+  const T = vm.runInContext('ZDRAVI_TYDEN_', p.ctx);
+  assert.deepStrictEqual([T.isoTyden('2026-10-05'), T.isoTyden('2026-12-28'), T.isoTyden('2027-01-04'), T.pondeliTydne('2026-W41'), T.pondeliTydne('2026-W53')],
+    ['2026-W41', '2026-W53', '2027-W01', '2026-10-05', '2026-12-28']);
+  assert.deepStrictEqual([T.rozsah('2026-10-05', '2026-10-11'), T.rozsah('2026-09-28', '2026-10-04'), T.cislo(12345.6, 1), T.cislo(-0.7, 1)],
+    ['5.–11. 10. 2026', '28. 9.–4. 10. 2026', '12 345,6', '−0,7']);
+  const s = json(T.souhrn({
+    od: '2026-10-05', rezim: REZIM_TYDNE, zapasy: ['2026-10-10'],
+    doplnky: { '2026-10-05': { kreatin: true, omega3: true, horcik: true, multi: true }, '2026-10-06': { kreatin: true },
+      '2026-10-10': { kreatin: true, omega3: true, horcik: true, kofein: true }, '2026-10-11': { kreatin: true, omega3: true, horcik: true, whey: true } },
+    piti: { '2026-10-05': { piti: [{ ml: 500 }, { ml: 2000 }], jidlo: [{ co: 'a', bilkoviny: 40, kcal: 600 }, { co: 'b', bilkoviny: 95, kcal: 900 }], hodnoceni: { znamka: 'b', text: 'x' } },
+      '2026-10-11': { piti: [{ ml: 1000 }], jidlo: [{ co: 'c', bilkoviny: 30, kcal: 400 }] } },
+    vaha: [{ kdy: ms('2026-10-05T07:00:00+02:00'), kg: 84.3 }, { kdy: ms('2026-10-07T21:00:00+02:00'), kg: 85.5 }, { kdy: ms('2026-10-11T07:30:00+02:00'), kg: 83.6 }],
+    dny: { '2026-10-05': { whoop: { pripravenost: { skore: 60 }, spanek: { celkem: 7 * 36e5 }, zatez: { zatez: 10 } }, apple: { kroky: 8000, energie: 500, cviceni: 30 } },
+      '2026-10-06': { whoop: { pripravenost: { skore: 70 }, spanek: { celkem: 8 * 36e5 }, zatez: { zatez: 12, kroky: 9500 } }, apple: { kroky: 10000, energie: 700, cviceni: 45 } },
+      '2026-09-28': { whoop: { pripravenost: { skore: 50 } }, apple: { kroky: 6000 } }, '2026-09-29': { whoop: { pripravenost: { skore: 60 } } } },
+    treninky: [{ den: '2026-10-07', sport: 'soccer', start: ms('2026-10-07T18:00:00+02:00'), konec: ms('2026-10-07T19:30:00+02:00') },
+      { den: '2026-10-04', sport: 'running', start: 0, konec: 36e5 }]
+  }));
+  assert.strictEqual(s.tyden, '2026-W41');
+  assert.deepStrictEqual(s.dny.map((d) => [d.nazev, d.bilkoviny, d.vodaMl, d.doplnky.vzato + '/' + d.doplnky.celkem, d.znamka]), [
+    ['Po 5. 10.', 135, 2500, '3/3', 'B'], ['Út 6. 10.', null, null, '1/3', ''], ['St 7. 10.', null, null, '0/3', ''], ['Čt 8. 10.', null, null, '0/3', ''],
+    ['Pá 9. 10.', null, null, '0/3', ''], ['So 10. 10.', null, null, '4/4', ''], ['Ne 11. 10.', 50, 1000, '3/3', '']], 'multivitamin a protein se nepočítají, kofein jen v den zápasu, protein do bílkovin');
+  assert.deepStrictEqual([s.doplnky.splneno, s.doplnky.dnu, s.doplnky.polozky.map((x) => x.id + ' ' + x.vzato + '/' + x.dni).join()], [3, 7, 'kreatin 4/7,omega3 3/7,horcik 3/7,kofein 1/1']);
+  assert.deepStrictEqual([s.jidlo.dnu, s.jidlo.bilkoviny, s.jidlo.dnuCil, s.voda.ml, s.voda.dnuCil], [2, 92.5, 1, 1750, 1]);
+  assert.deepStrictEqual([s.vaha.zacatek.kg, s.vaha.konec.kg, s.vaha.rozdil, s.vaha.ranni, s.vaha.pocet], [84.3, 83.6, -0.7, 2, 3], 'večerní vážení se nesrovnává');
+  assert.deepStrictEqual([s.whoop.pripravenost.ted, s.whoop.pripravenost.minule, s.whoop.spanek.ted, s.whoop.zatez.ted, s.apple.kroky.ted, s.apple.kroky.minule, s.apple.cviceni],
+    [65, 55, 7.5 * 36e5, 11, 9000, 6000, 75]);
+  assert.deepStrictEqual([s.treninky.pocet, s.treninky.minut, s.treninky.sporty], [1, 90, { Fotbal: 1 }], 'jen tréninky z týdne');
+  assert.strictEqual(s.maData, true);
+  const text = T.text(s, null);
+  assert.ok(/Po 5\. 10\.: 135 g bílkovin · 1 500 kcal · voda 2,5 l · doplňky 3\/3 · hodnocení B \| zotavení 60 % · spánek 7:00 · zátěž 10,0/.test(text), text);
+  assert.ok(/So 10\. 10\. \(zápas\)/.test(text) && /Kreatin 4\/7 · Omega-3 3\/7/.test(text) && /84,3 kg \(po 5\. 10\.\) → 83,6 kg \(ne 11\. 10\.\), −0,7 kg/.test(text), text);
+  assert.ok(/zotavení ø 65 % \(minulý týden 55 %\)/.test(text) && /Fotbal 1×/.test(text), text);
+  const html = T.html(s, { text: 'Skvělý **týden**.\n\n- víc vody\n- <script>x</script>' });
+  assert.ok(/<b>týden<\/b>/.test(html) && /<li>víc vody<\/li>/.test(html) && /&lt;script&gt;/.test(html) && !/<script/.test(html), 'Claudův text bezpečně');
+  assert.ok(!/<img|https?:|<style|<link/i.test(html), 'žádné cizí obrázky ani styly');
+  assert.ok(/Zotavení ø/.test(html) && /65 %/.test(html) && /↑ 10 %/.test(html) && /Po 5\. 10\./.test(html) && /3\/3 ✓/.test(html), 'čísla v HTML');
+  // prázdný týden
+  assert.strictEqual(T.souhrn({ od: '2026-10-05', rezim: {}, dny: {}, piti: {}, doplnky: {}, vaha: [], treninky: [] }).maData, false);
+});
+
+test('týdenní shrnutí: v neděli od 18:00 poznámka pro Clauda (skrytá), e-mail s jeho textem jednou, v noci ne, v pondělí v 8:00 i bez něj', () => {
+  const p = prostredi();
+  const zdravi = () => p.schranka.deti.ZDRAVI || p.schranka.createFolder('ZDRAVI');
+  const tyden = () => (p.schranka.deti.NOVE ? p.schranka.deti.NOVE.soubory.filter((f) => /_tyden\.md$/.test(f.getName())) : []);
+  const maily = () => p.log.odeslano.filter((x) => x.jak === 'send' && /Tvůj týden/.test(x.predmet));
+  const napisClaude = (text) => {
+    const obsah = JSON.stringify({ zapisy: [], tydny: { '2026-W41': { text, kdy: '2026-10-11T18:20:00+02:00' } } });
+    const f = zdravi().soubory.find((x) => x.getName() === 'PITI_JIDLO_CLAUDE.json');
+    if (f) f.setContent(obsah); else zdravi().createFile('PITI_JIDLO_CLAUDE.json', obsah);
+    p.cache.delete('zmena:claude');
+  };
+  p.schranka.createFile('ZDRAVI_REZIM.json', JSON.stringify(REZIM_TYDNE));
+  p.schranka.createFile('FOTBAL.json', JSON.stringify({ tymy: [{ klic: 'A', nazev: 'A-tým' }], zapasy: [{ id: 'z1', tym: 'A', zacatek: '2026-10-10T16:00:00+02:00', domaci: 'Vnorovy', hoste: 'Test', doma: true }] }));
+  zdravi().createFile('2026-10.json', JSON.stringify({ dny: { '2026-10-06': { whoop: { pripravenost: { skore: 66 }, spanek: { celkem: 7 * 36e5 } } } }, treninky: {} }));
+  p.nastavCas(ms('2026-10-06T12:00:00+02:00'));
+  p.volej('pitiJidlo', { den: '2026-10-06', jak: 'jidlo', co: 'Kuře s rýží', bilkoviny: 45, kcal: 650 });
+  p.volej('doplnky', { den: '2026-10-10', zmeny: { kofein: true, kreatin: true } });
+  p.nastavCas(ms('2026-10-11T17:50:00+02:00'));
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(tyden().length, 0, 'před 18:00 nic');
+  p.nastavCas(ms('2026-10-11T18:00:00+02:00'));
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(tyden().length, 1, 'v neděli v 18:00 poznámka pro Clauda');
+  const pozn = tyden()[0].getBlob().getDataAsString();
+  assert.ok(/typ: tyden-zdravi/.test(pozn) && /tyden: 2026-W41/.test(pozn) && /„tydny“ → „2026-W41“/.test(pozn) && /Út 6\. 10\.: 45 g bílkovin/.test(pozn) && /Kofein 1\/1/.test(pozn), pozn);
+  assert.strictEqual(maily().length, 0, 'e-mail čeká na Clauda');
+  assert.strictEqual(p.volej('schranka').data.nove.length, 0, 'aplikace poznámku neukazuje');
+  p.nastavCas(ms('2026-10-11T18:10:00+02:00'));
+  p.ctx.tydenniShrnutiNaPozadi_();
+  assert.strictEqual(tyden().length, 1, 'poznámka jen jednou');
+  // Claude napíše text → další běh pošle e-mail (na vlastní adresu se značkou → v Poště „Informace“)
+  p.nastavCas(ms('2026-10-11T18:20:00+02:00'));
+  napisClaude('Dobrý týden, **bílkoviny** v úterý sedly.\n\n- zítra víc vody');
+  p.nastavCas(ms('2026-10-11T18:30:00+02:00'));
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(maily().length, 1, 'e-mail hned, jak je Claudův text');
+  const m = json(maily()[0]);
+  assert.strictEqual(m.komu, 'osobni+notifikace@gmail.test');
+  assert.ok(/5\.–11\. 10\. 2026/.test(m.predmet) && m.m.name === 'Asistent', m.predmet);
+  assert.ok(/<b>bílkoviny<\/b>/.test(m.m.htmlBody) && /Út 6\. 10\./.test(m.m.htmlBody) && /45 g/.test(m.m.htmlBody), 'HTML s Claudovým textem a čísly');
+  assert.ok(/^Dobrý týden/.test(m.t) && /Út 6\. 10\.: 45 g bílkovin/.test(m.t), 'textová verze');
+  const posledni = p.zprava({ id: 'tyden', od: 'Asistent <' + JA + '>', komu: m.komu, predmet: m.predmet, text: m.t.slice(0, 200), kdy: ms('2026-10-11T18:30:00+02:00') });
+  assert.strictEqual(p.ctx.stavADuvod_(posledni, true, null, false, ms('2026-10-11T18:31:00+02:00'), true, {}).stav, 'info', 'v Poště aplikace jako Informace, ne Čekáš na ně');
+  // nikdy dvakrát
+  p.nastavCas(ms('2026-10-11T18:40:00+02:00'));
+  p.ctx.tydenniShrnutiNaPozadi_();
+  p.nastavCas(ms('2026-10-12T08:10:00+02:00'));
+  napisClaude('Oprava textu');
+  p.ctx.tydenniShrnutiNaPozadi_();
+  assert.strictEqual(maily().length, 1, 'jednou za týden');
+  // aplikace: karta s posledním shrnutím
+  p.cache.clear();
+  const z = p.volej('zdravi').data.tydenni;
+  assert.deepStrictEqual([z.tyden, z.od, z.do, z.text, z.odeslano], ['2026-W41', '2026-10-05', '2026-10-11', 'Oprava textu', true]);
+  p.nastavCas(ms('2026-10-20T12:00:00+02:00'));
+  p.cache.clear();
+  assert.strictEqual(p.volej('zdravi').data.tydenni, null, 'po týdnu karta zmizí');
+});
+
+test('týdenní shrnutí: Claudův text v noci počká na 6:00, bez textu e-mail v pondělí v 8:00 (jen čísla), prázdný týden nic', () => {
+  const noc = prostredi();
+  const zdravi = (p) => p.schranka.deti.ZDRAVI || p.schranka.createFolder('ZDRAVI');
+  const maily = (p) => p.log.odeslano.filter((x) => x.jak === 'send' && /Tvůj týden/.test(x.predmet));
+  noc.schranka.createFile('ZDRAVI_REZIM.json', JSON.stringify(REZIM_TYDNE));
+  noc.nastavCas(ms('2026-10-07T12:00:00+02:00'));
+  noc.volej('pitiJidlo', { den: '2026-10-07', jak: 'piti', ml: 750 });
+  noc.nastavCas(ms('2026-10-11T19:00:00+02:00'));
+  noc.ctx.tydenniShrnutiNaPozadi_();
+  noc.nastavCas(ms('2026-10-11T22:30:00+02:00'));
+  zdravi(noc).createFile('PITI_JIDLO_CLAUDE.json', JSON.stringify({ tydny: { '2026-W41': { text: 'Večerní text', kdy: '2026-10-11T22:30:00+02:00' } } }));
+  noc.cache.delete('zmena:claude');
+  noc.nastavCas(ms('2026-10-11T22:40:00+02:00'));
+  noc.ctx.tydenniShrnutiNaPozadi_();
+  noc.nastavCas(ms('2026-10-12T05:50:00+02:00'));
+  noc.ctx.tydenniShrnutiNaPozadi_();
+  assert.strictEqual(maily(noc).length, 0, 'v noci ne');
+  noc.nastavCas(ms('2026-10-12T06:00:00+02:00'));
+  noc.ctx.tydenniShrnutiNaPozadi_();
+  assert.strictEqual(maily(noc).length, 1, 'ráno v 6:00');
+  assert.ok(/Večerní text/.test(maily(noc)[0].m.htmlBody) && /0,8 l/.test(maily(noc)[0].m.htmlBody), 'text i čísla');
+
+  const bez = prostredi();
+  bez.schranka.createFile('ZDRAVI_REZIM.json', JSON.stringify(REZIM_TYDNE));
+  bez.nastavCas(ms('2026-10-09T12:00:00+02:00'));
+  bez.volej('vaha', { kg: 84.1, kdy: ms('2026-10-09T07:10:00+02:00') });
+  bez.nastavCas(ms('2026-10-11T20:00:00+02:00'));
+  bez.ctx.tydenniShrnutiNaPozadi_();
+  bez.nastavCas(ms('2026-10-12T07:50:00+02:00'));
+  bez.ctx.tydenniShrnutiNaPozadi_();
+  assert.strictEqual(maily(bez).length, 0, 'do 8:00 čeká na Clauda');
+  bez.nastavCas(ms('2026-10-12T08:00:00+02:00'));
+  bez.ctx.instagramKazdych10Min();
+  assert.strictEqual(maily(bez).length, 1, 'v pondělí v 8:00 i bez Clauda');
+  assert.ok(!/>Claude</.test(maily(bez)[0].m.htmlBody) && /84,1 kg ráno/.test(maily(bez)[0].m.htmlBody), 'jen čísla');
+  bez.nastavCas(ms('2026-10-12T09:00:00+02:00'));
+  zdravi(bez).createFile('PITI_JIDLO_CLAUDE.json', JSON.stringify({ tydny: { '2026-W41': { text: 'Pozdě', kdy: '2026-10-12T09:00:00+02:00' } } }));
+  bez.cache.delete('zmena:claude');
+  bez.ctx.tydenniShrnutiNaPozadi_();
+  bez.nastavCas(ms('2026-10-13T10:00:00+02:00'));
+  bez.ctx.tydenniShrnutiNaPozadi_();
+  assert.strictEqual(maily(bez).length, 1, 'pozdní text už druhý e-mail nepošle');
+
+  const prazdny = prostredi();
+  prazdny.nastavCas(ms('2026-10-11T18:00:00+02:00'));
+  prazdny.ctx.tydenniShrnutiNaPozadi_();
+  prazdny.nastavCas(ms('2026-10-12T08:00:00+02:00'));
+  prazdny.ctx.tydenniShrnutiNaPozadi_();
+  assert.strictEqual(maily(prazdny).length + (prazdny.schranka.deti.NOVE ? prazdny.schranka.deti.NOVE.soubory.length : 0), 0, 'bez dat ani poznámka, ani e-mail');
+  // okno: neděle od 18:00 a pondělí čekají na Clauda (v noci ticho), od pondělí 8:00 a v úterý i bez něj, jinak nic
+  const okno = (t) => { const o = prazdny.ctx.tydenZdraviOkno_(ms(t)); return o && [o.tyden, o.od, o.do, o.faze, o.ticho].join(' '); };
+  assert.deepStrictEqual([okno('2026-10-11T17:59:00+02:00'), okno('2026-10-11T18:00:00+02:00'), okno('2026-10-11T22:10:00+02:00'),
+    okno('2026-10-12T07:59:00+02:00'), okno('2026-10-12T08:00:00+02:00'), okno('2026-10-13T12:00:00+02:00'), okno('2026-10-14T18:00:00+02:00')],
+  [null, '2026-W41 2026-10-05 2026-10-11 ceka false', '2026-W41 2026-10-05 2026-10-11 ceka true', '2026-W41 2026-10-05 2026-10-11 ceka false',
+    '2026-W41 2026-10-05 2026-10-11 posli false', '2026-W41 2026-10-05 2026-10-11 posli false', null]);
 });
 
 test('váha: zápis s časem zápisu, česká čárka, nesmysl odmítnut, smazání překlepu, v přehledu Zdraví', () => {
