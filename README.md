@@ -39,7 +39,8 @@ dlaždice v horní liště** mezi hledáním a tlačítky (Michal 9. 10., šíř
 zkráceně – klepnutí = detail), **Připravenost** (WHOOP % v barvě zóny, spánek, HRV → Zdraví), **Nepřečtené** (počet, hoří /
 čeká na odpověď; nic = fajfka „vše přečteno“ → Pošta, filtr Nepřečtené) a **Denní kroužky** (`js/krouzky.js`: voda,
 bílkoviny a pohyb za dnešek proti cílům z `ZDRAVI_REZIM.json` – `pitiCil` ml, `bilkovinyCil` g, `krokyCil` kroků; bez cíle
-2,5 l, 130 g a 8 000 kroků; kroky z Apple Watch nebo WHOOP, větší číslo; čísla v bublině → Zdraví). Na užší liště se hledání
+2,5 l, 130 g a 8 000 kroků; kroky z Apple Watch nebo WHOOP, větší číslo; čtvrtý kroužek **Doplňky** – vzato z hlavních doplňků,
+které dnes platí, stejné číslo jako karta Doplňky dnes (`doplnkyDnes().plneni`); čísla v bublině → Zdraví). Na užší liště se hledání
 zmenší na „Hledat“, „+ Poznámka“ na „+“ a popisky ubývají, čísla zůstanou. **Další zápas** v číslech není (je v kartě Fotbal
 a v týdnu). Pod tím **Vyžaduje pozornost** (úkoly, rozhodnutí, návrhy od Clauda a připomínky auta podle naléhavosti),
 **Moje poznámky**, **Pošta** jako vlastní karta (hoří, čeká na tebe, otázka a nepřečtené z Primární; nepřečtené Aktualizace

@@ -852,8 +852,9 @@ function vychoziVikendTestu() {
         jistota(m.akce.r <= m.horni.r && m.horni.h <= 80 && m.strana <= 0, kde + 'lišta přetéká nebo je moc vysoká: ' + JSON.stringify([m.horni, m.akce, m.strana]));
         jistota(/°C/.test(m.texty[0]) && /^72/.test(m.texty[1]) && /Připravenost · spánek 6:30/.test(m.texty[1]) && m.texty[2] === '1 | 1 čeká',
           kde + 'obsah dlaždic: ' + m.texty.join(' ¦ '));
-        jistota(/Voda 0,0 \/ 2,5 l/.test(m.krouzky) && /Bílkoviny 0 \/ 130 g/.test(m.krouzky) && /Pohyb 4\s000 \/ 8\s000 kroků \(50 %\)/.test(m.krouzky) && m.kruhy === 4,
-          kde + 'kroužky: ' + m.krouzky + ' · kruhů ' + m.kruhy);
+        // čtvrtý kroužek Doplňky: dnes platí kreatin a hořčík (kofein jen v den zápasu) – 4 dráhy + hodnota jen u pohybu
+        jistota(/Voda 0,0 \/ 2,5 l/.test(m.krouzky) && /Bílkoviny 0 \/ 130 g/.test(m.krouzky) && /Pohyb 4\s000 \/ 8\s000 kroků \(50 %\)/.test(m.krouzky) &&
+          /Doplňky 0 z 2 \(0 %\)/.test(m.krouzky) && m.kruhy === 5, kde + 'kroužky: ' + m.krouzky + ' · kruhů ' + m.kruhy);
         jistota(!m.velkaCisla, kde + 'na Dnes zůstala řada velkých čísel');
         await page.locator('#horni').screenshot({ path: path.join(VYSTUP, v.nazev + (motiv === 'dark' ? '-tmavy' : '') + '_horni_dlazdice.png') });
         jistota(!chybyStranky.length, kde + 'chyby stránky: ' + chybyStranky.join(' | '));
@@ -2085,6 +2086,10 @@ function vychoziVikendTestu() {
       jistota(poradi === 'kreatin,horcik(ostatní)', 'hlavní nahoře, ostatní pod čarou: ' + poradi);
       jistota(/vše ✓/.test(await page.textContent('#dl-doplnky .card-hlava')), 'hořčík nevzatý, a přesto vše ✓ (nepočítá se)');
       jistota(await page.locator('#dl-doplnky .doplnky-tyden li.dnes.plny').count() === 1, 'dnešek v týdnu plný');
+      // denní kroužky berou totéž plnění (doplnkyDnes().plneni): Doplňky 1 z 1 hlavních = ✓ v legendě
+      const krouzky = () => page.getAttribute('#dnes-kpi [data-krouzky]', 'aria-label');
+      jistota(/Doplňky 1 z 1 hlavních \(100 %\)/.test(await krouzky()), 'kroužky: ' + await krouzky());
+      jistota((await page.textContent('#dnes-kpi .krouzky-legenda .krouzky--doplnky')).trim() === '✓', 'legenda kroužku Doplňky');
       await page.locator('#dl-doplnky').screenshot({ path: path.join(VYSTUP, 'pc_doplnky_hlavni.png') });
       // odškrtnout jde i ostatní; zrušit hlavní → zbývá 1
       await page.click('#dl-doplnky [data-doplnek="horcik"]');
@@ -2092,6 +2097,8 @@ function vychoziVikendTestu() {
       await page.click('#dl-doplnky [data-doplnek="kreatin"]');
       await page.waitForSelector('#dl-doplnky [data-doplnek="kreatin"][aria-pressed="false"]');
       jistota(/zbývá 1/.test(await page.textContent('#dl-doplnky .card-hlava')), 'zbývá jen hlavní: ' + await page.textContent('#dl-doplnky .card-hlava'));
+      jistota(/Doplňky 0 z 1 hlavních \(0 %\)/.test(await krouzky()), 'kroužky po zrušení hlavního: ' + await krouzky());
+      jistota((await page.textContent('#dnes-kpi .krouzky-legenda .krouzky--doplnky')).trim() === '0/1', 'legenda kroužku Doplňky 0/1');
       const den = await page.getAttribute('#dl-doplnky .doplnky-tyden li.dnes > *', 'aria-label');
       jistota(/0 z 1 hlavních/.test(den), 'den v týdnu: ' + den);
       jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));

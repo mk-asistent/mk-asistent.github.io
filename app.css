@@ -493,8 +493,17 @@ button.legenda-radek { width: 100%; background: none; border: 0; text-align: lef
 .krouzky--voda { --k: var(--o-pocasi); }
 .krouzky--bilkoviny { --k: var(--oranz); }
 .krouzky--pohyb { --k: var(--o-fotbal); }
+.krouzky--doplnky { --k: var(--fialova); }
+.krouzky--ctyri circle { stroke-width: 3.5; }
 .krouzky-legenda { display: flex; flex-direction: column; min-width: 0; font-size: 10.5px; line-height: 1.22; font-weight: 650; color: var(--text-soft);
     font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* čtyři kroužky (s doplňky): v úzké dlaždici čtyři menší řádky, v širší liště dva sloupce */
+.krouzky-legenda--ctyri { font-size: 9.5px; line-height: 1.1; }
+.krouzky-legenda--ctyri .krouzky-legenda__radek i { width: 5px; height: 5px; }
+@container hd (min-width: 860px) {
+    .krouzky-legenda--ctyri { display: grid; grid-template-columns: auto auto; gap: 1px 8px; font-size: 10.5px; line-height: 1.22; }
+    .krouzky-legenda--ctyri .krouzky-legenda__radek i { width: 6px; height: 6px; }
+}
 .krouzky-legenda__radek { display: flex; align-items: center; gap: 4px; }
 .krouzky-legenda__radek i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--k); }
 @container horni (max-width: 1239px) { .hledat-tl { width: 280px; } }

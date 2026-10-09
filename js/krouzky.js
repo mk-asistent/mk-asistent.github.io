@@ -1,6 +1,7 @@
-// Denní kroužky (Michal 9. 10.: „jedním pohledem jako na Apple Watch“): voda, bílkoviny a pohyb za dnešek proti cílům.
-// Malé okénko v horní liště na Dnes (PC, iPad) a malá karta na telefonu. Data jen čte ze stav.zdravi (pití a jídlo,
-// odškrtnuté doplňky s bílkovinami, kroky z Apple Watch a WHOOP) – js/zdravi.js se tím nemění.
+// Denní kroužky (Michal 9. 10.: „jedním pohledem jako na Apple Watch“): voda, bílkoviny a pohyb za dnešek proti cílům,
+// a když dnes podle režimu platí nějaké hlavní doplňky, čtvrtý kroužek Doplňky (vzato z hlavních – doplnkyDnes().plneni
+// z js/zdravi.js, stejné číslo jako karta Doplňky dnes). Malé okénko v horní liště na Dnes (PC, iPad) a malá karta na
+// telefonu. Data jen čte ze stav.zdravi (pití a jídlo, odškrtnuté doplňky, kroky z Apple Watch a WHOOP).
 // Cíle z režimu (CLAUDE_SCHRANKA/ZDRAVI_REZIM.json): pitiCil (ml), bilkovinyCil (g), krokyCil (kroky). Chybí-li cíl,
 // platí šetrné obecné výchozí: 2,5 l a 130 g (stejně jako karta Pití a jídlo) a 8 000 kroků (běžné doporučení
 // – po zranění spíš chůze než výkon; v režimu jde změnit).
@@ -36,13 +37,21 @@ export function krouzkyDnes(ted) {
   const dnes = (z.dny || []).find((x) => x.den === den) || {};
   const kroky = Math.max(Number(dnes.apple && dnes.apple.kroky) || 0, Number(dnes.whoop && dnes.whoop.zatez && dnes.whoop.zatez.kroky) || 0);
   const cPiti = cil(rezim.pitiCil, VYCHOZI_CILE.piti), cB = cil(rezim.bilkovinyCil, VYCHOZI_CILE.bilkoviny), cKroky = cil(rezim.krokyCil, VYCHOZI_CILE.kroky);
-  const kruh = (klic, nazev, hodnota, c, text, kratce) => ({ klic, nazev, hodnota, cil: c, podil: Math.max(0, Math.min(1, hodnota / c)),
-    procent: Math.round((hodnota / c) * 100), text, kratce });
-  return [
+  const kruh = (klic, nazev, hodnota, c, text, kratce, legenda) => ({ klic, nazev, hodnota, cil: c, podil: Math.max(0, Math.min(1, hodnota / c)),
+    procent: Math.round((hodnota / c) * 100), text, kratce, legenda });
+  const kruhy = [
     kruh('voda', 'Voda', ml, cPiti, litry(ml) + ' / ' + litry(cPiti) + ' l', litry(ml) + ' l'),
     kruh('bilkoviny', 'Bílkoviny', b, cB, (odhad ? '≈ ' : '') + cislo(b) + ' / ' + cislo(cB) + ' g', (odhad ? '≈ ' : '') + cislo(b) + ' g'),
     kruh('pohyb', 'Pohyb', kroky, cKroky, cislo(kroky) + ' / ' + cislo(cKroky) + ' kroků', kroky >= 10000 ? cislo(kroky / 1000, 1) + ' tis.' : cislo(kroky))
   ];
+  // hlavní doplňky (ZDRAVI_REZIM.json → hlavni; js/zdravi.js doplnkyDnes().plneni – jen ty, které dnes podle režimu platí):
+  // čtvrtý kroužek, když dnes nějaký je – stejné číslo jako „zbývá“ v kartě Doplňky dnes
+  const p = d && d.plneni;
+  if (p && p.celkem > 0) {
+    const hlavnich = Array.isArray(rezim.hlavni) && rezim.hlavni.length ? ' hlavních' : '';
+    kruhy.push(kruh('doplnky', 'Doplňky', p.vzato, p.celkem, p.vzato + ' z ' + p.celkem + hlavnich, p.vzato + '/' + p.celkem, p.vzato + '/' + p.celkem));
+  }
+  return kruhy;
 }
 
 /** „Voda 1,2 / 2,5 l (48 %) · Bílkoviny 40 / 130 g (31 %) · Pohyb 4 012 / 8 000 kroků (50 %)“ – bublina a popis pro čtečku. */
@@ -50,10 +59,11 @@ export function popisKrouzku(k) {
   return (k || []).map((x) => x.nazev + ' ' + x.text + ' (' + x.procent + ' %)').join(' · ');
 }
 
-/** Tři soustředné kroužky (SVG, barvy v app.css – oddíl Dnes). */
+/** Tři (s doplňky čtyři) soustředné kroužky (SVG, barvy v app.css – oddíl Dnes). */
 export function krouzkySvg(k, trida) {
-  const R = [17.5, 12.5, 7.5];
-  return '<svg class="krouzky' + (trida ? ' ' + trida : '') + '" viewBox="0 0 40 40" aria-hidden="true">' + (k || []).map((x, i) => {
+  const ctyri = (k || []).length > 3;
+  const R = ctyri ? [17.75, 13.5, 9.25, 5] : [17.5, 12.5, 7.5];
+  return '<svg class="krouzky' + (ctyri ? ' krouzky--ctyri' : '') + (trida ? ' ' + trida : '') + '" viewBox="0 0 40 40" aria-hidden="true">' + (k || []).map((x, i) => {
     const obvod = 2 * Math.PI * R[i];
     return '<circle class="krouzky__draha krouzky--' + x.klic + '" cx="20" cy="20" r="' + R[i] + '"/>' +
       (x.podil > 0 ? '<circle class="krouzky__hodnota krouzky--' + x.klic + '" cx="20" cy="20" r="' + R[i] + '" stroke-dasharray="' +
@@ -63,6 +73,7 @@ export function krouzkySvg(k, trida) {
 
 /** Malá legenda vedle kroužků: barevná tečka + procenta (horní lišta; splněný cíl = ✓) nebo hodnoty (telefon). */
 export function legendaHtml(k, hodnoty) {
-  return '<span class="krouzky-legenda">' + (k || []).map((x) => '<span class="krouzky-legenda__radek krouzky--' + x.klic + '"><i></i>' +
-    esc(hodnoty ? x.kratce : x.procent >= 100 ? '✓' : x.procent + ' %') + '</span>').join('') + '</span>';
+  return '<span class="krouzky-legenda' + ((k || []).length > 3 ? ' krouzky-legenda--ctyri' : '') + '">' + (k || []).map((x) =>
+    '<span class="krouzky-legenda__radek krouzky--' + x.klic + '"><i></i>' +
+    esc(hodnoty ? x.kratce : x.procent >= 100 ? '✓' : x.legenda || x.procent + ' %') + '</span>').join('') + '</span>';
 }
