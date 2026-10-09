@@ -20,6 +20,7 @@ import * as dochazka from './dochazka.js';
 import * as reely from './reely.js';
 import * as plakaty from './plakaty.js';
 import * as auto from './auto.js';
+import * as moje from './moje.js';
 import { vstupAdresy, klavesaAdresy } from './adresy.js';
 import * as ucet from './ucet.js';
 
@@ -501,7 +502,8 @@ function vykresliDnes(el, p) {
     el.innerHTML = '<div id="dnes-vystrahy"></div><div class="dnes-mobil" id="dnes-mobil"></div><div class="kpi-mrizka" id="dnes-kpi"></div>' +
       '<div class="dnes-mrizka" id="dnes-obsah">' +
       '<section class="card dlazdice dl-pozornost" id="dl-pozornost"></section>' +
-      '<div class="dnes-vpravo"><section class="card dlazdice dl-tyden" id="dl-tyden" data-oblast="kalendar"></section>' +
+      '<div class="dnes-vpravo"><section class="card dlazdice dl-moje" id="dl-moje" data-oblast="schranka" hidden></section>' +
+      '<section class="card dlazdice dl-tyden" id="dl-tyden" data-oblast="kalendar"></section>' +
       '<section class="card dlazdice dl-doplnky" id="dl-doplnky" data-oblast="zdravi" hidden></section>' +
       '<section class="card dlazdice dl-piti" id="dl-piti" data-oblast="zdravi" hidden></section>' +
       '<section class="card dlazdice dl-vaha" id="dl-vaha" data-oblast="zdravi" hidden></section>' +
@@ -519,6 +521,10 @@ function vykresliDnes(el, p) {
     el.querySelector('#dl-pozornost').innerHTML = kartaPozornosti(p);
   }
   el.querySelector('#dl-tyden').innerHTML = kartaTydne();
+  // moje poznámky (zkratka „Pro mě“) – kartu skládá js/moje.js; prázdná = schovaná
+  const mojeHtml = moje.mojeKartaHtml();
+  el.querySelector('#dl-moje').hidden = !mojeHtml;
+  el.querySelector('#dl-moje').innerHTML = mojeHtml;
   const doplnkyHtml = umiMotor('zdravi') ? zdravi.kartaDoplnkuHtml() : '';
   el.querySelector('#dl-doplnky').hidden = !doplnkyHtml;
   el.querySelector('#dl-doplnky').innerHTML = doplnkyHtml;
