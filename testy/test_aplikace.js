@@ -2883,6 +2883,102 @@ function vychoziVikendTestu() {
     await tel.ctx.close();
   });
 
+  // ---------- WEDOS – pracovní schránka přímo (js/wedos.js, server firebase/functions/wedos.js): Nastavení → Pošta
+  await test('WEDOS: Nastavení → Pošta zapne pracovní schránku přímo (do účtu, bez hesla), ukáže synchronizaci i chybu, vypne ji', async () => {
+    const u = 'uzivatele/' + FB_UZIVATEL.uid;
+    Object.keys(fbDocs).forEach((k) => delete fbDocs[k]);
+    fbDocs[u] = { pripojeni: { url: MOTOR, klic: KLIC }, upraveno: Date.now() };
+    fbDocs[u + '/data/_stav'] = { kdy: Date.now(), potvrzeno: {}, chyby: [] };
+    // server: obnova pracovní schránky zapíše kopii data/wedos (tvar jako pošta z motoru) a potvrzení v _stav
+    const kopieWedos = (chyba) => {
+      const kdy = Date.now();
+      const zprava = Object.assign({}, vlaknoSouhrn.v2, { id: 'w0123456789abcde', ucet: 'pracovni', zdroj: 'wedos', odkaz: null, stitky: [] });
+      fbDocs[u + '/data/wedos'] = { json: JSON.stringify({ ted: kdy, pracovniAdresa: 'prace@firma.test', pracovni: [zprava], pocty: { neprectene: 1, konverzaci: 1, celkem: 1 },
+        slozky: { dorucene: 'INBOX', odeslane: 'Sent', archiv: '', kos: 'Trash' }, chyba: chyba || null }), otisk: 'o' + kdy + (chyba ? 'c' : ''), kdy, parametry: null };
+      if (!chyba) fbDocs[u + '/data/_stav'] = Object.assign({}, fbDocs[u + '/data/_stav'], { potvrzeno: { wedos: kdy } });
+    };
+    fbObnova = () => { const d = fbVolanoData[fbVolanoData.length - 1] || {}; if (fbVolano[fbVolano.length - 1] === 'wedos' && d.akce === 'obnov') kopieWedos(null); };
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await ctx.addInitScript((ja) => {
+      if (!localStorage.getItem('asistent.ucet')) {
+        localStorage.setItem('asistent.ucet', JSON.stringify({ email: ja.email }));
+        localStorage.setItem('__fb.user', JSON.stringify({ uid: ja.uid, email: ja.email }));
+      }
+    }, FB_UZIVATEL);
+    fbVolano.length = 0;
+    fbVolanoData.length = 0;
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-otevri-nastaveni]');
+      const N = '[data-panel="nastaveni"] ';
+      await page.click(N + '[data-nast-sekce="posta"]');
+      await page.waitForSelector(N + '[data-wedos-adresa]');
+      const posta = N + '[data-sekce="posta"]';
+      jistota(/Pracovní schránka přímo \(WEDOS\)/.test(await page.textContent(posta)) && /Vypnuto/.test(await page.textContent(posta)), 'oddíl WEDOS, na začátku vypnuto');
+      jistota(await page.inputValue(N + '[data-wedos-adresa]') === 'prace@firma.test', 'adresa předvyplněná z pracovní pošty');
+      jistota(await page.inputValue(N + '[data-wedos-imap]') === 'wes1-imap.wedos.net' && await page.inputValue(N + '[data-wedos-smtp]') === 'wes1-smtp.wedos.net', 'výchozí servery WEDOS');
+      jistota(!(await page.$(posta + ' input[type="password"]')), 'heslo se do aplikace nezadává');
+      // cizí server aplikace neuloží (heslo by šlo jinam)
+      await page.fill(N + '[data-wedos-imap]', 'imap.zly.test');
+      await page.click(N + '[data-wedos="ulozit"]');
+      await page.waitForFunction(() => /WEDOS/.test(document.getElementById('toast').textContent));
+      jistota(!fbDocs[u].wedos, 'cizí server se nesmí uložit: ' + JSON.stringify(fbDocs[u].wedos));
+      await page.fill(N + '[data-wedos-imap]', 'wes1-imap.wedos.net');
+      await page.fill(N + '[data-wedos-jmeno]', 'Michal Test');
+      await page.click(N + '[data-wedos="ulozit"]');
+      await page.waitForFunction((p) => /Připojeno · synchronizováno/.test((document.querySelector(p) || {}).textContent || ''), posta, { timeout: 8000 });
+      jistota(JSON.stringify(fbDocs[u].wedos) === JSON.stringify({ adresa: 'prace@firma.test', imap: 'wes1-imap.wedos.net', smtp: 'wes1-smtp.wedos.net', jmeno: 'Michal Test' }),
+        'nastavení v účtu: ' + JSON.stringify(fbDocs[u].wedos));
+      jistota(fbDocs[u].pripojeni && fbDocs[u].pripojeni.klic === KLIC, 'připojení k motoru v účtu zůstává');
+      jistota(fbVolanoData.some((d) => d.akce === 'obnov' && d.vynutit === true), 'server požádán o první spojení: ' + JSON.stringify(fbVolanoData));
+      jistota(/1 konverzace, nepřečtené 1/.test(await page.textContent(posta)), 'počty z kopie: ' + await page.textContent(posta));
+      // rozhraní pro Poštu (fáze 2): konverzace ve tvaru pošty z motoru
+      const zpravy = await page.evaluate(() => import('/js/wedos.js').then((m) => m.zpravy()));
+      jistota(zpravy.length === 1 && zpravy[0].ucet === 'pracovni' && zpravy[0].zdroj === 'wedos' && zpravy[0].predmet === vlaknoSouhrn.v2.predmet, 'zpravy(): ' + JSON.stringify(zpravy));
+      await page.locator(posta).screenshot({ path: path.join(VYSTUP, 'pc_nastaveni_wedos.png') });
+      // chyba ze serveru (špatné heslo) se ukáže živě
+      kopieWedos({ druh: 'heslo', text: 'Přihlášení prace@firma.test k poště WEDOS se nepovedlo – zkontroluj adresu a heslo uložené na serveru.', kdy: Date.now() });
+      await page.waitForFunction((p) => /zkontroluj adresu a heslo/.test((document.querySelector(p) || {}).textContent || ''), posta, { timeout: 6000 });
+      // telefon: stejný oddíl přes menu, bez vodorovného přetékání
+      const tel = await novaStranka(prohlizec, VELIKOSTI[0]);
+      try {
+        await tel.ctx.addInitScript((ja) => {
+          if (!localStorage.getItem('asistent.ucet')) {
+            localStorage.setItem('asistent.ucet', JSON.stringify({ email: ja.email }));
+            localStorage.setItem('__fb.user', JSON.stringify({ uid: ja.uid, email: ja.email }));
+          }
+        }, FB_UZIVATEL);
+        await tel.page.goto(WEB);
+        await tel.page.click('.hlava-ja [data-menu]');
+        await tel.page.waitForSelector('[data-panel="menu"].otevreny [data-menu-nastaveni]');
+        await tel.page.click('[data-panel="menu"] [data-menu-nastaveni]');
+        await tel.page.waitForSelector(N + '.nast-zalozky');
+        await tel.page.click(N + '[data-nast-sekce="posta"]');
+        await tel.page.waitForFunction((p) => /zkontroluj adresu a heslo/.test((document.querySelector(p) || {}).textContent || ''), posta, { timeout: 6000 });
+        jistota(await tel.page.inputValue(N + '[data-wedos-adresa]') === 'prace@firma.test', 'telefon: nastavení z účtu');
+        jistota(await tel.page.evaluate((p) => { const s = document.querySelector(p); return s.scrollWidth <= s.clientWidth + 1; }, posta), 'telefon: oddíl přetéká do šířky');
+        await tel.page.locator(N + '[data-wedos-adresa]').scrollIntoViewIfNeeded();
+        await tel.page.waitForTimeout(250);
+        await tel.page.screenshot({ path: path.join(VYSTUP, 'telefon_nastaveni_wedos.png') });
+        jistota(!tel.chybyStranky.length, 'telefon – chyby stránky: ' + tel.chybyStranky.join(' | '));
+      } finally {
+        await tel.ctx.close();
+      }
+      // vypnout: nastavení pryč z účtu, server smaže kopii
+      fbVolanoData.length = 0;
+      await page.click(N + '[data-wedos="vypnout"]');
+      await page.waitForSelector('.okno-pozadi.videt [data-okno="ano"]');
+      await page.click('.okno-pozadi [data-okno="ano"]');
+      await page.waitForFunction(() => /vypnutá/.test(document.getElementById('toast').textContent));
+      jistota(fbDocs[u].wedos === null, 'vypnuto v účtu: ' + JSON.stringify(fbDocs[u]));
+      jistota(fbVolanoData.some((d) => d.akce === 'vypnout'), 'server požádán o smazání kopie');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      fbObnova = null;
+      await ctx.close();
+    }
+  });
+
   // ---------- Reely: naplánovat na Instagram (motor reel v daný čas zveřejní sám), zrušit plán
   await test('Reely: naplánovat na Instagram s datem a časem, štítek „vyjde…“, zrušit plán', async () => {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);

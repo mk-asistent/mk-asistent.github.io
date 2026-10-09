@@ -313,6 +313,50 @@ export async function ulozPripojeni(p) {
   return true;
 }
 
+// ---------------------------------------------------------------- přímý přístup pro data mimo motor (WEDOS – js/wedos.js)
+// Pracovní schránka WEDOS jde jen přes server (motor ji nečte): kopie data/wedos bez ohledu na stáří (jiný zdroj, na který
+// by se dalo spadnout, není), funkce wedos (callable) a dokumenty účtu (nastavení uzivatele/{uid}.wedos, wedosDetaily).
+
+const ROZEBRANE = new WeakMap(); // dokument kopie → rozebraný JSON (rozebírá se jednou za verzi, ne při každém čtení)
+
+/**
+ * Kopie ze serveru bez kontroly stáří: { data (rozebraný JSON), kdy (zápis), potvrzeno (kdy ji server ověřil), otisk } nebo
+ * null. data je pořád týž objekt, dokud server nepošle novou verzi (úpravy v něm do té doby vydrží).
+ */
+export function kopieServeru(id) {
+  const k = s.kopie[id];
+  if (!k || typeof k.json !== 'string') return null;
+  let data = ROZEBRANE.get(k);
+  if (data === undefined) {
+    try { data = JSON.parse(k.json); } catch (e) { data = null; }
+    ROZEBRANE.set(k, data);
+  }
+  return data ? { data, kdy: k.kdy || 0, potvrzeno: potvrzeno(id), otisk: k.otisk || '' } : null;
+}
+
+/** Funkce Firebase (callable) jménem přihlášeného účtu; chyba nese českou zprávu ze serveru. */
+export async function zavolej(nazev, data, casovyLimit) {
+  if (!zapnuty() || !s.uzivatel) throw new Error('Nejdřív přihlas účet (Nastavení → Připojení).');
+  const f = await nactiFunkce();
+  const r = await f.fn.httpsCallable(f.funkce, nazev, { timeout: casovyLimit || 120000 })(data || {});
+  return (r && r.data) || {};
+}
+
+/** Dokument účtu: bez cesty uzivatele/{uid}, jinak podsložka (např. 'wedosDetaily', id) → data nebo null. */
+export async function ctiZUctu(...cesta) {
+  if (!s.uzivatel) return null;
+  const fb = await nactiFirebase();
+  const d = await fb.fs.getDoc(fb.fs.doc(fb.db, 'uzivatele', s.uzivatel.uid, ...cesta));
+  return d.exists() ? d.data() : null;
+}
+
+/** Pole do dokumentu účtu uzivatele/{uid} (merge) – pravidla pustí jen pripojeni, upraveno a wedos. */
+export async function ulozDoUctu(pole) {
+  if (!s.uzivatel) throw new Error('Nejdřív přihlas účet (Nastavení → Připojení).');
+  const fb = await nactiFirebase();
+  await fb.fs.setDoc(fb.fs.doc(fb.db, 'uzivatele', s.uzivatel.uid), Object.assign({}, pole, { upraveno: Date.now() }), { merge: true });
+}
+
 /** Odhlásí účet v tomhle zařízení (připojení k motoru zůstává, jen bez kopií ze serveru). */
 export async function odhlas() {
   if (s.odber) { s.odber(); s.odber = null; }

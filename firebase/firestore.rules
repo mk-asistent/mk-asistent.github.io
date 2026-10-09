@@ -1,6 +1,8 @@
 rules_version = '2';
 // Databáze Asistenta: každý přihlášený vidí jen svůj dokument uzivatele/{uid} (připojení k motoru) a jeho kopie dat.
 // Kopie (uzivatele/{uid}/data) zapisuje jen server (Cloud Functions přes Admin SDK – pravidla se ho netýkají).
+// Pracovní pošta WEDOS: nastavení uzivatele/{uid}.wedos (jen adresa, jméno a servery *.wedos.net – heslo nikdy),
+// kopie data/wedos a detaily wedosDetaily/* zapisuje server; vnitřní stav serveru wedosInterni/* aplikace nečte.
 // Jedinou výjimkou je data/_signal: aplikace do něj po zápisu ke zdraví / k autu dá čas (jen čísla), ostatní zařízení
 // si podle něj data hned načtou. Zdravotní údaje do databáze nejdou – jen kdy se něco změnilo.
 // Registrace nových účtů je ve Firebase vypnutá; účet zakládá Michal v konzoli.
@@ -22,17 +24,36 @@ service cloud.firestore {
         && (!('zdravi' in d) || d.zdravi is int) && (!('auto' in d) || d.auto is int);
     }
 
+    // WEDOS – pracovní schránka přímo (firebase/functions/wedos.js): adresa, jméno odesílatele a servery – jen *.wedos.net,
+    // ať heslo (je jen v Secret Manageru) nikdy nejde jinému serveru; null = vypnuto. Heslo do databáze nepatří.
+    function platnyWedos(w) {
+      return w == null || (w is map && w.keys().hasOnly(['adresa', 'imap', 'smtp', 'jmeno'])
+        && w.adresa is string && w.adresa.size() <= 120
+        && w.adresa.matches('[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+([.][A-Za-z0-9-]+)*[.][A-Za-z]{2,}')
+        && w.imap is string && w.imap.matches('[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?[.]wedos[.]net')
+        && w.smtp is string && w.smtp.matches('[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?[.]wedos[.]net')
+        && (!('jmeno' in w) || (w.jmeno is string && w.jmeno.size() <= 80)));
+    }
+
     match /uzivatele/{uid} {
       allow read, delete: if jeVlastnik(uid);
       allow create, update: if jeVlastnik(uid)
-        && request.resource.data.keys().hasOnly(['pripojeni', 'upraveno'])
+        && request.resource.data.keys().hasOnly(['pripojeni', 'upraveno', 'wedos'])
         && (!('pripojeni' in request.resource.data) || platnePripojeni(request.resource.data.pripojeni))
-        && (!('upraveno' in request.resource.data) || request.resource.data.upraveno is int);
+        && (!('upraveno' in request.resource.data) || request.resource.data.upraveno is int)
+        && (!('wedos' in request.resource.data) || platnyWedos(request.resource.data.wedos));
 
       match /data/{id} {
         allow read: if jeVlastnik(uid);
         allow create, update: if id == '_signal' && jeVlastnik(uid) && platnySignal(request.resource.data);
         allow delete: if false;
+      }
+
+      // WEDOS: detaily konverzací čte vlastník, zapisuje jen server; wedosInterni (stav serveru) a wedosOdeslano
+      // aplikace nevidí vůbec (níž zakázané vše, co tu není povolené)
+      match /wedosDetaily/{id} {
+        allow read: if jeVlastnik(uid);
+        allow write: if false;
       }
     }
 

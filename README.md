@@ -473,6 +473,28 @@ Motor čte jen Gmail. Pracovní schránka se do něj dostane **přeposíláním 
 Gmail → Nastavení → Účty → **Odesílat poštu jako**. V aplikaci Nastavení → Pošta zadat pracovní adresu – aplikace
 poštu oddělí a odpovídá z adresy, na kterou zpráva přišla.
 
+## Pracovní pošta přímo z WEDOS (server IMAP/SMTP – od 9. 10. 2026, fáze 1)
+Bez přeposílání do Gmailu: **server Firebase se k pracovní schránce přihlašuje sám** – IMAP čte Doručené a Odeslané za
+30 dní, SMTP odesílá z pracovní adresy (`firebase/functions/wedos.js` čisté funkce, `wedos_schranka.js` práce se
+schránkou, funkce `obnovWedos` každých 10 min 6–23 h a `wedos` z aplikace). Konverzace mají **stejný tvar a stavy jako
+pošta z motoru** (hoří, čeká na tebe, otázka, čekáš na ně, řeší se, informace – pravidla převzatá ze `stavADuvod_`, test je
+porovnává s motorem); místo kategorie Aktualizace se pozná rozesílka a automat podle hlaviček (List-Id, Auto-Submitted).
+Konverzace podle Message-ID / In-Reply-To / References, odpověď bez hlaviček podle předmětu; v seznamu jen konverzace se
+zprávou v Doručené (Hotovo = archiv ji schová, i když tvoje odpověď zůstává v Odeslaných).
+- **Nastavení → Pošta → Pracovní schránka přímo (WEDOS)** (`js/wedos.js`, potřebuje účet): adresa (předvyplněná z
+  pracovní pošty), jméno odesílatele, servery (jen `*.wedos.net`) → Zapnout a vyzkoušet; stav spojení, poslední
+  synchronizace, chyba (špatné heslo, server), Synchronizovat teď, Vypnout. **Heslo se do aplikace nezadává** – uloží ho
+  Michal příkazem z `firebase/NASAZENI.md` do Secret Manageru.
+- Data: kopie `data/wedos` (souhrny), detaily `wedosDetaily/{id}` (10 nejnovějších předem, ostatní při otevření), akce
+  `wedos` = `obnov | detail | precteno | archivovat | smazat | vratit | odeslat | vypnout`; po akci se kopie upraví hned.
+  Odeslání: odpověď s In-Reply-To / References a citací, odpověď všem, přeposlání s přílohami, nový e-mail; kopie do
+  Odeslaných (APPEND), u odpovědi příznak \Answered; `idOdeslani` – opakovaný pokus e-mail nezdvojí.
+- Šetrně: každých 10 min jen STATUS složek; texty a detaily jen u nových zpráv; po špatném hesle pauza 15 min → 8 h.
+- **Fáze 2 (zatím ne):** stránka Pošta (`js/posta.js`) bere účet „Pracovní“ zatím z Gmailu; přepne se na rozhraní
+  `js/wedos.js` (`zpravy()`, `detail()`, `akce()`, `odeslat()`, `naZmenu()`, `obnovStare()`), když je WEDOS zapnutý.
+- Firestore navíc drží detaily pracovních e-mailů (celé texty 10 nejnovějších konverzací) – čte je jen vlastník a server;
+  vypnutí v aplikaci vše smaže. Testy: `node firebase/functions/test.js` (napodobený IMAP/SMTP, bez sítě).
+
 ## Bezpečnost
 - **Klíč je heslo k poště.** Při ztrátě zařízení: v editoru motoru spustit `novyKlic`.
 - Zkratka Zdraví má **vlastní klíč jen pro zápis** – poštu neotevře. WHOOP secret je jen ve vlastnostech skriptu.
