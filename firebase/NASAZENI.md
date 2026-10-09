@@ -50,7 +50,7 @@ cd "$D" && npx -y firebase-tools deploy --only firestore:rules,functions --proje
 ## Pracovní pošta přímo z WEDOS (IMAP + SMTP, od 9. 10. 2026)
 Server se k pracovní schránce přihlašuje sám (bez přeposílání do Gmailu): `obnovWedos` každých 10 minut 6–23 h jen
 STATUS Doručené a Odeslané (seznam se skládá znovu jen při změně, nebo jednou za hodinu kvůli termínům), `wedos` na
-žádost aplikace: `obnov | detail | precteno | archivovat | smazat | vratit | odeslat | vypnout`. Servery: IMAP
+žádost aplikace: `obnov | detail | precteno (id / ids) | archivovat | smazat | vratit | odeslat | vypnout`. Servery: IMAP
 `wes1-imap.wedos.net:993` a SMTP `wes1-smtp.wedos.net:465` (TLS, certifikát *.wedos.net – ověřeno 9. 10. 2026 jen DNS
 a pozdravem serveru), přihlašovací jméno = celá adresa. Adresu a servery ukládá aplikace do `uzivatele/{uid}.wedos`
 (`{ adresa, imap, smtp, jmeno }`; pravidla i server pustí jen `*.wedos.net`). **Heslo je jen v Secret Manageru.**

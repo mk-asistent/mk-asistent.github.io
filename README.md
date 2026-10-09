@@ -473,7 +473,7 @@ Motor čte jen Gmail. Pracovní schránka se do něj dostane **přeposíláním 
 Gmail → Nastavení → Účty → **Odesílat poštu jako**. V aplikaci Nastavení → Pošta zadat pracovní adresu – aplikace
 poštu oddělí a odpovídá z adresy, na kterou zpráva přišla.
 
-## Pracovní pošta přímo z WEDOS (server IMAP/SMTP – od 9. 10. 2026, fáze 1)
+## Pracovní pošta přímo z WEDOS (server IMAP/SMTP – od 9. 10. 2026)
 Bez přeposílání do Gmailu: **server Firebase se k pracovní schránce přihlašuje sám** – IMAP čte Doručené a Odeslané za
 30 dní, SMTP odesílá z pracovní adresy (`firebase/functions/wedos.js` čisté funkce, `wedos_schranka.js` práce se
 schránkou, funkce `obnovWedos` každých 10 min 6–23 h a `wedos` z aplikace). Konverzace mají **stejný tvar a stavy jako
@@ -486,12 +486,18 @@ zprávou v Doručené (Hotovo = archiv ji schová, i když tvoje odpověď zůst
   synchronizace, chyba (špatné heslo, server), Synchronizovat teď, Vypnout. **Heslo se do aplikace nezadává** – uloží ho
   Michal příkazem z `firebase/NASAZENI.md` do Secret Manageru.
 - Data: kopie `data/wedos` (souhrny), detaily `wedosDetaily/{id}` (10 nejnovějších předem, ostatní při otevření), akce
-  `wedos` = `obnov | detail | precteno | archivovat | smazat | vratit | odeslat | vypnout`; po akci se kopie upraví hned.
+  `wedos` = `obnov | detail | precteno (id / ids) | archivovat | smazat | vratit | odeslat | vypnout`; po akci se kopie upraví hned.
   Odeslání: odpověď s In-Reply-To / References a citací, odpověď všem, přeposlání s přílohami, nový e-mail; kopie do
   Odeslaných (APPEND), u odpovědi příznak \Answered; `idOdeslani` – opakovaný pokus e-mail nezdvojí.
 - Šetrně: každých 10 min jen STATUS složek; texty a detaily jen u nových zpráv; po špatném hesle pauza 15 min → 8 h.
-- **Fáze 2 (zatím ne):** stránka Pošta (`js/posta.js`) bere účet „Pracovní“ zatím z Gmailu; přepne se na rozhraní
-  `js/wedos.js` (`zpravy()`, `detail()`, `akce()`, `odeslat()`, `naZmenu()`, `obnovStare()`), když je WEDOS zapnutý.
+- **Pošta se zapnutou schránkou** (`js/wedos.js`, v `posta.js` malé háčky „WEDOS“): účet **Pracovní** je ze schránky
+  WEDOS místo Gmailu (Gmailová pracovní pošta a souhrny z PC se pak neukazují) – seznam, počty na Dnes, detail z účtu
+  (`wedosDetaily`, bez čekání na schránku; jinak ze serveru), otevřením přečteno, Označit jako nepřečtené, **Hotovo**
+  (archiv) s **Vrátit**, Odpovědět / Všem / Přeposlat / Nový e-mail z účtu Pracovní (odesílá server přes SMTP WEDOS, Od =
+  pracovní adresa, citaci připojí server), v Aktualizacích „Označit vše jako přečtené“ i pro rozesílky WEDOS. Připomenout,
+  skupiny (štítky Gmailu) a Spam u pracovní pošty nejsou. Obnova: při otevření a návratu do aplikace (kopie starší 4 min),
+  tlačítkem Obnovit a živě s kopiemi; chyba schránky (špatné heslo) je pruhem nad seznamem, prázdná Pracovní řekne proč.
+  Nastavení → Pošta pak neukazuje návod na přeposílání ani „Odesílat poštu jako“; pracovní podpis je k adrese WEDOS.
 - Firestore navíc drží detaily pracovních e-mailů (celé texty 10 nejnovějších konverzací) – čte je jen vlastník a server;
   vypnutí v aplikaci vše smaže. Testy: `node firebase/functions/test.js` (napodobený IMAP/SMTP, bez sítě).
 

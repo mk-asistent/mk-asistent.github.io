@@ -593,6 +593,14 @@ module.exports = async function testyWedos(test) {
     assert.strictEqual(W.textyZpravy('Ano.\n\n> Platí?').u, 'Ano.');
   });
 
+  await test('id konverzací z aplikace: jedno id i víc najednou (přečíst vše), jen platná, nejvýš 100', () => {
+    assert.deepStrictEqual(W.idyKonverzaci({ id: 'w0123456789abcde' }), ['w0123456789abcde']);
+    assert.deepStrictEqual(W.idyKonverzaci({ ids: ['w0123456789abcde', 'w0123456789abcde', '../x', 'wfffffffffffffff'] }), ['w0123456789abcde', 'wfffffffffffffff']);
+    assert.deepStrictEqual(W.idyKonverzaci({ id: 'spatne' }), []);
+    assert.deepStrictEqual(W.idyKonverzaci(null), []);
+    assert.strictEqual(W.idyKonverzaci({ ids: Array.from({ length: 150 }, (x, i) => 'w' + String(i).padStart(15, '0')) }).length, 100);
+  });
+
   await test('id konverzace drží kořen: když nejstarší zpráva vypadne z okna, id se nezmění', () => {
     const z = (uid, mid, irt, refs, kdy) => ({ klic: 'd:' + uid, slozka: 'd', uid, uv: '1', mid, odpovedNa: irt || '', odkazy: refs || [], od: { jmeno: '', adresa: 'p@k.test' },
       komu: [], kopie: [], skryta: [], odpovedet: [], predmet: 'X', kdy, precteno: true, oznaceno: false, hromadna: false, automat: false });

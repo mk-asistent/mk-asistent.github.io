@@ -1,32 +1,54 @@
 // Pracovní schránka přímo z WEDOS – klientská část. Poštu čte a odesílá server Firebase (firebase/functions/wedos.js,
 // IMAP + SMTP, heslo jen v Secret Manageru); aplikace má jen kopii data/wedos (konverzace ve stejném tvaru jako pošta
 // z motoru: stav, důvod, náhled…), detaily wedosDetaily/{id} a akce přes funkci wedos.
-// Fáze 1 (teď): nastavení v Nastavení → Pošta („Pracovní schránka přímo (WEDOS)“) a rozhraní pro Poštu níž.
-// Fáze 2: posta.js vezme účet „Pracovní“ odsud místo z Gmailu (zpravy(), detail(), akce(), odeslat(), naZmenu()).
+// Fáze 1: nastavení v Nastavení → Pošta („Pracovní schránka přímo (WEDOS)“).
+// Fáze 2: Pošta (posta.js) bere účet „Pracovní“ odsud místo z Gmailu – seznam (zpravy), detail, přečteno, Hotovo
+// (archiv), Vrátit, odpověď a nový e-mail (odeslat), počty na Dnes; malé háčky v posta.js označené „WEDOS“.
+// Obnova: při otevření aplikace a návratu do ní (kopie starší 4 min), tlačítkem Obnovit a živě s kopiemi ze serveru.
 // Bez účtu Firebase (a v ukázce) je vypnuto – motor pracovní poštu přímo nečte.
 
-import { stav } from './stav.js';
+import { stav, zmeneno } from './stav.js';
 import { jeDemo } from './api.js';
 import { esc, kdyKratce, uloziste } from './pomocne.js';
 import { obnovPanel, jeOtevreny, elementPanelu } from './panely.js';
 import { toast, potvrd } from './ui.js';
+import { IKONY } from './ikony.js';
 import * as ucet from './ucet.js';
 
 export const VYCHOZI = { imap: 'wes1-imap.wedos.net', smtp: 'wes1-smtp.wedos.net' };
 const SERVER = /^[a-z0-9](?:[a-z0-9-]{0,40}[a-z0-9])?\.wedos\.net$/;   // jako pravidla Firestore – heslo jen na servery WEDOS
 const ADRESA = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i;
+const ID = /^w[0-9a-f]{15}$/;     // id konverzace / zprávy WEDOS (Gmail má id jen z číslic a a–f, PC „pc-…“)
 const OBNOVIT_PO = 4 * 60e3;      // starší kopie → při otevření požádat server o čerstvou (jako ucet.obnovStare)
 const NEJDRIV_ZNOVU = 60e3;       // automaticky nejvýš jednou za minutu (ruční Obnovit kdykoli)
 const DETAIL_PLATI = 5 * 60e3;    // detail v paměti zařízení
 
-const w = { nastaveni: undefined, nacita: null, obnovuje: false, chyba: '', naposledy: 0, otisk: '', posluchaci: [], detaily: {}, pracuje: false };
+const w = { nastaveni: undefined, nacita: null, nactenoKdy: 0, obnovuje: false, chyba: '', naposledy: 0, otisk: '', posluchaci: [], detaily: {},
+  pracuje: false, startObnovy: false, bezi: {} };
 
 // ---------------------------------------------------------------- nastavení (uzivatele/{uid}.wedos)
 
 /** { adresa, imap, smtp, jmeno } | null (vypnuto) | undefined (ještě nenačteno). */
 export function nastaveni() { return w.nastaveni; }
-/** Pracovní schránka je zapnutá (účet přihlášený a nastavená adresa). */
-export function zapnuto() { return ucet.prihlasen() && !!(w.nastaveni && w.nastaveni.adresa); }
+
+/**
+ * Pracovní schránka je zapnutá: účet přihlášený a v něm adresa WEDOS. Než se nastavení z účtu načte (pár set ms po
+ * startu), rozhoduje kopie ze serveru – ta existuje jen se zapnutou schránkou (vypnutí ji smaže).
+ */
+export function zapnuto() {
+  if (!ucet.prihlasen()) return false;
+  if (w.nastaveni !== undefined) return !!(w.nastaveni && w.nastaveni.adresa);
+  return !!kopie();
+}
+
+/** Pracovní adresa WEDOS (z nastavení, jinak z kopie) – odesílá se z ní. */
+export function pracovniAdresa() {
+  const k = kopie();
+  return (w.nastaveni && w.nastaveni.adresa) || (k && k.data && k.data.pracovniAdresa) || '';
+}
+
+/** Je to konverzace (nebo zpráva) z pracovní schránky WEDOS? */
+export function jeWedos(id) { return ID.test(String(id || '')); }
 
 /** Nastavení z účtu (jednou, znovu = načíst znovu). */
 export function nactiNastaveni(znovu) {
@@ -36,8 +58,8 @@ export function nactiNastaveni(znovu) {
   w.nactenoKdy = Date.now();
   w.nacita = ucet.ctiZUctu()
     .then((d) => { w.nastaveni = d && d.wedos && d.wedos.adresa ? d.wedos : null; w.chyba = ''; return w.nastaveni; })
-    // bez sítě: nenačítat dokola při každém překreslení – chyba je vidět, znovu po dalším otevření Nastavení
-    .catch((e) => { w.nastaveni = null; w.chyba = 'Nastavení pracovní schránky se nenačetlo (' + e.message + ').'; return null; })
+    // bez sítě: zůstane nenačtené (rozhoduje kopie), znovu nejdřív za 30 s – ne při každém překreslení
+    .catch((e) => { w.chyba = 'Nastavení pracovní schránky se nenačetlo (' + e.message + ').'; return w.nastaveni; })
     .finally(() => { w.nacita = null; });
   return w.nacita;
 }
@@ -54,6 +76,7 @@ export async function ulozNastaveni(n) {
   await ucet.ulozDoUctu({ wedos: nova });
   w.nastaveni = nova;
   w.detaily = {};
+  zmeneno();
   return obnov(true);
 }
 
@@ -63,6 +86,7 @@ export async function vypnout() {
   w.nastaveni = null;
   w.detaily = {};
   w.chyba = '';
+  zmeneno();
   try { await ucet.zavolej('wedos', { akce: 'vypnout' }); } catch (e) { /* kopie zmizí i tak – server už schránku nečte */ }
 }
 
@@ -91,20 +115,30 @@ export function stavSpojeni() {
     konverzaci: (d.pocty && d.pocty.konverzaci) || 0, neprectene: (d.pocty && d.pocty.neprectene) || 0, obnovuje: w.obnovuje, mistniChyba: w.chyba };
 }
 
-/** fn() – kopie pracovní pošty se změnila (server ji obnovil, akce) → Pošta se překreslí. */
+/** fn() – kopie pracovní pošty se změnila (server ji obnovil, akce). Aplikace se překreslí sama (zmeneno). */
 export function naZmenu(fn) { w.posluchaci.push(fn); }
 function oznam() { w.posluchaci.forEach((fn) => { try { fn(); } catch (e) { /* další posluchač */ } }); }
 
-// změny kopie chodí živě s ostatními kopiemi (ucet.js odebírá celou kolekci data)
+// změny kopie chodí živě s ostatními kopiemi (ucet.js odebírá celou kolekci data); nastavení se načte po přihlášení
 ucet.naStav(() => {
-  if (!ucet.prihlasen()) { w.nastaveni = undefined; w.detaily = {}; } // odhlášení – jiný účet má jiné nastavení
+  if (!ucet.prihlasen()) { w.nastaveni = undefined; w.detaily = {}; w.startObnovy = false; } // odhlášení – jiný účet má jiné nastavení
+  else if (w.nastaveni === undefined && !w.nacita && Date.now() - w.nactenoKdy > 30e3) nactiNastaveni().then(() => { oznam(); zmeneno(); });
   const k = ucet.kopieServeru('wedos');
   const o = k ? k.otisk + ':' + k.potvrzeno : '';
-  if (o === w.otisk) return;
-  const zmenaObsahu = !k || !w.otisk || w.otisk.split(':')[0] !== k.otisk;
-  w.otisk = o;
-  if (zmenaObsahu) w.detaily = {};
-  oznam();
+  if (o !== w.otisk) {
+    const zmenaObsahu = !k || !w.otisk || w.otisk.split(':')[0] !== k.otisk;
+    w.otisk = o;
+    if (zmenaObsahu) { w.detaily = {}; zmeneno(); }
+    oznam();
+  }
+  // první kopie po otevření aplikace: starší než 4 minuty → server ať se podívá do schránky
+  if (!w.startObnovy && zapnuto()) { w.startObnovy = true; obnovStare(); }
+});
+
+// návrat do aplikace a tlačítko Obnovit (app.js obnovVse) – pracovní poštu obnovuje server přes funkci wedos
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') obnovStare(); });
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.closest && e.target.closest('[data-obnovit]') && zapnuto() && !w.obnovuje) obnov(false).catch(() => { /* chyba je v kopii */ });
 });
 
 // ---------------------------------------------------------------- akce přes server (funkce wedos)
@@ -146,32 +180,83 @@ export function obnovStare() {
   if (!k || Date.now() - (k.potvrzeno || k.kdy || 0) > OBNOVIT_PO) obnov(false).catch(() => { /* chyba je v kopii a v Nastavení */ });
 }
 
-/** Detail konverzace (tvar motoru nactiVlakno_): z paměti, z wedosDetaily (server je chystá předem), jinak ze schránky. */
+/**
+ * Detail konverzace (tvar motoru nactiVlakno_): z paměti, z wedosDetaily (server je chystá předem), jinak ze schránky.
+ * volby: kdy (čas poslední zprávy podle seznamu – starší detail se nepoužije), precist (otevřením přečteno), znovu.
+ */
 export async function detail(id, volby) {
   const o = volby || {};
+  const sedi = (d) => !!(d && Array.isArray(d.zpravy) && (!o.kdy || (d.zpravy.length && d.zpravy[d.zpravy.length - 1].kdy === o.kdy)));
   const ulozeny = w.detaily[id];
-  if (ulozeny && !o.znovu && Date.now() - ulozeny.kdy < DETAIL_PLATI) return ulozeny.data;
-  let d = null;
-  if (!o.znovu) {
+  let d = ulozeny && !o.znovu && Date.now() - ulozeny.kdy < DETAIL_PLATI && sedi(ulozeny.data) ? ulozeny.data : null;
+  if (!d && !o.znovu) {
     const doc = await ucet.ctiZUctu('wedosDetaily', id).catch(() => null);
     if (doc && typeof doc.json === 'string') { try { d = JSON.parse(doc.json); } catch (e) { d = null; } }
+    if (!sedi(d)) d = null;
   }
-  if (!d) d = (await zavolej({ akce: 'detail', id, precist: !!o.precist })).detail;
-  else if (o.precist) akce('precteno', { id, precteno: true }).catch(() => { /* přečtení se dožene příště */ });
+  if (d) { if (o.precist) oznacit(id, 'prectene').catch(() => { /* přečtení se dožene příště */ }); }
+  else d = (await zavolej({ akce: 'detail', id, precist: !!o.precist })).detail;
   w.detaily[id] = { data: d, kdy: Date.now() };
   return d;
 }
 
-/** Akce nad konverzací: precteno { id, precteno }, archivovat { id }, smazat { id }, vratit { id }. */
+/** Akce nad konverzací: precteno { id | ids, precteno }, archivovat { id }, smazat { id }, vratit { id }. */
 export function akce(nazev, data) {
   if (['precteno', 'archivovat', 'smazat', 'vratit'].indexOf(nazev) < 0) return Promise.reject(new Error('Neznámá akce.'));
   if (nazev !== 'precteno') delete w.detaily[data && data.id];
   return zavolej(Object.assign({}, data, { akce: nazev }));
 }
 
+/**
+ * Akce z Pošty jako motor („oznacit“): archivovat (Hotovo), smazat, prectene, neprectene, vratit. Vrátit počká, až
+ * doběhne přesun téže konverzace (jinak by server vracel něco, co ještě nepřesunul).
+ */
+export function oznacit(id, jak) {
+  if (jak === 'archivovat' || jak === 'smazat') {
+    const p = akce(jak, { id });
+    w.bezi[id] = p.catch(() => null);
+    return p;
+  }
+  if (jak === 'vratit') return Promise.resolve(w.bezi[id]).then(() => akce('vratit', { id }));
+  if (jak === 'prectene' || jak === 'neprectene') return akce('precteno', { id, precteno: jak === 'prectene' });
+  return Promise.reject(new Error('U pracovní pošty WEDOS tohle z aplikace nejde.'));
+}
+
+/** „Označit vše jako přečtené“ v Aktualizacích: i nepřečtené rozesílky pracovní pošty (jedním voláním). Vrací počet. */
+export async function prectiAktualizace() {
+  if (!zapnuto()) return 0;
+  const nep = zpravy().filter((m) => m.aktualizace && m.neprectena);
+  if (!nep.length) return 0;
+  await akce('precteno', { ids: nep.map((m) => m.id).slice(0, 100), precteno: true });
+  nep.forEach((m) => { m.neprectena = false; });
+  return nep.length;
+}
+
 /** Odeslání z pracovní adresy: { rezim: odpoved|vsem|preposlat|novy, id (zprávy), komu, predmet, text, idOdeslani }. */
 export function odeslat(data) {
   return zavolej(Object.assign({}, data, { akce: 'odeslat' }));
+}
+
+// ---------------------------------------------------------------- pro Poštu: pruh s chybou a prázdná pracovní pošta
+
+/** Pruh nad seznamem, když se pracovní schránka naposledy nenačetla (špatné heslo, server). */
+export function pruhHtml() {
+  if (!zapnuto()) return '';
+  const s = stavSpojeni();
+  if (!s.chyba) return '';
+  return '<p class="pruh pruh-varovani">Pracovní pošta: ' + esc(s.chyba) + (s.kdy ? ' Ukazuju naposledy načtenou (' + esc(kdyKratce(s.kdy)) + ').' : '') + '</p>';
+}
+
+/** Účet Pracovní bez konverzací: proč (chyba, první načtení, prázdná Doručená); '' = jen prázdný filtr. */
+export function prazdnaHtml() {
+  const s = stavSpojeni();
+  let nadpis, text;
+  if (s.chyba && !zpravy().length) { nadpis = 'Pracovní schránku se nepodařilo načíst'; text = s.chyba; }
+  else if (!kopie()) { nadpis = 'Čekám na první načtení pracovní schránky'; text = 'Server se k ní připojí do pár minut, nebo hned po Synchronizovat teď v Nastavení → Pošta.'; }
+  else if (!zpravy().length) { nadpis = 'Za 30 dní nic v Doručené'; text = 'Pracovní schránka ' + pracovniAdresa() + ' nemá v Doručené nic novějšího (vyřízené jsou v archivu).'; }
+  else return '';
+  return '<div class="card posta-prace-prazdna">' + IKONY.posta + '<div><b>' + esc(nadpis) + '</b><p>' + esc(text) + '</p>' +
+    '<button type="button" class="btn btn--ghost btn--sm" data-otevri-nastaveni="posta">' + IKONY.nastaveni + '<span>Nastavení pošty</span></button></div></div>';
 }
 
 // ---------------------------------------------------------------- Nastavení → Pošta: „Pracovní schránka přímo (WEDOS)“
@@ -206,15 +291,16 @@ function navodHtml() {
 /** Oddíl do Nastavení → Pošta (vkládá ho nastaveni.js sekcePosty). */
 export function nastaveniHtml() {
   let h = '<h3>Pracovní schránka přímo (WEDOS)</h3><p class="napoveda">Server aplikace se k pracovní poště přihlásí sám – čte Doručené ' +
-    'a Odeslané (IMAP) a odesílá z pracovní adresy (SMTP) – bez přeposílání do Gmailu.</p>';
+    'a Odeslané (IMAP) a odesílá z pracovní adresy (SMTP) – bez přeposílání do Gmailu. Zapnutá schránka je v Poště účet Pracovní ' +
+    '(seznam, odpovědi, Hotovo i počty na Dnes).</p>';
   if (!ucet.nastaveno() || jeDemo()) return '';
   if (!ucet.prihlasen()) return h + '<p class="nast-stav"><i></i>Potřebuje účet – přihlas ho v záložce Připojení.</p>';
-  if (w.nastaveni === undefined) {
-    nactiNastaveni().then(prekresliNastaveni);
+  if (w.nastaveni === undefined && !w.chyba) {
+    if (!w.nacita && Date.now() - w.nactenoKdy > 30e3) nactiNastaveni().then(prekresliNastaveni);
     return h + '<p class="nast-stav"><i></i>Načítám nastavení…</p>';
   }
   // změna z jiného zařízení: po minutě potichu načíst znovu (překreslí se jen při změně)
-  if (!w.nacita && !w.pracuje && Date.now() - (w.nactenoKdy || 0) > 60e3) {
+  if (!w.nacita && !w.pracuje && Date.now() - w.nactenoKdy > 60e3) {
     const pred = JSON.stringify(w.nastaveni);
     nactiNastaveni(true).then(() => { if (JSON.stringify(w.nastaveni) !== pred) prekresliNastaveni(); });
   }

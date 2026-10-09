@@ -84,7 +84,7 @@ exports.obnovHned = onCall(NASTAVENI, async (pozadavek) => {
 // ostatní kopie, _stav.potvrzeno.wedos), detaily wedosDetaily/{id}; vnitřní stav serveru wedosInterni/stav (aplikace ho
 // nečte), id odeslaných wedosOdeslano/{idOdeslani} (e-mail se po opakovaném pokusu nepošle dvakrát).
 //   obnovWedos – každých 10 minut (6:00–23:50): STATUS složek, při změně nový seznam (wedos_schranka.synchronizuj)
-//   wedos      – z aplikace: obnov | detail | precteno | archivovat | smazat | vratit | odeslat | vypnout
+//   wedos      – z aplikace: obnov | detail | precteno (id nebo ids) | archivovat | smazat | vratit | odeslat | vypnout
 // Funkce s heslem jsou zvlášť: obnovAsistenta a obnovHned se nasazují i bez uloženého hesla.
 //
 // Heslo = tajemství WEDOS_HESLO v Secret Manageru; funkcím ho připojí volba `secrets` (Cloud Run ho při startu instance
@@ -278,10 +278,14 @@ async function akceWedos(uid, n, akce, d) {
     if (!predchozi || !predchozi.konverzace) throw S.chybaAkce('Pošta ještě není načtená – obnov ji.', 'nenalezeno');
     const slozky = await slozkyZeStavu(klient, predchozi);
     if (akce === 'precteno') {
-      const polozky = polozkyNeboChyba(predchozi, d.id);
+      // jedna konverzace (id), nebo víc najednou (ids – „Označit vše jako přečtené“ v Aktualizacích)
+      const ids = W.idyKonverzaci(d);
+      const polozky = [].concat(...ids.map((x) => S.polozkyKonverzace(predchozi, x)));
+      if (!polozky.length) throw S.chybaAkce('Konverzace už ve schránce není – obnov poštu.', 'nenalezeno');
       const precteno = d.precteno !== false;
       await bezpecneAkce(n, () => S.oznacPrecteno(klient, slozky, polozky, precteno));
-      return { stav: Object.assign({}, predchozi, { slozky }), uprava: (x) => S.upravKopii(x, d.id, precteno ? 'precteno' : 'neprectene') };
+      return { stav: Object.assign({}, predchozi, { slozky }),
+        uprava: (x) => ids.reduce((kopie, id) => S.upravKopii(kopie, id, precteno ? 'precteno' : 'neprectene'), x) };
     }
     if (akce === 'archivovat' || akce === 'smazat') {
       const polozky = polozkyNeboChyba(predchozi, d.id);
@@ -340,7 +344,8 @@ exports.wedos = onCall(NASTAVENI_WEDOS, async (pozadavek) => {
   const ucet = await db.doc('uzivatele/' + uid).get();
   const n = W.platneNastaveni(ucet.exists ? ucet.get('wedos') : null);
   if (!n) throw new HttpsError('failed-precondition', 'Pracovní schránka není nastavená (Nastavení → Pošta).');
-  if (['detail', 'precteno', 'archivovat', 'smazat', 'vratit'].indexOf(akce) >= 0 && !W.JE_ID.test(String(d.id || ''))) {
+  if (['detail', 'precteno', 'archivovat', 'smazat', 'vratit'].indexOf(akce) >= 0 && !W.JE_ID.test(String(d.id || '')) &&
+      !(akce === 'precteno' && W.idyKonverzaci(d).length)) {
     throw new HttpsError('invalid-argument', 'Neplatné id konverzace.');
   }
   if (akce === 'obnov') {

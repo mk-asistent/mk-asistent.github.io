@@ -224,6 +224,12 @@ function klicPredmetu(s) { return bezPredpony(s).replace(/\s+/g, ' ').trim().toL
 function idZ(s) { return 'w' + hash(s).slice(0, 15); }
 const JE_ID = /^w[0-9a-f]{15}$/;
 
+/** Id konverzací z požadavku aplikace: id, nebo ids (nejvýš 100, jen platná, bez opakování). */
+function idyKonverzaci(d) {
+  const x = d && Array.isArray(d.ids) ? d.ids : d && d.id != null ? [d.id] : [];
+  return x.map(String).filter((id, i, a) => JE_ID.test(id) && a.indexOf(id) === i).slice(0, 100);
+}
+
 /** Id zprávy (pro detail a odpověď): podle Message-ID, bez něj podle složky a UID. */
 function idZpravy(z) { return idZ(z.mid || ('#' + z.uv + ':' + z.klic)); }
 
@@ -825,7 +831,7 @@ module.exports = {
   VYCHOZI_SERVERY, PORT_IMAP, PORT_SMTP, DNI, MAX_ZPRAV, MAX_KONVERZACI, MAX_DETAILU, MAX_ZPRAV_VE_VLAKNE, MAX_DETAIL, HLAVICKY, JE_ID,
   platneNastaveni, otiskNastaveni, otisk, hash,
   adresaObj, formatAdresa, formatAdresy, rozdelAdresy, adresaZ, jmeno, adresyZeVstupu, rozeberHlavicky, cisteId, idZeSeznamu, normalizuj,
-  sestavKonverzace, korenKonverzace, idZ, idZpravy, klicTextu, otiskDetailu, mapaKonverzace, bezPredpony,
+  sestavKonverzace, korenKonverzace, idZ, idZpravy, idyKonverzaci, klicTextu, otiskDetailu, mapaKonverzace, bezPredpony,
   cistyText, vlastniText, prvniRadek, htmlNaText, textZpravy, textyZpravy, nahled, zkrat, zkratHtml,
   terminZTextu, stavADuvod, oznameniZpravy, souhrnKonverzace, otiskAdresy, jeZnamy,
   seznamPriloh, detailKonverzace, vejdeSe,

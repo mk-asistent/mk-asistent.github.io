@@ -2979,6 +2979,105 @@ function vychoziVikendTestu() {
     }
   });
 
+  // ---------- WEDOS fáze 2: Pošta bere účet Pracovní ze schránky WEDOS (kopie data/wedos, detail z wedosDetaily, akce funkcí wedos)
+  await test('WEDOS: Pošta → Pracovní ze schránky WEDOS – Dnes, seznam, detail z účtu, přečteno, odpověď z pracovní adresy, Hotovo a Vrátit, chyba', async () => {
+    const u = 'uzivatele/' + FB_UZIVATEL.uid;
+    const T = Date.now();
+    const W1 = 'w00000000000a001', W2 = 'w00000000000a002', ZPRAVA = 'w0000000000cc001';
+    const souhrn = (id, o) => Object.assign({ id, ucet: 'pracovni', zdroj: 'wedos', stav: 'ceka', duvod: 'prosba „prosím“', od: 'Petr Klient', odAdresa: 'petr@klient.test',
+      predmet: 'Nabídka pasportu', ukazka: 'Pošlete prosím nabídku.', kdy: T - 3600e3, neprectena: true, hvezdicka: false, stitky: [], pocet: 1, odkaz: null,
+      termin: null, terminVeta: '', poTerminu: false, cekasOd: null }, o);
+    const kopie = (seznam, chyba) => {
+      fbDocs[u + '/data/wedos'] = { json: JSON.stringify({ ted: T, pracovniAdresa: 'michal@firma.test', pracovni: seznam,
+        pocty: { neprectene: seznam.filter((m) => m.neprectena).length, konverzaci: seznam.length, celkem: seznam.length }, slozky: {}, chyba: chyba || null }),
+        otisk: 'o' + Math.random(), kdy: Date.now(), parametry: null };
+    };
+    Object.keys(fbDocs).forEach((k) => delete fbDocs[k]);
+    fbDocs[u] = { pripojeni: { url: MOTOR, klic: KLIC }, upraveno: T,
+      wedos: { adresa: 'michal@firma.test', imap: 'wes1-imap.wedos.net', smtp: 'wes1-smtp.wedos.net', jmeno: 'Michal Test' } };
+    fbDocs[u + '/data/_stav'] = { kdy: T, potvrzeno: { wedos: T }, chyby: [] };
+    kopie([souhrn(W1, {}), souhrn(W2, { predmet: 'Porada v pátek', od: 'Jana Kolegová', odAdresa: 'jana@firma.test', stav: 'cekas', duvod: 'odpověděl jsi poslední',
+      ukazka: 'Navrhuji čtvrtek.', kdy: T - 7200e3, neprectena: false, cekasOd: T - 7200e3 })]);
+    // detail předem v účtu (server ho chystá do wedosDetaily) – otevření nečeká na schránku
+    fbDocs[u + '/wedosDetaily/' + W1] = { json: JSON.stringify({ id: W1, predmet: 'Nabídka pasportu', odkaz: null, vDorucenych: true, skryto: 0, ucet: 'pracovni', zdroj: 'wedos',
+      zpravy: [{ id: ZPRAVA, od: 'Petr Klient', odAdresa: 'petr@klient.test', odeMe: false, komu: 'michal@firma.test', kopie: '', kdy: T - 3600e3, predmet: 'Nabídka pasportu',
+        text: 'Dobrý den,\npošlete prosím nabídku na pasport budovy.', html: '', prilohy: [{ nazev: 'plan.pdf', velikost: 12000 }] }] }), kdy: T };
+    fbObnova = null;
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await ctx.addInitScript((ja) => {
+      if (!localStorage.getItem('asistent.ucet')) {
+        localStorage.setItem('asistent.ucet', JSON.stringify({ email: ja.email }));
+        localStorage.setItem('__fb.user', JSON.stringify({ uid: ja.uid, email: ja.email }));
+      }
+    }, FB_UZIVATEL);
+    const wd = () => fbVolanoData.filter((d, i) => fbVolano[i] === 'wedos');
+    try {
+      await page.goto(WEB);
+      // Dnes: nepřečtené počítají i pracovní poštu WEDOS (a Gmailovou pracovní v2 už ne)
+      await page.waitForFunction(() => import('/js/posta.js').then((m) => m.vsechnyZpravy().some((x) => x.id === 'w00000000000a001')), null, { timeout: 8000 });
+      const prehled = await page.evaluate(() => import('/js/posta.js').then((m) => ({ ids: m.vsechnyZpravy().map((x) => x.id), nep: m.neprectene().map((x) => x.id) })));
+      jistota(prehled.ids.includes('w00000000000a002') && !prehled.ids.includes('v2') && prehled.nep.includes('w00000000000a001'), 'pošta: ' + JSON.stringify(prehled));
+      await page.waitForFunction((n) => ((document.querySelector('#dnes-kpi [data-filtr-posty="neprectene"] .hd__hodnota') || {}).textContent || '').trim() === String(n),
+        prehled.nep.length, { timeout: 6000 });
+      // Pošta → Pracovní: konverzace z WEDOS, nejdou táhnout na skupiny Gmailu
+      await page.click('#rail [data-cil="posta"]');
+      await page.click('#posta-filtry [data-ucet-posty="pracovni"]');
+      await page.waitForSelector('#posta-seznam [data-vlakno="' + W1 + '"]');
+      jistota(await page.locator('#posta-seznam [data-vlakno="' + W2 + '"]').count() === 1, 'chybí druhá konverzace WEDOS');
+      jistota(!(await page.locator('#posta-seznam [data-vlakno="v2"]').count()), 'Gmailová pracovní pošta se s WEDOS neukazuje');
+      jistota(!(await page.locator('#posta-seznam [data-vlakno^="w"][draggable="true"]').count()), 'WEDOS se nedá přetáhnout na štítek Gmailu');
+      // detail z účtu hned (bez funkce detail a bez motoru), otevřením přečteno přes server
+      const motorPred = volano.length;
+      fbVolano.length = 0;
+      fbVolanoData.length = 0;
+      await page.click('#posta-seznam [data-vlakno="' + W1 + '"]');
+      await page.waitForFunction(() => /pošlete prosím nabídku na pasport/.test((document.querySelector('#posta-detail .zprava') || {}).textContent || ''));
+      jistota(/plan\.pdf/.test(await page.textContent('#posta-detail')), 'příloha v detailu');
+      await cekej(() => wd().some((d) => d.akce === 'precteno'), 4000, 'přečteno přes server');
+      jistota(JSON.stringify(wd()) === JSON.stringify([{ id: W1, precteno: true, akce: 'precteno' }]), 'volání serveru: ' + JSON.stringify(wd()));
+      jistota(!volano.slice(motorPred).some((d) => ['vlakno', 'oznacit', 'postaDetaily'].includes(d.akce) && JSON.stringify(d).includes('w0000')), 'WEDOS šlo na motor');
+      jistota(await page.isVisible('#posta-detail [data-oznacit="archivovat"]'), 'Hotovo');
+      jistota(!(await page.locator('#posta-detail [data-pripomenout], #posta-detail [data-presunout], #posta-detail [data-oznacit="spam"]').count()),
+        'Připomenout, Přesunout a Spam jdou jen v Gmailu');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_posta_wedos.png') });
+      // odpověď: Od = pracovní adresa WEDOS, bez varování o Gmailu; odeslání funkcí wedos se zprávou WEDOS
+      await page.click('#posta-detail [data-psat="odpoved"]');
+      await page.waitForSelector('[data-panel="psani"] [data-psani-text]');
+      jistota(/michal@firma\.test/.test(await page.textContent('[data-panel="psani"] .psani')), 'Od: pracovní adresa WEDOS');
+      jistota(!(await page.locator('[data-panel="psani"] .pruh-varovani').count()), 'bez varování „Odesílat poštu jako“');
+      await page.fill('[data-panel="psani"] [data-psani-text]', 'Dobrý den,\nnabídku pošlu dnes.');
+      await page.click('[data-panel="psani"] [data-odeslat]');
+      await page.waitForSelector('[data-panel="psani"]', { state: 'detached', timeout: 10000 });
+      const odeslano = wd().find((d) => d.akce === 'odeslat');
+      jistota(odeslano && odeslano.rezim === 'odpoved' && odeslano.id === ZPRAVA && /nabídku pošlu dnes/.test(odeslano.text) && odeslano.idOdeslani,
+        'odeslání přes server: ' + JSON.stringify(odeslano));
+      jistota(!volano.slice(motorPred).some((d) => d.akce === 'odeslat'), 'odpověď WEDOS šla na motor');
+      // Hotovo: hned pryč ze seznamu, server archivuje; Vrátit → zpět
+      await page.click('#posta-seznam [data-vlakno="' + W1 + '"]');
+      await page.waitForSelector('#posta-detail [data-oznacit="archivovat"]');
+      await page.click('#posta-detail [data-oznacit="archivovat"]');
+      await page.waitForFunction((id) => !document.querySelector('#posta-seznam [data-vlakno="' + id + '"]'), W1);
+      await cekej(() => wd().some((d) => d.akce === 'archivovat' && d.id === W1), 4000, 'archivovat přes server');
+      await page.click('#toast .toast__akce');
+      await page.waitForSelector('#posta-seznam [data-vlakno="' + W1 + '"]');
+      await cekej(() => wd().some((d) => d.akce === 'vratit' && d.id === W1), 4000, 'vrátit přes server');
+      // Obnovit = i pracovní schránka na serveru
+      fbVolanoData.length = 0;
+      fbVolano.length = 0;
+      await page.evaluate(() => document.querySelector('[data-obnovit]').click());
+      await cekej(() => wd().some((d) => d.akce === 'obnov'), 4000, 'Obnovit nepožádal o pracovní poštu');
+      // chyba ze serveru: pruh nad seznamem; prázdná schránka: proč
+      kopie([souhrn(W2, { neprectena: false })], { druh: 'heslo', text: 'Přihlášení michal@firma.test k poště WEDOS se nepovedlo – zkontroluj adresu a heslo.', kdy: Date.now() });
+      await page.waitForFunction(() => /Pracovní pošta: Přihlášení/.test((document.querySelector('#posta-seznam .pruh-varovani') || {}).textContent || ''), null, { timeout: 6000 });
+      kopie([]);
+      await page.waitForSelector('#posta-seznam .posta-prace-prazdna');
+      jistota(/Za 30 dní nic v Doručené/.test(await page.textContent('#posta-seznam .posta-prace-prazdna')), 'prázdná pracovní schránka');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      await ctx.close();
+    }
+  });
+
   // ---------- Reely: naplánovat na Instagram (motor reel v daný čas zveřejní sám), zrušit plán
   await test('Reely: naplánovat na Instagram s datem a časem, štítek „vyjde…“, zrušit plán', async () => {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);

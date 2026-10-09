@@ -322,7 +322,7 @@ function sekcePosty() {
   h += '<div class="fmr"><label><span class="label">Pracovní adresa</span><input class="field" data-nast-pracovni type="email" inputmode="email" ' +
     'autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="jmeno@firma.cz" value="' + esc(p.pracovniAdresa || '') + '"></label>' +
     '<div><button type="button" class="btn btn--ghost" data-nast="ulozit-postu">Uložit</button></div></div>';
-  if (p.pracovniAdresa) {
+  if (p.pracovniAdresa && !wedos.zapnuto()) { // WEDOS: odesílá server přímo, Gmail „Odesílat poštu jako“ netřeba
     h += '<p class="nast-stav ' + (p.lzeOdesilatZPracovni ? 'ok' : 'chyba') + '"><i></i>' +
       (p.lzeOdesilatZPracovni ? 'Odpovědi na pracovní poštu půjdou z pracovní adresy.' : 'Z pracovní adresy zatím odesílat nejde – Gmail ji nemá v „Odesílat poštu jako“.') + '</p>';
     // odesílání z pracovní adresy = alias v Gmailu (ověřený); motor ho jen přečte, nastavit ho musí Michal (heslo k pracovní schránce)
@@ -336,7 +336,7 @@ function sekcePosty() {
         '<div class="akce"><button type="button" class="btn btn--ghost" data-nast="znovu-info">Zkontrolovat znovu</button></div>';
     }
   }
-  h += detail('posta-pracovni') + '<summary>Jak dostat pracovní poštu do aplikace</summary><ol>' +
+  if (!wedos.zapnuto()) h += detail('posta-pracovni') + '<summary>Jak dostat pracovní poštu do aplikace</summary><ol>' + // WEDOS: přeposílání netřeba
     '<li>WEDOS WebMail → Nastavení → Filtry → Vytvořit: Všechny zprávy, akce <b>Přeposlat zprávu na</b> tvůj Gmail a tlačítkem + druhá akce ' +
     '<b>Zkopírovat zprávu do → Příchozí pošta</b> (jinak WEDOS přeposlané maže). Gmail sám poštu z jiných serverů od 2026 nestahuje.</li>' +
     '<li>V Gmailu: Nastavení → Účty a import → <b>Přidat další e-mailovou adresu</b> (Odesílat poštu jako) → SMTP serveru WEDOS ' +
@@ -352,7 +352,7 @@ function sekcePosty() {
     (staryMotor() ? ' Uložit ho půjde po nasazení nové verze motoru.' : '') + '</p>' +
     '<label><span class="label">Osobní</span><textarea class="field" rows="3" data-nast-podpis="osobni" placeholder="S pozdravem&#10;' + esc(jmeno || 'Jméno') + '">' +
       esc(podpisy.osobni || '') + '</textarea></label>' +
-    (p.pracovniAdresa ? '<label><span class="label">Pracovní · ' + esc(p.pracovniAdresa) + '</span><textarea class="field" rows="5" data-nast-podpis="pracovni" ' +
+    (p.pracovniAdresa || wedos.zapnuto() ? '<label><span class="label">Pracovní · ' + esc(wedos.zapnuto() ? wedos.pracovniAdresa() : p.pracovniAdresa) + '</span><textarea class="field" rows="5" data-nast-podpis="pracovni" ' +
       'placeholder="S pozdravem&#10;&#10;' + esc(jmeno || 'Jméno Příjmení') + '&#10;pozice · firma&#10;telefon · web">' + esc(podpisy.pracovni || '') + '</textarea></label>' : '') +
     '<div class="akce"><button type="button" class="btn btn--primary" data-nast="ulozit-podpisy"' + (staryMotor() ? ' disabled' : '') + '>Uložit podpis</button></div>';
   // návrhy odpovědí od Clauda: motor dá konverzace „čeká na tebe“ na Disk, naplánovaná úloha k nim napíše návrh

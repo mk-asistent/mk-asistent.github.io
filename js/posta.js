@@ -16,6 +16,7 @@ import { otevriPanel, obnovPanel, zavriPanel, zavriAPak, jeOtevreny, elementPane
 import { toast, toastAkce, kostra, chybaHtml, segment, prizpusobVysku, potvrd } from './ui.js';
 import { IKONY } from './ikony.js';
 import { nactiKontakty } from './adresy.js';
+import * as wedos from './wedos.js'; // WEDOS: se zapnutou schránkou je účet Pracovní přímo z WEDOS (server), ne z Gmailu
 
 const DVA_SLOUPCE = window.matchMedia('(min-width: 1000px)');
 const TAHNUTI = window.matchMedia('(hover: hover) and (pointer: fine)'); // myš: řádek jde přetáhnout na skupinu
@@ -180,21 +181,22 @@ function kratkyStitek(n) { return String(n).split('/').pop(); }
 
 /** Všechny konverzace obou účtů (+ souhrny firemní pošty z PC), nejnovější nahoře. */
 export function vsechnyZpravy() {
-  const p = stav.posta;
+  const wd = wedos.zapnuto(); // WEDOS: pracovní pošta ze serveru místo Gmailu a souhrnů z PC
+  const p = stav.posta || (wd ? {} : null);
   if (!p) return [];
-  const pc = p.firemni && p.firemni.zpravy && !(p.pracovni && p.pracovni.length)
+  const pc = !wd && p.firemni && p.firemni.zpravy && !(p.pracovni && p.pracovni.length)
     ? p.firemni.zpravy.map((m) => Object.assign({}, m, { id: 'pc-' + m.id, ucet: 'pracovni', zPc: true }))
     : [];
   const hranice = Date.now() - DNI_OZNAMENI * 864e5;
   return (p.osobni || []).map((m) => Object.assign({ ucet: 'osobni' }, m))
-    .concat((p.pracovni || []).map((m) => Object.assign({ ucet: 'pracovni' }, m)), pc)
+    .concat((wd ? wedos.zpravy() : p.pracovni || []).map((m) => Object.assign({ ucet: 'pracovni' }, m)), pc)
     .filter((m) => !(m.stav === 'info' && m.kdy < hranice))
     .sort((a, b) => b.kdy - a.kdy);
 }
 
 /** Nepřečtené pro Dnes a odznak v menu – bez upozornění Apps Scriptu (v Poště se počítají dál). */
 export function neprectene() { return vsechnyZpravy().filter((m) => m.neprectena && !m.tiche); }
-export function maPracovni() { return !!(stav.posta && (stav.posta.pracovniAdresa || (stav.posta.firemni && stav.posta.firemni.zpravy))); }
+export function maPracovni() { return wedos.zapnuto() || !!(stav.posta && (stav.posta.pracovniAdresa || (stav.posta.firemni && stav.posta.firemni.zpravy))); }
 function aktivniUcet() { return maPracovni() ? stav.ucetPosty : 'oba'; }
 
 /** Co od tebe pošta chce: Hoří, Čeká na tebe, Otázka – v tomhle pořadí, v každé skupině nejnovější nahoře. */
@@ -215,6 +217,7 @@ export function najdiSouhrn(id) {
 
 /** Změna přímo v uložených seznamech (vsechnyZpravy vrací kopie). */
 function upravVSeznamech(id, fn) {
+  if (wedos.jeWedos(id)) { const s = wedos.zpravy(); const i = s.findIndex((m) => m.id === id); if (i >= 0) fn(s[i], i, s); return; } // WEDOS
   if (!stav.posta) return;
   ['osobni', 'pracovni'].forEach((ucet) => {
     const seznam = stav.posta[ucet] || [];
@@ -263,7 +266,7 @@ export function zpravaRadekHtml(m, ukazUcet) {
   const aktivni = DVA_SLOUPCE.matches && stav.pohled === 'posta' && stav.otevreneVlakno === m.id ? ' aktivni' : '';
   const st = stavZpravy(m);
   const popis = STAVY[st][0] + (m.duvod ? ' – ' + m.duvod : '');
-  const tahnout = TAHNUTI.matches && stav.pohled === 'posta' && !m.zPc && umiMotor('postaPresunout') ? ' draggable="true"' : '';
+  const tahnout = TAHNUTI.matches && stav.pohled === 'posta' && !m.zPc && m.zdroj !== 'wedos' && umiMotor('postaPresunout') ? ' draggable="true"' : '';
   const text = m.ukazka ? cistaUkazka(m.ukazka, m.predmet) : '';
   return '<li class="' + (m.neprectena ? 'neprect' : 'prect') + aktivni + ' st-' + st + '"><button type="button" class="radek radek-posta" data-vlakno="' + esc(m.id) + '"' +
     ' title="' + esc(popis) + '"' + tahnout + '>' +
@@ -405,6 +408,7 @@ function seznamHtml() {
   if (st && !st.vlakna) return '<div class="card">' + (st.chyba ? chybaHtml(st.chyba, stav.stitekPosty ? 'data-stitek-znovu' : 'data-kategorie-znovu') : kostra(6)) + '</div>';
   const zpravy = filtrovane();
   let h = stav.chyby.posta ? '<p class="pruh pruh-varovani">' + esc(stav.chyby.posta.message) + ' Ukazuju naposledy načtené.</p>' : '';
+  if (aktivniUcet() !== 'osobni') h += wedos.pruhHtml(); // WEDOS: pracovní schránka se naposledy nenačetla
   if (!stav.stitekPosty && umiMotor('postaKategorie')) h += prehledHtml(stav.kategoriePosty !== 'primarni') + hromadneHtml(zpravy);
   if (!zpravy.length) {
     const f = stav.filtrPosty;
@@ -423,6 +427,7 @@ function seznamHtml() {
  * nepřeposílá): místo prázdné stránky proč a kde je návod. Když je pracovní pošta jen v Aktualizacích, odkaz tam.
  */
 function pracovniPrazdnaHtml() {
+  if (wedos.zapnuto()) return wedos.prazdnaHtml(); // WEDOS: proč je prázdná (chyba, první načtení, nic za 30 dní)
   const p = stav.posta || {};
   const zadna = !(p.pracovni && p.pracovni.length) && !(p.firemni && p.firemni.zpravy && p.firemni.zpravy.length);
   if (zadna) {
@@ -530,6 +535,7 @@ export function otevriVlakno(id) {
  * z přednačtení, které zrovna běží (druhý dotaz by Apps Script stejně zařadil až za něj).
  */
 function nactiVlakno(id, znovu, bylaNeprectena) {
+  if (wedos.jeWedos(id)) { nactiZWedos(id, znovu, bylaNeprectena); return; } // WEDOS
   const st = stav.vlakna[id];
   if (st && st.data && !znovu) {
     obnovDetail(id);
@@ -559,6 +565,26 @@ function nactiZMotoru(id) {
   stav.vlakna[id] = Object.assign({}, st, { nacita: true, ceka: false, chyba: null });
   obnovDetail(id);
   volej('vlakno', { id })
+    .then((data) => { stav.vlakna[id] = { data, verze: Date.now() }; ulozDetaily(); })
+    .catch((e) => {
+      const x = stav.vlakna[id] || {};
+      stav.vlakna[id] = Object.assign({}, x, { nacita: false, chyba: x.data ? null : e });
+    })
+    .then(() => obnovDetail(id));
+}
+
+/** WEDOS: detail z paměti, z účtu (server ho chystá předem) nebo přímo ze schránky; otevřením přečtená (js/wedos.js). */
+function nactiZWedos(id, znovu, bylaNeprectena) {
+  const st = stav.vlakna[id];
+  const souhrn = najdiSouhrn(id);
+  if (st && st.data && !znovu && detailSedi(st.data, souhrn)) {
+    obnovDetail(id);
+    if (bylaNeprectena) wedos.oznacit(id, 'prectene').catch(() => { /* přečtení se dožene příště */ });
+    return;
+  }
+  stav.vlakna[id] = Object.assign({}, st, { nacita: true, ceka: false, chyba: null });
+  obnovDetail(id);
+  wedos.detail(id, { kdy: souhrn && souhrn.kdy, precist: !!bylaNeprectena, znovu: !!znovu })
     .then((data) => { stav.vlakna[id] = { data, verze: Date.now() }; ulozDetaily(); })
     .catch((e) => {
       const x = stav.vlakna[id] || {};
@@ -602,7 +628,7 @@ function kPrednacteni() {
   const zdroj = stav.pohled === 'posta' ? filtrovane() : kPozornosti().concat(vsechnyZpravy());
   const videno = {};
   return zdroj.filter((m) => {
-    if (!m || m.zPc || m.tiche || videno[m.id]) return false;
+    if (!m || m.zPc || m.tiche || m.zdroj === 'wedos' || videno[m.id]) return false; // WEDOS: detaily chystá server
     videno[m.id] = true;
     return true;
   }).slice(0, PREDNACIST).filter((m) => {
@@ -701,7 +727,7 @@ function vlaknoHtml(id) {
     // nejnovější nahoře (Michal 2. 10.), rozbalená; pod ní krok; starší zprávy pod tím sbalené
     h += d.zpravy.slice().reverse().map((z, i) => zpravaHtml(z, i === 0 || !!stav.rozbaleneZpravy[z.id]) + (i === 0 ? krok : '')).join('');
     if (!d.zpravy.length) h += krok;
-    if (d.skryto) h += '<p class="vlakno-skryto">Starších zpráv: ' + d.skryto + ' – jsou v Gmailu.</p>';
+    if (d.skryto) h += '<p class="vlakno-skryto">Starších zpráv: ' + d.skryto + ' – jsou v ' + (d.zdroj === 'wedos' ? 'poště WEDOS' : 'Gmailu') + '.</p>';
   } else if (st.chyba) {
     h += '<div class="card">' + chybaHtml(st.chyba, 'data-vlakno-znovu="' + esc(id) + '"') + '</div>' + krok;
   } else {
@@ -740,9 +766,10 @@ function akceHlavickyHtml(id, siroke) {
   const tl = (atr, ikona, text, klavesa, sPopiskem) => sPopiskem
     ? '<button type="button" class="btn btn--ghost btn--sm" ' + atr + ' title="' + text + (klavesa ? ' (' + klavesa + ')' : '') + '">' + ikona + '<span>' + text + '</span></button>'
     : '<button type="button" class="btn btn--ikona" ' + atr + ' aria-label="' + text + '" title="' + text + (klavesa ? ' (' + klavesa + ')' : '') + '">' + ikona + '</button>';
-  const hlavni = tl('data-oznacit="archivovat"', IKONY.hotovo, 'Hotovo', 'E', siroke) + tl('data-pripomenout', IKONY.pripomenout, 'Připomenout', 'H', siroke) +
-    (umiMotor('postaPresunout') && !souhrn.zPc ? tl('data-presunout', IKONY.stitek, 'Přesunout', 'V', siroke) : '');
-  const dalsi = tl('data-oznacit="neprectene"', IKONY.neprectene, 'Označit jako nepřečtené', 'U') + tl('data-oznacit="spam"', IKONY.spam, 'Spam') +
+  const wd = wedos.jeWedos(id); // WEDOS: bez Připomenout, skupin Gmailu a Spamu (jdou jen v Gmailu)
+  const hlavni = tl('data-oznacit="archivovat"', IKONY.hotovo, 'Hotovo', 'E', siroke) + (wd ? '' : tl('data-pripomenout', IKONY.pripomenout, 'Připomenout', 'H', siroke)) +
+    (umiMotor('postaPresunout') && !souhrn.zPc && !wd ? tl('data-presunout', IKONY.stitek, 'Přesunout', 'V', siroke) : '');
+  const dalsi = tl('data-oznacit="neprectene"', IKONY.neprectene, 'Označit jako nepřečtené', 'U') + (wd ? '' : tl('data-oznacit="spam"', IKONY.spam, 'Spam')) +
     (odkaz && odkaz !== '#' ? '<a class="btn btn--ikona" href="' + esc(odkaz) + '" target="_blank" rel="noopener" aria-label="Otevřít v Gmailu" title="Otevřít v Gmailu">' + IKONY.ven + '</a>' : '');
   return siroke ? '<div class="detail-lista__skupina">' + hlavni + '</div><div class="detail-lista__skupina">' + dalsi + '</div>' : hlavni + dalsi;
 }
@@ -783,7 +810,8 @@ function dalsiKrokHtml(m) {
     hori: ['Odpověz dnes', termin, odpovedet],
     ceka: ['Odpověz, nebo dej Hotovo', termin, odpovedet],
     otazka: ['Odpověz na otázku', termin, odpovedet],
-    cekas: ['Čekáš na odpověď' + (m.cekasOd ? ' ' + jakDlouho(m.cekasOd) : ''), 'Když se neozvou, připomenu ti to.', ['data-pripomenout', IKONY.pripomenout, 'Připomenout']],
+    cekas: ['Čekáš na odpověď' + (m.cekasOd ? ' ' + jakDlouho(m.cekasOd) : ''), m.zdroj === 'wedos' ? '' : 'Když se neozvou, připomenu ti to.',
+      m.zdroj === 'wedos' ? hotovo : ['data-pripomenout', IKONY.pripomenout, 'Připomenout']], // WEDOS: připomínka jen v Gmailu
     resi: ['Konverzace běží – teď se od tebe nic nečeká', '', hotovo],
     info: ['Jen pro informaci – můžeš ji uklidit', '', hotovo]
   }[st];
@@ -849,13 +877,19 @@ function posledniCizi(d) {
 
 function bezPredpony(s) { return String(s || '').replace(/^\s*((re|fw|fwd|odp|vs|tr)\s*:\s*)+/i, ''); }
 
+/** Adresy pro psaní (motor info.posta); WEDOS: pracovní adresa je ta ze schránky WEDOS a odesílá se z ní vždy (SMTP serveru). */
+function infoPosty() {
+  const info = (stav.info && stav.info.posta) || {};
+  return wedos.zapnuto() ? Object.assign({}, info, { pracovniAdresa: wedos.pracovniAdresa(), lzeOdesilatZPracovni: true }) : info;
+}
+
 /** rezim: odpoved | vsem | preposlat | novy; predvyplnit (nový e-mail z návrhu): { id, prepsat, komu, predmet, text, ucet, poOdeslani } */
 export function otevriPsani(rezim, predvyplnit) {
   const id = stav.otevreneVlakno;
   const d = id && stav.vlakna[id] && stav.vlakna[id].data;
   if (rezim !== 'novy' && !d) { toast(id ? 'Počkej, až se zpráva načte.' : 'Nejdřív otevři konverzaci.'); return; }
   const cil = d && rezim !== 'novy' ? posledniCizi(d) : null;
-  const info = (stav.info && stav.info.posta) || {};
+  const info = infoPosty();
   // návrh od Clauda říká účet; rychlý zápis ho nechá na aktivním účtu (jako nový e-mail)
   const ucet = predvyplnit && predvyplnit.ucet ? (predvyplnit.ucet === 'pracovni' && info.pracovniAdresa ? 'pracovni' : 'osobni')
     : cil ? (d.ucet || 'osobni') : (aktivniUcet() === 'pracovni' && info.pracovniAdresa ? 'pracovni' : 'osobni');
@@ -896,7 +930,7 @@ export function otevriPsani(rezim, predvyplnit) {
 
 function psaniHtml(koncept) {
   const p = stav.psani;
-  const info = (stav.info && stav.info.posta) || {};
+  const info = infoPosty();
   const adresaOd = p.ucet === 'pracovni' ? info.pracovniAdresa : info.osobniAdresa;
   let h = '<div class="psani">';
   if (p.rezim === 'novy' && info.pracovniAdresa) {
@@ -980,20 +1014,22 @@ function zrusOdeslani(tlacitko) {
 async function odeslatHned(p, tlacitko, data) {
   tlacitko.disabled = true;
   tlacitko.querySelector('span').textContent = 'Odesílám…';
+  // WEDOS: odpověď na pracovní poštu ze schránky WEDOS a nový e-mail z účtu Pracovní jdou přes server (SMTP WEDOS)
+  const wd = p.rezim === 'novy' ? p.ucet === 'pracovni' && wedos.zapnuto() : wedos.jeWedos(p.zpravaId);
   try {
-    const vysledek = await volej('odeslat', data);
+    const vysledek = await (wd ? wedos.odeslat(data) : volej('odeslat', data));
     uloziste.smaz(p.klic);
     const vlakno = p.vlaknoId;
     zavriPanel();
     toast(vysledek && vysledek.jizOdeslano ? 'Tahle zpráva už odešla – podruhé ji neposílám' : 'Odesláno');
     if (p.poOdeslani) p.poOdeslani(data);
     if (vlakno) nactiVlakno(vlakno, true);
-    nactiPostu(true);
+    if (!wd) nactiPostu(true); // WEDOS: seznam obnoví server sám (přijde živě)
   } catch (e) {
     tlacitko.disabled = false;
     tlacitko.querySelector('span').textContent = 'Odeslat';
     // při výpadku sítě mohl motor e-mail odeslat – další pokus se stejným ID ho ale nezdvojí
-    toast(e.kod === 'sit' ? 'Možná odešlo – zkontroluj Odeslané v Gmailu. Další pokus e-mail nezdvojí.' : e.message, true);
+    toast(e.kod === 'sit' ? 'Možná odešlo – zkontroluj Odeslané v ' + (wd ? 'poště WEDOS' : 'Gmailu') + '. Další pokus e-mail nezdvojí.' : e.message, true);
   }
 }
 
@@ -1019,7 +1055,7 @@ async function oznac(jak) {
   if (pryc) toastAkce(jak === 'spam' ? 'Přesunuto do spamu' : 'Hotovo', 'Vrátit', () => vratit(id, odebrana));
   else toast('Označeno jako nepřečtené');
   try {
-    await volej('oznacit', { id, jak });
+    await (wedos.jeWedos(id) ? wedos.oznacit(id, jak) : volej('oznacit', { id, jak })); // WEDOS: přes server
   } catch (e) {
     if (odebrana && !odebrana.seznam.some((x) => x.id === id)) odebrana.seznam.splice(Math.min(odebrana.i, odebrana.seznam.length), 0, odebrana.m);
     zmeneno();
@@ -1032,7 +1068,7 @@ async function vratit(id, odebrana) {
   if (odebrana && !odebrana.seznam.some((x) => x.id === id)) odebrana.seznam.splice(Math.min(odebrana.i, odebrana.seznam.length), 0, odebrana.m);
   zmeneno();
   try {
-    await volej('oznacit', { id, jak: 'vratit' });
+    await (wedos.jeWedos(id) ? wedos.oznacit(id, 'vratit') : volej('oznacit', { id, jak: 'vratit' })); // WEDOS: přes server
     toast('Vráceno do Doručené');
   } catch (e) {
     toast(e.message, true);
@@ -1050,6 +1086,7 @@ function volbyPripominky() {
 function otevriPripominku() {
   const id = stav.otevreneVlakno;
   if (!id) return;
+  if (wedos.jeWedos(id)) { toast('U pracovní pošty WEDOS připomínka zatím nejde – nech ji v Doručené, nebo dej Hotovo.'); return; } // WEDOS
   stav.pripominka = { id, termin: volbyPripominky()[0][1] };
   otevriPanel({
     id: 'pripomenout', trida: 'panel-okno panel-pripominka', titul: 'Připomenout',
@@ -1113,7 +1150,7 @@ async function ulozPripominku(tlacitko) {
 /** Okno „Přesunout do skupiny“ – z detailu (tlačítko, klávesa v) nebo dlouhým podržením řádku na dotyku (id). */
 function otevriPresun(id) {
   id = id || stav.otevreneVlakno;
-  if (!id || !umiMotor('postaPresunout')) return;
+  if (!id || !umiMotor('postaPresunout') || wedos.jeWedos(id)) return; // WEDOS: skupiny jsou štítky Gmailu
   stav.presun = { id, nechat: false };
   nactiStitky();
   otevriPanel({
@@ -1263,6 +1300,7 @@ async function prectiKategorii(tlacitko) {
   tlacitko.disabled = true;
   try {
     const v = await volej('postaPrectene', { kategorie: k });
+    if (k === 'aktualizace' && v) v.precteno = (v.precteno || 0) + await wedos.prectiAktualizace().catch(() => 0); // WEDOS: i rozesílky pracovní pošty
     const ids = {};
     (v.ids || []).forEach((id) => { ids[id] = true; });
     const oznac = (seznam) => (seznam || []).forEach((m) => { if (ids[m.id]) m.neprectena = false; });
@@ -1508,7 +1546,7 @@ document.addEventListener('pointerdown', (e) => {
   zrusDrzeni();
   if (!radek || !umiMotor('postaPresunout')) return;
   const s = najdiSouhrn(radek.dataset.vlakno);
-  if (!s || s.zPc) return;
+  if (!s || s.zPc || s.zdroj === 'wedos') return;
   Object.assign(drzeni, { id: radek.dataset.vlakno, x: e.clientX, y: e.clientY });
   drzeni.casovac = setTimeout(() => {
     const id = drzeni.id;
