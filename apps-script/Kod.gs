@@ -36,7 +36,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-09.3';
+const VERZE = '2026-10-09.4';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -127,6 +127,7 @@ function doPost(e) {
 
 // akce, které jen čtou – opakovat je jde bez rizika (bez zapamatované odpovědi)
 const CTENI_MOTORU = ['info', 'schranka', 'posta', 'vlakno', 'hledat', 'kalendar', 'kalendare', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka',
+  'postaDetaily', // pošta: přednačtení detailů posledních konverzací (nic neoznačí jako přečtené)
   'stitky', 'kontakty', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'davka', 'zmeny', 'plakaty'];
 
 /** Výsledek dřívějšího běhu téhož požadavku (JSON), nebo null; když ještě běží, počká na něj (nejvýš ~25 s). */
@@ -175,8 +176,10 @@ const AKCE = {
   stitky: function (d) { return stitkyGmailu_(!!d.znovu); },
   postaStitek: function (d) { return postaStitku_(d.nazev); },
   postaKategorie: function (d) { return postaKategorie_(d.kategorie, !!d.znovu); },
-  postaPresunout: function (d) { return presunDoStitku_(d.id, d.stitek, d.pridat !== false, !!d.archivovat, !!d.novy); },
+  postaPresunout: function (d) { return presunDoStitku_(d.id, d.stitek, d.pridat !== false, !!d.archivovat, !!d.novy, d.odebrat, !!d.doDorucenych); },
   postaPrectene: function (d) { return prectiKategorii_(d.kategorie); },
+  // přednačtení detailů (nejvýš 10) – kliknutí na konverzaci v aplikaci pak nečeká na motor
+  postaDetaily: function (d) { return postaDetaily_(d.ids); },
   kontakty: function () { return kontakty_(); },
   podpisyUlozit: function (d) { return ulozPodpisy_(d.podpisy); },
   zdravi: function (d) { return zdravi_(!!d.znovu); },
@@ -699,9 +702,13 @@ function nactiNavrhy_() {
 /** Návrh k vláknu (jen když odpovídá poslední zprávě, na kterou se odpovídá), jinak null. */
 function navrhKVlaknu_(id, zpravaId) {
   const it = slozkaNavrhu_().getFilesByName(String(id) + '.json');
-  if (!it.hasNext()) return null;
+  return it.hasNext() ? navrhZeSouboru_(it.next(), zpravaId) : null;
+}
+
+/** Návrh ze souboru ODPOVEDI/<id>.json – jen k dané zprávě, jinak null. */
+function navrhZeSouboru_(soubor, zpravaId) {
   try {
-    const n = JSON.parse(it.next().getBlob().getDataAsString('UTF-8'));
+    const n = JSON.parse(soubor.getBlob().getDataAsString('UTF-8'));
     if (!n || !n.text || String(n.zpravaId || '') !== String(zpravaId)) return null;
     return { zpravaId: String(n.zpravaId), text: String(n.text).slice(0, 8000), kdy: n.kdy || '', poznamka: String(n.poznamka || '').slice(0, 500) };
   } catch (chyba) { return null; }
@@ -761,7 +768,8 @@ function seznamVlaken_(dotaz, ja, prac, ucet, max, predem, sPodklady) {
     const odeMe = odeMne(posledni);
     const s = stavADuvod_(posledni, odeMe, vlakno, !!oznameni[vlakno.getId()], ted, seznam.some(odeMne), znami);
     const cekas = s.stav === 'cekas';
-    const ukazka = cistyText_(posledni.getPlainBody()).slice(0, 180);
+    // náhled = vlastní text zprávy: bez hlaviček přeposlání, citací a podpisu (Michal 9. 10.)
+    const ukazka = nahledZpravy_(posledni.getPlainBody());
     // čeká na odpověď → podklad pro návrh od Clauda (nactiPostu_ ho odebere a zapíše do POSTA_K_ODPOVEDI.json)
     const kOdpovedi = !!sPodklady && !odeMe && !!odesilatel && (s.stav === 'hori' || s.stav === 'ceka' || s.stav === 'otazka');
     const polozka = {
@@ -790,6 +798,8 @@ function seznamVlaken_(dotaz, ja, prac, ucet, max, predem, sPodklady) {
       cekasOd: cekas ? posledni.getDate().getTime() : null
     };
     if (oznameni[vlakno.getId()]) polozka.aktualizace = true; // kategorie Aktualizace – v aplikaci vlastní záložka
+    // upozornění Googlu na chyby Apps Scriptu: v seznamu zůstane, ale nikde se nehlásí (Dnes, počty, ntfy)
+    if (s.tiche) polozka.tiche = true;
     if (kOdpovedi) polozka._odpoved = { zpravaId: odesilatel.getId(), text: vlastniText_(odesilatel) };
     return polozka;
   });
@@ -816,6 +826,47 @@ function prvniRadek_(text) {
   const radky = String(text || '').split('\n').map(function (r) { return r.trim(); }).filter(Boolean);
   const osloveni = radky.length > 1 && radky[0].length <= 40 && /,$/.test(radky[0]);
   return (radky[osloveni ? 1 : 0] || '').replace(/\s+/g, ' ').slice(0, 180);
+}
+
+// Náhled v seznamu pošty (Michal 9. 10.: „stačí mi kdo poslal, předmět a rovnou text“): jen text zprávy – bez hlaviček
+// přeposlání („---------- Původní e-mail ----------“, „---------- Forwarded message ---------“, řádky Od:/From:/Komu:/To:/
+// Datum:/Date:/Předmět:/Subject:/Kopie:/Cc:), bez citací („Dne … napsal(a):“, „On … wrote:“, řádky s „>“), podpisu a odkazů.
+// Přeposlaná zpráva bez vlastního textu → náhled z jejího obsahu; po vlastním textu je „původní zpráva“ citace = konec.
+const HLAVICKA_ZPRAVY = /^\*?(?:od|from|komu|to|kopie|cc|bcc|skrytá kopie|datum|date|odesláno|sent|předmět|subject|odpovědět na|reply-to|odesílatel)\s*:\*?(?:\s|$)/i;
+const ODDELOVAC_PREPOSLANI = /^[-–—_=*\s]*(?:forwarded message|přeposlaná zpráva|přeposlaný e-mail|začátek přeposlané zprávy|begin forwarded message)[-–—_=*:\s]*$/i;
+const ODDELOVAC_PUVODNI = /^(?:[-–—_=*\s]*(?:původní (?:e-mail|zpráva|e-mailová zpráva)|original message)[-–—_=*:\s]*|_{6,}|-{20,})$/i;
+const UVOD_CITACE = /^(?:dne|on|am)\s.{4,260}?(?:napsal\(a\)|napsala|napsal|wrote|schrieb)\s*:$/i;
+const PODPIS_Z_MOBILU = /^(?:odesláno|posláno|sent|get)\s.{0,30}(?:iphon|ipad|android|telefon|mobil|outlook|galaxy|samsung)/i;
+
+function nahledZpravy_(text) {
+  const radky = String(text || '').replace(/\r\n?/g, '\n').replace(NEVIDITELNE, '').split('\n').map(function (r) { return r.trim(); });
+  const jeHlavicka = function (r) { return HLAVICKA_ZPRAVY.test(r); };
+  const vlastni = [];
+  let delka = 0;
+  for (let i = 0; i < radky.length && delka < 400; i++) {
+    const r = radky[i];
+    if (!r || /^>/.test(r) || PODPIS_Z_MOBILU.test(r)) continue;
+    if (/^--\s*$/.test(r)) { if (vlastni.length) break; continue; } // podpis
+    // „Dne … napsal(a):“ – i zalomené na dva řádky; co je pod ním, je starší zpráva
+    const dvaRadky = /^(?:dne|on|am)\s/i.test(r) && !/:$/.test(r) && UVOD_CITACE.test(r + ' ' + (radky[i + 1] || ''));
+    if (UVOD_CITACE.test(r) || dvaRadky) {
+      if (vlastni.length) break;
+      if (dvaRadky) i++;
+      continue;
+    }
+    const preposlani = ODDELOVAC_PREPOSLANI.test(r);
+    const hlavicka = jeHlavicka(r) && radky.slice(i + 1, i + 6).some(jeHlavicka);
+    if (preposlani || hlavicka || ODDELOVAC_PUVODNI.test(r)) {
+      if (vlastni.length && !preposlani) break; // odpověď (původní zpráva, hlavička z Outlooku) pod vlastním textem
+      if (!hlavicka) i++;
+      while (i < radky.length && (!radky[i] || jeHlavicka(radky[i]))) i++;
+      i--; // cyklus přičte
+      continue;
+    }
+    vlastni.push(r);
+    delka += r.length + 1;
+  }
+  return cistyText_(vlastni.join(' ').replace(/<(?:https?:|mailto:)[^>\s]*>/gi, ' ').replace(/https?:\/\/\S+/gi, ' ')).slice(0, 180);
 }
 
 /** Vlákna z kategorie Aktualizace (oznámení, účtenky, systémové zprávy) – jedním dotazem, bez čtení hlaviček. */
@@ -936,8 +987,10 @@ function poctyKategorii_(znovu) {
 /**
  * Přesun do štítku (skupiny) jako „Přesunout do“ v Gmailu: štítek + pryč z Doručené; s archivovat: false jen štítek,
  * pridat: false štítek odebere, novy: true štítek založí, když ještě není. Vrací štítky konverzace.
+ * odebrat (název nebo pole): štítky, které konverzace ztratí – přesun ze skupiny do jiné (přetažení ve výběru štítku);
+ * doDorucenych: zpět do Doručené – „Vrátit“ po přesunu (odebrat štítek a vrátit) jedním dotazem.
  */
-function presunDoStitku_(id, nazev, pridat, archivovat, novy) {
+function presunDoStitku_(id, nazev, pridat, archivovat, novy, odebrat, doDorucenych) {
   const vlakno = vlakno_(id);
   nazev = String(nazev || '').replace(/\s+/g, ' ').trim();
   let stitek = nazev ? GmailApp.getUserLabelByName(nazev) : null;
@@ -955,12 +1008,20 @@ function presunDoStitku_(id, nazev, pridat, archivovat, novy) {
   } else {
     stitek.removeFromThread(vlakno);
   }
+  (Array.isArray(odebrat) ? odebrat : odebrat ? [odebrat] : []).slice(0, 5).forEach(function (n) {
+    n = String(n || '').replace(/\s+/g, ' ').trim();
+    const jiny = n && n !== nazev ? GmailApp.getUserLabelByName(n) : null;
+    if (jiny) jiny.removeFromThread(vlakno);
+  });
+  if (doDorucenych && !(pridat && archivovat)) vlakno.moveToInbox();
   CacheService.getScriptCache().remove('stitky:' + vlakno.getId());
   smazCache_('posta');
   smazCache_('stitky');
   let stitky = [];
   try { stitky = vlakno.getLabels().map(function (l) { return l.getName(); }); } catch (chyba) { stitky = []; }
-  return { id: vlakno.getId(), stitky: stitky, archivovano: !!(pridat && archivovat) };
+  const vysledek = { id: vlakno.getId(), stitky: stitky, archivovano: !!(pridat && archivovat) };
+  if (doDorucenych) vysledek.vDorucenych = !(pridat && archivovat);
+  return vysledek;
 }
 
 /** „Označit vše jako přečtené“ v záložce kategorie – nepřečtené v Doručené, nejvýš 100 najednou. */
@@ -989,6 +1050,7 @@ function ulozPostuKPrehledu_(vynutit) {
     vlakna.forEach(function (v, i) {
       const posledni = obsah[i][obsah[i].length - 1];
       if (!posledni || (stitek && posledni.getDate().getTime() < ted - 2 * 864e5)) return; // ze štítku jen čerstvé (kategorie hlídá dotaz)
+      if (jeUpozorneniAppsScriptu_(posledni.getFrom(), posledni.getSubject())) return; // chyby Apps Scriptu Michal hlásit nechce
       videno[v.getId()] = true;
       const z = { id: v.getId(), kategorie: kategorie, od: jmeno_(posledni.getFrom()), odAdresa: adresa_(posledni.getFrom()),
         predmet: obsah[i][0].getSubject() || '(bez předmětu)',
@@ -1088,6 +1150,16 @@ const AUTOMAT = /(no-?reply|do-?not-?reply|notification|notifikace|newsletter|ma
 const AUTOODPOVED = new RegExp('^\\s*(?:automatick[áa] odpov[ěe]ď|automatic reply|auto(?:matic)?[- ]?(?:reply|response)|out of (?:the )?office|' +
   'mimo kancel[áa][řr]|nep[řr][íi]tomnost|abwesenheitsnotiz)' + PISMENO_ZA, 'iu');
 const DIKY = new RegExp('^(díky|dík|děkuj\\p{L}*|ok|okay|super|platí|dobře|jasně|v pořádku|výborně|thanks|thank you)' + PISMENO_ZA + '[^?]{0,40}$', 'iu');
+// Upozornění Googlu na chyby Apps Scriptu („Summary of failures for Google Apps Script: …“) – Michal 9. 10.: „noreply apps
+// scripts mi nemusíš oznamovat“. V seznamu pošty zůstanou jako informace; na Dnes, v počtech, v ntfy ani v přehledu od Clauda ne.
+const ADRESA_APPS_SCRIPT = /apps-scripts?-notifications@google\.com/i;
+const PREDMET_APPS_SCRIPT = /(?:summary of failures for|souhrn (?:selhání|chyb|neúspěšných)).{0,40}apps script/i;
+
+function jeUpozorneniAppsScriptu_(od, predmet) {
+  const adresa = adresa_(od);
+  const p = String(predmet || '');
+  return ADRESA_APPS_SCRIPT.test(adresa) || PREDMET_APPS_SCRIPT.test(p) || (/@google\.com$/.test(adresa) && /apps script/i.test(p));
+}
 const DNY_TERMINU = { 'pondělí': 1, 'úterý': 2, 'středy': 3, 'středu': 3, 'čtvrtka': 4, 'čtvrtek': 4, 'pátku': 5, 'pátek': 5,
   'soboty': 6, 'sobotu': 6, 'neděle': 0, 'neděli': 0 };
 const TERMIN = new RegExp(PISMENO_PRED + '(?:do|nejpozději(?: do)?|termín(?:em)?|deadline|potřebuj\\p{L}* (?:to )?(?:do|na))\\s+' +
@@ -1243,6 +1315,8 @@ function stavADuvod_(posledni, odeMe, vlakno, jeOznameni, ted, jsemPsal, znami) 
     if (diky && !SLOVA_PROSBA.test(text)) return vysledek('info', 'tvoje „' + diky[1].toLowerCase() + '“ na konci');
     return vysledek('cekas', 'odpověděl jsi poslední');
   }
+  // chyby Apps Scriptu od Googlu: informace, která se nikde nehlásí (ani hoří, ani čeká, ani ntfy)
+  if (jeUpozorneniAppsScriptu_(posledni.getFrom(), posledni.getSubject())) return { stav: 'info', duvod: 'upozornění Google Apps Script', termin: null, tiche: true };
   if (jeOznameni) return vysledek('info', 'Gmail: Aktualizace');
   if (AUTOMAT.test(String(posledni.getFrom() || ''))) return vysledek('info', 'automatická adresa');
   if (AUTOODPOVED.test(String(posledni.getSubject() || ''))) return vysledek('info', 'automatická odpověď (mimo kancelář)');
@@ -1432,14 +1506,104 @@ function cilOdpovedi_(zpravy, ja, prac) {
 /** Celé vlákno pro čtení v aplikaci; otevřením se označí jako přečtené. */
 function nactiVlakno_(id, precist) {
   const vlakno = vlakno_(id);
+  const prac = pracovniAdresa_();
+  const data = detailVlakna_(vlakno, mojeAdresa_().toLowerCase(), prac);
+  ulozDetail_(data, prac); // přednačtení (postaDetaily) ho pak vezme bez Gmailu
+  pridejNavrh_(data);
+  if (precist && vlakno.isUnread()) {
+    vlakno.markRead();
+    smazCache_('posta');
+  }
+  return data;
+}
+
+// ---------------------------------------------------------------- Pošta – přednačtené detaily (rychlé otevření)
+// Michal 9. 10.: „po kliknutí na mail se celkem načítá nějakou dobu … třeba vždy posledních 10 mít načtených“. Aplikace
+// po vykreslení seznamu pošle jedním dotazem až 10 konverzací (id + počet zpráv a čas poslední ze souhrnu); detail
+// v mezipaměti 'detail:<id>' (6 h) se stejným otiskem se vrátí bez jediného volání Gmailu. Nic se neoznačí jako přečtené.
+
+const MAX_DETAILU = 10;
+const MAX_DETAILY_ZNAKU = 1500000; // odpověď nejvýš ~1,5 MB (newslettery mají obří HTML) – zbytek si aplikace načte na klepnutí
+const DETAIL_SEKUND = 21600;
+
+function postaDetaily_(ids) {
+  const seznam = (Array.isArray(ids) ? ids : []).map(function (x) { return typeof x === 'string' ? { id: x } : x || {}; })
+    .filter(function (x) { return /^[0-9a-zA-Z_-]{1,40}$/.test(String(x.id || '')); }).slice(0, MAX_DETAILU);
   const ja = mojeAdresa_().toLowerCase();
   const prac = pracovniAdresa_();
-  const vse = vlakno.getMessages().filter(function (m) { return !m.isInTrash() && !m.isDraft(); });
+  // návrhy od Clauda: jeden výpis složky místo hledání souboru u každé konverzace
+  const navrhy = {};
+  try {
+    const it = slozkaNavrhu_().getFiles();
+    while (it.hasNext()) { const f = it.next(); navrhy[f.getName()] = f; }
+  } catch (chyba) { /* bez návrhů */ }
+  const detaily = {}, chyby = {}, vynechano = [];
+  let znaku = 0;
+  seznam.forEach(function (x) {
+    const id = String(x.id);
+    if (znaku >= MAX_DETAILY_ZNAKU) { vynechano.push(id); return; }
+    try {
+      const otisk = x.pocet != null && x.kdy != null ? Number(x.pocet) + ':' + Number(x.kdy) : '';
+      let ulozeny = null;
+      try { ulozeny = otisk ? nactiZCache_('detail:' + id) : null; } catch (chyba) { ulozeny = null; }
+      let data = ulozeny && ulozeny.data && ulozeny.otisk === otisk && ulozeny.prac === prac ? ulozeny.data : null;
+      if (!data) {
+        data = detailVlakna_(vlakno_(id), ja, prac);
+        ulozDetail_(data, prac);
+      }
+      data = pridejNavrh_(odlehcenyDetail_(data), navrhy[id + '.json'] || null);
+      const delka = JSON.stringify(data).length;
+      if (znaku && znaku + delka > MAX_DETAILY_ZNAKU) { vynechano.push(id); return; }
+      znaku += delka;
+      detaily[id] = data;
+    } catch (chyba) {
+      chyby[id] = String((chyba && chyba.message) || chyba);
+    }
+  });
+  return { detaily: detaily, chyby: chyby, vynechano: vynechano, ted: Date.now() };
+}
+
+/** Otisk detailu jako v souhrnu seznamu (pocet, kdy): počet zpráv bez konceptů a koše a čas poslední z nich. */
+function otiskDetailu_(data) {
+  const z = data.zpravy || [];
+  return (z.length + (data.skryto || 0)) + ':' + (z.length ? z[z.length - 1].kdy : 0);
+}
+
+/** Detail do mezipaměti (bez návrhu od Clauda – ten se mění nezávisle na poště a přidává se vždy čerstvý). */
+function ulozDetail_(data, prac) {
+  try {
+    ulozDoCache_('detail:' + data.id, { otisk: otiskDetailu_(data), prac: prac == null ? pracovniAdresa_() : prac, data: data }, DETAIL_SEKUND);
+  } catch (chyba) { /* jen zrychlení */ }
+}
+
+/** Přednačtení: text zprávy, která má HTML, jen pro náhled a citaci (aplikace u HTML text neukazuje) – menší odpověď. */
+function odlehcenyDetail_(data) {
+  return Object.assign({}, data, { zpravy: data.zpravy.map(function (z) {
+    return z.html && z.text && z.text.length > 3000 ? Object.assign({}, z, { text: zkrat_(z.text, 3000) }) : z;
+  }) });
+}
+
+/** Návrh odpovědi od Clauda k poslední zprávě, je-li cizí. soubor: undefined = najít podle jména, null = žádný. */
+function pridejNavrh_(data, soubor) {
+  const cizi = data.zpravy.filter(function (z) { return !z.odeMe; }).pop();
+  if (!cizi || cizi !== data.zpravy[data.zpravy.length - 1]) return data;
+  try {
+    const n = soubor === undefined ? navrhKVlaknu_(data.id, cizi.id) : soubor ? navrhZeSouboru_(soubor, cizi.id) : null;
+    if (n) data.navrhOdpovedi = n;
+  } catch (chyba) { /* bez návrhu */ }
+  return data;
+}
+
+/** Detail vlákna (stejný tvar pro akci vlakno i přednačtení): nejnovějších 12 zpráv, účet podle zprávy, na kterou se odpovídá. */
+function detailVlakna_(vlakno, ja, prac) {
+  const vsechny = vlakno.getMessages();
+  const vse = vsechny.filter(function (m) { return !m.isInTrash() && !m.isDraft(); });
   if (!vse.length) throw new Error('Ve vlákně není žádná zpráva.');
   const zobrazit = vse.slice(-MAX_ZPRAV_VE_VLAKNE);
-  const data = {
+  return {
     id: vlakno.getId(),
-    predmet: vlakno.getFirstMessageSubject() || '(bez předmětu)',
+    // předmět první zprávy (jako souhrn v seznamu) – metoda vlákna by byla další volání Gmailu
+    predmet: (vsechny[0] && vsechny[0].getSubject()) || '(bez předmětu)',
     odkaz: odkazGmail_(vlakno.getId()),
     vDorucenych: vlakno.isInInbox(),
     skryto: vse.length - zobrazit.length,
@@ -1468,16 +1632,6 @@ function nactiVlakno_(id, precist) {
       return zprava;
     })
   };
-  // návrh odpovědi od Clauda k poslední zprávě, na kterou se odpovídá (cizí)
-  const cizi = data.zpravy.filter(function (z) { return !z.odeMe; }).pop();
-  if (cizi && cizi === data.zpravy[data.zpravy.length - 1]) {
-    try { const n = navrhKVlaknu_(data.id, cizi.id); if (n) data.navrhOdpovedi = n; } catch (chyba) { /* bez návrhu */ }
-  }
-  if (precist && vlakno.isUnread()) {
-    vlakno.markRead();
-    smazCache_('posta');
-  }
-  return data;
 }
 
 function seznamPriloh_(zprava) {

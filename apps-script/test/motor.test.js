@@ -1830,6 +1830,118 @@ test('pošta: podklady pro přehled od Clauda (jednou za 4 hodiny, jen při změ
   assert.deepStrictEqual([o.data.prehled.prosel, o.data.prehled.ostatni.length, o.data.prehled.dulezite.length], [2, 1, 0]);
 });
 
+// ---- pošta 9. 10.: náhled bez hlaviček, upozornění Apps Scriptu, přednačtené detaily, přesun přetažením a Vrátit
+
+test('pošta: náhled v seznamu bez hlaviček přeposlání a citací (CZ i EN), bez odkazů a podpisu z mobilu', () => {
+  const p = prostredi();
+  const n = (t) => p.ctx.nahledZpravy_(t);
+  // přeposlané ze Seznamu (Michalův příklad 9. 10.) – uvnitř ještě jedna přeposlaná z Gmailu
+  assert.strictEqual(n(['---------- Původní e-mail ----------', 'Od: Jan Novák <jan@x.test>', 'Komu: Michal <michal@y.test>', 'Datum: 9. 10. 2026 10:00:00',
+    'Předmět: Fwd: Smlouva', '', '---------- Forwarded message ---------', 'From: Petr <petr@z.test>', 'Date: Wed, Oct 8, 2026 at 9:12 AM',
+    'Subject: Smlouva', 'To: Jan Novák <jan@x.test>', '', 'V příloze smlouva k podpisu.', 'Díky, Petr'].join('\n')), 'V příloze smlouva k podpisu. Díky, Petr');
+  // poznámka nad přeposlanou zprávou + její text (Gmail česky)
+  assert.strictEqual(n('FYI, viz níže.\n\n---------- Přeposlaná zpráva ---------\nOd: Jan <jan@x.test>\nDate: čt 9. 10. 2026 v 10:00\nSubject: Nabídka\nTo: <michal@y.test>\n\n' +
+    'Dobrý den, posílám nabídku.'), 'FYI, viz níže. Dobrý den, posílám nabídku.');
+  // odpověď: citace pod „Dne … napsal:“ (zalomené na dva řádky) i „On … wrote:“ pryč
+  assert.strictEqual(n('Díky, beru.\n\nDne čt 9. 10. 2026 v 10:00 odesílatel Jan Novák <jan@x.test>\nnapsal:\n> Ahoj, pošli mi to.\n> Díky'), 'Díky, beru.');
+  assert.strictEqual(n('Sounds good.\r\n\r\nOn Thu, Oct 9, 2026 at 10:00 AM Jan <jan@x.test> wrote:\r\n> Shall we meet?'), 'Sounds good.');
+  // Outlook: hlavička pod vlastním textem = citace; bez vlastního textu = přeposlaná zpráva
+  const outlook = '________________________________\nOd: Jan Novák <jan@x.test>\nOdesláno: čtvrtek 9. října 2026 10:00\nKomu: Michal\nPředmět: RE: Termín\n\nMůžeš ve čtvrtek?';
+  assert.strictEqual(n('Potvrzuji.\n\n' + outlook), 'Potvrzuji.');
+  assert.strictEqual(n(outlook), 'Můžeš ve čtvrtek?');
+  assert.strictEqual(n('-----Original Message-----\nFrom: A <a@x.test>\nSent: Monday\nTo: B\nSubject: X\n\nText původní.'), 'Text původní.');
+  // odkazy, podpis z mobilu a podpis za „-- “ pryč; běžný text beze změny (nejvýš 180 znaků)
+  assert.strictEqual(n('Pošli mi prosím odkaz https://example.test/a?b=1 a <https://x.test/y>\n\nOdesláno z iPhonu'), 'Pošli mi prosím odkaz a');
+  assert.strictEqual(n('Ahoj,\nzítra v 8.\n-- \nJan Novák\nTo: je podpis'), 'Ahoj, zítra v 8.');
+  assert.strictEqual(n('a'.repeat(300)).length, 180);
+  // v seznamu pošty: náhled přeposlané zprávy začíná jejím textem
+  p.vlakna.v1 = p.vlakno('v1', [p.zprava({ id: 'm1', od: 'Jan Novák <jan@x.test>', predmet: 'Fwd: Nabídka', kdy: Date.now() - 36e5, neprectena: true,
+    text: '---------- Původní e-mail ----------\nOd: Firma <obchod@firma.test>\nKomu: jan@x.test\nDatum: 9. 10. 2026\nPředmět: Nabídka\n\nDobrý den, posíláme nabídku.' })], true);
+  const o = p.volej('posta', { znovu: true });
+  assert.strictEqual(o.data.osobni.find((v) => v.id === 'v1').ukazka, 'Dobrý den, posíláme nabídku.');
+});
+
+test('pošta: upozornění Apps Scriptu = informace – ne hoří ani čeká, „tiche“ pro Dnes, žádné ntfy, ne v přehledu od Clauda', () => {
+  const p = prostredi();
+  p.chmu.cap = 'cap_rijen.xml';
+  p.nastavCas(Date.parse('2026-10-02T07:30:00+02:00'));
+  p.vlastnosti.set('NTFY_TEMA', 'asistent-test');
+  const chyba = p.vlakno('v1', [p.zprava({ id: 'm1', od: 'Apps Script <apps-scripts-notifications@google.com>', predmet: 'Summary of failures for Google Apps Script: Asistent',
+    text: 'Urgentně: spouštěč nefunguje, opravte to prosím do zítra.', kdy: Date.parse('2026-10-02T07:00:00+02:00'), neprectena: true })], true);
+  p.vlakna.v1 = chyba;
+  assert.strictEqual(p.ctx.stavPripadu_(chyba.getMessages()[0], false, chyba, false, Date.now(), false), 'info');
+  // i česky a z jiné adresy Googlu
+  const cesky = p.zprava({ id: 'x', od: 'Google <no-reply@google.com>', predmet: 'Souhrn selhání pro Google Apps Script: Schránka', text: 'Prosím zkontrolujte.', kdy: Date.now() });
+  assert.strictEqual(p.ctx.stavPripadu_(cesky, false, null, false, Date.now(), true), 'info');
+  const o = p.volej('posta', { znovu: true });
+  const v = o.data.osobni.find((x) => x.id === 'v1');
+  assert.deepStrictEqual([v.stav, v.tiche, v.duvod, v.termin], ['info', true, 'upozornění Google Apps Script', null]);
+  // spouštěč: žádné „Hoří v poště“
+  p.ctx.kazdouHodinu();
+  assert.ok(!(p.log.ntfy || []).some((z) => /Hoří/.test(z.title)), JSON.stringify(p.log.ntfy));
+  // podklady pro přehled od Clauda: bez upozornění Apps Scriptu (Aktualizace)
+  p.nastavAktualizace([chyba, p.vlakna.v2]);
+  p.nastavCas(Date.parse('2026-10-02T09:00:00+02:00'));
+  p.ctx.ulozPostuKPrehledu_(true);
+  const soubor = p.schranka.soubory.find((f) => f.getName() === 'POSTA_K_PREHLEDU.json' && !f.vKosi);
+  assert.deepStrictEqual(JSON.parse(soubor.getBlob().getDataAsString()).zpravy.map((z) => z.id), ['v2']);
+});
+
+test('pošta: přednačtení detailů – tvar jako vlákno, nic nepřečte, mezipaměť podle otisku bez Gmailu, návrh čerstvý, nejvýš 10', () => {
+  const p = prostredi();
+  assert.ok(vm.runInContext('CTENI_MOTORU', p.ctx).indexOf('postaDetaily') >= 0, 'čtení – rid se nepamatuje');
+  const souhrn = p.volej('posta', { znovu: true }).data.osobni.find((x) => x.id === 'v1');
+  let gmail = 0;
+  const puvodni = p.ctx.GmailApp.getThreadById;
+  p.ctx.GmailApp.getThreadById = (id) => { gmail++; return puvodni(id); };
+  let o = p.volej('postaDetaily', { ids: [{ id: 'v1', kdy: souhrn.kdy, pocet: souhrn.pocet }, 'v2', 'neni', '../x'] });
+  assert.strictEqual(o.ok, true, o.chyba);
+  const vlakno = p.volej('vlakno', { id: 'v1', precist: false }).data;
+  assert.deepStrictEqual(Object.keys(o.data.detaily.v1).sort(), Object.keys(vlakno).sort(), 'stejný tvar jako akce vlakno');
+  assert.deepStrictEqual(json(o.data.detaily.v1.zpravy), json(vlakno.zpravy));
+  assert.ok(o.data.detaily.v2 && o.data.chyby.neni && !('../x' in o.data.chyby), JSON.stringify(Object.keys(o.data.chyby)));
+  assert.deepStrictEqual(p.log.precteno, [], 'přednačtení nic neoznačí jako přečtené');
+  // podruhé se stejným otiskem ze souhrnu: z mezipaměti, Gmail ani jednou
+  gmail = 0;
+  o = p.volej('postaDetaily', { ids: [{ id: 'v1', kdy: souhrn.kdy, pocet: souhrn.pocet }] });
+  assert.strictEqual(gmail, 0, 'mezipaměť');
+  assert.strictEqual(o.data.detaily.v1.zpravy[0].text, 'Ahoj, sraz v 8:30.');
+  // nová zpráva ve vlákně (jiný otisk) → znovu z Gmailu
+  o = p.volej('postaDetaily', { ids: [{ id: 'v1', kdy: souhrn.kdy + 1000, pocet: 2 }] });
+  assert.strictEqual(gmail, 1, 'jiný otisk → Gmail');
+  // návrh od Clauda: vždy čerstvý (ne z mezipaměti)
+  p.schranka.createFolder('ODPOVEDI').createFile('v1.json', JSON.stringify({ zpravaId: 'm1', text: 'Ahoj, budu tam.' }));
+  o = p.volej('postaDetaily', { ids: [{ id: 'v1', kdy: souhrn.kdy, pocet: souhrn.pocet }] });
+  assert.strictEqual(o.data.detaily.v1.navrhOdpovedi && o.data.detaily.v1.navrhOdpovedi.text, 'Ahoj, budu tam.');
+  // obří text vedle HTML se při přednačtení zkrátí (aplikace ukazuje HTML), nejvýš 10 konverzací v jednom dotazu
+  p.vlakna.v9 = p.vlakno('v9', [p.zprava({ id: 'm9', od: 'Firma <info@firma.test>', predmet: 'Newsletter', text: 'a'.repeat(50000), html: '<p>Newsletter</p>', kdy: Date.now() })], false);
+  o = p.volej('postaDetaily', { ids: ['v9'] });
+  assert.deepStrictEqual([o.data.detaily.v9.zpravy[0].text.length, o.data.detaily.v9.zpravy[0].html], [3001, '<p>Newsletter</p>']);
+  o = p.volej('postaDetaily', { ids: Array.from({ length: 12 }, (_, i) => 'n' + i) });
+  assert.strictEqual(Object.keys(o.data.chyby).length, 10);
+  // otevření (akce vlakno) dál označí přečtené a uloží detail pro přednačtení
+  p.volej('vlakno', { id: 'v1' });
+  assert.deepStrictEqual(p.log.precteno, ['v1']);
+});
+
+test('pošta: přetažení na skupinu – přesun i ze skupiny do jiné (odebrat), Vrátit = odebrat štítek a zpět do Doručené jedním dotazem', () => {
+  const p = prostredi();
+  p.nastavStitkyGmailu({ AUTO: { neprectenych: 0, vlakna: [] }, 'AUTO/PATRIOT': { neprectenych: 0, vlakna: [] } });
+  let o = p.volej('postaPresunout', { id: 'v1', stitek: 'AUTO', archivovat: true });
+  assert.deepStrictEqual(json(o.data), { id: 'v1', stitky: ['AUTO'], archivovano: true });
+  // ve výběru štítku AUTO přetažená na AUTO/PATRIOT: štítek AUTO pryč
+  o = p.volej('postaPresunout', { id: 'v1', stitek: 'AUTO/PATRIOT', archivovat: true, odebrat: 'AUTO' });
+  assert.deepStrictEqual(json(o.data.stitky), ['AUTO/PATRIOT']);
+  // Vrátit: zpět do AUTO (štítek AUTO/PATRIOT pryč) a pak úplně zpět do Doručené bez štítku
+  o = p.volej('postaPresunout', { id: 'v1', stitek: 'AUTO', odebrat: ['AUTO/PATRIOT'] });
+  assert.deepStrictEqual(json(o.data.stitky), ['AUTO']);
+  const predVracenim = p.log.doDorucenych.length;
+  o = p.volej('postaPresunout', { id: 'v1', stitek: 'AUTO', pridat: false, doDorucenych: true });
+  assert.deepStrictEqual([json(o.data.stitky), o.data.vDorucenych, p.log.doDorucenych.length - predVracenim], [[], true, 1]);
+  assert.ok(p.vlakna.v1.isInInbox(), 'zpět v Doručené');
+  assert.ok(!p.cache.has('posta'), 'mezipaměť pošty smazaná');
+});
+
 test('reely: seznam z REELY/reely.json, odkaz na video na Disku, skóre z FOTBAL.json, zveřejněno, jen platná data', () => {
   const p = prostredi();
   let o = p.volej('reely');

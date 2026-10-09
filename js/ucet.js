@@ -56,6 +56,7 @@ const oblastKopie = (id) => (id.indexOf('kalendar_') === 0 ? 'kalendar' : id);
 const Z_KOPIE = ['info', 'schranka', 'posta', 'fotbal', 'reely', 'zmeny', 'plakaty'];
 // akce, které jen čtou – všechno ostatní mění data (i otevření konverzace: označí ji jako přečtenou)
 export const CTENI = ['info', 'schranka', 'posta', 'kalendar', 'kalendare', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky',
+  'postaDetaily', // pošta: přednačtení detailů posledních konverzací (nic neoznačí jako přečtené)
   'kontakty', 'hledat', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'zmeny', 'plakaty']; // čtení bez kopie nic nezneplatní
 
 const s = { fb: null, fbSlib: null, fnSlib: null, uzivatel: null, kopie: {}, server: null, pripraveno: null, odber: null, prvni: true,
