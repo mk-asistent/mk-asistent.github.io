@@ -433,7 +433,8 @@ function pracovniPrazdnaHtml() {
   if (zadna) {
     return '<div class="card posta-prace-prazdna">' + IKONY.posta + '<div><b>Za 30 dní nepřišla do Gmailu žádná pracovní pošta</b>' +
       '<p>' + (p.pracovniAdresa ? 'Na adresu <b>' + esc(p.pracovniAdresa) + '</b> nic nedorazilo' : 'Pracovní e-maily v Gmailu nejsou') +
-      ' – nejspíš není nastavené přeposílání z WEDOS do Gmailu. Návod je v Nastavení → Pošta.</p>' +
+      ' – z WEDOS se do Gmailu nepřeposílá. Zapni si <b>Pracovní schránku přímo (WEDOS)</b> v Nastavení → Pošta – pošta ' +
+      'pak půjde rovnou ze serveru aplikace.</p>' +
       '<button type="button" class="btn btn--ghost btn--sm" data-otevri-nastaveni="posta" data-posta-navod>' + IKONY.nastaveni + '<span>Nastavení pošty</span></button></div></div>';
   }
   const vAktualizacich = !stav.stitekPosty && stav.kategoriePosty === 'primarni' && stav.filtrPosty === 'vse' && umiMotor('postaKategorie') ?
@@ -1576,10 +1577,13 @@ window.addEventListener('click', (e) => {
   }
 }, true);
 
-// „Nastavení pošty“ z prázdné pracovní pošty: Nastavení otevře app.js, tady jen rozbalit návod na přeposílání z WEDOS
+// „Nastavení pošty“ z prázdné pracovní pošty: Nastavení otevře app.js, tady dojet k oddílu „Pracovní schránka přímo (WEDOS)“
+// (bez účtu, kde oddíl není, rozbalit návod na přeposílání)
 document.addEventListener('click', (e) => {
   if (!(e.target.closest && e.target.closest('[data-posta-navod]'))) return;
   setTimeout(() => {
+    const oddil = document.querySelector('[data-panel="nastaveni"] #nast-wedos');
+    if (oddil) { oddil.scrollIntoView({ block: 'start' }); return; }
     const navod = document.querySelector('[data-panel="nastaveni"] details[data-detail="posta-pracovni"]');
     if (navod && !navod.open) { navod.open = true; navod.scrollIntoView({ block: 'nearest' }); }
   }, 60);
