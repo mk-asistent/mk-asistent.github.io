@@ -1452,7 +1452,8 @@ function vychoziVikendTestu() {
     jistota(!/Doručená pošta je prázdná/.test(await page.textContent('#posta-seznam')), 'bez prázdné hlášky navíc');
     await page.screenshot({ path: path.join(VYSTUP, 'pc_posta_pracovni_prazdna.png') });
     await page.click('#posta-seznam [data-posta-navod]');
-    await page.waitForSelector('[data-panel="nastaveni"] [data-sekce="posta"] details[data-detail="posta-pracovni"][open]');
+    // s účtem dojede k oddílu „Pracovní schránka přímo (WEDOS)“, bez účtu rozbalí návod na přeposílání
+    await page.waitForSelector('[data-panel="nastaveni"] #nast-wedos, [data-panel="nastaveni"] [data-sekce="posta"] details[data-detail="posta-pracovni"][open]');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
     postaNavic = {};
