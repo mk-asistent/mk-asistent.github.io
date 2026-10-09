@@ -3,7 +3,7 @@
 
 import { stav, priZmene, zmeneno, prejdi, umiMotor, staryMotor } from './stav.js';
 import { jePripojeno, jeDemo, volej } from './api.js';
-import { esc, pulnoc, datumDlouhe, hhmm, iniciala, odstin, tvar, velkePrvni, rozdilDni, uloziste, terminDatum, dm, kdyKratce, prvniRadek, DNY_KR } from './pomocne.js';
+import { esc, pulnoc, datumDlouhe, iniciala, odstin, tvar, velkePrvni, rozdilDni, uloziste, terminDatum, dm, kdyKratce, prvniRadek } from './pomocne.js';
 import { kostra, chybaHtml, hlavickaKarty, okno, toastAkce } from './ui.js';
 import { IKONY, ikonaPocasi } from './ikony.js';
 import { zavriPanel, horniPanel, otevriPanel, zavriAPak, jeOtevreny, obnovPanel, elementPanelu } from './panely.js';
@@ -22,6 +22,7 @@ import * as plakaty from './plakaty.js';
 import * as auto from './auto.js';
 import * as moje from './moje.js';
 import * as nabidka from './nabidka.js';
+import * as krouzky from './krouzky.js';
 import { vstupAdresy, klavesaAdresy } from './adresy.js';
 import * as ucet from './ucet.js';
 
@@ -133,8 +134,25 @@ function pocty() {
     nep,
     hori: posta.pocetStavu('hori'),
     pozornost: posta.kPozornosti(),
+    postaDnes: postaNaDnes(),
     dnes: kal.udalostiDne(Date.now())
   };
+}
+
+/**
+ * Pošta na Dnes samostatně (Michal 9. 10.: „když je vyřízena pošta, tak se nemusí zobrazit – aby bylo jasno, že mám
+ * přečteno a vyřízeno, nebo ne“): co chce odpověď (hoří, čeká na tebe, otázka) a ostatní nepřečtené z Primární;
+ * nepřečtené Aktualizace (oznámení, účtenky) jen jako počet, ať seznam nezahltí. Obojí prázdné = karta schovaná.
+ */
+function postaNaDnes() {
+  const k = posta.kPozornosti();
+  const uz = {};
+  k.forEach((m) => { uz[m.id] = true; });
+  const zalozky = umiMotor('postaKategorie');
+  const nep = posta.neprectene().filter((m) => !uz[m.id]);
+  const aktualizace = zalozky ? nep.filter((m) => m.aktualizace) : [];
+  const seznam = k.concat(nep.filter((m) => !(zalozky && m.aktualizace)));
+  return { seznam, aktualizace, celkem: seznam.length + aktualizace.length };
 }
 
 function nacitaSe() { return Object.keys(stav.nacita).some((k) => stav.nacita[k]) || kal.nacitaSe(); }
@@ -159,8 +177,11 @@ function vykresli() {
   if (stav.pohled === 'plakaty') plakaty.dotahni();
   const p = pocty();
   document.querySelectorAll('[data-pohled]').forEach((el) => { el.hidden = el.dataset.pohled !== stav.pohled; });
+  // levý pás: celý jen na Dnes (nebo připnutý), jinde úzký s ikonami – víc místa na práci
+  $('aplikace').classList.toggle('rail-uzky', stav.pohled !== 'dnes' && !railPripnuty());
+  if (!railUzky()) $('rail').classList.remove('rozbaleny');
   vykresliRail(p);
-  vykresliHorni();
+  vykresliHorni(p);
   vykresliHlavu(p);
   vykresliPruhy();
   vykresliListu(p);
@@ -218,7 +239,56 @@ function odznakSekce(sekce, p) {
   return { schranka: p.ceka.length, posta: p.nep.length, reely: reely.kVyveseni().length }[sekce] || 0;
 }
 
-/** Postranní panel: logo, sekce s počty, Nastavení, kdo je připojený. Na iPadu jen ikony (CSS). */
+// ---------------------------------------------------------------- levý pás
+// Michal 9. 10.: „když se rozkliknu do jednotlivých stránek, třeba pošty, tak se ten levý pás zmenší a jsou zobrazeny
+// jenom ikony, a když na to najedu nebo rozkliknu nějaké tlačítko, tak se mi to rozbalí – získám větší pracovní prostor“.
+// Na Dnes celý, jinde úzký (ikony s počty v odznacích). Najetí myší (s krátkou prodlevou) nebo fokus klávesnicí ho
+// rozbalí PŘES obsah – sloupec mřížky zůstane úzký, stránka neposkočí; výběr sekce ho zase sbalí (znovu se rozbalí až po
+// novém najetí). „Připnout“ nechá pás celý na všech stránkách (asistent.rail). iPad (760–1179 px) má pás úzký vždy
+// (CSS) a rozbalí se stejně; připnutí až od 1180 px. Vzhled: app.css, oddíl postranní panel.
+const RAIL_PRIPNUTY = 'asistent.rail';
+const SIROKY = window.matchMedia('(min-width: 1180px)');
+const IKONA_PRIPNOUT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M9.5 3.5h5l-.8 5.2 3.3 3.3v2h-10v-2l3.3-3.3z"/><path d="M12 14v6.5"/></svg>';
+const railPripnuty = () => uloziste.cti(RAIL_PRIPNUTY) === 'pripnuty';
+/** Je pás teď úzký (iPad, nebo stránka mimo Dnes bez připnutí)? Jen takový se rozbaluje přes obsah. */
+const railUzky = () => !SIROKY.matches || $('aplikace').classList.contains('rail-uzky');
+let railCasovac = 0, railHtml = '';
+
+function rozbalRail() {
+  if (railUzky()) $('rail').classList.add('rozbaleny');
+}
+function sbalRail() {
+  clearTimeout(railCasovac);
+  $('rail').classList.remove('rozbaleny');
+}
+function prepniPripnuti() {
+  if (railPripnuty()) uloziste.smaz(RAIL_PRIPNUTY); else uloziste.pis(RAIL_PRIPNUTY, 'pripnuty');
+  sbalRail();
+  zmeneno();
+}
+(function hlidejRail() {
+  const r = $('rail');
+  // jen myš (i trackpad iPadu); dotyk klepnutím rovnou vybírá sekci. Myš, která po výběru sekce zůstala nad pásem,
+  // nové pointerenter nevyvolá – pás zůstane sbalený, dokud z něj neodjede a nevrátí se.
+  r.addEventListener('pointerenter', (e) => {
+    if (e.pointerType !== 'mouse' || !railUzky()) return;
+    clearTimeout(railCasovac);
+    railCasovac = setTimeout(rozbalRail, 140);
+  });
+  r.addEventListener('pointerleave', sbalRail);
+  // klávesnice (Tab): rozbalit jen při viditelném fokusu – klepnutí myší tlačítko taky fokusuje, ale bez :focus-visible
+  r.addEventListener('focusin', (e) => { if (e.target.matches(':focus-visible')) rozbalRail(); });
+  r.addEventListener('focusout', (e) => { if (!r.contains(e.relatedTarget)) sbalRail(); });
+  r.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !r.classList.contains('rozbaleny')) return;
+    e.stopPropagation();
+    sbalRail();
+    if (r.contains(document.activeElement)) document.activeElement.blur();
+  });
+})();
+
+/** Postranní panel: logo (+ připnout), sekce s počty, Nastavení, kdo je připojený. Úzký = jen ikony (CSS). */
 function vykresliRail(p) {
   const ucet = (stav.info && stav.info.ucet) || (jeDemo() ? 'ukázka' : '');
   const pripojeni = jeDemo() ? ['ukazka', 'ukázková data'] : navigator.onLine === false ? ['offline', 'offline']
@@ -226,9 +296,13 @@ function vykresliRail(p) {
   const tl = (atr, nazev, ikona, n, aktivni) => '<button type="button" class="rail__btn" ' + atr + ' title="' + nazev + '" aria-label="' + nazev +
     (n ? ', ' + n : '') + '"' + (aktivni ? ' aria-current="page"' : '') + '>' + ikona + '<span>' + nazev + '</span>' +
     (n ? '<span class="pocet cisla">' + n + '</span>' : '') + '</button>';
-  $('rail').innerHTML =
-    '<button type="button" class="rail__logo" data-cil="dnes" title="Dnes – hlavní stránka" aria-label="Asistent – hlavní stránka">' +
-      '<span class="znak">' + IKONY.dnes + '</span><div><b>Asistent</b><small>osobní přehled</small></div></button>' +
+  const pripnuty = railPripnuty();
+  const pripnout = stav.pohled === 'dnes' ? '' : '<button type="button" class="rail__pripnout" data-rail-pripnout aria-pressed="' + pripnuty + '" title="' +
+    (pripnuty ? 'Odepnout – mimo Dnes zase jen ikony' : 'Připnout rozbalený panel') + '" aria-label="' + (pripnuty ? 'Odepnout panel' : 'Připnout rozbalený panel') + '">' +
+    IKONA_PRIPNOUT + '</button>';
+  const html =
+    '<div class="rail__hlava"><button type="button" class="rail__logo" data-cil="dnes" title="Dnes – hlavní stránka" aria-label="Asistent – hlavní stránka">' +
+      '<span class="znak">' + IKONY.dnes + '</span><div><b>Asistent</b><small>osobní přehled</small></div></button>' + pripnout + '</div>' +
     '<div class="rail__sekce">Hlavní</div>' +
     SEKCE.filter(viditelna).map((s) => tl('data-cil="' + s[0] + '"', s[1], IKONY[s[0]], odznakSekce(s[0], p), stav.pohled === s[0])).join('') +
     '<div class="rail__spodek"><div class="rail__sekce">Účet</div>' +
@@ -237,21 +311,33 @@ function vykresliRail(p) {
         '<span class="avatar" style="--h:' + odstin(ucet || 'A') + '">' + esc(iniciala(String(ucet || 'A').split('@')[0].replace(/[._\d]+/g, ' '))) + '</span>' +
         '<div><b>' + esc(ucet || 'Asistent') + '</b><small><i class="' + pripojeni[0] + '"></i>' + pripojeni[1] + '</small></div></div>' +
     '</div>';
+  // jen při změně – překreslení by vzalo fokus tlačítku, na kterém zrovna stojí klávesnice
+  if (html !== railHtml) { $('rail').innerHTML = html; railHtml = html; }
 }
 
 /** Hlavní akce sekce (vpravo nahoře): poznámka, nový e-mail, přidat kalendář. */
 function hlavniAkce() {
   if (stav.pohled === 'posta') return '<button type="button" class="btn btn--primary" data-psat="novy">' + IKONY.psat + '<span>Nový e-mail</span></button>';
   if (stav.pohled === 'kalendar') return '<button type="button" class="btn btn--primary" data-nova-udalost>' + IKONY.plus + '<span>Nová událost</span></button>';
-  return '<button type="button" class="btn btn--primary" data-nova-poznamka>' + IKONY.plus + '<span>Poznámka pro Clauda</span></button>';
+  // na Dnes se na užší liště zmenší na „+“ (popisek nese title a aria-label)
+  return '<button type="button" class="btn btn--primary" data-nova-poznamka title="Poznámka pro Clauda" aria-label="Poznámka pro Clauda">' + IKONY.plus +
+    '<span>Poznámka pro Clauda</span></button>';
 }
 
-/** Horní lišta (iPad, PC): hledání vlevo, obnovit a hlavní akce vpravo. */
-function vykresliHorni() {
-  $('horni').innerHTML = '<button type="button" class="hledat-tl" data-hledat>' + IKONY.hledat +
-    '<span>Hledat v poště, schránce a kalendáři…</span><kbd>' + (MAC ? '⌘ K' : 'Ctrl K') + '</kbd></button>' +
+/** Horní lišta (iPad, PC): hledání vlevo, obnovit a hlavní akce vpravo; na Dnes mezi nimi malé přehledové dlaždice. */
+let horniHtml = '';
+function vykresliHorni(p) {
+  const dnes = stav.pohled === 'dnes' && !TELEFON.matches;
+  const html = '<button type="button" class="hledat-tl" data-hledat aria-label="Hledat v poště, schránce a kalendáři">' + IKONY.hledat +
+    '<span class="hledat-tl__text">Hledat v poště, schránce a kalendáři…</span>' + (dnes ? '<span class="hledat-tl__kratce">Hledat</span>' : '') +
+    '<kbd>' + (MAC ? '⌘ K' : 'Ctrl K') + '</kbd></button>' +
+    (dnes ? dlazdiceHorniHtml(p) : '') +
     '<div class="horni__akce"><button type="button" class="btn btn--ikona' + (tociSe() ? ' toci' : '') + '" data-obnovit aria-label="Obnovit" title="Obnovit">' +
     IKONY.obnovit + '</button>' + hlavniAkce() + '</div>';
+  const el = $('horni');
+  el.classList.toggle('horni--dnes', dnes);
+  // jen při změně (vykresluje se při každém načtení dat) – fokus klávesnice na dlaždici nezmizí
+  if (html !== horniHtml) { el.innerHTML = html; horniHtml = html; }
 }
 
 function vykresliHlavu(p) {
@@ -259,9 +345,13 @@ function vykresliHlavu(p) {
   let pod = '';
   if (stav.pohled === 'dnes') {
     pod = esc(velkePrvni(datumDlouhe(Date.now())));
+    // sedí s kartami pod tím: „Vyžaduje pozornost · n“ (schránka, auto) a „Pošta · m“ (když je pošta vyřízená, karta není)
     if (stav.schranka && stav.posta) {
-      const n = p.ceka.length + p.pozornost.length;
-      pod += ' · ' + (n ? n + ' ' + tvar(n, 'věc čeká', 'věci čekají', 'věcí čeká') + ' na tebe' : 'nic na tebe nečeká');
+      const n = pozornost(p).length;
+      const m = p.postaDnes.celkem;
+      const casti = [n ? n + ' ' + tvar(n, 'věc čeká', 'věci čekají', 'věcí čeká') + ' na tebe' : '',
+        m ? m + ' ' + tvar(m, 'e-mail', 'e-maily', 'e-mailů') + ' k vyřízení' : n ? 'pošta vyřízená' : ''].filter(Boolean);
+      pod += ' · ' + (casti.join(' · ') || 'nic na tebe nečeká');
     }
   } else if (stav.pohled === 'schranka') {
     pod = stav.schranka ? p.ceka.length + ' čeká na tebe · ' + p.uClauda.length + ' u Clauda' +
@@ -386,29 +476,16 @@ function rychlaAkce(akce) {
 }
 
 // ---------------------------------------------------------------- Dnes
-// Každá věc jen jednou (Michal 2. 10.): nahoře výstrahy ČHMÚ (jen když jsou), čtyři karty s tím, co se jinde
-// neopakuje (počasí, další zápas, nepřečtená pošta, dnešek / zdraví), pod tím jeden společný seznam „Vyžaduje
-// pozornost“ (úkoly, rozhodnutí i pošta), týden jako krátký výpis a poznámka pro Clauda s malým přehledem schránky.
-
-function kpi(atributy, ikona, nazev, hodnota, jednotka, pod) {
-  return '<button type="button" class="kpi" ' + atributy + '>' +
-    '<span class="kpi__hlava">' + ikona + '<span>' + nazev + '</span></span><span class="sipka" aria-hidden="true">' + IKONY.sipka + '</span>' +
-    '<span class="kpi__hodnota">' + hodnota + (jednotka ? '<small>' + jednotka + '</small>' : '') + '</span>' +
-    '<span class="kpi__pod">' + pod + '</span></button>';
-}
+// Každá věc jen jednou (Michal 2. 10.): nahoře výstrahy ČHMÚ (jen když jsou). Přehledová čísla jsou od 9. 10. malé
+// dlaždice v horní liště (počasí, připravenost, nepřečtené, denní kroužky – Další zápas je v kartě Fotbal a v týdnu),
+// pod tím „Vyžaduje pozornost“ (úkoly, rozhodnutí, auto), pošta ve vlastní kartě (jen když něco čeká nebo je nepřečtené),
+// týden jako krátký výpis a poznámka pro Clauda s malým přehledem schránky.
 
 function sipkaKarty(atributy, popisek) {
   return '<button type="button" class="sipka" ' + atributy + ' aria-label="' + popisek + '" title="' + popisek + '">' + IKONY.sipka + '</button>';
 }
 
-/** „dnes 15:00“, „zítra 10:15“, „so 15:00“ */
-function kdyKratky(t, celodenni) {
-  const r = rozdilDni(t);
-  const den = r === 0 ? 'dnes' : r === 1 ? 'zítra' : DNY_KR[new Date(t).getDay()];
-  return den + (celodenni ? '' : ' ' + hhmm(t));
-}
-
-/** Co od tebe chce schránka i pošta dohromady, seřazené: po termínu, hoří, dnes, rozhodni, nepřečtené, ostatní. */
+/** Co od tebe chce schránka a auto, seřazené: po termínu, dnes, auto, rozhodni, ostatní. Pošta má vlastní kartu (postaNaDnes). */
 function pozornost(p) {
   const polozky = [];
   p.ceka.forEach((x) => {
@@ -416,69 +493,105 @@ function pozornost(p) {
     const r = t == null ? null : rozdilDni(t);
     polozky.push({ typ: 'schranka', x, t, vaha: r != null && r < 0 ? 0 : r === 0 ? 2 : schranka.skupina(x) === 'rozhodni' ? 3 : 5, kdy: x.kdy });
   });
-  p.pozornost.forEach((m) => {
-    const st = posta.stavZpravy(m);
-    polozky.push({ typ: 'posta', x: m, vaha: st === 'hori' ? 1 : m.neprectena ? 4 : 6, kdy: m.kdy });
-  });
   // auto: přezutí, servis, pojištění… (z naposledy načtených dat auta)
   auto.pripominkyDnes().forEach((x) => polozky.push({ typ: 'auto', x, vaha: 2.5, kdy: x.od || 0 }));
   return polozky.sort((a, b) => (a.vaha - b.vaha) || (b.kdy - a.kdy));
 }
 
-function kartyKpi(p, dnes) {
-  const karty = [];
-  // počasí (ČHMÚ)
+/** „Veselí nad Moravou“ → „Veselí n. M.“, „Nové Město na Moravě“ → „Nové Město n. M.“ (místo na malé dlaždici). */
+function mistoKratce(s) {
+  return String(s || '').replace(/ (nad|pod|na) (\p{Lu})[\p{L}-]*( \p{L}+)*$/u, (cele, predlozka, pismeno) => ' ' + predlozka.charAt(0) + '. ' + pismeno + '.');
+}
+
+/** Text z kousku HTML (štítek a text oddělené „ · “; do bublin title – entity zůstávají ošetřené). */
+const bezZnacek = (html) => String(html || '').replace(/<\/span>\s*<span/g, '</span> · <span').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+/**
+ * Horní lišta na Dnes (PC, iPad): malé přehledové dlaždice místo řady velkých čísel (Michal 9. 10.: „nemusí to být tak
+ * velké … menší dlaždice, primárně přehledové se základníma informacema“) – Počasí a Připravenost širší, Nepřečtené
+ * a Kroužky užší (2 : 2 : 1 : 1 podle nákresu). Id „dnes-kpi“ zůstalo (odkazy a testy). Na telefonu malá čísla v dnesMobilHtml.
+ */
+function dlazdiceHorniHtml(p) {
+  const dl = (trida, atributy, ikona, hodnota, popis, titulek) => '<button type="button" class="hd ' + trida + '" ' + atributy +
+    (titulek ? ' title="' + titulek + '"' : '') + '><span class="hd__ikona">' + ikona + '</span>' +
+    '<span class="hd__text"><b class="hd__hodnota cisla">' + hodnota + '</b><small class="hd__popis">' + popis + '</small></span></button>';
+  const d = [];
+  // počasí (ČHMÚ, „teď“ z Open-Meteo): ikona, teplota, místo zkráceně; předpověď a výstrahy v bublině a v detailu
   if (staryMotor()) {
-    karty.push(kpi('data-oblast="pocasi" data-otevri-nastaveni="pripojeni"', IKONY.polojasno, 'Počasí', '–', '',
-      '<span class="tag tag--warn">nový motor</span><span class="orez-1">nasaď Novou verzi</span>'));
+    d.push(dl('hd--siroka', 'data-oblast="pocasi" data-otevri-nastaveni="pripojeni"', IKONY.polojasno, '–', 'nasaď Novou verzi motoru',
+      'Počasí ukáže nová verze motoru – návod je v Nastavení → Připojení'));
   } else if (umiMotor('pocasi')) {
     if (stav.pocasi) {
       const k = pocasi.kartaPocasi();
-      karty.push(kpi('data-oblast="pocasi" data-pocasi', k.ikona, k.nazev, k.hodnota, k.jednotka, k.pod));
+      const v = pocasi.vystrahy().length;
+      d.push(dl('hd--siroka', 'data-oblast="pocasi" data-pocasi', k.ikona, esc(k.hodnota) + (k.jednotka ? '<small>' + esc(k.jednotka) + '</small>' : '') +
+        (v ? '<i class="hd__pozor" aria-label="výstrahy ČHMÚ: ' + v + '">' + IKONY.pozor + '</i>' : ''), esc(mistoKratce(k.nazev)), esc(k.nazev) + ' · ' + bezZnacek(k.pod)));
     } else {
-      karty.push(kpi('data-oblast="pocasi" data-pocasi', IKONY.polojasno, 'Počasí', '–', '', '<span class="orez-1">' +
-        esc(stav.chyby.pocasi ? stav.chyby.pocasi.message : 'načítám ČHMÚ…') + '</span>'));
+      d.push(dl('hd--siroka', 'data-oblast="pocasi" data-pocasi', IKONY.polojasno, '–', stav.chyby.pocasi ? 'nejde načíst' : 'načítám ČHMÚ…',
+        esc(stav.chyby.pocasi ? stav.chyby.pocasi.message : '')));
     }
   }
-  // zdraví (WHOOP, Apple Watch) – jen když ho motor umí
+  // připravenost (WHOOP; bez WHOOP kroky z Apple Watch): číslo v barvě zóny, spánek a HRV v popisku
   if (umiMotor('zdravi') && zdravi.maData()) {
     const z = zdravi.kartaZdravi();
-    karty.push(kpi('data-oblast="zdravi" data-cil="zdravi"', IKONY.srdce, z.nazev, z.hodnota, z.jednotka, z.pod));
+    const zon = z.jednotka === '%' ? zdravi.zona(Number(z.hodnota)) : '';
+    const pod = bezZnacek(z.pod).replace(/^(zelená|žlutá|červená)( · )?/, '');
+    d.push(dl('hd--siroka' + (zon ? ' hd--' + zon : ''), 'data-oblast="zdravi" data-cil="zdravi"', IKONY.srdce,
+      esc(z.hodnota) + (z.jednotka ? '<small>' + esc(z.jednotka) + '</small>' : ''), esc(z.nazev) + (pod ? ' · ' + pod : ''),
+      esc(z.nazev) + ' ' + esc(z.hodnota) + (z.jednotka ? ' ' + esc(z.jednotka) : '') + ' · ' + bezZnacek(z.pod)));
   }
-  // další zápas
-  const z = kal.dalsiZapas(14);
-  const zk = z ? null : fotbal.dalsiZapasKlubu(14);
-  karty.push(z
-    ? kpi('data-oblast="fotbal" data-udalost="' + esc(z.id) + '"', IKONY.zapas, 'Další zápas', esc(kdyKratky(z.zacatek, z.celodenni)), '',
-      '<span class="orez-1">' + esc(z.nazev.replace(/^⚽\s*/, '')) + '</span>')
-    : zk ? kpi('data-oblast="fotbal" data-cil="kalendar"', IKONY.zapas, 'Další zápas', esc(kdyKratky(zk.zacatek)), '', '<span class="orez-1">' + esc(zk.nazev) + '</span>')
-    : kpi('data-oblast="fotbal" data-cil="kalendar"', IKONY.zapas, 'Další zápas', '–', '', '<span>' + (kal.mameData(dnes) ? '14 dní žádný' : 'načítám…') + '</span>'));
-  // nepřečtená pošta
-  karty.push(kpi('data-oblast="posta" data-cil="posta" data-filtr-posty="neprectene"', IKONY.posta, 'Nepřečtené', stav.posta ? p.nep.length : '–', '',
-    (p.hori ? '<span class="tag tag--danger">' + p.hori + ' hoří</span>' : '') +
-    '<span class="orez-1">' + (stav.posta ? p.pozornost.length + ' ' + tvar(p.pozornost.length, 'čeká', 'čekají', 'čeká') + ' na odpověď' : 'načítám…') + '</span>'));
-  return karty.join('');
+  // nepřečtené: počet, kolik čeká na odpověď, hoří; nic → fajfka „vše přečteno“
+  const nep = p.nep.length, ceka = p.pozornost.length;
+  const kPoste = 'data-oblast="posta" data-cil="posta" data-filtr-posty=';
+  if (!stav.posta) {
+    d.push(dl('hd--uzka', kPoste + '"neprectene"', IKONY.posta, '–', stav.chyby.posta ? 'nejde načíst' : 'načítám…', 'Nepřečtená pošta'));
+  } else if (!nep && !ceka) {
+    d.push(dl('hd--uzka hd--hotovo', kPoste + '"vse"', IKONY.fajfka, 'vše', 'přečteno', 'Pošta: vše přečteno a vyřízené'));
+  } else {
+    const popis = p.hori ? '<em class="hd__hori">' + p.hori + ' hoří</em>' : ceka ? ceka + ' čeká' : tvar(nep, 'nepřečtený', 'nepřečtené', 'nepřečtených');
+    d.push(dl('hd--uzka', kPoste + '"' + (nep ? 'neprectene' : 'vse') + '"', IKONY.posta, String(nep), popis,
+      'Nepřečtené: ' + nep + ' · čeká na odpověď: ' + ceka + (p.hori ? ' · hoří: ' + p.hori : '')));
+  }
+  // denní kroužky: voda, bílkoviny, pohyb (js/krouzky.js)
+  const k = umiMotor('zdravi') ? krouzky.krouzkyDnes() : null;
+  if (k) {
+    const popis = 'Denní kroužky – ' + krouzky.popisKrouzku(k);
+    d.push('<button type="button" class="hd hd--uzka hd--krouzky" data-oblast="zdravi" data-cil="zdravi" data-krouzky title="' + esc(popis) + '" aria-label="' + esc(popis) + '">' +
+      krouzky.krouzkySvg(k) + krouzky.legendaHtml(k) + '</button>');
+  }
+  return '<div class="horni__dlazdice" id="dnes-kpi" role="group" aria-label="Přehled dne">' + d.join('') + '</div>';
 }
 
 function kartaPozornosti(p) {
   const seznam = pozornost(p);
-  const chyby = [];
-  if (!stav.schranka && stav.chyby.schranka) chyby.push(chybaHtml(stav.chyby.schranka, 'data-schranka-znovu'));
-  if (!stav.posta && stav.chyby.posta) chyby.push(chybaHtml(stav.chyby.posta, 'data-posta-znovu'));
-  let telo = chyby.join('');
-  if (!stav.schranka && !stav.posta && !chyby.length) telo += kostra(4);
-  else if (!seznam.length) telo += (stav.schranka || stav.posta) ? '<div class="prazdne">Nic nehoří, nic nečeká. Užij si to.</div>' : '';
+  let telo;
+  if (!stav.schranka) telo = stav.chyby.schranka ? chybaHtml(stav.chyby.schranka, 'data-schranka-znovu') : kostra(4);
+  else if (!seznam.length) telo = '<div class="prazdne">Žádné úkoly ani rozhodnutí. Užij si to.</div>';
   else {
-    telo += '<ul class="seznam">' + seznam.slice(0, 10).map((x) => (x.typ === 'schranka' ? schranka.polozkaHtml(x.x, true)
-      : x.typ === 'auto' ? auto.pripominkaDnesHtml(x.x) : posta.zpravaRadekHtml(x.x, posta.maPracovni()))).join('') + '</ul>';
+    telo = '<ul class="seznam">' + seznam.slice(0, 10).map((x) => (x.typ === 'auto' ? auto.pripominkaDnesHtml(x.x) : schranka.polozkaHtml(x.x, true))).join('') + '</ul>' +
+      (seznam.length > 10 ? '<p class="dlazdice__napoveda">a dalších ' + (seznam.length - 10) + ' ve schránce</p>' : '');
   }
-  const pata = '<div class="dlazdice__paty">' +
-    '<button type="button" class="dlazdice__pata" data-cil="schranka" data-filtr-schranky="vse">' + IKONY.schranka + 'Schránka' +
-      (stav.schranka ? ' · ' + schranka.vsechnyPolozky().length : '') + '</button>' +
-    '<button type="button" class="dlazdice__pata" data-cil="posta" data-filtr-posty="vse">' + IKONY.posta + 'Pošta' +
-      (stav.posta ? ' · ' + posta.vsechnyZpravy().length : '') + '</button></div>';
+  const pata = '<button type="button" class="dlazdice__pata" data-cil="schranka" data-filtr-schranky="vse">' + IKONY.schranka + 'Schránka' +
+    (stav.schranka ? ' · ' + schranka.vsechnyPolozky().length : '') + '</button>';
   return hlavickaKarty(IKONY.fajfka, 'Vyžaduje pozornost' + (seznam.length ? ' · ' + seznam.length : '')) +
-    '<div class="dlazdice__telo">' + telo + (seznam.length > 10 ? '<p class="dlazdice__napoveda">a dalších ' + (seznam.length - 10) + ' ve schránce a v poště</p>' : '') + '</div>' + pata;
+    '<div class="dlazdice__telo">' + telo + '</div>' + pata;
+}
+
+/** Karta Pošta na Dnes: k vyřízení a nepřečtené (řádky jako v Poště), nepřečtené Aktualizace jedním řádkem. */
+function kartaPosty(d) {
+  let telo;
+  if (!stav.posta) telo = stav.chyby.posta ? chybaHtml(stav.chyby.posta, 'data-posta-znovu') : kostra(3);
+  else {
+    const n = d.aktualizace.length;
+    telo = (d.seznam.length ? '<ul class="seznam">' + d.seznam.slice(0, 6).map((m) => posta.zpravaRadekHtml(m, posta.maPracovni())).join('') + '</ul>' : '') +
+      (d.seznam.length > 6 ? '<button type="button" class="agenda__vic" data-cil="posta" data-filtr-posty="vse">+ ' + (d.seznam.length - 6) + ' další v poště</button>' : '') +
+      (n ? '<button type="button" class="dl-posta__aktualizace" data-cil="posta" data-filtr-posty="neprectene" data-kategorie-posty="aktualizace">' + IKONY.info +
+        '<span>' + n + ' ' + tvar(n, 'nepřečtený', 'nepřečtené', 'nepřečtených') + ' v Aktualizacích</span>' + IKONY.vpravo + '</button>' : '');
+  }
+  const hori = d.seznam.filter((m) => posta.stavZpravy(m) === 'hori').length;
+  return hlavickaKarty(IKONY.posta, 'Pošta' + (d.celkem ? ' · ' + d.celkem : ''),
+    (hori ? '<span class="tag tag--danger">' + hori + ' hoří</span>' : '') + sipkaKarty('data-cil="posta" data-filtr-posty="vse"', 'Otevřít poštu')) +
+    '<div class="dlazdice__telo">' + telo + '</div>';
 }
 
 function kartaTydne() {
@@ -502,10 +615,13 @@ function miniSchrankaHtml() {
 
 function vykresliDnes(el, p) {
   if (!el.querySelector('#dnes-obsah')) {
-    el.innerHTML = '<div id="dnes-vystrahy"></div><div class="dnes-mobil" id="dnes-mobil"></div><div class="kpi-mrizka" id="dnes-kpi"></div>' +
+    // přehledová čísla jsou v horní liště (dlazdiceHorniHtml), na telefonu v #dnes-mobil; pod „Vyžaduje pozornost“
+    // Moje poznámky (js/moje.js) a pošta ve vlastní kartě (schovaná, když je vyřízená)
+    el.innerHTML = '<div id="dnes-vystrahy"></div><div class="dnes-mobil" id="dnes-mobil"></div>' +
       '<div class="dnes-mrizka" id="dnes-obsah">' +
       '<section class="card dlazdice dl-pozornost" id="dl-pozornost"></section>' +
       '<div class="dnes-vpravo"><section class="card dlazdice dl-moje" id="dl-moje" data-oblast="schranka" hidden></section>' +
+      '<section class="card dlazdice dl-posta" id="dl-posta" data-oblast="posta" hidden></section>' +
       '<section class="card dlazdice dl-tyden" id="dl-tyden" data-oblast="kalendar"></section>' +
       '<section class="card dlazdice dl-doplnky" id="dl-doplnky" data-oblast="zdravi" hidden></section>' +
       '<section class="card dlazdice dl-piti" id="dl-piti" data-oblast="zdravi" hidden></section>' +
@@ -518,16 +634,18 @@ function vykresliDnes(el, p) {
   }
   const dnes = pulnoc(Date.now());
   el.querySelector('#dnes-vystrahy').innerHTML = pocasi.pruhVystrahHtml();
+  // pošta: karta jen, když něco čeká nebo je nepřečtené (a dokud se načítá); na telefonu je v dnesMobilHtml
+  const postaEl = el.querySelector('#dl-posta');
+  const ukazPostu = !TELEFON.matches && (!stav.posta || p.postaDnes.celkem > 0);
+  postaEl.hidden = !ukazPostu;
+  postaEl.innerHTML = ukazPostu ? kartaPosty(p.postaDnes) : '';
   if (TELEFON.matches) el.querySelector('#dnes-mobil').innerHTML = dnesMobilHtml(p, dnes);
-  else {
-    el.querySelector('#dnes-kpi').innerHTML = kartyKpi(p, dnes);
-    el.querySelector('#dl-pozornost').innerHTML = kartaPozornosti(p);
-  }
+  else el.querySelector('#dl-pozornost').innerHTML = kartaPozornosti(p);
   el.querySelector('#dl-tyden').innerHTML = kartaTydne();
-  // moje poznámky (zkratka „Pro mě“) – kartu skládá js/moje.js; prázdná = schovaná
-  const mojeHtml = moje.mojeKartaHtml();
-  el.querySelector('#dl-moje').hidden = !mojeHtml;
-  el.querySelector('#dl-moje').innerHTML = mojeHtml;
+  // moje poznámky (zkratka „Pro mě“) – kartu skládá js/moje.js; když se do jejího pole zrovna píše, překreslí jen hlavičku
+  // a seznam (pole, rozepsaný text i klávesnice v iPhonu zůstanou, nová poznámka se po Enteru hned ukáže)
+  const mojeEl = el.querySelector('#dl-moje');
+  mojeEl.hidden = !moje.vykresliMojeDnes(mojeEl);
   const doplnkyHtml = umiMotor('zdravi') ? zdravi.kartaDoplnkuHtml() : '';
   el.querySelector('#dl-doplnky').hidden = !doplnkyHtml;
   el.querySelector('#dl-doplnky').innerHTML = doplnkyHtml;
@@ -580,7 +698,7 @@ function pozorKartaHtml(x) {
       (x.t != null ? '<span class="pozor__radek">' + IKONY.cas + '<span>Termín</span><em>' + esc(kdyTerminu(x.t)) + '</em></span>' : '') + '</button></li>';
   }
   const m = x.x;
-  return '<li><button type="button" class="pozor" data-vlakno="' + esc(m.id) + '">' +
+  return '<li><button type="button" class="pozor' + (m.neprectena ? ' pozor--neprect' : '') + '" data-vlakno="' + esc(m.id) + '">' +
     '<span class="pozor__hora"><span class="avatar" style="--h:' + odstin(m.od) + '">' + esc(iniciala(m.od)) + '</span>' +
     '<span class="pozor__text"><b>' + esc(m.od) + '</b><small>' + esc(m.predmet) + '</small></span>' + posta.stavTag(m) + '</span>' +
     (m.termin ? '<span class="pozor__radek">' + IKONY.cas + '<span>' + esc(m.terminVeta || 'Termín') + '</span><em>' + esc(kdyTerminu(m.termin)) + '</em></span>'
@@ -592,7 +710,9 @@ function dnesMobilHtml(p, dnes) {
   const t = p.terminy;
   const nacteno = stav.schranka && stav.posta;
   const seznam = pozornost(p);
-  const celkem = seznam.length;
+  const ps = p.postaDnes;
+  // hlavní karta: všechno, co čeká na tebe (úkoly, rozhodnutí, auto + pošta k odpovědi); seznamy pod ní jsou dva
+  const celkem = seznam.length + p.pozornost.length;
   const pod = [t.poTerminu ? t.poTerminu + ' po termínu' : '', p.hori ? p.hori + ' hoří v poště' : '',
     t.dnes ? t.dnes + ' na dnes' : ''].filter(Boolean).join(' · ') || (celkem ? 'úkoly, rozhodnutí a pošta' : 'nic nečeká – klid');
   let h = '<section class="hero">' +
@@ -600,10 +720,10 @@ function dnesMobilHtml(p, dnes) {
       '<button type="button" class="hero__sipka" data-cil="schranka" data-filtr-schranky="vse" aria-label="Otevřít schránku">' + IKONY.sipka + '</button></div>' +
     '<div class="hero__telo"><b class="hero__cislo cisla">' + (nacteno ? celkem : '–') + '</b><p>' + esc(nacteno ? pod : 'Načítám…') + '</p>' +
       '<div class="hero__deleni">' +
-        '<button type="button" data-cil="schranka" data-filtr-schranky="vse"><small>Úkoly a rozhodnutí</small><b>' + (stav.schranka ? p.ceka.length : '–') + '</b></button>' +
+        '<button type="button" data-cil="schranka" data-filtr-schranky="vse"><small>Úkoly a rozhodnutí</small><b>' + (stav.schranka ? seznam.length : '–') + '</b></button>' +
         '<button type="button" data-cil="posta" data-filtr-posty="vse"><small>Pošta čeká na odpověď</small><b>' + (stav.posta ? p.pozornost.length : '–') + '</b></button>' +
       '</div></div></section>';
-  // malá čísla: to, co hlavní karta neukazuje (počasí, zápas / zdraví, nepřečtené)
+  // malá čísla: počasí, připravenost a denní kroužky (Další zápas je v kartě Fotbal a v týdnu, pošta v seznamu níž)
   const mala = (atr, ikona, barva, cislo, popis, trend) => '<button type="button" class="mini-kpi" ' + atr + '>' +
     '<span class="mini-kpi__hlava"><i class="kruh kruh--' + barva + '">' + ikona + '</i>' + (trend ? '<span class="trend">' + trend + '</span>' : '') + '</span>' +
     '<b class="cisla">' + cislo + '</b><small>' + popis + '</small></button>';
@@ -618,9 +738,12 @@ function dnesMobilHtml(p, dnes) {
     const z = zdravi.kartaZdravi();
     male.push(mala('data-oblast="zdravi" data-cil="zdravi"', IKONY.srdce, 'zdravi', z.hodnota + (z.jednotka === '%' ? '%' : ''), z.nazev, ''));
   }
-  const zapas = kal.dalsiZapas(14) || fotbal.dalsiZapasKlubu(14);
-  male.push(mala('data-oblast="fotbal" ' + (zapas && zapas.id ? 'data-udalost="' + esc(zapas.id) + '"' : 'data-cil="kalendar"'), IKONY.zapas, 'limetka',
-    zapas ? esc(kdyKratky(zapas.zacatek, zapas.celodenni).split(' ')[0]) : '–', zapas ? esc(hhmm(zapas.zacatek) + ' zápas') : 'Žádný zápas', ''));
+  const k = umiMotor('zdravi') ? krouzky.krouzkyDnes() : null;
+  if (k) {
+    const popis = 'Denní kroužky – ' + krouzky.popisKrouzku(k);
+    male.push('<button type="button" class="mini-kpi mini-kpi--krouzky" data-oblast="zdravi" data-cil="zdravi" data-krouzky title="' + esc(popis) + '" aria-label="' + esc(popis) + '">' +
+      krouzky.krouzkySvg(k) + krouzky.legendaHtml(k, true) + '</button>');
+  }
   if (male.length < 3) {
     male.push(mala('data-oblast="posta" data-cil="posta" data-filtr-posty="neprectene"', IKONY.posta, p.hori ? 'oranz' : 'fialova', stav.posta ? p.nep.length : '–',
       'Nepřečtené', p.hori ? '↗ ' + p.hori + ' hoří' : ''));
@@ -629,14 +752,29 @@ function dnesMobilHtml(p, dnes) {
   if (umiMotor('reely')) h += reely.kartaDnesHtml(); // limetková karta „Reel k vyvěšení“ (jen když je čerstvý nezveřejněný)
   h += '<section class="pozornost"><div class="pozornost__hlava"><h2>Vyžaduje pozornost</h2>' +
     (seznam.length ? '<span class="pilulka-oranz cisla">' + seznam.length + '</span>' : '') + '</div>';
-  if (!nacteno) h += '<div class="card">' + kostra(3) + '</div>';
-  else if (!seznam.length) h += '<div class="card"><div class="prazdne">Nic nehoří, nic nečeká. Užij si to.</div></div>';
+  if (!stav.schranka) h += '<div class="card">' + (stav.chyby.schranka ? chybaHtml(stav.chyby.schranka, 'data-schranka-znovu') : kostra(3)) + '</div>';
+  else if (!seznam.length) h += '<div class="card"><div class="prazdne">Žádné úkoly ani rozhodnutí. Užij si to.</div></div>';
   else {
     h += '<ul>' + seznam.slice(0, 6).map(pozorKartaHtml).join('') + '</ul>' +
-      '<div class="pozornost__dalsi"><button type="button" class="btn btn--ghost" data-cil="schranka" data-filtr-schranky="vse">Schránka</button>' +
-      '<button type="button" class="btn btn--ghost" data-cil="posta" data-filtr-posty="vse">Celá pošta</button></div>';
+      '<div class="pozornost__dalsi"><button type="button" class="btn btn--ghost" data-cil="schranka" data-filtr-schranky="vse">Celá schránka</button></div>';
   }
-  return h + '</section>';
+  h += '</section>';
+  // pošta zvlášť (jako karta Pošta na PC): co čeká a nepřečtené; když je vyřízená, sekce není
+  if (!stav.posta || ps.celkem) {
+    h += '<section class="pozornost pozornost--posta"><div class="pozornost__hlava"><h2>Pošta</h2>' +
+      (ps.celkem ? '<span class="pilulka-oranz cisla">' + ps.celkem + '</span>' : '') + '</div>';
+    if (!stav.posta) h += '<div class="card">' + (stav.chyby.posta ? chybaHtml(stav.chyby.posta, 'data-posta-znovu') : kostra(2)) + '</div>';
+    else {
+      const n = ps.aktualizace.length;
+      h += (ps.seznam.length ? '<ul>' + ps.seznam.slice(0, 5).map((m) => pozorKartaHtml({ typ: 'posta', x: m })).join('') + '</ul>' : '') +
+        (n ? '<button type="button" class="dl-posta__aktualizace" data-cil="posta" data-filtr-posty="neprectene" data-kategorie-posty="aktualizace">' + IKONY.info +
+          '<span>' + n + ' ' + tvar(n, 'nepřečtený', 'nepřečtené', 'nepřečtených') + ' v Aktualizacích</span>' + IKONY.vpravo + '</button>' : '') +
+        '<div class="pozornost__dalsi"><button type="button" class="btn btn--ghost" data-cil="posta" data-filtr-posty="vse">Celá pošta' +
+          (ps.seznam.length > 5 ? ' · ' + (ps.seznam.length - 5) + ' další' : '') + '</button></div>';
+    }
+    h += '</section>';
+  }
+  return h;
 }
 
 // ---------------------------------------------------------------- ovládání
@@ -645,6 +783,9 @@ document.addEventListener('click', (e) => {
   const el = e.target.closest('button, a[data-cil], [data-udalost]');
   if (!el || el.closest('#uvod')) return;
 
+  // levý pás: připnout / odepnout; výběr sekce rozbalený pás sbalí (jinak by zakrýval otevřenou stránku)
+  if (el.hasAttribute('data-rail-pripnout')) { prepniPripnuti(); return; }
+  if (el.closest('#rail')) sbalRail();
   if (el.hasAttribute('data-zavrit-panel')) { zavriPanel(); return; }
   if (el.hasAttribute('data-menu')) { otevriMenu(); return; }
   if (el.dataset.menuCil) { const cil = el.dataset.menuCil; zavriAPak(() => { prejdi(cil); zmeneno(); }); return; }
@@ -655,8 +796,8 @@ document.addEventListener('click', (e) => {
   if (el.hasAttribute('data-pocasi')) { pocasi.ukazDetail(); return; }
   if (hledat.klikHledat(el)) return;
   if (el.dataset.cil) {
-    // proklik rovnou s filtrem (z čísel a karet na Dnes)
-    if (el.dataset.filtrPosty) { stav.filtrPosty = el.dataset.filtrPosty; stav.kategoriePosty = 'primarni'; stav.stitekPosty = ''; }
+    // proklik rovnou s filtrem (z čísel a karet na Dnes); záložka Pošty jen u „nepřečtené v Aktualizacích“, jinak Primární
+    if (el.dataset.filtrPosty) { stav.filtrPosty = el.dataset.filtrPosty; stav.kategoriePosty = el.dataset.kategoriePosty || 'primarni'; stav.stitekPosty = ''; }
     if (el.dataset.filtrSchranky) { stav.filtrSchranky = el.dataset.filtrSchranky; }
     prejdi(el.dataset.cil);
     zmeneno();
@@ -744,8 +885,9 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('online', () => { zmeneno(); if (jePripojeno()) obnovVse(false); });
 window.addEventListener('offline', zmeneno);
-// telefon ↔ iPad/PC (otočení, změna okna): jiná hlavička a přehled Dnes
+// telefon ↔ iPad/PC (otočení, změna okna): jiná hlavička a přehled Dnes; přes 1180 px celý / úzký levý pás
 TELEFON.addEventListener('change', zmeneno);
+SIROKY.addEventListener('change', () => { sbalRail(); zmeneno(); });
 // klepnutí vedle vysunutého menu ho zavře
 document.querySelector('#panely .panel-pozadi').addEventListener('click', () => { const h = horniPanel(); if (h && h.id === 'menu') zavriPanel(); });
 

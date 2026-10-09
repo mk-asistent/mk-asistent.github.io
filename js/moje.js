@@ -51,6 +51,20 @@ export function mojeKartaHtml() {
   return hlavaHtml(false) + poleHtml() + '<div class="dlazdice__telo" data-moje-telo>' + teloHtml(false) + '</div>';
 }
 
+/** Dnes (#dl-moje): když se do pole zrovna píše, překreslí jen hlavičku a seznam – pole, rozepsaný text i klávesnice
+ *  v iPhonu zůstanou; jinak celou kartu. Vrací false, když se má karta schovat (motor Moje poznámky neumí, schránka se načítá). */
+export function vykresliMojeDnes(el) {
+  if (!umiMoje() || !stav.schranka) { el.innerHTML = ''; return false; }
+  const pole = el.querySelector('[data-moje-pole]');
+  if (pole && pole === document.activeElement && el.querySelector('[data-moje-telo]')) {
+    el.querySelector('.card-hlava').outerHTML = hlavaHtml(false);
+    el.querySelector('[data-moje-telo]').innerHTML = teloHtml(false);
+    return true;
+  }
+  el.innerHTML = mojeKartaHtml();
+  return true;
+}
+
 /** Karta vpravo na stránce Schránka: když se píše do pole, překreslí jen hlavičku a seznam (pole zůstane). */
 function vykresliMojeDo(el) {
   const pole = el.querySelector('[data-moje-pole]');

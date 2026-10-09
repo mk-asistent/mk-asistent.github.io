@@ -28,12 +28,27 @@ jen u akcí (odeslat, archivovat…) a u zdraví a počasí. Vzhled: styl „Fix
 Na PC a iPadu postranní panel se všemi sekcemi. Na telefonu spodní lišta (Dnes, Schránka, +, Pošta, Kalendář) a **menu
 zleva** po klepnutí na jméno nahoře – všechny sekce včetně Zdraví, Fotbalu, Reelů a Plakátů, dole Nastavení.
 
+**Levý pás** (Michal 9. 10.: „víc pracovního místa“): na PC je celý s popisky jen na **Dnes**, na ostatních stránkách jen
+ikony s počty v odznacích. Po **najetí myší** (nebo Tabem z klávesnice) se rozbalí **přes obsah** – stránka neposkočí;
+výběr sekce ho zase sbalí, Escape taky. Tlačítko **Připnout** (špendlík nahoře v rozbaleném pásu) ho nechá celý na všech
+stránkách – pamatuje si to zařízení (`asistent.rail`). iPad (760–1179 px) má jen ikony vždy (i na Dnes), rozbalí se stejně.
+
 ## Dnes
-Každá věc jen jednou: nahoře **výstrahy ČHMÚ** (jen když nějaká platí), karty **Počasí**, **Připravenost** (WHOOP),
-**Další zápas** a **Nepřečtené**, pod tím jeden seznam **Vyžaduje pozornost** (úkoly, rozhodnutí, návrhy od Clauda
-i pošta seřazené podle naléhavosti), vpravo **týden jako krátký výpis**, **Fotbal** (poslední výsledek a další zápas
+Každá věc jen jednou: nahoře **výstrahy ČHMÚ** (jen když nějaká platí). Přehledová čísla jsou na PC a iPadu **malé
+dlaždice v horní liště** mezi hledáním a tlačítky (Michal 9. 10., šířky 2 : 2 : 1 : 1): **Počasí** (ikona, teplota, místo
+zkráceně – klepnutí = detail), **Připravenost** (WHOOP % v barvě zóny, spánek, HRV → Zdraví), **Nepřečtené** (počet, hoří /
+čeká na odpověď; nic = fajfka „vše přečteno“ → Pošta, filtr Nepřečtené) a **Denní kroužky** (`js/krouzky.js`: voda,
+bílkoviny a pohyb za dnešek proti cílům z `ZDRAVI_REZIM.json` – `pitiCil` ml, `bilkovinyCil` g, `krokyCil` kroků; bez cíle
+2,5 l, 130 g a 8 000 kroků; kroky z Apple Watch nebo WHOOP, větší číslo; čísla v bublině → Zdraví). Na užší liště se hledání
+zmenší na „Hledat“, „+ Poznámka“ na „+“ a popisky ubývají, čísla zůstanou. **Další zápas** v číslech není (je v kartě Fotbal
+a v týdnu). Pod tím **Vyžaduje pozornost** (úkoly, rozhodnutí, návrhy od Clauda a připomínky auta podle naléhavosti),
+**Moje poznámky**, **Pošta** jako vlastní karta (hoří, čeká na tebe, otázka a nepřečtené z Primární; nepřečtené Aktualizace
+jedním řádkem) – když je všechno přečtené a vyřízené, karta zmizí a podnadpis řekne „pošta vyřízená“. Dál **týden jako
+krátký výpis**, **Fotbal** (poslední výsledek a další zápas
 každého týmu, šipka na stránku Fotbal), **Doplňky dnes** (odškrtávací seznam podle režimu z Disku – zápasové jen v den
-zápasu, kofein do 14:00; den v pásku týdne jde otevřít a odškrtat zpětně) a **poznámka pro Clauda** s malým přehledem schránky a odpověďmi Clauda. Po návratu do aplikace
+zápasu, kofein do 14:00; den v pásku týdne jde otevřít a odškrtat zpětně) a **poznámka pro Clauda** s malým přehledem schránky a odpověďmi Clauda.
+**Telefon:** zelená karta Čeká na tebe, malá čísla Počasí · Připravenost · Kroužky (s hodnotami), pod nimi Vyžaduje
+pozornost a Pošta jako vlastní seznam (jen když něco čeká). Po návratu do aplikace
 okno **Co je nového** (hoří, nová pošta, odpovědi Clauda, nové výstrahy).
 
 ## Schránka
