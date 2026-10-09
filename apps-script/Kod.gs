@@ -36,7 +36,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-09.3';
+const VERZE = '2026-10-09.4';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -273,6 +273,31 @@ function klicApi_() {
     if (klic) cache.put('API_KLIC', klic, 21600);
   }
   return klic;
+}
+
+// Otisk klíče aplikace pro schránku zkratky (Michal 9. 10.: zkratka „Pro Clauda“ posílala hlavní klíč aplikace a schránka
+// ho odmítala). Schránka je jiný projekt Apps Scriptu s vlastním klíčem – aby přijala i hlavní klíč aplikace, motor jí do
+// CLAUDE_SCHRANKA/.otisk_klice_aplikace zapíše jen SHA-256 klíče (nikdy klíč); schránka porovná otisk přijatého klíče.
+const OTISK_KLICE = '.otisk_klice_aplikace';
+
+function otiskKlice_(klic) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(klic), Utilities.Charset.UTF_8)
+    .map(function (b) { return ((b + 256) % 256).toString(16).padStart(2, '0'); }).join('');
+}
+
+/** Spouštěč: zapíše otisk, když chybí nebo se klíč změnil (jinak jen jedno čtení vlastnosti). */
+function zapisOtiskKlice_() {
+  const klic = klicApi_();
+  if (!klic) return;
+  const otisk = otiskKlice_(klic);
+  const vl = PropertiesService.getScriptProperties();
+  if (vl.getProperty('OTISK_KLICE_ZAPSAN') === otisk) return;
+  const koren = koren_();
+  const nalezene = koren.getFilesByName(OTISK_KLICE);
+  let soubor = null;
+  while (nalezene.hasNext() && !soubor) { const f = nalezene.next(); if (!f.isTrashed()) soubor = f; }
+  if (soubor) soubor.setContent(otisk); else koren.createFile(OTISK_KLICE, otisk, MimeType.PLAIN_TEXT);
+  vl.setProperty('OTISK_KLICE_ZAPSAN', otisk);
 }
 
 let MOJE_ADRESA_ = null; // jednou za běh skriptu
@@ -2461,6 +2486,7 @@ function overInstagram() {
  *  pak Instagram (čekání na zpracování videa může trvat minuty). */
 function instagramKazdych10Min() {
   try { upozorneniKontrola_(); } catch (chyba) { /* příště */ }
+  try { zapisOtiskKlice_(); } catch (chyba) { /* příště */ }
   try {
     const hodina = Number(Utilities.formatDate(new Date(Date.now()), CASOVE_PASMO, 'H'));
     if (hodina >= 7 && hodina <= 22) ulozPostuKPrehledu_();

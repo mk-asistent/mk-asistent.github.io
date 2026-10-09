@@ -312,8 +312,8 @@ function prostredi() {
       base64Decode: (t) => Array.from(Buffer.from(t, 'base64')),
       base64Encode: (b) => Buffer.from(b).toString('base64'),
       sleep: () => {},
-      DigestAlgorithm: { MD5: 'md5' }, Charset: { UTF_8: 'utf8' },
-      computeDigest: (alg, text) => Array.from(crypto.createHash('md5').update(text, 'utf8').digest()).map((b) => (b > 127 ? b - 256 : b))
+      DigestAlgorithm: { MD5: 'md5', SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
+      computeDigest: (alg, text) => Array.from(crypto.createHash(alg || 'md5').update(text, 'utf8').digest()).map((b) => (b > 127 ? b - 256 : b))
     },
     Session: { getEffectiveUser: () => ({ getEmail: () => JA }) },
     SpreadsheetApp: {
@@ -460,6 +460,25 @@ test('špatný klíč → chyba „klic“, chybějící klíč v motoru → ná
   const o = p.volej('info');
   assert.strictEqual(o.ok, false);
   assert.ok(/nastavApi/.test(o.chyba));
+});
+
+test('otisk klíče aplikace pro schránku zkratky: jen SHA-256 (ne klíč) v CLAUDE_SCHRANKA, znovu jen při změně klíče', () => {
+  const p = prostredi();
+  const otisky = () => p.schranka.soubory.filter((f) => !f.vKosi && f.getName() === '.otisk_klice_aplikace');
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(otisky().length, 1);
+  const obsah = otisky()[0].getBlob().getDataAsString();
+  assert.strictEqual(obsah, crypto.createHash('sha256').update(KLIC, 'utf8').digest('hex'));
+  assert.ok(obsah.indexOf(KLIC) < 0, 'klíč nesmí být v souboru');
+  const zapisu = (p.log.soubory || []).length;
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(otisky().length, 1);
+  assert.strictEqual((p.log.soubory || []).length, zapisu, 'podruhé se nic nezapisuje');
+  // nový klíč → nový otisk ve stejném souboru
+  p.vlastnosti.set('API_KLIC', 'jiny-klic'); p.cache.delete('API_KLIC');
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(otisky().length, 1);
+  assert.strictEqual(otisky()[0].getBlob().getDataAsString(), crypto.createHash('sha256').update('jiny-klic', 'utf8').digest('hex'));
 });
 
 test('neznámá akce i nečitelný požadavek vrací ok:false, ne pád', () => {
