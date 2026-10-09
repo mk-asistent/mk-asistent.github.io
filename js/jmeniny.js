@@ -72,7 +72,7 @@ export const JMENINY = {
   '09-25': 'Zlata, Zlatan, Zlatko, Zlatomíra, Zlatuše', '09-26': 'Andrea', '09-27': 'Jonáš', '09-28': 'Václav, Václava', '09-29': 'Michal, Michael',
   '09-30': 'Jeroným',
   '10-01': 'Igor, Ivar, Ivor', '10-02': 'Olívie, Oliver', '10-03': 'Bohumil, Bohun, Bohuslav, Bohuš', '10-04': 'František, Fráňa, Franc',
-  '10-05': 'Eliška, Elza', '10-06': 'Hanuš', '10-07': 'Justýna', '10-08': 'Věra, Věroslava', '10-09': 'Štefan', '10-10': 'Marina',
+  '10-05': 'Eliška, Elza', '10-06': 'Hanuš', '10-07': 'Justýna', '10-08': 'Věra, Věroslava', '10-09': 'Štefan, Sára', '10-10': 'Marina',
   '10-11': 'Andrej', '10-12': 'Marcel', '10-13': 'Renata, Renáta', '10-14': 'Agáta', '10-15': 'Tereza, Terezie, Thea', '10-16': 'Havel, Gál',
   '10-17': 'Hedvika, Heda', '10-18': 'Lukáš', '10-19': 'Michaela, Michael', '10-20': 'Vendelín, Vendelína', '10-21': 'Brigita, Berit, Birgita, Brita',
   '10-22': 'Sabina', '10-23': 'Teodor, Teodorik, Theodor', '10-24': 'Nina', '10-25': 'Beáta', '10-26': 'Erik, Erich', '10-27': 'Šarlota, Zoe',
