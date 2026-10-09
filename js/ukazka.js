@@ -148,7 +148,13 @@ const archivovane = [
   { id: 'a2', ucet: 'osobni', stav: 'info', od: 'Elektřina', predmet: 'Vyúčtování za září', ukazka: 'Vyúčtování je k dispozici v zákaznickém portálu.', kdy: ted - 12 * 24 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Účty'] }
 ];
 const skupinyHostu = [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@example.com', 'rodic2@example.com', 'rodic3@example.com'] }];
-const jmeninyUkazka = [{ jmeno: 'Petra', kdo: 'kamarádka' }]; // oblíbení – svátek se v kalendáři zvýrazní
+// oblíbení (sekce Svátky) – svátek se v kalendáři a v týdnu na Dnes zvýrazní ★; vymyšlení lidé: Petra a pár jmen, která
+// mají svátek v příštích dnech (ať je v ukázce vždy vidět ★ v týdnu i „Brzy má svátek“). Import je tady u svátků schválně
+// (importy se stejně načtou první) – ať se úpravy ukázky z různých oblastí nepletou.
+import { hlavniJmeno } from './jmeniny.js';
+const jmenoZa = (dni) => { for (let i = dni; i < dni + 7; i++) { const j = hlavniJmeno(den(i)); if (/^\p{L}+$/u.test(j)) return j; } return ''; };
+const jmeninyUkazka = [{ jmeno: 'Petra', kdo: 'kamarádka' }].concat([[2, 'soused'], [11, 'z práce'], [23, 'sestřenice']]
+  .map(([dni, kdo]) => ({ jmeno: jmenoZa(dni), kdo })).filter((o, i, s) => o.jmeno && o.jmeno !== 'Petra' && s.findIndex((x) => x.jmeno === o.jmeno) === i));
 // záložky jako v Gmailu: Promoakce a Fóra (Sociální sítě prázdné)
 const kategorieUkazka = {
   promo: [

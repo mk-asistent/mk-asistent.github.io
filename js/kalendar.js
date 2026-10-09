@@ -10,8 +10,8 @@ import {
   sOdkazy, uloziste, DNY_KR, MESICE, MESICE_1
 } from './pomocne.js';
 import { otevriPanel, obnovPanel, elementPanelu } from './panely.js';
-import { chybaHtml, segment, hlavickaKarty, toast } from './ui.js';
-import { hlavniJmeno, oblibeniDne, denJmena, vsechnaJmena, bezDiakritiky } from './jmeniny.js';
+import { chybaHtml, segment, hlavickaKarty, toast, prizpusobVysku } from './ui.js';
+import { hlavniJmeno, oblibeniDne, bezDiakritiky, svatkyOblibenych, pripravOblibene } from './jmeniny.js';
 import { IKONY, ikonaPocasi } from './ikony.js';
 import { predpovedNa, teplota } from './pocasi.js';
 import { otevriFormular, akceUdalostiHtml, zapasyHtml, zapisovatelneKalendare } from './udalost.js';
@@ -24,14 +24,17 @@ const ULOZISTE = 'asistent.data.kal.';
 let posunOsy = null;                                 // zapamatovaná pozice časové osy mezi překresleními
 let jenDruh = null;                                  // filtr druhu platí jen při vykreslení sekce Kalendář (Dnes ukazuje vše)
 export const DRUHY = [['osobni', 'Osobní'], ['prace', 'Práce'], ['fotbal', 'Fotbal'], ['rodina', 'Rodina'], ['ostatni', 'Ostatní']];
-// co ukazovat jen v sekci Kalendář (v tomhle zařízení, hned bez motoru): schované kalendáře a jmeniny; Dnes ukazuje vše.
-// Kalendář úplně vypnutý v Nastavení (motor ho nenačítá) tu není.
+// co ukazovat jen v sekci Kalendář (v tomhle zařízení, hned bez motoru): schované kalendáře a sekce Svátky (jmeniny,
+// oblíbení lidé); Dnes ukazuje vše. Kalendář úplně vypnutý v Nastavení (motor ho nenačítá) tu není.
 const SKRYTE = 'asistent.kal.skryte';
 const UKAZ_JMENINY = 'asistent.kal.jmeniny';
+const UKAZ_OBLIBENE = 'asistent.kal.oblibeni';
 let skryte = new Set(uloziste.cti(SKRYTE) || []);
 let jenViditelne = false;
 const ukazJmeniny = () => uloziste.cti(UKAZ_JMENINY) !== false;
+const ukazOblibene = () => uloziste.cti(UKAZ_OBLIBENE) !== false;
 const oblibeni = () => (stav.info && Array.isArray(stav.info.jmeniny) ? stav.info.jmeniny : []);
+const BRZY_DNI = 30; // „Brzy má svátek“: oblíbení na měsíc dopředu
 const viditelneKalendare = () => ((stav.info && stav.info.kalendare) || []).filter((kal) => !kal.skryty);
 function ulozSkryte() { uloziste.pis(SKRYTE, Array.from(skryte)); }
 
@@ -158,22 +161,30 @@ export function dalsiZapas(dni) {
 }
 
 /**
- * Krátký výpis na Dnes: příštích n dní po dnech (jen dny, kdy něco je), řádek = čas · barva · název.
- * Dnes jen to, co ještě neskončilo. Vrací { html, pocet (ukázaných), celkem }.
+ * Krátký výpis na Dnes: příštích n dní po dnech, řádek = čas · barva · název. Každý den má svůj řádek se svátkem
+ * („Út 13. 10. · Renata“, oblíbený člověk ★ výrazně) – i den bez událostí; událostí nejvýš max (u dne pak „+2“).
+ * Dnes jen to, co ještě neskončilo. Vrací { html, pocet (ukázaných událostí), celkem (událostí) }.
  */
 export function agenda(dni, max) {
   const ted = Date.now();
   const dnes = pulnoc(ted);
+  const obl = oblibeni();
   let h = '', pocet = 0, celkem = 0;
   for (let i = 0; i < dni; i++) {
     const t = pridejDny(dnes, i);
     const ud = udalostiDne(t).filter((u) => i > 0 || u.celodenni || u.konec > ted);
     celkem += ud.length;
-    const vejde = Math.max(0, max - pocet);
-    if (!ud.length || !vejde) continue;
-    h += '<li class="agenda__den"><b>' + (i === 0 ? 'Dnes' : i === 1 ? 'Zítra' : velkePrvni(DNY_KR[new Date(t).getDay()])) + '</b>' +
-      '<small>' + new Date(t).getDate() + '. ' + (new Date(t).getMonth() + 1) + '.</small></li>';
-    ud.slice(0, vejde).forEach((u) => {
+    const ukazat = ud.slice(0, Math.max(0, max - pocet));
+    const svatekObl = oblibeniDne(t, obl);
+    const nazevDne = i === 0 ? 'Dnes' : i === 1 ? 'Zítra' : velkePrvni(DNY_KR[new Date(t).getDay()]);
+    // den = tlačítko: otevře kalendář na tom dni (data-skoc-den obsluhuje app.js)
+    h += '<li class="agenda__den' + (ukazat.length ? '' : ' agenda__den--volny') + (svatekObl.length ? ' agenda__den--oblibeny' : '') + '">' +
+      '<button type="button" class="agenda__den-btn" data-skoc-den="' + t + '" title="' + esc(velkePrvni(datumDlouhe(t))) + ' – otevřít v kalendáři">' +
+      '<b>' + nazevDne + '</b><small>' + new Date(t).getDate() + '. ' + (new Date(t).getMonth() + 1) + '.</small>' +
+      agendaSvatekHtml(t, svatekObl) +
+      (ud.length > ukazat.length ? '<em class="agenda__skryto cisla" title="Další události v kalendáři">+' + (ud.length - ukazat.length) + '</em>' : '') +
+      '</button></li>';
+    ukazat.forEach((u) => {
       const celyDen = u.celodenni || (u.zacatek < t && u.konec > pridejDny(t, 1));
       const cas = celyDen ? 'celý den' : u.zacatek < t ? 'do ' + hhmm(u.konec) : hhmm(u.zacatek);
       h += '<li><button type="button" class="agenda__u' + (jeZapas(u) ? ' agenda__u--zapas' : '') + '" data-udalost="' + esc(u.id) + '">' +
@@ -183,6 +194,16 @@ export function agenda(dni, max) {
     });
   }
   return { html: h ? '<ul class="agenda">' + h + '</ul>' : '', pocet, celkem };
+}
+
+/** Svátek v řádku dne na Dnes: oblíbení ★ výrazně (i se vztahem), jinak jméno z kalendáře šedě. */
+function agendaSvatekHtml(t, svatekObl) {
+  if (svatekObl.length) {
+    return '<span class="agenda__svatek agenda__svatek--oblibeny" title="Svátek má ' + esc(svatekObl.map(popisOblibeneho).join(', ')) + '">★ ' +
+      esc(svatekObl.map(popisOblibeneho).join(', ')) + '</span>';
+  }
+  const j = hlavniJmeno(t);
+  return j ? '<span class="agenda__svatek" title="Svátek">' + esc(j) + '</span>' : '';
 }
 
 /** Pro hledání: všechny načtené události (bez duplicit). */
@@ -234,8 +255,10 @@ export function udalostHtml(u, den) {
 
 function seznamDneHtml(t, prazdnyText) {
   const ud = udalostiDne(t);
-  if (ud.length) return '<ul class="seznam">' + ud.map((u) => udalostHtml(u, pulnoc(t))).join('') + '</ul>';
-  if (!mameData(t)) return chybaMesice(t) ? chybaHtml(chybaMesice(t), 'data-kal-znovu') : '<div class="prazdne">Načítám…</div>';
+  const svatky = svatkyRadkyHtml(t); // oblíbení ze sekce Svátky jako celodenní řádky nahoře
+  if (ud.length || (svatky && mameData(t))) return '<ul class="seznam">' + svatky + ud.map((u) => udalostHtml(u, pulnoc(t))).join('') + '</ul>';
+  const seznamSvatku = svatky ? '<ul class="seznam">' + svatky + '</ul>' : '';
+  if (!mameData(t)) return seznamSvatku + (chybaMesice(t) ? chybaHtml(chybaMesice(t), 'data-kal-znovu') : '<div class="prazdne">Načítám…</div>');
   return '<div class="prazdne">' + (prazdnyText || 'Nic naplánováno.') + '</div>';
 }
 
@@ -247,32 +270,88 @@ export function vykresliKalendar(el) {
   try { vykresliKalendarFiltr(el); } finally { jenDruh = null; jenViditelne = false; }
 }
 
-// ---------------------------------------------------------------- jmeniny (oblíbení zvýrazně, bez upozornění)
+// ---------------------------------------------------------------- sekce Svátky: jmeniny a oblíbení lidé (★, bez upozornění)
+// Dvě „kalendářové“ řádky se zaškrtnutím (boční panel, okno Kalendáře): Jmeniny = kdo má svátek (šedě, nezabírá místo –
+// vpravo v buňce měsíce, pod datem v týdnu, v nadpisu dne), Oblíbení lidé = celodenní položka sekce Svátky (★, korálově)
+// v měsíci, týdnu, dni i Seznamu. Dnes (agenda) ukazuje svátky vždy, zaškrtnutí platí jen v sekci Kalendář.
 
 const popisOblibeneho = (o) => o.jmeno + (o.kdo ? ' (' + o.kdo + ')' : '');
 
-/** Svátek do buňky / hlavičky dne: oblíbení s hvězdičkou, jinak jméno z kalendáře; '' když se jmeniny neukazují. */
-function svatekHtml(den, trida) {
-  if (!ukazJmeniny()) return '';
-  const obl = oblibeniDne(den, oblibeni());
-  if (obl.length) {
-    return '<span class="svatek svatek--oblibeny ' + (trida || '') + '" title="Svátek: ' + esc(obl.map(popisOblibeneho).join(', ')) + '">★ ' +
-      esc(obl.map((o) => o.jmeno).join(', ')) + '</span>';
-  }
-  const j = hlavniJmeno(den);
-  return j ? '<span class="svatek ' + (trida || '') + '">' + esc(j) + '</span>' : '';
+/** Co ukázat u dne v Kalendáři: { jmeno: běžné jméno ('' když je tu oblíbený nebo jsou jmeniny skryté), obl: oblíbení }. */
+function svatekDne(den) {
+  const obl = ukazOblibene() ? oblibeniDne(den, oblibeni()) : [];
+  return { obl, jmeno: !obl.length && ukazJmeniny() ? hlavniJmeno(den) : '' };
 }
 
-/** Do nadpisu dne: „svátek Eliška“, u oblíbených „★ svátek má Petra (manželka)“. */
+/** Do nadpisu dne: „svátek Eliška“ (oblíbení mají vlastní řádek v seznamu dne). */
 function svatekVNadpisu(den) {
-  if (!ukazJmeniny()) return '';
-  const obl = oblibeniDne(den, oblibeni());
-  if (obl.length) return ' <span class="svatek svatek--oblibeny">★ svátek má ' + esc(obl.map(popisOblibeneho).join(', ')) + '</span>';
-  const j = hlavniJmeno(den);
-  return j ? ' <span class="svatek">svátek ' + esc(j) + '</span>' : '';
+  const sv = svatekDne(den);
+  return sv.jmeno ? ' <span class="svatek">svátek ' + esc(sv.jmeno) + '</span>' : '';
 }
 
-const maOblibeneho = (den) => ukazJmeniny() && oblibeniDne(den, oblibeni()).length > 0;
+const maOblibeneho = (den) => svatekDne(den).obl.length > 0;
+
+/** Oblíbený jako celodenní čip sekce Svátky (měsíc, celý den v týdnu). */
+const cipSvatkuHtml = (o) => '<span class="cip-udalost cip-svatek" title="Svátek: ' + esc(popisOblibeneho(o)) + '">★ ' + esc(o.jmeno) + '</span>';
+
+/** Oblíbení jako první řádky seznamu dne (pod Měsícem, Seznam) – vypadají jako celodenní událost sekce Svátky. */
+function svatkyRadkyHtml(den) {
+  return svatekDne(den).obl.map((o) => '<li><div class="udalost udalost--svatek"><span class="cas">svátek</span><span class="udalost-barva"></span>' +
+    '<span class="udalost-text"><span class="nazev">★ ' + esc(o.jmeno) + '</span><span class="pod">' + esc([o.kdo, 'Svátky'].filter(Boolean).join(' · ')) +
+    '</span></span></div></li>').join('');
+}
+
+/** Kdy: „dnes“, „zítra“, „za 5 dní“. */
+const zaDniText = (n) => (n === 0 ? 'dnes' : n === 1 ? 'zítra' : 'za ' + n + ' ' + (n >= 2 && n <= 4 ? 'dny' : 'dní'));
+const denKratce = (t) => DNY_KR[new Date(t).getDay()] + ' ' + new Date(t).getDate() + '. ' + (new Date(t).getMonth() + 1) + '.';
+
+/** Oblíbení, kteří mají svátek do n dní (od dneška): [{ jmeno, kdo, t, zaDni }]. Pro Dnes i boční panel. */
+export function brzySvatky(dni) {
+  return svatkyOblibenych(oblibeni(), pulnoc(Date.now())).filter((x) => x.zaDni <= (dni == null ? BRZY_DNI : dni));
+}
+
+/** Karta „Brzy má svátek“ (boční panel kalendáře; na užším displeji pod měsícem). */
+function brzyHtml(trida) {
+  if (!umiMotor('jmeninyUlozit') && !oblibeni().length) return '';
+  const vse = svatkyOblibenych(oblibeni(), pulnoc(Date.now()));
+  const brzy = vse.filter((x) => x.zaDni <= BRZY_DNI);
+  if (trida && !brzy.length) return ''; // pod měsícem jen, když někdo brzy svátek má
+  const radek = (x) => '<li><button type="button" class="brzy__radek' + (x.zaDni <= 1 ? ' brzy__radek--hned' : '') + '" data-den="' + x.t + '">' +
+    '<span class="brzy__datum cisla"><b>' + new Date(x.t).getDate() + '. ' + (new Date(x.t).getMonth() + 1) + '.</b><small>' + DNY_KR[new Date(x.t).getDay()] + '</small></span>' +
+    '<span class="brzy__kdo"><b>★ ' + esc(x.jmeno) + '</b>' + (x.kdo ? '<small>' + esc(x.kdo) + '</small>' : '') + '</span>' +
+    '<em class="brzy__za">' + zaDniText(x.zaDni) + '</em></button></li>';
+  let telo;
+  if (!vse.length) {
+    telo = '<p class="karta-text">Přidej lidi, na kterých ti záleží – jejich svátek se v kalendáři i v týdnu na Dnes zvýrazní ★.</p>' +
+      '<button type="button" class="dlazdice__pata" data-kal-zobrazeni>' + IKONY.plus + 'Přidat oblíbené</button>';
+  } else if (!brzy.length) {
+    telo = '<p class="karta-text">Příštích ' + BRZY_DNI + ' dní nikdo. Další:</p><ul class="brzy-seznam">' + radek(vse[0]) + '</ul>';
+  } else {
+    telo = '<ul class="brzy-seznam">' + brzy.slice(0, 6).map(radek).join('') + '</ul>' +
+      (brzy.length > 6 ? '<button type="button" class="agenda__vic" data-kal-zobrazeni>+ ' + (brzy.length - 6) + ' další</button>' : '');
+  }
+  return '<section class="card karta-brzy' + (trida ? ' ' + trida : '') + '">' +
+    hlavickaKarty(HVEZDA, 'Brzy má svátek' + (brzy.length ? ' · ' + brzy.length : '')) + telo + '</section>';
+}
+
+const HVEZDA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>';
+
+/** Řádky sekce Svátky se zaškrtnutím (boční panel: tvar kal-seznam, okno: kal-viditelne). */
+function svatkySekceHtml(vOkne) {
+  const pocet = oblibeni().length;
+  const radky = [
+    ['jmeniny', 'Jmeniny', 'kdo má svátek', ukazJmeniny(), '<i class="znak-svatku"></i>'],
+    ['oblibeni', 'Oblíbení lidé', pocet ? String(pocet) : '', ukazOblibene(), '<i class="znak-svatku znak-svatku--oblibeny">★</i>']
+  ];
+  const kontrolka = (r) => '<input type="checkbox" data-kal-svatky="' + r[0] + '"' + (r[3] ? ' checked' : '') + ' aria-label="Ukazovat ' + esc(r[1]) + '">';
+  if (vOkne) {
+    return '<div class="kal-skupina">Svátky</div><ul class="kal-viditelne kal-svatky">' + radky.map((r) => '<li><label>' + kontrolka(r) + r[4] +
+      '<span class="orez-1">' + esc(r[1]) + (r[2] ? ' <small>' + esc(r[2]) + '</small>' : '') + '</span></label></li>').join('') + '</ul>';
+  }
+  return '<div class="kal-skupina">Svátky</div><ul class="kal-seznam kal-svatky">' + radky.map((r) => '<li>' + r[4] +
+    '<span class="orez-1">' + esc(r[1]) + (r[2] ? ' <small>' + esc(r[2]) + '</small>' : '') + '</span>' + kontrolka(r) + '</li>').join('') + '</ul>';
+}
 
 function vykresliKalendarFiltr(el) {
   const osa = el.querySelector('#cas-svitek');
@@ -326,7 +405,7 @@ function listaHtml() {
   const filtr = pritomne.length > 1 ? segment([['', 'Vše']].concat(DRUHY.filter((d) => pritomne.indexOf(d[0]) >= 0)), k.druh, 'data-kal-druh', 'Druh kalendářů') : '';
   const vid = viditelneKalendare();
   const schovano = vid.filter((kal) => skryte.has(kal.id)).length;
-  const zobrazeni = '<button type="button" class="btn btn--ghost btn--sm kal-zobrazeni-btn" data-kal-zobrazeni title="Které kalendáře ukazovat, jmeniny a oblíbení">' +
+  const zobrazeni = '<button type="button" class="btn btn--ghost btn--sm kal-zobrazeni-btn" data-kal-zobrazeni title="Které kalendáře ukazovat, svátky a oblíbení lidé">' +
     IKONY.kalendar + '<span>Kalendáře</span>' + (schovano ? '<b class="cisla">' + (vid.length - schovano) + '/' + vid.length + '</b>' : '') + '</button>';
   return '<div class="kal-lista">' +
     segment([['mesic', 'Měsíc'], ['tyden', 'Týden'], ['seznam', 'Seznam']], k.pohled, 'data-kal-pohled', 'Zobrazení kalendáře') +
@@ -373,10 +452,12 @@ function bocniPanelHtml() {
   const skupiny = DRUHY.map((d) => [d, kalendare.filter((kal) => !kal.skryty && (kal.druh || 'osobni') === d[0])]).filter((x) => x[1].length);
   h += '<section class="card">' + hlavickaKarty(IKONY.kalendar, 'Kalendáře') +
     (kalendare.length
-      ? skupiny.map((x) => (skupiny.length > 1 ? '<div class="kal-skupina">' + esc(x[0][1]) + '</div>' : '') + '<ul class="kal-seznam">' + x[1].map(radek).join('') + '</ul>').join('')
+      ? skupiny.map((x) => '<div class="kal-skupina">' + esc(x[0][1]) + '</div><ul class="kal-seznam">' + x[1].map(radek).join('') + '</ul>').join('')
       : '<div class="prazdne">Zatím žádný kalendář.</div>') +
-    '<button type="button" class="dlazdice__pata" data-kal-zobrazeni>Jmeniny a oblíbení lidé</button>' +
+    svatkySekceHtml(false) +
+    '<button type="button" class="dlazdice__pata" data-kal-zobrazeni>' + HVEZDA + 'Oblíbení lidé a svátky</button>' +
     '<button type="button" class="dlazdice__pata" data-otevri-nastaveni="kalendare">Přidat kalendář z iPhonu</button></section>';
+  h += brzyHtml();
   const tymy = fotbalTymyHtml();
   h += '<section class="card">' + hlavickaKarty(IKONY.zapas, 'Zápasy') + (tymy ? '<div class="fotbal-panel">' + tymy + '</div>' +
     '<button type="button" class="dlazdice__pata" data-novy-zapas>' + IKONY.plus + 'Zápas ručně</button>' : zapasyHtml(true)) + '</section>';
@@ -412,13 +493,22 @@ function mesicHtml() {
     if (den === dnes) tridy.push('dnes');
     if (den === vybrany) tridy.push('vybrany');
     if (d.getDay() === 0 || d.getDay() === 6) tridy.push('vikend');
+    // sekce Svátky: běžné jméno šedě vpravo vedle čísla (na telefonu se nevejde), oblíbení jako celodenní čip ★
+    // (na telefonu korálový řádek – čipy tam nejsou)
+    const sv = svatekDne(den);
+    if (sv.obl.length) tridy.push('svatek-oblibeny');
+    const mista = Math.max(1, 3 - sv.obl.length);
     const barvy = Array.from(new Set(ud.map((u) => u.barva))).slice(0, 3);
-    const cipy = ud.slice(0, 3).map((u) => '<span class="cip-udalost' + (u.celodenni ? ' celodenni' : '') + '" data-udalost="' + esc(u.id) + '" style="--b:' + esc(u.barva) + '">' +
+    const cipy = sv.obl.map(cipSvatkuHtml).join('') +
+      ud.slice(0, mista).map((u) => '<span class="cip-udalost' + (u.celodenni ? ' celodenni' : '') + '" data-udalost="' + esc(u.id) + '" style="--b:' + esc(u.barva) + '">' +
       (u.celodenni || u.zacatek < den ? '' : '<b class="cisla">' + hhmm(u.zacatek) + '</b> ') + esc(u.nazev) + '</span>').join('') +
-      (ud.length > 3 ? '<span class="cip-vic">+' + (ud.length - 3) + ' další</span>' : '');
-    h += '<button type="button" class="' + tridy.join(' ') + '" data-den="' + den + '" aria-label="' + esc(datumDlouhe(den)) + (ud.length ? ', událostí ' + ud.length : '') + '"' +
+      (ud.length > mista ? '<span class="cip-vic">+' + (ud.length - mista) + ' další</span>' : '');
+    h += '<button type="button" class="' + tridy.join(' ') + '" data-den="' + den + '" aria-label="' + esc(datumDlouhe(den)) + (ud.length ? ', událostí ' + ud.length : '') +
+      (sv.obl.length ? ', svátek má ' + esc(sv.obl.map(popisOblibeneho).join(', ')) : sv.jmeno ? ', svátek ' + esc(sv.jmeno) : '') + '"' +
       (den === vybrany ? ' aria-current="date"' : '') + '>' +
-      '<span class="mesic-cislo cisla">' + d.getDate() + pocasiDneHtml(den) + '</span>' + svatekHtml(den, 'svatek--bunka') +
+      '<span class="mesic-cislo cisla">' + d.getDate() + pocasiDneHtml(den) + '</span>' +
+      (sv.jmeno ? '<span class="svatek svatek--bunka">' + esc(sv.jmeno) + '</span>' : '') +
+      (sv.obl.length ? '<span class="svatek svatek--oblibeny svatek--mobil">★ ' + esc(sv.obl.map((o) => o.jmeno).join(', ')) + '</span>' : '') +
       '<span class="mesic-tecky">' + barvy.map((b) => '<i style="--b:' + esc(b) + '"></i>').join('') + '</span>' +
       '<span class="mesic-cipy">' + cipy + '</span></button>';
   }
@@ -427,7 +517,8 @@ function mesicHtml() {
     esc(velkePrvni(denNadpis(vybrany))) + svatekVNadpisu(vybrany) + '</span>' +
     (zapisovatelneKalendare().length ? '<button type="button" class="btn btn--ghost btn--sm" data-nova-udalost="' + vybrany + '">' + IKONY.plus + '<span>Přidat</span></button>' : '') +
     '</div>' + seznamDneHtml(vybrany) + '</div>';
-  return h;
+  // telefon a iPad (bez bočního panelu): kdo z oblíbených má brzy svátek
+  return h + brzyHtml('karta-brzy--uzka');
 }
 
 function tydenHtml() {
@@ -456,11 +547,13 @@ function casovaOsaHtml(dny) {
   if (dny.length > 1) {
     h += '<div class="cas-hlava" ' + sloupce + '><span></span>' + dny.map((d) => '<button type="button" class="cas-den-nadpis' + (d === dnes ? ' dnes' : '') +
       (d === pulnoc(k.vybrany) ? ' vybrany' : '') + '" data-den="' + d + '"><small>' + DNY_KR[new Date(d).getDay()] + pocasiDneHtml(d) + '</small><b class="cisla">' + new Date(d).getDate() + '</b>' +
-      svatekHtml(d, 'svatek--hlava') + '</button>').join('') + '</div>';
+      (svatekDne(d).jmeno ? '<span class="svatek svatek--hlava">' + esc(svatekDne(d).jmeno) + '</span>' : '') + '</button>').join('') + '</div>';
   }
+  // celý den: oblíbení ze sekce Svátky (★) první, pak celodenní události
+  const svatky = dny.map((d) => svatekDne(d).obl);
   const celodenni = dny.map((d) => udalostiDne(d).filter((u) => u.celodenni || (u.zacatek <= d && u.konec >= pridejDny(d, 1))));
-  if (celodenni.some((a) => a.length)) {
-    h += '<div class="cas-celodenni" ' + sloupce + '><span class="cas-popisek">celý den</span>' + celodenni.map((a) => '<div>' +
+  if (celodenni.some((a) => a.length) || svatky.some((a) => a.length)) {
+    h += '<div class="cas-celodenni" ' + sloupce + '><span class="cas-popisek">celý den</span>' + celodenni.map((a, i) => '<div>' + svatky[i].map(cipSvatkuHtml).join('') +
       a.map((u) => '<button type="button" class="cip-udalost celodenni" data-udalost="' + esc(u.id) + '" style="--b:' + esc(u.barva) + '">' + esc(u.nazev) + '</button>').join('') +
       '</div>').join('') + '</div>';
   }
@@ -528,10 +621,11 @@ function seznamHtml() {
   for (let i = 0; i < 30; i++) {
     const d = pridejDny(od, i);
     const ud = udalostiDne(d);
-    if (!ud.length && !maOblibeneho(d)) continue;
+    const svatky = svatkyRadkyHtml(d); // den jen se svátkem oblíbeného se ukáže taky
+    if (!ud.length && !svatky) continue;
     neco = true;
     h += '<div class="card"><div class="den-nadpis' + (i === 0 ? ' dnes' : '') + '">' + esc(velkePrvni(denNadpis(d))) + svatekVNadpisu(d) + '</div>' +
-      (ud.length ? '<ul class="seznam">' + ud.map((u) => udalostHtml(u, d)).join('') + '</ul>' : '') + '</div>';
+      '<ul class="seznam">' + svatky + ud.map((u) => udalostHtml(u, d)).join('') + '</ul></div>';
   }
   if (!neco) {
     if (!mameData(od)) return '<div class="card">' + (chybaMesice(od) ? chybaHtml(chybaMesice(od), 'data-kal-znovu') : '<div class="prazdne">Načítám…</div>') + '</div>';
@@ -540,12 +634,13 @@ function seznamHtml() {
   return h;
 }
 
-// ---------------------------------------------------------------- okno „Kalendáře“: co ukazovat, jmeniny, oblíbení
+// ---------------------------------------------------------------- okno „Kalendáře a svátky“: co ukazovat, oblíbení lidé
 
-let datalistJmen = '';
+// rozepsané hromadné přidání (přežije překreslení okna): text a výběr u nejednoznačných jmen (klíč = tvar bez diakritiky)
+const hromadne = { text: '', volby: {} };
 
 function otevriZobrazeni() {
-  otevriPanel({ id: 'kal-zobrazeni', trida: 'panel-okno panel-kal-zobrazeni', titul: 'Kalendáře a jmeniny', vykresli: zobrazeniHtml });
+  otevriPanel({ id: 'kal-zobrazeni', trida: 'panel-okno panel-kal-zobrazeni', titul: 'Kalendáře a svátky', vykresli: zobrazeniHtml });
 }
 
 function zobrazeniHtml() {
@@ -553,57 +648,131 @@ function zobrazeniHtml() {
   const skupiny = DRUHY.map((d) => [d, vid.filter((kal) => (kal.druh || 'osobni') === d[0])]).filter((x) => x[1].length);
   let h = '<div class="kal-zobrazeni"><section><h3>Které kalendáře ukazovat</h3>' +
     '<p class="napoveda">Jen tady v Kalendáři a v tomhle zařízení (Dnes ukazuje vše). Úplně vypnout kalendář jde v Nastavení → Kalendáře.</p>';
-  h += skupiny.length ? skupiny.map((x) => (skupiny.length > 1 ? '<div class="kal-skupina">' + esc(x[0][1]) + '</div>' : '') + '<ul class="kal-viditelne">' +
+  h += skupiny.length ? skupiny.map((x) => '<div class="kal-skupina">' + esc(x[0][1]) + '</div><ul class="kal-viditelne">' +
     x[1].map((kal) => '<li><label><input type="checkbox" data-kal-viditelny="' + esc(kal.id) + '"' + (skryte.has(kal.id) ? '' : ' checked') + '>' +
       '<i style="--b:' + esc(kal.barva) + '"></i><span class="orez-1">' + esc(kal.nazev) + '</span></label>' +
       '<button type="button" class="odkaz" data-kal-jen="' + esc(kal.id) + '">jen tento</button></li>').join('') + '</ul>').join('')
     : '<p class="prazdne">Zatím žádný kalendář.</p>';
+  h += svatkySekceHtml(true);
   if (skryte.size) h += '<button type="button" class="btn btn--ghost btn--sm" data-kal-vse>Ukázat všechny</button>';
-  h += '</section><section><h3>Jmeniny</h3><label class="kal-jmeniny-prepinac"><input type="checkbox" data-kal-jmeniny' + (ukazJmeniny() ? ' checked' : '') + '>' +
-    '<span>Ukazovat jmeniny (kdo má svátek)</span></label>';
+  h += '</section><section class="jmeniny-sekce"><h3>★ Oblíbení lidé' + (oblibeni().length ? ' <small class="cisla">' + oblibeni().length + '</small>' : '') + '</h3>';
   if (!umiMotor('jmeninyUlozit')) return h + '<p class="napoveda">Oblíbené lidi ukáže nová verze motoru.</p></section></div>';
-  const obl = oblibeni();
-  h += '<p class="napoveda">Oblíbení lidé se v kalendáři zvýrazní hvězdičkou ★ – bez upozornění, jen k nahlédnutí.</p>' +
-    (obl.length ? '<ul class="jmeniny-oblibeni">' + obl.map((o, i) => {
-      const kdy = denJmena(o.jmeno);
-      return '<li><span><b>' + esc(o.jmeno) + '</b>' + (o.kdo ? ' <small>' + esc(o.kdo) + '</small>' : '') + '</span>' +
-        (kdy ? '<small class="cisla">' + Number(kdy.slice(3)) + '. ' + Number(kdy.slice(0, 2)) + '.</small>' : '') +
-        '<button type="button" class="btn btn--ikona btn--sm" data-jmeniny-odebrat="' + i + '" aria-label="Odebrat ' + esc(o.jmeno) + '">' + IKONY.zavrit + '</button></li>';
-    }).join('') + '</ul>' : '') +
-    '<div class="jmeniny-pridat"><input class="field" data-jmeniny-jmeno list="jmena-kalendare" placeholder="Jméno, např. Petra" autocomplete="off">' +
-    '<input class="field" data-jmeniny-kdo placeholder="Kdo (nepovinné)" maxlength="40">' +
-    '<button type="button" class="btn btn--primary btn--sm" data-jmeniny-pridat>' + IKONY.plus + '<span>Přidat</span></button></div>';
-  if (!datalistJmen) datalistJmen = vsechnaJmena().map((j) => '<option value="' + esc(j) + '"></option>').join('');
-  return h + '<datalist id="jmena-kalendare">' + datalistJmen + '</datalist></section></div>';
+  h += '<p class="napoveda">Jejich svátek uvidíš výrazně ★ v kalendáři, v „Brzy má svátek“ i v týdnu na Dnes – bez upozornění.</p>';
+  // seznam podle nejbližšího svátku (odebrat jde podle pořadí v uloženém seznamu)
+  const dnes = pulnoc(Date.now());
+  const serazeni = oblibeni().map((o, i) => {
+    const s = svatkyOblibenych([o], dnes)[0];
+    return { o, i, t: s ? s.t : Infinity, zaDni: s ? s.zaDni : null };
+  }).sort((a, b) => (a.t - b.t) || a.o.jmeno.localeCompare(b.o.jmeno, 'cs'));
+  if (serazeni.length) {
+    h += '<ul class="jmeniny-oblibeni">' + serazeni.map((x) => '<li' + (x.zaDni != null && x.zaDni <= 7 ? ' class="jo--brzy"' : '') + '>' +
+      '<span class="jo__kdo"><b>★ ' + esc(x.o.jmeno) + '</b>' + (x.o.kdo ? '<small>' + esc(x.o.kdo) + '</small>' : '') + '</span>' +
+      (x.zaDni != null ? '<span class="jo__kdy cisla"><b>' + esc(denKratce(x.t)) + '</b><small>' + zaDniText(x.zaDni) + '</small></span>'
+        : '<span class="jo__kdy"><small>bez svátku</small></span>') +
+      '<button type="button" class="btn btn--ikona btn--sm" data-jmeniny-odebrat="' + x.i + '" aria-label="Odebrat ' + esc(x.o.jmeno) + '">' + IKONY.zavrit + '</button></li>').join('') + '</ul>';
+  }
+  const p = pripravOblibene(hromadne.text, oblibeni(), hromadne.volby);
+  h += '<div class="jmeniny-hromadne"><label class="label" for="jmeniny-hromadne">Přidat lidi</label>' +
+    '<textarea class="field" id="jmeniny-hromadne" data-jmeniny-hromadne rows="2" autocomplete="off" spellcheck="false" ' +
+    'placeholder="Např. Pepa (děda), Verča, Saša – kolegyně">' + (hromadne.text.charAt(0) === '\n' ? '\n' : '') + esc(hromadne.text) + '</textarea>' +
+    '<p class="napoveda">Víc jmen odděl čárkou. Vztah do závorky nebo za pomlčku – nepovinné. Domácké tvary převedu na jméno z kalendáře (Pepa → Josef).</p>' +
+    '<div class="jmeniny-nahled" data-jmeniny-nahled>' + nahledHtml(p) + '</div>' +
+    '<div class="jmeniny-akce"><span class="napoveda" data-jmeniny-souhrn>' + esc(souhrnPridani(p)) + '</span>' +
+    '<button type="button" class="btn btn--primary btn--sm" data-jmeniny-pridat' + (p.pridano || p.doplneno ? '' : ' disabled') + '>' + IKONY.plus +
+    '<span>' + esc(popisPridani(p)) + '</span></button></div></div>';
+  return h + '</section></div>';
 }
+
+const denZKlice = (k) => (k ? Number(k.slice(3)) + '. ' + Number(k.slice(0, 2)) + '.' : '');
+
+/** Náhled hromadného přidání: co se přidá (i převod Pepa → Josef), co už je, kde vybrat, co svátek nemá. */
+function nahledHtml(p) {
+  if (!p.radky.length) return '';
+  const volba = (r, m) => '<button type="button" class="chip jn__volba" data-jmeniny-volba="' + esc(bezDiakritiky(r.text)) + '" data-jmeno="' + esc(m.jmeno) + '">' +
+    esc(m.jmeno) + ' <small class="cisla">' + denZKlice(m.den) + '</small></button>';
+  const kdo = (r) => (r.kdo ? '<small class="jn__vztah">' + esc(r.kdo) + '</small>' : '');
+  return '<ul class="jn">' + p.radky.map((r) => {
+    if (r.stav === 'pridat' || r.stav === 'doplnit' || r.stav === 'uz-je') {
+      const stitek = r.stav === 'pridat' ? '<span class="tag tag--ok">přidám</span>' : r.stav === 'doplnit' ? '<span class="tag">doplním vztah</span>'
+        : '<span class="tag tag--seda">už je</span>';
+      return '<li class="jn__radek jn--' + r.stav + '"><span class="jn__znak">' + (r.stav === 'uz-je' ? '=' : '✓') + '</span>' +
+        '<span class="jn__text">' + (r.prevod ? '<span class="jn__puvodni">' + esc(r.text) + ' →</span> ' : '') + '<b>' + esc(r.jmeno) + '</b>' + kdo(r) +
+        (r.zvoleno ? ' <button type="button" class="odkaz" data-jmeniny-volba="' + esc(bezDiakritiky(r.text)) + '" data-jmeno="">změnit</button>' : '') + '</span>' +
+        '<span class="jn__den cisla">' + denZKlice(r.den) + '</span>' + stitek + '</li>';
+    }
+    if (r.stav === 'vyber') {
+      return '<li class="jn__radek jn--vyber"><span class="jn__znak">?</span><span class="jn__text"><b>' + esc(r.text) + '</b>' + kdo(r) +
+        ' – které jméno?</span><span class="jn__volby">' + r.moznosti.map((m) => volba(r, m)).join('') + '</span></li>';
+    }
+    return '<li class="jn__radek jn--nezname"><span class="jn__znak">!</span><span class="jn__text"><b>' + esc(r.text) + '</b> – v kalendáři jmen není, svátek nemá' +
+      (r.navrhy.length ? '. Myslel jsi…' : '') + '</span>' + (r.navrhy.length ? '<span class="jn__volby">' + r.navrhy.map((m) => volba(r, m)).join('') + '</span>' : '') + '</li>';
+  }).join('') + '</ul>';
+}
+
+function popisPridani(p) {
+  if (p.pridano) return 'Přidat ' + p.pridano + (p.doplneno ? ' a doplnit ' + p.doplneno : '');
+  return p.doplneno ? 'Doplnit vztah' : 'Přidat';
+}
+
+function souhrnPridani(p) {
+  const pocet = (stav) => p.radky.filter((r) => r.stav === stav).length;
+  return [[pocet('vyber'), 'vyber jméno'], [pocet('nezname'), 'bez svátku'], [pocet('uz-je'), 'už je']]
+    .filter((x) => x[0]).map((x) => x[0] + '× ' + x[1]).join(' · ');
+}
+
+/** Při psaní: jen náhled a tlačítko (pole zůstane, jak je – i s kurzorem). */
+function prekresliNahled() {
+  const el = elementPanelu('kal-zobrazeni');
+  if (!el) return;
+  const p = pripravOblibene(hromadne.text, oblibeni(), hromadne.volby);
+  const n = el.querySelector('[data-jmeniny-nahled]');
+  if (n) n.innerHTML = nahledHtml(p);
+  const s = el.querySelector('[data-jmeniny-souhrn]');
+  if (s) s.textContent = souhrnPridani(p);
+  const b = el.querySelector('[data-jmeniny-pridat]');
+  if (b) { b.disabled = !(p.pridano || p.doplneno); b.querySelector('span').textContent = popisPridani(p); }
+}
+
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (!t || !t.matches || !t.matches('[data-jmeniny-hromadne]')) return;
+  hromadne.text = t.value;
+  prizpusobVysku(t);
+  prekresliNahled();
+});
 
 function poZmeneZobrazeni() {
   zmeneno();
   if (elementPanelu('kal-zobrazeni')) obnovPanel('kal-zobrazeni');
 }
 
-function ulozOblibene(seznam, tlacitko, zprava) {
+function ulozOblibene(seznam, tlacitko, zprava, poUlozeni) {
   tlacitko.disabled = true;
   volej('jmeninyUlozit', { oblibeni: seznam })
     .then((s) => {
       stav.info = Object.assign({}, stav.info, { jmeniny: s || [] });
       uloziste.pis('asistent.info', stav.info);
+      if (poUlozeni) poUlozeni();
       toast(zprava);
       poZmeneZobrazeni();
     })
     .catch((e) => { tlacitko.disabled = false; toast(e.message, true); });
 }
 
-function pridejOblibeneho(tlacitko) {
-  const el = elementPanelu('kal-zobrazeni');
-  if (!el) return;
-  const zadane = el.querySelector('[data-jmeniny-jmeno]').value.replace(/\s+/g, ' ').trim();
-  const kdo = el.querySelector('[data-jmeniny-kdo]').value.replace(/\s+/g, ' ').trim();
-  if (!zadane) { toast('Napiš jméno.', true); return; }
-  // tvar z kalendáře („eliska“ → Eliška); jméno, které v kalendáři není, nemá svátek
-  const jmeno = vsechnaJmena().find((j) => bezDiakritiky(j) === bezDiakritiky(zadane));
-  if (!jmeno || !denJmena(jmeno)) { toast('„' + zadane + '“ v kalendáři jmen není – zkus úřední tvar (Honza → Jan).', true); return; }
-  ulozOblibene(oblibeni().filter((o) => bezDiakritiky(o.jmeno) !== bezDiakritiky(jmeno) || o.kdo !== kdo).concat({ jmeno, kdo }), tlacitko, 'Přidáno: ' + jmeno);
+/** Hromadné přidání: všechna poznaná jména jedním uložením (motor jmeninyUlozit), bez duplicit. */
+function pridejHromadne(tlacitko) {
+  const p = pripravOblibene(hromadne.text, oblibeni(), hromadne.volby);
+  if (!p.pridano && !p.doplneno) { toast('Není koho přidat – zkontroluj jména v náhledu.', true); return; }
+  if (p.seznam.length > 60) { toast('Oblíbených může být nejvýš 60.', true); return; }
+  const jmena = p.radky.filter((r) => r.stav === 'pridat' || r.stav === 'doplnit').map((r) => r.jmeno);
+  const vypis = jmena.length > 4 ? jmena.slice(0, 3).join(', ') + ' a další ' + (jmena.length - 3) : jmena.join(', ');
+  // co se přidat nedalo (bez svátku, nevybrané), zůstane v poli i v náhledu – ať se to dá opravit
+  const zbyva = p.radky.filter((r) => r.stav === 'nezname' || r.stav === 'vyber');
+  const nahlas = zbyva.length ? ' · nepřidáno: ' + zbyva.map((r) => r.text).join(', ') : '';
+  ulozOblibene(p.seznam, tlacitko, (p.pridano ? 'Přidáno: ' : 'Doplněno: ') + vypis + nahlas, () => {
+    hromadne.text = zbyva.map((r) => r.text + (r.kdo ? ' (' + r.kdo + ')' : '')).join(', ');
+    hromadne.volby = {};
+  });
 }
 
 /** Zaškrtávání v okně Kalendáře a v bočním panelu (change). */
@@ -616,7 +785,11 @@ export function zmenaKalendar(e) {
     poZmeneZobrazeni();
     return true;
   }
-  if (t.matches('[data-kal-jmeniny]')) { uloziste.pis(UKAZ_JMENINY, t.checked); poZmeneZobrazeni(); return true; }
+  if (t.matches('[data-kal-svatky]')) {
+    uloziste.pis(t.dataset.kalSvatky === 'oblibeni' ? UKAZ_OBLIBENE : UKAZ_JMENINY, t.checked);
+    poZmeneZobrazeni();
+    return true;
+  }
   return false;
 }
 
@@ -693,7 +866,13 @@ export function klikKalendar(el) {
     return true;
   }
   if (el.hasAttribute('data-kal-vse')) { skryte = new Set(); ulozSkryte(); poZmeneZobrazeni(); return true; }
-  if (el.hasAttribute('data-jmeniny-pridat')) { pridejOblibeneho(el); return true; }
+  if (el.hasAttribute('data-jmeniny-pridat')) { pridejHromadne(el); return true; }
+  if (el.dataset.jmeninyVolba !== undefined) {
+    // výběr u nejednoznačného / podobného jména (prázdné = zrušit výběr)
+    if (el.dataset.jmeno) hromadne.volby[el.dataset.jmeninyVolba] = el.dataset.jmeno; else delete hromadne.volby[el.dataset.jmeninyVolba];
+    prekresliNahled();
+    return true;
+  }
   if (el.dataset.jmeninyOdebrat !== undefined) {
     const o = oblibeni()[Number(el.dataset.jmeninyOdebrat)];
     if (o) ulozOblibene(oblibeni().filter((x) => x !== o), el, 'Odebráno: ' + o.jmeno);

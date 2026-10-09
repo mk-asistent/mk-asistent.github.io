@@ -145,11 +145,23 @@ vždy Michal; po odeslání odpovědi se návrh zahodí sám. Nastavení → Po�
   omluveno, neomluveno) a jména bez omluvy. Zdroj: synchronizace Týmuj na webu dorostu (Firestore), motor čte souhrn
   (akce `dochazka`, 30 min v mezipaměti); texty omluv se do aplikace nepředávají.
 
-**Kalendáře a jmeniny** (tlačítko Kalendáře na liště, na PC i boční panel): zaškrtnutí, které kalendáře ukazovat – jen v sekci
+**Kalendáře a svátky** (tlačítko Kalendáře na liště, na PC i boční panel): zaškrtnutí, které kalendáře ukazovat – jen v sekci
 Kalendář a v tomhle zařízení (`asistent.kal.skryte`), „jen tento“, „Ukázat všechny“; úplné vypnutí kalendáře (motor ho
-nenačítá) zůstává v Nastavení → Kalendáře. **Jmeniny** (`js/jmeniny.js` – občanský kalendář podle české Wikipedie)
-v měsíci pod datem, v týdnu a v nadpisu dne; **oblíbení lidé** (`jmeninyUlozit`, vlastnost `JMENINY_OBLIBENI`, chodí
-s `info`) se zvýrazní ★ a v Seznamu mají i den bez událostí – bez upozornění. Státní svátky jsou kalendář Googlu.
+nenačítá) zůstává v Nastavení → Kalendáře. Pod kalendáři je sekce **Svátky** se dvěma řádky se zaškrtnutím (zase jen
+v Kalendáři a v zařízení): **Jmeniny** (`js/jmeniny.js` – občanský kalendář podle české Wikipedie; šedě a bez místa navíc:
+v měsíci vpravo vedle čísla dne, v týdnu pod datem, v nadpisu dne; `asistent.kal.jmeniny`) a **Oblíbení lidé**
+(`asistent.kal.oblibeni`) – jejich svátek je celodenní položka sekce Svátky: korálový čip ★ v měsíci a v „celý den“
+v týdnu, řádek „svátek · ★ jméno · vztah“ v seznamu dne a v Seznamu (i den bez událostí), na telefonu ★ v buňce a v pruhu
+dnů – bez upozornění. Karta **Brzy má svátek** (boční panel, na telefonu a iPadu pod měsícem) ukáže oblíbené se svátkem
+do 30 dní, klepnutí otevře ten den. **Týden na Dnes** má u každého ze 7 dní řádek se svátkem (i bez událostí, oblíbený ★
+korálově); klepnutí na den otevře kalendář na něm.
+
+Oblíbení (`jmeninyUlozit`, vlastnost `JMENINY_OBLIBENI`, chodí s `info`, nejvýš 60) se přidávají v okně Kalendáře a svátky
+**hromadně**: „Pepa (děda), Verča, Saša – kolegyně“ – víc jmen oddělených čárkou (nebo „a“), vztah v závorce či za pomlčkou.
+Náhled hned při psaní: domácké tvary převede na jméno z kalendáře (Pepa → Josef, Honza → Jan, Verča → Veronika –
+slovník `DOMACKE_ZDROJ` v `js/jmeniny.js`), jiný pravopis taky (Kristina → Kristýna), nejednoznačné nabídne k výběru (Saša
+→ Alexandr / Alexandra), jméno bez svátku řekne nahlas (s podobnými jmény), duplicity přeskočí a známému bez vztahu vztah
+doplní; vše se uloží jedním voláním (co přidat nešlo, zůstane v poli k opravě). Státní svátky jsou kalendář Googlu.
 
 ## Fotbal
 Stránka **Fotbal** (levý pruh, na telefonu šipka v kartě Fotbal na Dnes): přepínač týmů, souhrn místa v tabulce,
@@ -443,6 +455,7 @@ poštu oddělí a odpovídá z adresy, na kterou zpráva přišla.
 ## Testy
 ```
 node apps-script/test/ics.test.js      # kalendář .ics: opakování, zóny, výjimky
+node testy/test_jmeniny.mjs            # svátky: domácké tvary, výběr, hromadné přidání oblíbených bez duplicit, nejbližší svátek
 node apps-script/test/motor.test.js    # motor s napodobenými službami Googlu, ČHMÚ, WHOOP
 cd testy && npm i && npx playwright install chromium && node test_aplikace.js   # telefon, iPad, PC, tmavý režim
 JEN=telefon node test_aplikace.js      # jen testy, jejichž název obsahuje „telefon“
