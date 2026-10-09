@@ -664,6 +664,7 @@ export function klikNastaveni(el) {
       ton: 'nebezpeci', ano: 'Odpojit' }).then((ano) => {
       if (!ano) return;
       ucet.odhlas().then(() => {
+        window.asistentBezSnimku = true;
         uloziste.klice('asistent.').forEach((k) => uloziste.smaz(k));
         zapomenPripojeni();
         location.reload();
@@ -672,6 +673,7 @@ export function klikNastaveni(el) {
     return true;
   }
   if (akce === 'smazat-data') {
+    window.asistentBezSnimku = true; // snímek stránky (asistent.data.snimek) se smaže s daty a před přenačtením už neuloží
     uloziste.klice('asistent.data.').concat(uloziste.klice('asistent.koncept.')).forEach((k) => uloziste.smaz(k));
     toast('Uložená data smazána');
     setTimeout(() => location.reload(), 600);

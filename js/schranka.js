@@ -256,8 +256,22 @@ function filtryHtml(pocty) {
       '<span class="pocet cisla">' + v[2] + '</span></button>').join('') + '</div>' + temataHtml + '</div>';
 }
 
+// Rozepsaná odpověď Claudovi (pole v rozbalené položce na Dnes i ve Schránce): přežije překreslení – dřív ji smazalo
+// každé načtení dat (kopie ze serveru, zdraví…), i když se v seznamu nic nezměnilo.
+const rozepsane = {}; // id položky → text
+/** Do polí odpovědí po překreslení vrátí rozepsaný text (app.js na Dnes, vykresliSchranku tady). */
+export function obnovRozepsane(koren) {
+  koren.querySelectorAll('textarea[data-odpoved]').forEach((t) => {
+    const v = rozepsane[t.dataset.odpoved];
+    if (v && t.value !== v) t.value = v;
+  });
+}
+
+// seznam a filtry se přepíšou jen při změně HTML (rozbalená položka s polem, fokus a posun zůstanou)
+let posledniFiltry = null, posledniObsah = null;
 export function vykresliSchranku(el) {
   if (!el.querySelector('#schranka-obsah')) {
+    posledniFiltry = posledniObsah = null;
     // vlevo zápis, filtry a seznam; vpravo přehled (na telefonu a iPadu na výšku pod seznamem). Pole pro zápis se
     // vytváří jen jednou – překreslování ho nemaže.
     el.innerHTML = '<div class="schranka-mrizka"><div class="schranka-hlavni">' + zapisHtml() +
@@ -273,6 +287,7 @@ export function vykresliSchranku(el) {
   if (!stav.schranka) {
     el.querySelector('#schranka-filtry').innerHTML = '';
     obsah.innerHTML = '<div class="card">' + (stav.chyby.schranka ? chybaHtml(stav.chyby.schranka, 'data-schranka-znovu') : kostra(4)) + '</div>';
+    posledniFiltry = posledniObsah = null;
     vykresliBok(el, null);
     return;
   }
@@ -284,7 +299,8 @@ export function vykresliSchranku(el) {
   sk.napad.sort((a, b) => b.kdy - a.kdy);
   const pocty = {};
   Object.keys(sk).forEach((k) => { pocty[k] = sk[k].length; });
-  el.querySelector('#schranka-filtry').innerHTML = filtryHtml(pocty);
+  const filtry = filtryHtml(pocty);
+  if (filtry !== posledniFiltry) { el.querySelector('#schranka-filtry').innerHTML = filtry; posledniFiltry = filtry; }
 
   let h = stav.chyby.schranka ? '<p class="pruh pruh-varovani">' + esc(stav.chyby.schranka.message) + ' Ukazuju naposledy načtené.</p>' : '';
   // čeká u Clauda déle než 3 h a Claude schránku dlouho nezpracoval → naplánovaná úloha neběží (PC vypnuté / uspané)
@@ -309,7 +325,7 @@ export function vykresliSchranku(el) {
       (sbalit ? '<button type="button" class="agenda__vic" data-hotovo-vse>Ukázat všech ' + pol.length + ' vyřízených</button>' : '') + '</div></section>';
   });
   if (!neco) h += prazdnaHtml(napadyBokem && sk.napad.length);
-  obsah.innerHTML = h;
+  if (h !== posledniObsah) { obsah.innerHTML = h; posledniObsah = h; obnovRozepsane(obsah); }
   vykresliBok(el, sk);
 }
 
@@ -457,6 +473,7 @@ export function klikSchranka(el) {
     el.disabled = true;
     volej('polozka', { id, jak, text }).then(() => {
       delete stav.otevrene[id];
+      if (jak === 'odpoved') delete rozepsane[id];
       toast({ hotovo: 'Hotovo', zahodit: 'Zahozeno', udelej: 'Předáno Claudovi', odpoved: 'Odpověď předána Claudovi' }[jak]);
       return nactiSchranku();
     }).catch((e) => { el.disabled = false; toast(e.message, true); });
@@ -468,6 +485,7 @@ export function klikSchranka(el) {
 
 export function vstupSchranka(e) {
   const t = e.target;
+  if (t.matches && t.matches('[data-odpoved]')) { rozepsane[t.dataset.odpoved] = t.value; return true; }
   if (!t.matches || !t.matches('[data-zapis]')) return false;
   prizpusobVysku(t);
   const zapis = t.closest('.zapis');
@@ -549,7 +567,7 @@ async function upravPolozku(jak, id) {
       const hotova = p.slozka === 'HOTOVO';
       const text = await okno({ ikona: IKONY.psat, nadpis: hotova ? 'Navázat na vyřízenou poznámku' : 'Dopsat k poznámce',
         text: (hotova ? 'Poznámka se vrátí ke zpracování a ' : '') + 'Claude doplnění vezme jako nový pokyn.',
-        pole: { popisek: 'Doplnění', radku: 4, placeholder: 'Co dalšího… (Ctrl+Enter uloží)' }, ano: 'Uložit' });
+        pole: { popisek: 'Doplnění', radku: 4, placeholder: 'Co dalšího…' + (window.matchMedia('(hover: hover) and (pointer: fine)').matches ? ' (Ctrl+Enter uloží)' : '') }, ano: 'Uložit' });
       if (!text) return;
       await volej('polozka', { id, jak: 'dopsat', text });
       toast('Doplněno – zpracuju při další schránce');

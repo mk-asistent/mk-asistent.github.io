@@ -235,7 +235,9 @@ const INSTRUMENTACE = () => {
     if (m.cekamNa && document.querySelector(m.cekamNa)) { m.znacky[m.cekamNaZnacku] = Math.round(performance.now()); m.cekamNa = null; }
   };
   new MutationObserver((zaznamy) => {
-    for (const z of zaznamy) if (z.target.id === 'hlava' && z.addedNodes.length) { m.vykresleni++; break; }
+    // překreslení = jedna dávka změn v #aplikace (vykreslení proběhne najednou v jedné mikroúloze)
+    const apl = document.getElementById('aplikace');
+    if (apl && zaznamy.some((z) => apl.contains(z.target))) m.vykresleni++;
     kontrola();
   }).observe(document, { childList: true, subtree: true });
 };
@@ -249,6 +251,8 @@ const SBER = () => {
   const skripty = zdroje.filter((e) => /\.js(\?|$)/.test(e.name));
   return {
     fcp: fcp == null ? null : Math.round(fcp), znacky: m.znacky, vykresleni: m.vykresleni,
+    // značky aplikace: start.js, okamžitý snímek, start modulů (app.js start) a první vykreslení aplikace
+    aplikace: ['asistent-start-js', 'asistent-snimek', 'asistent-start', 'asistent-vykresleno'].reduce((o, n) => { const e = performance.getEntriesByName(n)[0]; o[n.replace('asistent-', '')] = e ? Math.round(e.startTime) : -1; return o; }, {}),
     dlouhe: { pocet: m.dlouhe.length, soucet: m.dlouhe.reduce((s, x) => s + x[1], 0), max: m.dlouhe.reduce((s, x) => Math.max(s, x[1]), 0) },
     ls: { n: m.ls.n, kB: Math.round(m.ls.b / 1024), ms: Math.round(m.ls.ms) }, lsZapis: { n: m.lsZapis.n, kB: Math.round(m.lsZapis.b / 1024), ms: Math.round(m.lsZapis.ms) },
     json: { n: m.json.n, kB: Math.round(m.json.b / 1024), ms: Math.round(m.json.ms) },
@@ -290,6 +294,7 @@ async function beh(prohlizec, sc) {
     await p.reload();
     await p.waitForFunction(() => window.__mereni && window.__mereni.znacky.dnes != null && navigator.serviceWorker.controller, null, { timeout: 30000 });
     await p.waitForTimeout(3500); // přednačtení pošty (2,5 s v klidu) a zápisy do zařízení
+    await p.evaluate(() => window.dispatchEvent(new Event('pagehide'))); // odchod z aplikace (snímek pro příští start)
     await p.close();
   }
   // na serveru mezitím přibyla nová konverzace (hoří) – kdy ji aplikace ukáže na Dnes
@@ -304,25 +309,26 @@ async function beh(prohlizec, sc) {
   }
   S.volano = [];
   // STOPA=1: záznam výkonu prohlížeče (Chrome DevTools → Performance → Load profile) do testy/vystup/stopa.json
-  if (process.env.STOPA) await prohlizec.startTracing(page, { categories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'v8.execute', 'v8',
+  if (process.env.STOPA && process.env.STOPA !== 'znovu') await prohlizec.startTracing(page, { categories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'v8.execute', 'v8',
     'disabled-by-default-v8.cpu_profiler', 'blink.user_timing', 'loading'] });
   await page.goto(WEB, { waitUntil: 'commit' });
   await page.waitForFunction(() => window.__mereni && window.__mereni.znacky.cerstve != null, null, { timeout: 30000 }).catch(() => { chyby.push('čerstvá data se neukázala do 30 s'); });
   await page.waitForTimeout(1500);
-  if (process.env.STOPA) {
-    fs.mkdirSync(path.join(__dirname, 'vystup'), { recursive: true });
-    fs.writeFileSync(path.join(__dirname, 'vystup', 'stopa.json'), await prohlizec.stopTracing());
-  }
+  fs.mkdirSync(path.join(__dirname, 'vystup'), { recursive: true });
+  if (process.env.STOPA && process.env.STOPA !== 'znovu') fs.writeFileSync(path.join(__dirname, 'vystup', 'stopa.json'), await prohlizec.stopTracing());
   const v = await page.evaluate(SBER);
   v.motor = S.volano.slice();
   v.chyby = chyby;
-  if (process.env.ZNOVU) {
-    // totéž ještě jednou ve stejném procesu prohlížeče (teplá mezipaměť písem a kódu) – pro porovnání
+  if (process.env.ZNOVU || sc.znovu) {
+    // totéž ještě jednou ve stejném procesu prohlížeče (teplá mezipaměť písem a kódu) – méně závislé na Windows a písmech
+    if (process.env.STOPA === 'znovu') await prohlizec.startTracing(page, { categories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'v8.execute', 'v8',
+      'disabled-by-default-v8.cpu_profiler', 'blink.user_timing', 'loading'] });
     await page.reload({ waitUntil: 'commit' });
     await page.waitForFunction(() => window.__mereni && window.__mereni.znacky.dnes != null, null, { timeout: 30000 }).catch(() => { /* nic */ });
     await page.waitForTimeout(2500);
+    if (process.env.STOPA === 'znovu') fs.writeFileSync(path.join(__dirname, 'vystup', 'stopa.json'), await prohlizec.stopTracing());
     const z = await page.evaluate(SBER);
-    console.log('    znovu: FCP ' + z.fcp + ' · Dnes ' + z.znacky.dnes + ' · dlouhé ' + JSON.stringify(z.dlouhe));
+    v.znovu = { fcp: z.fcp, znacky: z.znacky, dlouhe: z.dlouhe, vykresleni: z.vykresleni };
   }
   if (sc.prace) v.prace = await prace(page, sc);
   await ctx.close();
@@ -349,7 +355,12 @@ async function prace(page, sc) {
   }, cil);
   for (const cil of ['posta', 'kalendar', 'zdravi', 'schranka', 'fotbal', 'auto', 'dnes']) {
     S.volano = [];
+    // STOPA=prepnuti_posta (…) – záznam výkonu jen při tomhle přepnutí
+    const stopa = process.env.STOPA === 'prepnuti_' + cil;
+    if (stopa) await page.context().browser().startTracing(page, { categories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'v8.execute',
+      'disabled-by-default-v8.cpu_profiler'] });
     v['prepnuti_' + cil] = await prepni(cil);
+    if (stopa) fs.writeFileSync(path.join(__dirname, 'vystup', 'stopa.json'), await page.context().browser().stopTracing());
     await page.waitForTimeout(900); // dotažení dat stránky (to se neměří)
     v['prepnuti_' + cil].motor = S.volano.slice();
   }
@@ -416,12 +427,12 @@ async function prace(page, sc) {
 
 // ---------------------------------------------------------------- scénáře a souhrn
 const SCENARE = [
-  { nazev: 'telefon teply start (SW, ucet, CPU 4x, pomale 4G)', sirka: 390, vyska: 844, cpu: 4, sit: 'pomala4g', ucet: true, start: 'teply', prace: true },
+  { nazev: 'telefon teply start (SW, ucet, CPU 4x, pomale 4G)', sirka: 390, vyska: 844, cpu: 4, sit: 'pomala4g', ucet: true, start: 'teply', prace: true, znovu: true },
   { nazev: 'telefon studeny start (bez mezipameti, data v zarizeni)', sirka: 390, vyska: 844, cpu: 4, sit: 'pomala4g', ucet: true, start: 'studeny' },
   { nazev: 'telefon prvni start (nic v zarizeni)', sirka: 390, vyska: 844, cpu: 4, sit: 'pomala4g', ucet: true, start: 'prvni' },
   { nazev: 'telefon teply start bez uctu (jen motor)', sirka: 390, vyska: 844, cpu: 4, sit: 'pomala4g', ucet: false, start: 'teply' },
   { nazev: 'pc teply start (SW, ucet, 1920, CPU 1x)', sirka: 1920, vyska: 1080, cpu: 1, sit: 'rychla', ucet: true, start: 'teply', prace: true },
-  { nazev: 'pc teply start (SW, ucet, 1440, CPU 4x)', sirka: 1440, vyska: 900, cpu: 4, sit: 'rychla', ucet: true, start: 'teply', prace: true }
+  { nazev: 'pc teply start (SW, ucet, 1440, CPU 4x)', sirka: 1440, vyska: 900, cpu: 4, sit: 'rychla', ucet: true, start: 'teply', prace: true, znovu: true }
 ];
 
 const median = (cisla) => { const s = cisla.filter((x) => typeof x === 'number' && x >= 0).sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : null; };
@@ -460,10 +471,14 @@ function souhrn(behy) {
     const z = s.znacky || {};
     console.log('\n■ ' + sc.nazev + '  (medián z ' + behy.length + ')');
     console.log('  FCP ' + s.fcp + ' ms · aplikace ' + z.aplikace + ' · Dnes s daty ' + z.dnes + ' · týden ' + z.tyden + ' · čerstvá data ' + z.cerstve + ' ms');
+    const ap = s.aplikace || {};
+    console.log('  start.js ' + ap['start-js'] + ' · snímek ' + ap.snimek + ' · moduly naběhly ' + ap.start + ' · aplikace vykreslena ' + ap.vykresleno + ' ms');
     console.log('  překreslení ' + s.vykresleni + ' · dlouhé úlohy ' + s.dlouhe.pocet + ' (' + s.dlouhe.soucet + ' ms, max ' + s.dlouhe.max + ') · localStorage čtení ' +
       s.ls.n + '× ' + s.ls.kB + ' kB ' + s.ls.ms + ' ms, zápis ' + s.lsZapis.n + '× ' + s.lsZapis.kB + ' kB ' + s.lsZapis.ms + ' ms · JSON.parse ' + s.json.n + '× ' + s.json.kB + ' kB ' + s.json.ms + ' ms');
     console.log('  soubory ' + s.zdroje.pocet + ' (skriptů ' + s.zdroje.skripty + ', poslední ' + s.zdroje.posledniSkript + ' ms) · přeneseno ' + s.zdroje.prenos_kB + ' kB · rozbaleno ' +
       s.zdroje.dekod_kB + ' kB · motor: ' + s.motor.join(', '));
+    if (s.znovu) console.log('  znovu ve stejném procesu (teplá písma a kód): FCP ' + s.znovu.fcp + ' · Dnes s daty ' + (s.znovu.znacky || {}).dnes + ' ms · dlouhé úlohy ' +
+      s.znovu.dlouhe.pocet + ' (' + s.znovu.dlouhe.soucet + ' ms, max ' + s.znovu.dlouhe.max + ')');
     if (s.prace) {
       const p = s.prace;
       console.log('  přepnutí: ' + Object.keys(p).filter((k) => /^prepnuti_/.test(k)).map((k) => k.slice(9) + ' ' + p[k].ms + ' ms (dlouhé ' + p[k].dlouhe + ', překr. ' + p[k].vykresleni + ')').join(' · '));

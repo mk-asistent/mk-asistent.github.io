@@ -312,7 +312,7 @@ function mesiceHtml(p) {
       const x = m(k), celkem = x.palivo + x.ostatni, mes = Number(k.slice(5));
       const v = (y) => (y ? Math.max(3, Math.round(y / max * 118)) : 0);
       return '<button type="button" class="auto-sloupec"' + bublina(MESICE_1[mes - 1] + ' ' + k.slice(0, 4), celkem ? kc(celkem) : 'žádné výdaje', rozpisMesice(x)) + '>' +
-        '<span class="auto-sloupec__cislo cisla">' + (celkem ? (celkem >= 1000 ? JEDNO.format(celkem / 1000) + ' tis.' : CELE.format(celkem)) : '') + '</span>' +
+        '<span class="auto-sloupec__cislo cisla">' + (celkem ? (celkem >= 1000 ? JEDNO.format(celkem / 1000) + '<i> tis.</i>' : CELE.format(celkem)) : '') + '</span>' +
         '<span class="auto-sloupec__ostatni" style="height:' + v(x.ostatni) + 'px"></span><span class="auto-sloupec__palivo" style="height:' + v(x.palivo) + 'px"></span>' +
         '<small>' + esc(MES_KR[mes - 1]) + (i === 0 || mes === 1 ? '<i>' + k.slice(0, 4) + '</i>' : '') + '</small></button>';
     }).join('') + '</div>' +
