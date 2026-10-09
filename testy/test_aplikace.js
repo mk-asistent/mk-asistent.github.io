@@ -623,7 +623,9 @@ function vychoziVikendTestu() {
         jistota(await page.locator('#dl-tyden .agenda__u').count() >= 1 && !(await page.locator('.ukazatel, .tyden-graf').count()), 'týden jako výpis');
         jistota(/Silné bouřky/.test(await page.textContent('.vystraha')), 'výstraha ČHMÚ');
         jistota(await vidim(v.sirka < 760 ? '.mini-kpi[data-pocasi]' : '#dnes-kpi [data-pocasi]'), 'karta počasí');
-        if (v.sirka >= 760) jistota(await page.locator('#dl-pozornost [data-vlakno="v1"]').count() === 1 && await page.locator('#dl-pozornost [data-polozka-id="c1"]').count() === 1, 'pozornost: úkol i pošta v jednom seznamu');
+        // pošta má od 9. 10. vlastní kartu (jen co čeká a nepřečtené), ve „Vyžaduje pozornost“ jsou úkoly a rozhodnutí
+        if (v.sirka >= 760) jistota(await page.locator('#dl-posta:not([hidden]) [data-vlakno="v1"]').count() === 1 && await page.locator('#dl-pozornost [data-polozka-id="c1"]').count() === 1 &&
+          !(await page.locator('#dl-pozornost [data-vlakno]').count()), 'pozornost: úkoly ve Vyžaduje pozornost, pošta ve vlastní kartě');
         if (v.sirka < 760) {
           jistota(await vidim('.hero') && await vidim('.lista__plus') && !(await vidim('#dnes-kpi')), 'telefon: hlavní karta a + v liště');
           jistota(await page.locator('.pozornost .pozor').count() >= 2, 'telefon: Vyžaduje pozornost');
@@ -755,6 +757,229 @@ function vychoziVikendTestu() {
     }
   }
 
+  // ---------- Dnes (Michal 9. 10.): malé dlaždice v horní liště místo řady velkých čísel – počasí, připravenost, nepřečtené,
+  // denní kroužky (šířky 2 : 2 : 1 : 1 podle nákresu); nic nepřetéká ani se netlačí přes hledání; jinde lišta jako dřív
+  const SIRKY_HORNI = [VELIKOSTI[3], { nazev: 'pc-siroke', sirka: 1650, vyska: 1000, dotyk: false }, VELIKOSTI[2], VELIKOSTI[1],
+    { nazev: 'ipad-uzky', sirka: 768, vyska: 1024, dotyk: true }];
+  await test('Dnes: horní dlaždice – obsah, pořadí a šířky 2 : 2 : 1 : 1, nic nepřetéká ani nezakrývá hledání (PC, iPad)', async () => {
+    for (const v of SIRKY_HORNI) {
+      for (const motiv of v.nazev === 'pc' ? ['light', 'dark'] : ['light']) {
+        const kde = v.nazev + (motiv === 'dark' ? '-tmavy' : '') + ': ';
+        const { ctx, page, chybyStranky } = await novaStranka(prohlizec, v, motiv);
+        await page.goto(WEB);
+        await page.waitForFunction(() => document.querySelector('#horni #dnes-kpi [data-krouzky]') &&
+          /72/.test((document.querySelector('#dnes-kpi [data-cil="zdravi"]:not([data-krouzky])') || {}).textContent || '') &&
+          /°C/.test((document.querySelector('#dnes-kpi [data-pocasi]') || {}).textContent || '') && document.querySelector('#dl-posta:not([hidden]) [data-vlakno]'));
+        const m = await page.evaluate(() => {
+          const r = (el) => { const b = el.getBoundingClientRect(); return { l: Math.round(b.left), r: Math.round(b.right), w: Math.round(b.width), h: Math.round(b.height) }; };
+          const dl = [...document.querySelectorAll('#dnes-kpi > .hd')];
+          return {
+            druhy: dl.map((x) => (x.hasAttribute('data-pocasi') ? 'pocasi' : x.hasAttribute('data-krouzky') ? 'krouzky' : x.dataset.cil)),
+            sirky: dl.map((x) => x.getBoundingClientRect().width),
+            pretece: dl.filter((x) => x.scrollWidth > x.clientWidth + 1 || x.scrollHeight > x.clientHeight + 1).map((x) => x.className + ' ' + x.scrollWidth + '/' + x.clientWidth),
+            hledat: r(document.querySelector('#horni .hledat-tl')), dlazdice: r(document.getElementById('dnes-kpi')), akce: r(document.querySelector('#horni .horni__akce')),
+            horni: r(document.getElementById('horni')),
+            strana: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            texty: dl.map((x) => ['.hd__hodnota', '.hd__popis'].map((s) => ((x.querySelector(s) || {}).textContent || '').replace(/\s+/g, ' ').trim()).join(' | ')),
+            krouzky: document.querySelector('#dnes-kpi [data-krouzky]').getAttribute('aria-label') || '',
+            kruhy: document.querySelectorAll('#dnes-kpi [data-krouzky] svg circle').length,
+            velkaCisla: document.querySelectorAll('#p-dnes .kpi').length
+          };
+        });
+        jistota(m.druhy.join() === 'pocasi,zdravi,posta,krouzky', kde + 'pořadí dlaždic: ' + m.druhy.join());
+        // širší = dva sloupce užší + mezera 8 px
+        jistota(Math.abs(m.sirky[0] - m.sirky[1]) < 1.5 && Math.abs(m.sirky[2] - m.sirky[3]) < 1.5 && Math.abs(m.sirky[0] - (2 * m.sirky[2] + 8)) < 2,
+          kde + 'šířky nejsou 2 : 2 : 1 : 1: ' + m.sirky.map(Math.round).join(' : '));
+        jistota(m.sirky[3] >= 50, kde + 'užší dlaždice moc úzká: ' + Math.round(m.sirky[3]));
+        jistota(!m.pretece.length, kde + 'obsah dlaždice přetéká: ' + m.pretece.join(' | '));
+        jistota(m.hledat.r <= m.dlazdice.l - 4 && m.dlazdice.r <= m.akce.l - 4 && m.hledat.w >= 40, kde + 'dlaždice se tlačí přes hledání nebo tlačítka: ' +
+          JSON.stringify([m.hledat, m.dlazdice, m.akce]));
+        jistota(m.akce.r <= m.horni.r && m.horni.h <= 80 && m.strana <= 0, kde + 'lišta přetéká nebo je moc vysoká: ' + JSON.stringify([m.horni, m.akce, m.strana]));
+        jistota(/°C/.test(m.texty[0]) && /^72/.test(m.texty[1]) && /Připravenost · spánek 6:30/.test(m.texty[1]) && m.texty[2] === '1 | 1 čeká',
+          kde + 'obsah dlaždic: ' + m.texty.join(' ¦ '));
+        jistota(/Voda 0,0 \/ 2,5 l/.test(m.krouzky) && /Bílkoviny 0 \/ 130 g/.test(m.krouzky) && /Pohyb 4\s000 \/ 8\s000 kroků \(50 %\)/.test(m.krouzky) && m.kruhy === 4,
+          kde + 'kroužky: ' + m.krouzky + ' · kruhů ' + m.kruhy);
+        jistota(!m.velkaCisla, kde + 'na Dnes zůstala řada velkých čísel');
+        await page.locator('#horni').screenshot({ path: path.join(VYSTUP, v.nazev + (motiv === 'dark' ? '-tmavy' : '') + '_horni_dlazdice.png') });
+        jistota(!chybyStranky.length, kde + 'chyby stránky: ' + chybyStranky.join(' | '));
+        await ctx.close();
+      }
+    }
+  });
+
+  await test('Dnes: horní dlaždice – klepnutí: kroužky a připravenost do Zdraví, nepřečtené do Pošty; jinde lišta bez dlaždic', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.waitForSelector('#dnes-kpi [data-krouzky]');
+    await page.click('#dnes-kpi [data-krouzky]');
+    await page.waitForSelector('#p-zdravi:not([hidden]) .zdravi-hero');
+    jistota(!(await page.locator('#horni .hd, #horni.horni--dnes').count()), 'na Zdraví lišta bez dlaždic');
+    await page.click('#rail [data-cil="dnes"]');
+    await page.click('#dnes-kpi [data-filtr-posty="neprectene"]');
+    await page.waitForSelector('#posta-filtry [data-filtr-posty="neprectene"][aria-pressed="true"]');
+    await page.waitForSelector('#posta-seznam [data-vlakno="v1"]');
+    jistota(await page.locator('#posta-seznam [data-vlakno]').count() === 1, 'Pošta: jen nepřečtené');
+    jistota(!(await page.locator('#horni .hd').count()) && await page.isVisible('#horni [data-psat="novy"]'), 'na Poště lišta jako dřív');
+    await page.click('#rail [data-cil="dnes"]');
+    await page.click('#dnes-kpi [data-cil="zdravi"]:not([data-krouzky])');
+    await page.waitForSelector('#p-zdravi:not([hidden]) .zdravi-hero');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  // ---------- Dnes: pošta zvlášť (Michal 9. 10.: „když je vyřízena pošta, tak se nemusí zobrazit – aby bylo jasno, že mám
+  // přečteno a vyřízeno, nebo ne“): karta jen s tím, co čeká, a nepřečtenými; Aktualizace jedním řádkem; telefon obdobně
+  await test('Dnes: pošta zvlášť – karta jen s čekající a nepřečtenou poštou, vyřízená = schovaná, Aktualizace jedním řádkem (PC i telefon)', async () => {
+    const vyrizena = Object.assign({}, vlaknoSouhrn.v1, { stav: 'resi', neprectena: false, navrh: false });
+    try {
+      let { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-posta:not([hidden]) [data-vlakno="v1"]');
+      jistota(/Pošta · 1/.test(await page.textContent('#dl-posta .card-hlava')) && !(await page.locator('#dl-posta [data-vlakno="v2"]').count()), 'karta Pošta: jen co čeká');
+      jistota(/2 věci čekají na tebe · 1 e-mail k vyřízení/.test(await page.textContent('#hlava')), 'podnadpis: ' + await page.textContent('#hlava'));
+      jistota(/Vyžaduje pozornost · 2/.test(await page.textContent('#dl-pozornost .card-hlava')), 'Vyžaduje pozornost sedí s podnadpisem');
+      await page.locator('#dl-posta').screenshot({ path: path.join(VYSTUP, 'pc_dnes_posta.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+      // vše přečtené a vyřízené → karta není, v liště fajfka „vše přečteno“, v podnadpisu „pošta vyřízená“
+      postaNavic = { osobni: [vyrizena] };
+      ({ ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]));
+      await page.goto(WEB);
+      await page.waitForSelector('#dnes-kpi .hd--hotovo');
+      await page.waitForSelector('#dl-pozornost .seznam');
+      jistota(await page.locator('#dl-posta').isHidden(), 'karta Pošta po vyřízení schovaná');
+      jistota(/vše\s*přečteno/.test(await page.textContent('#dnes-kpi .hd--hotovo')), 'lišta: vše přečteno');
+      jistota(/pošta vyřízená/.test(await page.textContent('#hlava')), 'podnadpis: ' + await page.textContent('#hlava'));
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_dnes_posta_vyrizena.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+      // jen nepřečtené Aktualizace → karta s jedním řádkem, klepnutí → Pošta, záložka Aktualizace, nepřečtené
+      postaNavic = { osobni: [vyrizena, { id: 'v5', ucet: 'osobni', stav: 'info', aktualizace: true, od: 'Obchod Test', predmet: 'Zásilka čeká ve výdejním boxu',
+        ukazka: 'Vyzvedněte do pátku.', kdy: ted - 3 * H, neprectena: true, pocet: 1, odkaz: '#' }] };
+      ({ ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]));
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-posta:not([hidden]) .dl-posta__aktualizace');
+      jistota(/1 nepřečtený v Aktualizacích/.test(await page.textContent('#dl-posta')) && !(await page.locator('#dl-posta [data-vlakno]').count()), 'řádek Aktualizací');
+      await page.click('#dl-posta .dl-posta__aktualizace');
+      await page.waitForSelector('.posta-kategorie [data-kategorie-posty="aktualizace"][aria-selected="true"]');
+      await page.waitForSelector('#posta-seznam [data-vlakno="v5"]');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+      // telefon: Pošta jako vlastní seznam pod „Vyžaduje pozornost“, v malých číslech kroužky místo Dalšího zápasu
+      postaNavic = {};
+      ({ ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]));
+      await page.goto(WEB);
+      await page.waitForSelector('.pozornost--posta [data-vlakno="v1"]');
+      await page.waitForSelector('.mini-kpi[data-krouzky] svg');
+      jistota(await page.locator('.mini-kpi').count() === 3 && !(await page.locator('.mini-kpi[data-oblast="fotbal"]').count()), 'telefon: tři malá čísla bez Dalšího zápasu');
+      jistota(!(await page.locator('.pozornost:not(.pozornost--posta) [data-vlakno]').count()), 'telefon: pošta jen ve svém seznamu');
+      jistota(/0,0 l/.test(await page.textContent('.mini-kpi[data-krouzky]')) && /4\s000/.test(await page.textContent('.mini-kpi[data-krouzky]')), 'telefon: kroužky s hodnotami');
+      jistota(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, 'telefon: Dnes přetéká do strany');
+      jistota(await page.evaluate(() => [...document.querySelectorAll('.mini-kpi')].every((x) => x.scrollWidth <= x.clientWidth + 1)), 'telefon: malé číslo přetéká');
+      await page.locator('#dnes-mobil').screenshot({ path: path.join(VYSTUP, 'telefon_dnes_krouzky_posta.png') });
+      await ctx.close();
+      postaNavic = { osobni: [vyrizena] };
+      ({ ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0], 'dark'));
+      await page.goto(WEB);
+      await page.waitForSelector('.pozornost .pozor');
+      await page.waitForFunction(() => /pošta vyřízená/.test(document.getElementById('hlava').textContent));
+      jistota(!(await page.locator('.pozornost--posta').count()), 'telefon: vyřízená pošta bez seznamu');
+      await page.locator('#dnes-mobil').screenshot({ path: path.join(VYSTUP, 'telefon-tmavy_dnes_posta_vyrizena.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    } finally {
+      postaNavic = {};
+    }
+  });
+
+  // ---------- levý pás (Michal 9. 10.): mimo Dnes jen ikony s počty – víc místa na práci; po najetí myší nebo fokusu
+  // klávesnicí se rozbalí přes obsah (stránka neposkočí), připnout = celý všude (pamatuje si zařízení)
+  await test('levý pás: mimo Dnes jen ikony s počty, najetí myší i klávesnice ho rozbalí přes obsah, připnout a odepnout', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.waitForSelector('#rail [data-cil="posta"] .pocet');
+    const rozmery = () => page.evaluate(() => ({
+      pas: Math.round(document.getElementById('rail').getBoundingClientRect().width),
+      obsah: Math.round(document.querySelector('.hlavni').getBoundingClientRect().left),
+      popisky: [...document.querySelectorAll('#rail .rail__btn > span:not(.pocet)')].filter((s) => s.getClientRects().length).length,
+      rozbaleny: document.getElementById('rail').classList.contains('rozbaleny'),
+      uzky: document.getElementById('aplikace').classList.contains('rail-uzky') }));
+    const pockej = async (fn, popis) => {
+      for (let i = 0; i < 60; i++) { const r = await rozmery(); if (fn(r)) return r; await page.waitForTimeout(50); }
+      throw new Error('Nedočkal jsem se: ' + popis + ' ' + JSON.stringify(await rozmery()));
+    };
+    let r = await rozmery();
+    jistota(!r.uzky && r.pas === 236 && r.popisky >= 9 && r.obsah === 236, 'na Dnes celý pás: ' + JSON.stringify(r));
+    await page.click('#rail [data-cil="posta"]');
+    await page.waitForSelector('#posta-seznam [data-vlakno]');
+    r = await pockej((x) => x.uzky && x.pas <= 76, 'úzký pás na Poště');
+    jistota(!r.rozbaleny && r.popisky === 0 && r.obsah === 76, 'na Poště jen ikony: ' + JSON.stringify(r));
+    jistota(await page.locator('#rail [data-cil="posta"] .pocet').isVisible() && await page.locator('#rail [data-cil="kalendar"] svg').isVisible(), 'ikony a počet v odznaku');
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_pas_uzky.png') });
+    // klepnutí na ikonu (myš zůstane nad pásem) vybere sekci a pás se nerozbalí přes otevřenou stránku
+    await page.click('#rail [data-cil="kalendar"]');
+    await page.waitForSelector('#p-kalendar:not([hidden])');
+    await page.waitForTimeout(400);
+    r = await rozmery();
+    jistota(!r.rozbaleny && r.pas <= 76, 'po klepnutí na ikonu zůstal pás rozbalený: ' + JSON.stringify(r));
+    // najetí myší: rozbalí se přes obsah, obsah zůstane na místě; odjetí ho sbalí
+    await page.mouse.move(700, 450);
+    await page.hover('#rail [data-cil="schranka"]');
+    r = await pockej((x) => x.rozbaleny && x.pas >= 236 && x.popisky >= 9, 'rozbalení po najetí');
+    jistota(r.obsah === 76, 'rozbalený pás posunul stránku: ' + JSON.stringify(r));
+    jistota(await page.locator('#rail [data-rail-pripnout]').isVisible(), 'tlačítko Připnout');
+    await page.waitForTimeout(250);
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_pas_rozbaleny.png') });
+    await page.mouse.move(800, 450);
+    await pockej((x) => !x.rozbaleny && x.pas <= 76, 'sbalení po odjetí myší');
+    // klávesnice: Shift+Tab z hledání skočí do pásu (Nastavení) → rozbalí se; Escape ho sbalí
+    await page.focus('#horni [data-hledat]');
+    await page.keyboard.press('Shift+Tab');
+    await pockej((x) => x.rozbaleny, 'rozbalení fokusem z klávesnice');
+    jistota(await page.evaluate(() => !!document.activeElement.closest('#rail')), 'fokus v pásu');
+    await page.keyboard.press('Escape');
+    await pockej((x) => !x.rozbaleny, 'Escape sbalí');
+    // připnout: pás zůstane celý i mimo Dnes (i po obnovení), odepnout vrátí ikony
+    await page.hover('#rail [data-cil="schranka"]');
+    await pockej((x) => x.rozbaleny, 'rozbalení před připnutím');
+    await page.click('#rail [data-rail-pripnout]');
+    await pockej((x) => !x.uzky && x.obsah === 236 && x.pas === 236, 'připnutý pás');
+    jistota(await page.evaluate(() => localStorage.getItem('asistent.rail')) === '"pripnuty"', 'připnutí v zařízení');
+    await page.evaluate(() => localStorage.removeItem('asistent.videno')); // bez okna „Co je nového“ po obnovení
+    await page.reload();
+    await page.waitForSelector('#p-kalendar:not([hidden])');
+    r = await rozmery();
+    jistota(!r.uzky && r.pas === 236 && r.popisky >= 9, 'po obnovení pořád připnutý: ' + JSON.stringify(r));
+    jistota(await page.getAttribute('#rail [data-rail-pripnout]', 'aria-pressed') === 'true', 'tlačítko ukazuje připnuto');
+    await page.click('#rail [data-rail-pripnout]');
+    await pockej((x) => x.uzky && x.pas <= 76 && !x.rozbaleny && x.obsah === 76, 'odepnutí');
+    jistota(await page.evaluate(() => localStorage.getItem('asistent.rail')) === null, 'odepnutí v zařízení');
+    // zpátky na Dnes: celý pás
+    await page.click('#rail [data-cil="dnes"]');
+    await pockej((x) => !x.uzky && x.pas === 236 && x.obsah === 236, 'na Dnes zase celý pás');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  await test('levý pás na iPadu: ikony všude (i na Dnes), najetí myší ho rozbalí přes obsah, bez připnutí', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[1]);
+    await page.goto(WEB);
+    await page.waitForSelector('#rail [data-cil="posta"] .pocet');
+    const pas = () => page.evaluate(() => ({ w: Math.round(document.getElementById('rail').getBoundingClientRect().width),
+      obsah: Math.round(document.querySelector('.hlavni').getBoundingClientRect().left), rozbaleny: document.getElementById('rail').classList.contains('rozbaleny') }));
+    let r = await pas();
+    jistota(r.w === 76 && r.obsah === 76 && !r.rozbaleny, 'iPad: úzký pás na Dnes: ' + JSON.stringify(r));
+    await page.hover('#rail [data-cil="kalendar"]');
+    await page.waitForFunction(() => document.getElementById('rail').classList.contains('rozbaleny') && document.getElementById('rail').getBoundingClientRect().width >= 236);
+    r = await pas();
+    jistota(r.obsah === 76, 'iPad: rozbalení posunulo stránku: ' + JSON.stringify(r));
+    jistota(!(await page.locator('#rail [data-rail-pripnout]').isVisible()), 'iPad: připnout až od 1180 px');
+    await page.mouse.move(600, 600);
+    await page.waitForFunction(() => !document.getElementById('rail').classList.contains('rozbaleny'));
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
   // ---------- kalendář: nový zápas (i s novým kalendářem Zápasy), úprava, smazání, iCloud jen čtení, rozpis, klepnutí do týdne
   await test('kalendář: zápas, úprava, smazání, rozpis dorostu, nová událost z týdne', async () => {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
@@ -851,7 +1076,7 @@ function vychoziVikendTestu() {
   await test('hledání: Ctrl K, místní výsledky, celá pošta, české filtry, klávesy v Poště', async () => {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
     await page.goto(WEB);
-    await page.waitForFunction(() => document.querySelectorAll('#dl-pozornost .radek-posta').length === 1);
+    await page.waitForFunction(() => document.querySelectorAll('#dl-posta .radek-posta').length === 1); // pošta na Dnes ve vlastní kartě
     await page.keyboard.press('Control+K');
     await page.waitForSelector('[data-panel="hledat"] [data-hledat-pole]');
     await page.keyboard.type('sraz');
@@ -1421,7 +1646,7 @@ function vychoziVikendTestu() {
     jistota(dotaz && dotaz.poloha.lat === 48.93 && dotaz.poloha.lon === 17.3, 'poloha do motoru zaokrouhlená: ' + JSON.stringify(dotaz && dotaz.poloha));
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => /Teď · Strážnice/.test((document.getElementById('dnes-kpi') || {}).textContent || ''));
-    jistota(/12/.test(await page.textContent('#dnes-kpi .kpi')), 'teplota teď');
+    jistota(/12/.test(await page.textContent('#dnes-kpi [data-pocasi]')), 'teplota teď'); // dlaždice v horní liště (od 9. 10.)
     jistota(meteo >= 1, 'Open-Meteo se nezavolalo');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
@@ -2328,7 +2553,7 @@ function vychoziVikendTestu() {
   await test('Auto na telefonu: v menu, přehled bez přetékání, „+“ → Tankování, barvy oblastí na Dnes', async () => {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0], 'dark');
     await page.goto(WEB);
-    await page.waitForSelector('.mini-kpi[data-oblast="fotbal"]');
+    await page.waitForSelector('.mini-kpi[data-krouzky]'); // malá čísla od 9. 10.: počasí, připravenost, kroužky (Další zápas je v kartě Fotbal)
     await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_dnes_barvy.png'), fullPage: true });
     await page.click('.hlava-ja [data-menu]');
     await page.click('[data-panel="menu"] [data-menu-cil="auto"]');

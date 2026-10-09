@@ -241,9 +241,17 @@ main { padding: 4px var(--mezera) calc(var(--lista-h) + env(safe-area-inset-bott
 }
 .lista__btn[aria-current="page"] .odznak { position: static; box-shadow: none; }
 
-/* ---------- postranní panel (iPad: jen ikony, PC: s popisky) ---------- */
-.rail__logo { display: flex; align-items: center; gap: 10px; width: 100%; padding: 2px 4px 14px; border: 0; border-bottom: 1px solid var(--line-soft); margin-bottom: 8px;
+/* ---------- postranní panel (iPad: jen ikony, PC: na Dnes s popisky, jinde jen ikony a po najetí rozbalený přes obsah).
+   Ikony mají ve všech podobách stejné místo (střed úzkého pásu 76 px) – při rozbalení se nehnou, jen přibudou popisky. */
+.rail__hlava { display: flex; align-items: flex-start; gap: 6px; border-bottom: 1px solid var(--line-soft); margin-bottom: 8px; }
+.rail__logo { display: flex; flex: 1; min-width: 0; align-items: center; gap: 10px; padding: 2px 4px 14px 7px; border: 0;
     background: none; color: inherit; text-align: left; border-radius: 0; }
+.rail__logo > div, .rail__btn > span:not(.pocet), .rail__ja > div { white-space: nowrap; }
+.rail__pripnout { display: none; flex: none; width: 30px; height: 30px; margin-top: 6px; place-items: center; border: 1px solid var(--line); border-radius: 9px;
+    background: var(--surface); color: var(--muted); }
+.rail__pripnout:hover { background: var(--sand); color: var(--text); }
+.rail__pripnout svg { width: 15px; height: 15px; }
+.rail__pripnout[aria-pressed="true"] { background: var(--accent-tint); border-color: transparent; color: var(--accent); }
 .rail__logo:hover .znak { filter: brightness(1.15); }
 .rail__logo .znak { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; background: var(--tmava); color: #fff; flex: none; }
 .rail__logo .znak svg { width: 21px; height: 21px; }
@@ -251,7 +259,7 @@ main { padding: 4px var(--mezera) calc(var(--lista-h) + env(safe-area-inset-bott
 .rail__logo small { display: block; font-size: 11.5px; color: var(--muted); }
 .rail__sekce { margin: 12px 10px 4px; font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
 .rail__btn {
-    position: relative; display: flex; align-items: center; gap: 11px; width: 100%; padding: 8px 10px; border: 0; border-radius: 10px;
+    position: relative; display: flex; align-items: center; gap: 11px; width: 100%; padding: 8px 10px 8px 17px; border: 0; border-radius: 10px;
     background: none; color: var(--text-soft); font-size: 13.5px; font-weight: 550; text-align: left;
 }
 .rail__btn:hover { background: var(--sand); color: var(--text); }
@@ -260,7 +268,7 @@ main { padding: 4px var(--mezera) calc(var(--lista-h) + env(safe-area-inset-bott
 .rail__btn[aria-current="page"] svg { color: var(--accent); }
 .rail__btn .pocet { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--oranz); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; }
 .rail__spodek { margin-top: auto; display: flex; flex-direction: column; gap: 4px; }
-.rail__ja { display: flex; align-items: center; gap: 10px; padding: 10px 8px 2px; border-top: 1px solid var(--line-soft); margin-top: 6px; }
+.rail__ja { display: flex; align-items: center; gap: 10px; padding: 10px 8px 2px 10px; border-top: 1px solid var(--line-soft); margin-top: 6px; }
 .rail__ja .avatar { width: 32px; height: 32px; font-size: 11.5px; }
 .rail__ja b { display: block; font-size: 12.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail__ja small { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
@@ -273,16 +281,20 @@ main { padding: 4px var(--mezera) calc(var(--lista-h) + env(safe-area-inset-bott
     :root { --mezera: 26px; }
     .aplikace { display: grid; grid-template-columns: var(--rail-w) minmax(0, 1fr); }
     .rail {
-        display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; z-index: 30;
-        padding: calc(14px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
-        background: var(--surface); border-right: 1px solid var(--line);
+        display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-x: hidden; overflow-y: auto; z-index: 30;
+        width: var(--rail-w); padding: calc(14px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
+        background: var(--surface); border-right: 1px solid var(--line); transition: width .2s ease, box-shadow .2s ease;
     }
-    /* iPad: jen ikony */
-    .rail__logo { justify-content: center; padding-inline: 0; }
+    /* úzký pás (iPad vždy, PC mimo Dnes): jen ikony s počty v odznacích */
     .rail__logo > div, .rail__sekce, .rail__btn > span:not(.pocet), .rail__ja > div { display: none; }
-    .rail__btn { justify-content: center; padding: 10px 0; }
+    .rail__btn { padding: 10px 0 10px 17px; }
     .rail__btn .pocet { position: absolute; top: 3px; right: 6px; min-width: 17px; height: 17px; font-size: 10px; padding: 0 4px; }
-    .rail__ja { justify-content: center; padding-inline: 0; }
+    /* rozbalený přes obsah (najetí myší, fokus klávesnicí): sloupec mřížky zůstává úzký – stránka neposkočí; nadpisy sekcí
+       zůstávají schované, ať se tlačítka při rozbalení neposouvají dolů */
+    .rail.rozbaleny { width: var(--panel-w); box-shadow: var(--shadow-pop); }
+    .rail.rozbaleny .rail__logo > div, .rail.rozbaleny .rail__btn > span:not(.pocet), .rail.rozbaleny .rail__ja > div { display: block; animation: rail-popisek .22s ease both; }
+    .rail.rozbaleny .rail__btn { padding-right: 10px; }
+    .rail.rozbaleny .rail__btn .pocet { position: static; min-width: 20px; height: 20px; font-size: 11px; padding: 0 6px; }
     .lista { display: none; }
     main { padding-bottom: 40px; }
     .horni { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: calc(14px + env(safe-area-inset-top)) var(--mezera) 4px; }
@@ -293,12 +305,20 @@ main { padding: 4px var(--mezera) calc(var(--lista-h) + env(safe-area-inset-bott
     .toast { bottom: 26px !important; }
 }
 @media (min-width: 1180px) {
-    .aplikace { grid-template-columns: var(--panel-w) minmax(0, 1fr); }
-    .rail__logo { justify-content: flex-start; padding-inline: 4px; }
-    .rail__logo > div, .rail__sekce, .rail__btn > span:not(.pocet), .rail__ja > div { display: block; }
-    .rail__btn { justify-content: flex-start; padding: 8px 10px; }
-    .rail__btn .pocet { position: static; min-width: 20px; height: 20px; font-size: 11px; padding: 0 6px; }
-    .rail__ja { justify-content: flex-start; padding-inline: 8px; }
+    /* PC: celý pás s popisky na Dnes a připnutý; jinde (.rail-uzky, js/app.js) úzký jako na iPadu */
+    .aplikace:not(.rail-uzky) { grid-template-columns: var(--panel-w) minmax(0, 1fr); }
+    .aplikace:not(.rail-uzky) .rail { width: var(--panel-w); }
+    .aplikace:not(.rail-uzky) .rail__logo > div, .aplikace:not(.rail-uzky) .rail__sekce, .aplikace:not(.rail-uzky) .rail__btn > span:not(.pocet),
+    .aplikace:not(.rail-uzky) .rail__ja > div { display: block; }
+    .aplikace:not(.rail-uzky) .rail__btn { padding: 8px 10px 8px 17px; }
+    .aplikace:not(.rail-uzky) .rail__btn .pocet { position: static; min-width: 20px; height: 20px; font-size: 11px; padding: 0 6px; }
+    /* připnout (rozbalený) / odepnout – jen mimo Dnes */
+    .rail.rozbaleny .rail__pripnout, .aplikace:not(.rail-uzky) .rail__pripnout { display: grid; }
+}
+@keyframes rail-popisek { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+    .rail { transition: none !important; }
+    .rail.rozbaleny .rail__logo > div, .rail.rozbaleny .rail__btn > span, .rail.rozbaleny .rail__ja > div { animation: none !important; }
 }
 .jen-siroke { display: none; }
 @media (min-width: 760px) { .jen-siroke { display: inline; } }
@@ -420,6 +440,92 @@ button.legenda-radek { width: 100%; background: none; border: 0; text-align: lef
 .tmava-karta small { display: block; font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
 .tmava-karta b { display: block; margin-top: 2px; font-size: 15px; font-weight: 650; }
 .tmava-karta span { display: block; font-size: 12.5px; opacity: .8; }
+
+/* ================================================================ Dnes: malé dlaždice v horní liště, denní kroužky, pošta zvlášť
+   Michal 9. 10.: „počasí, připravenost a nepřečtené nemusí být tak velké – můžou to být menší dlaždice, primárně přehledové;
+   denní kroužky do malého okénka k tomu“ (nákres: do prázdného místa lišty mezi hledáním a tlačítky, šířky asi 2 : 2 : 1 : 1);
+   Další zápas pryč (je v kartě Fotbal a v týdnu). Na užší liště se zmenší hledání, „+ Poznámka“ na „+“ a ubývají popisky,
+   čísla zůstanou (kontejnerové dotazy: lišta „horni“, dlaždice „hd“). Telefon má vlastní řadu malých čísel. */
+.hledat-tl__kratce { display: none; }
+.horni--dnes { container: horni / inline-size; }
+.horni--dnes .hledat-tl, .horni--dnes .horni__akce { flex: none; }
+/* stejné sloupce, širší dlaždice přes dva (chybí-li dlaždice – motor bez zdraví –, ostatní se roztáhnou) */
+.horni__dlazdice { container: hd / inline-size; flex: 1 1 0; min-width: 0; max-width: 860px; display: grid; grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr); gap: 8px; }
+.hd {
+    min-width: 0; height: 44px; display: flex; align-items: center; gap: 9px; padding: 0 11px;
+    border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: inherit; text-align: left; overflow: hidden;
+    transition: border-color .14s, background-color .14s;
+}
+.hd--siroka { grid-column: span 2; }
+.hd[data-oblast] { background: color-mix(in srgb, var(--o) 7%, var(--surface)); border-color: color-mix(in srgb, var(--o) 24%, var(--line)); }
+.hd:hover { border-color: color-mix(in srgb, var(--o, var(--sand-2)) 50%, var(--line)); }
+.hd:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hd__ikona { flex: none; display: grid; place-items: center; color: var(--o, var(--muted)); }
+.hd__ikona svg { width: 18px; height: 18px; }
+.hd__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.hd__hodnota { display: flex; align-items: baseline; gap: 3px; min-width: 0; font-size: 15.5px; line-height: 1.15; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; }
+.hd__hodnota small { font-size: 11.5px; font-weight: 600; letter-spacing: 0; color: var(--muted); }
+.hd__popis { display: block; min-width: 0; font-size: 11.5px; line-height: 1.25; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hd__pozor { display: inline-grid; align-self: center; margin-left: 2px; color: var(--oranz); }
+.hd__pozor svg { width: 13px; height: 13px; }
+.hd__hori { font-style: normal; font-weight: 650; color: var(--oranz); }
+/* připravenost: číslo v barvě zóny WHOOP (zelená ≥ 67, žlutá 34–66, červená ≤ 33) */
+.hd--zelena .hd__hodnota { color: var(--ok); }
+.hd--zluta .hd__hodnota { color: var(--zluta); }
+.hd--cervena .hd__hodnota { color: var(--danger); }
+.hd--zelena .hd__hodnota small, .hd--zluta .hd__hodnota small, .hd--cervena .hd__hodnota small { color: inherit; opacity: .75; }
+/* užší dlaždice: ikona s číslem v řádku, popisek pod nimi přes celou šířku */
+.hd--uzka { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "ikona hodnota" "popis popis"; align-content: center;
+    align-items: center; gap: 1px 5px; padding: 0 10px; }
+.hd--uzka .hd__text { display: contents; }
+.hd--uzka .hd__ikona { grid-area: ikona; }
+.hd--uzka .hd__ikona svg { width: 15px; height: 15px; }
+.hd--uzka .hd__hodnota { grid-area: hodnota; }
+.hd--uzka .hd__popis { grid-area: popis; }
+.hd--hotovo .hd__ikona { color: var(--ok); }
+/* denní kroužky (js/krouzky.js): voda, bílkoviny, pohyb – zvenku dovnitř */
+.hd--krouzky { display: flex; justify-content: center; gap: 6px; padding: 0 8px; }
+.krouzky { flex: none; width: 34px; height: 34px; }
+.krouzky circle { fill: none; stroke-width: 4.4; }
+.krouzky__draha { stroke: color-mix(in srgb, var(--k) 20%, transparent); }
+.krouzky__hodnota { stroke: var(--k); stroke-linecap: round; }
+.krouzky--voda { --k: var(--o-pocasi); }
+.krouzky--bilkoviny { --k: var(--oranz); }
+.krouzky--pohyb { --k: var(--o-fotbal); }
+.krouzky-legenda { display: flex; flex-direction: column; min-width: 0; font-size: 10.5px; line-height: 1.22; font-weight: 650; color: var(--text-soft);
+    font-variant-numeric: tabular-nums; white-space: nowrap; }
+.krouzky-legenda__radek { display: flex; align-items: center; gap: 4px; }
+.krouzky-legenda__radek i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--k); }
+@container horni (max-width: 1239px) { .hledat-tl { width: 280px; } }
+@container horni (max-width: 1059px) { .hledat-tl { width: 220px; } .hledat-tl kbd { display: none; } }
+@container horni (max-width: 899px) {
+    .hledat-tl { width: auto; }
+    .hledat-tl .hledat-tl__text { display: none; }
+    .hledat-tl .hledat-tl__kratce { display: block; }
+    .horni__akce .btn--primary { padding: 0 11px; }
+    .horni__akce .btn--primary span { display: none; }
+}
+@container hd (max-width: 599px) { .krouzky-legenda { display: none; } }
+@container hd (max-width: 430px) { .hd--uzka .hd__popis { display: none; } .hd--siroka { gap: 7px; padding: 0 9px; } }
+@container hd (max-width: 330px) { .hd--siroka .hd__popis { display: none; } }
+
+/* karta Pošta na Dnes – jen když něco čeká nebo je nepřečtené (Michal 9. 10.: „aby bylo jasno, že mám přečteno a vyřízeno“) */
+.dl-posta .dlazdice__telo { max-height: 470px; }
+.dl-posta__aktualizace { display: flex; align-items: center; gap: 8px; width: calc(100% - 24px); margin: 4px 12px 12px; padding: 8px 12px; border: 0;
+    border-radius: var(--radius); background: var(--sand); color: var(--text-soft); font-size: 13px; font-weight: 600; text-align: left; }
+.dl-posta__aktualizace:hover { background: var(--sand-2); color: var(--text); }
+.dl-posta__aktualizace svg { flex: none; width: 15px; height: 15px; }
+.dl-posta__aktualizace span { flex: 1; min-width: 0; }
+@media (max-width: 759px) {
+    /* telefon: kroužky v řadě malých čísel, nepřečtený e-mail s tečkou, Aktualizace jako bílý řádek */
+    .mini-kpi--krouzky { align-items: flex-start; gap: 8px; }
+    .mini-kpi--krouzky .krouzky { width: 44px; height: 44px; }
+    .mini-kpi--krouzky .krouzky-legenda { font-size: 11.5px; line-height: 1.3; }
+    .pozor--neprect .pozor__text b::before { content: ""; display: inline-block; width: 7px; height: 7px; margin: 0 6px 2px 0; border-radius: 50%;
+        background: var(--oranz); vertical-align: middle; }
+    .pozornost--posta .dl-posta__aktualizace { width: 100%; margin: 10px 0 0; padding: 12px 14px; border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
+}
 
 /* ================================================================ Zdraví (WHOOP + Apple Watch) */
 .pohled-zdravi { max-width: 1180px; }
