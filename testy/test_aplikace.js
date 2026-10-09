@@ -476,7 +476,7 @@ async function novaStranka(prohlizec, v, motiv, volby) {
   return { ctx, page, chybyStranky };
 }
 
-// html2canvas z cdnjs (stahuje se až při obrázku plakátu) – v testu bez sítě: „vykreslí“ plakát snímkem Playwrightu
+// html2canvas (js/vendor, načte se až při obrázku plakátu) – v testu napodobený: „vykreslí“ plakát snímkem Playwrightu
 // (__snimekPlakatu) a zapíše, co dostal (neškálovaný uzel 1400 × 990, měřítko)
 const H2C_TEST = `window.html2canvas = async function (uzel, volby) {
   window.__h2c = (window.__h2c || []).concat([{ sirka: uzel.offsetWidth, vyska: uzel.offsetHeight, meritko: volby.scale,
@@ -496,8 +496,8 @@ const H2C_TEST = `window.html2canvas = async function (uzel, volby) {
 };`;
 async function napodobHtml2canvas(page) {
   await page.exposeBinding('__snimekPlakatu', async ({ page: p }) => (await p.locator('.plakat-export .poster').screenshot()).toString('base64'));
-  await page.route('https://cdnjs.cloudflare.com/**', (route) => route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8',
-    headers: { 'Access-Control-Allow-Origin': '*' }, body: H2C_TEST }));
+  await page.route('**/js/vendor/html2canvas.min.js', (route) => route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8',
+    body: H2C_TEST }));
 }
 /** Rozměry JPEG (z dat obrázku) – šířka × výška. */
 function rozmerJpeg(b) {
@@ -1996,21 +1996,24 @@ function vychoziVikendTestu() {
     }
   });
 
-  await test('Plakáty: stažení obrázku – html2canvas z cdnjs až při stažení, neškálovaný plakát 1400 × 990, JPEG 2 800 px', async () => {
+  await test('Plakáty: stažení obrázku – html2canvas z aplikace až při stažení (nic z cizích serverů), neškálovaný plakát 1400 × 990, JPEG 2 800 px', async () => {
     fotbalPlakat = true;
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3], 'light', PRAHA);
     try {
       await napodobHtml2canvas(page);
-      const cdnjs = [];
-      page.on('request', (r) => { if (/cdnjs\.cloudflare\.com/.test(r.url())) cdnjs.push(r.url()); });
+      const knihovna = [], cizi = [];
+      page.on('request', (r) => {
+        if (/\/js\/vendor\/html2canvas\.min\.js$/.test(r.url())) knihovna.push(r.url());
+        if (/cdnjs|unpkg|jsdelivr/.test(r.url())) cizi.push(r.url());
+      });
       await page.goto(WEB);
       await page.click('#rail [data-cil="plakaty"]');
       await page.waitForSelector('#p-plakaty [data-pl-vyber]');
       await naVikend(page, '2026-10-17', 'MILOTICE');
-      jistota(!cdnjs.length, 'knihovna se stáhla předem');
+      jistota(!knihovna.length, 'knihovna se stáhla předem');
       const [stazeni] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), page.click('#p-plakaty [data-pl-stahnout]')]);
       jistota(stazeni.suggestedFilename() === 'plakat_2026-10-17.jpg', 'název souboru: ' + stazeni.suggestedFilename());
-      jistota(cdnjs.length === 1 && /html2canvas\/1\.4\.1\/html2canvas\.min\.js$/.test(cdnjs[0]), 'knihovna z cdnjs: ' + cdnjs.join());
+      jistota(knihovna.length === 1 && !cizi.length, 'knihovna: ' + knihovna.join() + ' · cizí servery: ' + cizi.join());
       const h2c = await page.evaluate(() => window.__h2c);
       jistota(h2c.length === 1 && h2c[0].sirka === 1400 && h2c[0].vyska === 990 && h2c[0].meritko === 2 && h2c[0].transform === 'none' && /MILOTICE/.test(h2c[0].text),
         'html2canvas dostal: ' + JSON.stringify(h2c).slice(0, 200));

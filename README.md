@@ -227,7 +227,7 @@ FK Agro Vnorovy přenesená do aplikace – tvoření i tisk fungují stejně:
   doma, řádky mládeže, venku, v týdnu, patička – přidat a smazat, změna hned v náhledu, uložení 700 ms po psaní (motor).
   Přeložené zápasy a poznámky svazu z fotbal.cz ukáže editor nahoře („přeloženo z so 24. 10. 11:45 na ne 25. 10. 11:45“).
 - **Vytisknout / PDF**: A3, na šířku, okraje žádné, grafika na pozadí (`@page` 420 × 297 mm, tiskne se jen plakát).
-- **Stáhnout obrázek**: JPEG 2 800 px (html2canvas 1.4.1 z cdnjs se stáhne až při prvním obrázku; na iPhonu nabídka sdílení
+- **Stáhnout obrázek**: JPEG 2 800 px (html2canvas 1.4.1 v `js/vendor/` – načte se až při prvním obrázku, cizí skript do aplikace s klíčem nepouštíme; na iPhonu nabídka sdílení
   → Uložit obrázek).
 
 Odkud plakát je: zápasy **A-týmu, B-týmu a dorostu** z fotbal.cz (`stav.fotbal`, FOTBAL.json) – doma velké dlaždice, venku

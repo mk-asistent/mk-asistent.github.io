@@ -16,8 +16,10 @@ import * as P from './plakat.js';
 const ULOZISTE = 'asistent.data.plakaty';
 const OTISKY = 'asistent.plakaty.otisky';   // víkend → otisk plakátu, ze kterého jsou obrázky na Instagramu (v tomhle zařízení)
 const CESTY = { znaky: 'plakat/znaky/', qr: 'plakat/qr/instagram.png' };
-// knihovna na obrázek z plakátu – stahuje se až při prvním stažení obrázku nebo plánu na Instagram (CSP: cdnjs)
-const HTML2CANVAS = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+// knihovna na obrázek z plakátu – stahuje se až při prvním stažení obrázku nebo plánu na Instagram. Je přímo v aplikaci
+// (html2canvas 1.4.1, MIT – bajtově stejná jako cdnjs i balíček npm, ověřeno 9. 10. 2026), ne z cizího serveru: v aplikaci
+// je v zařízení klíč motoru a cizí skript by k němu měl přístup.
+const HTML2CANVAS = 'js/vendor/html2canvas.min.js';
 const PISMA = ['400 40px Anton', '700 20px "Roboto Condensed"', '600 20px "Roboto Condensed"'];
 const ULOZIT_PO = 700;        // ms po posledním písmenu (jako web dorostu)
 const SIRKA = 1400, VYSKA = 990;
@@ -542,7 +544,7 @@ async function tiskni() {
 window.addEventListener('beforeprint', () => { if (stav.pohled === 'plakaty') document.documentElement.classList.add('tisk-plakatu'); });
 window.addEventListener('afterprint', () => document.documentElement.classList.remove('tisk-plakatu'));
 
-// ---------------------------------------------------------------- obrázek (html2canvas z cdnjs, načte se až při použití)
+// ---------------------------------------------------------------- obrázek (html2canvas, načte se až při použití)
 
 let knihovna = null;
 function nactiHtml2canvas() {
