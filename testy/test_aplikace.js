@@ -31,6 +31,11 @@ const vlaknoSouhrn = {
   v1: { id: 'v1', ucet: 'osobni', stav: 'otazka', navrh: true, od: 'Trenér', predmet: 'Sraz v sobotu', ukazka: 'Ahoj, sraz v 8:30. Stihneš to?', kdy: ted - H, neprectena: true, pocet: 1, odkaz: '#', stitky: ['Fotbal'] },
   v2: { id: 'v2', ucet: 'pracovni', stav: 'cekas', od: 'Investor', predmet: 'Protokol', ukazka: 'Posílám protokol.', kdy: ted - 2 * H, neprectena: false, pocet: 2, odkaz: '#' }
 };
+// poslední zpráva vlákna je ta ze souhrnu (jako v motoru) – aplikace podle času pozná, jestli je přednačtený detail aktuální
+const kdySouhrnu = (id) => {
+  const m = [vlaknoSouhrn.v1, vlaknoSouhrn.v2].concat(promoVlakna, postaNavic.osobni || [], postaNavic.pracovni || []).find((x) => x && x.id === id);
+  return m ? m.kdy : ted - H;
+};
 const KALENDARE = [{ id: 'g1', nazev: 'Osobní', barva: '#2f6bff', zdroj: 'google', skryty: false, zapis: true, druh: 'osobni' },
   { id: 'ics-1', nazev: 'Rodina', barva: '#e2860a', zdroj: 'icloud', skryty: false, druh: 'rodina' }];
 const zapasFotbal = (tym, dni, h, domaci, hoste, vysledek) => ({ id: tym + dni, tym, zacatek: new Date(den(dni, h)).toISOString(), domaci, hoste,
@@ -56,7 +61,16 @@ const motor = {
     JSON.parse(JSON.stringify(postaNavic))),
   // záložky jako v Gmailu: Promoakce (k1 nepřečtená, k2 přečtená), přesun do štítku, přečíst vše
   postaKategorie: (d) => ({ kategorie: d.kategorie, vlakna: d.kategorie === 'promo' ? JSON.parse(JSON.stringify(promoVlakna)) : [], ted }),
-  postaPresunout: (d) => { postaPresuny.push({ id: d.id, stitek: d.stitek, pridat: d.pridat, archivovat: d.archivovat }); return { id: d.id, stitky: [d.stitek], archivovano: !!d.archivovat }; },
+  postaPresunout: (d) => {
+    postaPresuny.push({ id: d.id, stitek: d.stitek, pridat: d.pridat, archivovat: d.archivovat, odebrat: d.odebrat, doDorucenych: d.doDorucenych });
+    return { id: d.id, stitky: d.pridat === false ? [] : [d.stitek], archivovano: !!d.archivovat };
+  },
+  // přednačtení detailů (motor 2026-10-09.4): stejný tvar jako vlakno, nic nepřečte
+  postaDetaily: (d) => {
+    const detaily = {};
+    (d.ids || []).slice(0, 10).forEach((x) => { const id = x.id || x; detaily[id] = motor.vlakno({ id }); });
+    return { detaily, chyby: {}, vynechano: [], ted: Date.now() };
+  },
   postaPrectene: (d) => {
     postaPrecteno.push(d.kategorie);
     const ids = promoVlakna.filter((m) => m.neprectena).map((m) => m.id);
@@ -66,7 +80,7 @@ const motor = {
   vlakno: (d) => ({ id: d.id, predmet: d.id === 'v1' ? 'Sraz v sobotu' : 'Protokol', odkaz: '#', vDorucenych: true, skryto: 0, ucet: d.id === 'v1' ? 'osobni' : 'pracovni',
     navrhOdpovedi: d.id === 'v1' && !navrhZahozen ? { zpravaId: 'm-v1', text: 'Ahoj, budu tam v 8:15.', kdy: new Date(ted).toISOString(), poznamka: '' } : undefined,
     zpravy: (d.id === 'v1' ? [{ id: 'm-starsi', od: 'Já', odAdresa: 'tester@example.com', odeMe: true, komu: 'trener@klub.test', kopie: '', kdy: ted - 30 * H, predmet: 'Sraz',
-      text: 'Kdy je sraz?', html: '', prilohy: [] }] : []).concat([{ id: 'm-' + d.id, od: 'Trenér', odAdresa: 'trener@klub.test', odeMe: false, komu: 'tester@example.com', kopie: '', kdy: ted - H, predmet: 'Sraz',
+      text: 'Kdy je sraz?', html: '', prilohy: [] }] : []).concat([{ id: 'm-' + d.id, od: 'Trenér', odAdresa: 'trener@klub.test', odeMe: false, komu: 'tester@example.com', kopie: '', kdy: kdySouhrnu(d.id), predmet: 'Sraz',
       text: 'Ahoj, sraz v 8:30.', html: d.id === 'v2' ? '<p>Protokol <img src="https://sledovani.example/pixel.gif" width="1" height="1"></p>' : '', prilohy: [] }]) }),
   kalendar: (d) => ({ udalosti: [
     { id: 'u1|' + den(0, 9), nazev: 'Porada', zacatek: den(0, 9), konec: den(0, 10), celodenni: false, misto: 'kancelář', popis: '', kalendar: 'Osobní', kalendarId: 'g1', barva: '#2f6bff', zdroj: 'google', opakovana: true },
@@ -252,7 +266,7 @@ const motor = {
   },
   // dávka čtení jako v motoru: každá položka zvlášť ok / chyba
   davka: (d) => (d.polozky || []).map((p) => { try { volano.push(p); return { ok: true, data: motor[p.akce](p) }; } catch (e) { return { ok: false, chyba: e.message }; } }),
-  stitky: () => [{ nazev: 'Fotbal', neprectenych: 1 }, { nazev: 'Účty', neprectenych: 0 }],
+  stitky: () => JSON.parse(JSON.stringify(stitkyMotoru)),
   postaStitek: (d) => ({ nazev: d.nazev, vlakna: d.nazev === 'Fotbal' ? [vlaknoSouhrn.v1, { id: 'v8', ucet: 'osobni', stav: 'resi', od: 'Rozhodčí', predmet: 'Zápis o utkání', ukazka: 'Zápis v příloze.', kdy: ted - 200 * H, neprectena: false, pocet: 1, odkaz: '#', stitky: ['Fotbal'] }] : [], ted }),
   kontakty: () => [{ j: 'Trenér', a: 'trener@klub.test', n: 5 }, { j: 'Investor', a: 'info@stavba.test', n: 2 }],
   podpisyUlozit: (d) => ({ osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false, podpisy: d.podpisy }),
@@ -287,6 +301,9 @@ const pitiDny = {}, pitiVolani = []; // pití a jídlo (motor: ZDRAVI/PITI_JIDLO
 let rezimHlavni = null;             // hlavní doplňky v režimu (ZDRAVI_REZIM.json → hlavni); null = počítá se vše
 let tydenniMock = null;             // týdenní shrnutí od Clauda (motor: zdravi.tydenni)
 const postaPresuny = [], postaPrecteno = [];
+const STITKY_VYCHOZI = [{ nazev: 'Fotbal', neprectenych: 1 }, { nazev: 'Účty', neprectenych: 0 }];
+let stitkyMotoru = STITKY_VYCHOZI;   // štítky Gmailu (test lišty skupin je rozšíří)
+const zpozdeniMotoru = {};          // akce → ms (pomalý motor: test přednačtení měří klepnutí s ním a bez něj)
 const promoVlakna = [
   { id: 'k1', ucet: 'osobni', stav: 'info', od: 'Obchod Test', predmet: 'Dárek k svátku', ukazka: 'Kredit 200 Kč do neděle.', kdy: ted - 3 * H, neprectena: true, pocet: 1, odkaz: '#' },
   { id: 'k2', ucet: 'osobni', stav: 'info', od: 'CK Test', predmet: 'Lyže v Alpách', ukazka: 'Zájezdy od 9 990 Kč.', kdy: ted - 20 * H, neprectena: false, pocet: 1, odkaz: '#' }];
@@ -458,6 +475,7 @@ async function pripravMotor(page) {
     else if (!motor[data.akce]) telo = { ok: false, chyba: 'Neznámá akce.' };
     else { volano.push(data); telo = { ok: true, data: motor[data.akce](data) }; }
     if (data.rid && telo.ok) odpovediRid.set(data.rid, telo);
+    if (zpozdeniMotoru[data.akce]) await new Promise((r) => setTimeout(r, zpozdeniMotoru[data.akce])); // pomalý Apps Script
     // jako Google: motor akci provedl, ale odpověď se ztratila a prohlížeč skončil na úvodu motoru (doGet)
     if (ztratitOdpovedi > 0) {
       ztratitOdpovedi--;
@@ -1203,7 +1221,7 @@ function vychoziVikendTestu() {
     const novy = postaPresuny[postaPresuny.length - 1];
     jistota(novy.id === 'k1' && novy.stitek === 'VÝVOJ' && novy.archivovat === true, 'nová skupina: ' + JSON.stringify(novy));
     jistota(volano.some((d) => d.akce === 'postaPresunout' && d.novy === true), 'novy: true do motoru');
-    await page.waitForSelector('[data-stitek-posty] option[value="VÝVOJ"]', { state: 'attached' });
+    await page.waitForSelector('.posta-stitky [data-stitek-posty="VÝVOJ"]'); // nová skupina hned v liště skupin
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
     postaNavic = {};
@@ -1214,18 +1232,19 @@ function vychoziVikendTestu() {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
     await page.goto(WEB);
     await page.click('#rail [data-cil="posta"]');
-    await page.waitForSelector('#posta-seznam [data-vlakno="v1"] .stitek-gmail');
-    // výběr štítku: konverzace štítku i archivované
-    await page.waitForSelector('[data-stitek-posty] option[value="Fotbal"]', { state: 'attached' });
-    await page.selectOption('[data-stitek-posty]', 'Fotbal');
+    await page.waitForSelector('#posta-seznam [data-vlakno="v1"]');
+    // skupina v liště pod záložkami: konverzace štítku i archivované; znovu klepnutí = zpět do Doručené
+    await page.click('.posta-stitky [data-stitek-posty="Fotbal"]');
     await page.waitForSelector('#posta-seznam [data-vlakno="v8"]');
     jistota(!(await page.locator('#posta-seznam [data-vlakno="v2"]').count()), 've štítku nemá být pracovní v2');
+    jistota(await page.getAttribute('.posta-stitky [data-stitek-posty="Fotbal"]', 'aria-pressed') === 'true', 'vybraná skupina zvýrazněná');
     await page.screenshot({ path: path.join(VYSTUP, 'pc_posta_stitek.png') });
-    await page.selectOption('[data-stitek-posty]', '');
+    await page.click('.posta-stitky [data-stitek-posty="Fotbal"]');
     await page.waitForSelector('#posta-seznam [data-vlakno="v2"]');
-    // vlákno: nejnovější zpráva nahoře a rozbalená, starší pod ní sbalená
+    // vlákno: nejnovější zpráva nahoře a rozbalená, starší pod ní sbalená; štítky Gmailu jsou v detailu (v řádku ne)
     await page.click('#posta-seznam [data-vlakno="v1"]');
     await page.waitForSelector('#posta-detail .zprava');
+    jistota(await page.locator('#posta-detail .vlakno-stitky .stitek-gmail').count() === 1 && !(await page.locator('#posta-seznam .stitek-gmail').count()), 'štítky v detailu, ne v řádku');
     const poradi = await page.$$eval('#posta-detail .zprava', (z) => z.map((x) => (x.classList.contains('sbalena') ? 's:' : 'r:') + x.querySelector('.zprava-kdo b').textContent));
     jistota(JSON.stringify(poradi) === JSON.stringify(['r:Trenér', 's:Já']), 'pořadí zpráv: ' + JSON.stringify(poradi));
     // nový e-mail: podpis na konci, kurzor na začátku; našeptávač doplní jméno i adresu
@@ -1243,6 +1262,200 @@ function vychoziVikendTestu() {
     await page.keyboard.press('Escape');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
+  });
+
+  // ---------- pošta 9. 10.: skupiny v liště, přetažení, dlouhé podržení, řádek, náhled, Apps Script, přednačtení, prázdná pracovní
+  const STITKY_DLOUHE = ['AGRO', 'AUTO', 'AUTO/PATRIOT', 'BYT VESELÍ', 'FAKTUROID', 'Fotbal', 'Fotbal/Dorost', 'Madmonq', 'Notes', 'OSVČ', 'PASPORT KANA', 'Účty', 'VÝVOJ']
+    .map((nazev) => ({ nazev, neprectenych: nazev === 'VÝVOJ' ? 11 : nazev === 'Fotbal' ? 1 : 0 }));
+  const kontrastCipu = (el, sel) => {
+    const c = el.querySelector(sel);
+    const rgb = (s) => s.match(/[\d.]+/g).slice(0, 3).map(Number);
+    const lum = (a) => { const x = a.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * x[0] + 0.7152 * x[1] + 0.0722 * x[2]; };
+    const cs = getComputedStyle(c);
+    const a = lum(rgb(cs.color)), b = lum(rgb(cs.backgroundColor));
+    return Math.round((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) * 100) / 100;
+  };
+
+  await test('pošta: skupiny v liště pod záložkami (čitelné i potmě), přetažení e-mailu na skupinu, Vrátit, ze skupiny do skupiny', async () => {
+    stitkyMotoru = STITKY_DLOUHE;
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, { nazev: 'pc-siroke', sirka: 1650, vyska: 950, dotyk: false }, 'dark');
+    await page.goto(WEB);
+    await page.click('#rail [data-cil="posta"]');
+    await page.waitForSelector('.posta-stitky [data-stitek-posty="VÝVOJ"]');
+    // druhá lišta hned pod záložkami; podštítek hned za rodičem jako „/ PATRIOT“; počet nepřečtených
+    const listy = await page.$$eval('#posta-filtry > *', (x) => x.map((e) => e.className.split(' ')[0]));
+    jistota(listy.join() === 'posta-kategorie,posta-stitky,filtry', 'pořadí lišt: ' + listy.join());
+    const cipy = await page.$$eval('.posta-stitky [data-stitek-posty]', (x) => x.map((e) => e.dataset.stitekPosty + '=' + e.textContent.replace(/\s+/g, '')));
+    jistota(cipy.indexOf('AUTO/PATRIOT=/PATRIOT') === cipy.indexOf('AUTO=AUTO') + 1 && cipy.indexOf('VÝVOJ=VÝVOJ11') >= 0, 'čipy: ' + cipy.join(' | '));
+    // čitelnost potmě (Michal 9. 10.: „nejde vidět“ – světle šedá na bílé): kontrast textu a plochy čipu aspoň 4,5 : 1
+    const kontrast = await page.$eval('.posta-stitky', kontrastCipu, '[data-stitek-posty="AGRO"]');
+    jistota(kontrast >= 4.5, 'kontrast čipu potmě: ' + kontrast);
+    // na PC se dlouhá řada zalomí – nic nepřetéká
+    jistota(await page.$eval('.posta-stitky', (l) => l.scrollWidth <= l.clientWidth + 1), 'lišta skupin přetéká');
+    // během táhnutí je lišta cíl a skupina pod myší zvýrazněná (snímek pro kontrolu vzhledu)
+    await page.evaluate(() => {
+      const dt = new DataTransfer();
+      document.querySelector('#posta-seznam [data-vlakno="v1"]').dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+      document.querySelector('.posta-stitky [data-stitek-posty="Účty"]').dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    });
+    jistota(await page.evaluate(() => document.documentElement.classList.contains('tahne-postu') && document.querySelector('[data-stitek-posty="Účty"]').classList.contains('cil')), 'zvýraznění cíle');
+    await page.screenshot({ path: path.join(VYSTUP, 'pc-tmavy_posta_tazeni.png') });
+    await page.evaluate(() => document.querySelector('#posta-seznam [data-vlakno="v1"]').dispatchEvent(new DragEvent('dragend', { bubbles: true })));
+    jistota(!(await page.evaluate(() => document.documentElement.classList.contains('tahne-postu'))), 'po tažení zvýraznění pryč');
+    // přetažení myší: v1 → Účty = štítek a pryč z Doručené, oznámení s Vrátit
+    const pred = postaPresuny.length;
+    await page.dragAndDrop('#posta-seznam [data-vlakno="v1"]', '.posta-stitky [data-stitek-posty="Účty"]');
+    await page.waitForFunction(() => /Přesunuto do Účty/.test(document.getElementById('toast').textContent));
+    jistota(!(await page.locator('#posta-seznam [data-vlakno="v1"]').count()), 'přetažená konverzace pryč ze seznamu');
+    await cekej(() => postaPresuny.length === pred + 1, 3000, 'přesun do motoru');
+    const p = postaPresuny[pred];
+    jistota(p.id === 'v1' && p.stitek === 'Účty' && p.pridat === true && p.archivovat === true && !p.odebrat, 'přesun: ' + JSON.stringify(p));
+    // Vrátit: hned zpět v seznamu, v motoru štítek pryč a zpět do Doručené jedním dotazem
+    await page.click('#toast .toast__akce');
+    await page.waitForSelector('#posta-seznam [data-vlakno="v1"]');
+    await cekej(() => postaPresuny.length === pred + 2, 3000, 'Vrátit do motoru');
+    const v = postaPresuny[pred + 1];
+    jistota(v.id === 'v1' && v.stitek === 'Účty' && v.pridat === false && v.doDorucenych === true, 'vrátit: ' + JSON.stringify(v));
+    // ze skupiny do skupiny: ve Fotbalu přetáhnout v8 na Účty → štítek Fotbal pryč (jako „Přesunout do“ v Gmailu)
+    await page.click('.posta-stitky [data-stitek-posty="Fotbal"]');
+    await page.waitForSelector('#posta-seznam [data-vlakno="v8"]');
+    await page.screenshot({ path: path.join(VYSTUP, 'pc-tmavy_posta_skupina.png') });
+    await page.dragAndDrop('#posta-seznam [data-vlakno="v8"]', '.posta-stitky [data-stitek-posty="Účty"]');
+    await cekej(() => postaPresuny.length === pred + 3, 3000, 'přesun ze skupiny');
+    jistota(postaPresuny[pred + 2].odebrat === 'Fotbal' && postaPresuny[pred + 2].stitek === 'Účty', 'ze skupiny: ' + JSON.stringify(postaPresuny[pred + 2]));
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+    stitkyMotoru = STITKY_VYCHOZI;
+  });
+
+  await test('pošta na telefonu: skupiny v jedné řadě do strany, dlouhé podržení řádku = Přesunout do…, nic nepřetéká', async () => {
+    stitkyMotoru = STITKY_DLOUHE;
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0], 'dark');
+    await page.goto(WEB);
+    await page.click('#lista [data-cil="posta"]');
+    await page.waitForSelector('.posta-stitky [data-stitek-posty="VÝVOJ"]', { state: 'attached' });
+    const lista = await page.$eval('.posta-stitky', (l) => ({ posun: l.scrollWidth > l.clientWidth,
+      radky: new Set(Array.from(l.querySelectorAll('[data-stitek-posty]')).map((c) => Math.round(c.getBoundingClientRect().top))).size }));
+    jistota(lista.posun && lista.radky === 1, 'telefon: lišta skupin v jedné řadě do strany ' + JSON.stringify(lista));
+    jistota(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), 'stránka přetéká do strany');
+    const kontrast = await page.$eval('.posta-stitky', kontrastCipu, '[data-stitek-posty="AGRO"]');
+    jistota(kontrast >= 4.5, 'kontrast čipu: ' + kontrast);
+    await page.screenshot({ path: path.join(VYSTUP, 'telefon-tmavy_posta_skupiny.png') });
+    // dlouhé podržení prstem (0,55 s) → okno Přesunout do skupiny; konverzace se neotevře
+    await page.$eval('#posta-seznam [data-vlakno="v2"]', (b) => {
+      const r = b.getBoundingClientRect();
+      b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: r.x + 20, clientY: r.y + 10 }));
+    });
+    await page.waitForSelector('[data-panel="presunout"].otevreny [data-presun-stitek="Účty"]');
+    await page.$eval('#posta-seznam [data-vlakno="v2"]', (b) => b.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch' })));
+    jistota(!(await page.locator('[data-panel="vlakno"]').count()), 'podržení nemá otevřít konverzaci');
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(VYSTUP, 'telefon-tmavy_posta_presun.png') });
+    const pred = postaPresuny.length;
+    await page.click('[data-panel="presunout"] [data-presun-stitek="Účty"]');
+    await page.waitForFunction(() => /Přesunuto do Účty/.test(document.getElementById('toast').textContent));
+    await cekej(() => postaPresuny.length === pred + 1, 3000, 'přesun z telefonu');
+    jistota(postaPresuny[pred].id === 'v2' && postaPresuny[pred].archivovat === true, 'přesun: ' + JSON.stringify(postaPresuny[pred]));
+    await page.waitForSelector('[data-panel="presunout"]', { state: 'detached' });
+    jistota(!(await page.locator('#posta-seznam [data-vlakno="v2"]').count()), 'pryč ze seznamu');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+    stitkyMotoru = STITKY_VYCHOZI;
+  });
+
+  await test('pošta: řádek jen odesílatel, předmět, text a čas; náhled bez hlaviček přeposlání; upozornění Apps Scriptu se na Dnes nehlásí', async () => {
+    const preposlany = { id: 'v6', ucet: 'osobni', stav: 'ceka', od: 'Kolega', predmet: 'Fwd: Nabídka střechy', kdy: ted - 1.5 * H, neprectena: true, pocet: 1, odkaz: '#',
+      ukazka: '---------- Původní e-mail ---------- Od: Firma Test <obchod@firma.test> Komu: Kolega <kolega@x.test> Datum: 9. 10. 2026 10:00:00 ' +
+        'Předmět: Fwd: Nabídka střechy Dobrý den, posíláme nabídku na opravu střechy.' };
+    // starší kopie od motoru: chyba Apps Scriptu jako „hoří“ – aplikace ji pozná sama
+    const appsScript = { id: 'as1', ucet: 'osobni', stav: 'hori', od: 'Apps Script', odAdresa: 'apps-scripts-notifications@google.com',
+      predmet: 'Summary of failures for Google Apps Script: Asistent', ukazka: 'Your script, Asistent, has recently failed to finish successfully.',
+      kdy: ted - 0.5 * H, neprectena: true, pocet: 1, odkaz: '#' };
+    postaNavic = { osobni: [vlaknoSouhrn.v1, preposlany, appsScript] };
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    // Dnes: upozornění Apps Scriptu není ve Vyžaduje pozornost ani v počtu nepřečtených
+    await page.waitForSelector('#dl-posta [data-vlakno="v6"]');
+    jistota(!(await page.locator('#dl-posta [data-vlakno="as1"], #dl-pozornost [data-vlakno="as1"]').count()), 'Apps Script na Dnes');
+    const nep = (await page.textContent('#dnes-kpi [data-filtr-posty="neprectene"] .hd__hodnota')).trim();
+    jistota(nep === '2', 'nepřečtené na Dnes bez Apps Scriptu: ' + nep);
+    // Pošta: v seznamu zůstane jako informace
+    await page.click('#rail [data-cil="posta"]');
+    await page.waitForSelector('#posta-seznam [data-vlakno="as1"]');
+    jistota(/st-info/.test(await page.getAttribute('#posta-seznam li:has([data-vlakno="as1"])', 'class')), 'Apps Script = informace');
+    // řádek: odesílatel, předmět, text a čas – stav proužkem, žádné štítky
+    const radek = await page.$eval('#posta-seznam [data-vlakno="v6"]', (b) => ({ text: b.querySelector('.radek-text').textContent,
+      tagy: b.querySelectorAll('.tag, .stitek-gmail').length, li: b.parentElement.className, cas: !!b.querySelector('.radek-cas') }));
+    jistota(radek.text === 'Dobrý den, posíláme nabídku na opravu střechy.', 'náhled: ' + radek.text);
+    jistota(!radek.tagy && radek.cas && /st-ceka/.test(radek.li), 'řádek: ' + JSON.stringify(radek));
+    jistota(await page.locator('#posta-seznam .radek-ucet').count() >= 1, 'v zobrazení obou účtů drobně účet');
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_posta_radky.png') });
+    await page.click('#posta-filtry [data-ucet-posty="osobni"]');
+    await page.waitForFunction(() => document.querySelector('#posta-seznam [data-vlakno="v6"]') && !document.querySelector('#posta-seznam .radek-ucet'));
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+    postaNavic = {};
+  });
+
+  await test('pošta: přednačtené detaily – klepnutí nečeká na motor (detail hned, motor jen „přečteno“), bez přednačtení čeká', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    zpozdeniMotoru.vlakno = 1500; // pomalý Apps Script (skutečné otevření e-mailu trvalo 2–5 s)
+    const zacatek = volano.length; // volání motoru z předchozích testů nepočítat
+    const tady = () => volano.slice(zacatek);
+    await page.goto(WEB);
+    await page.click('#rail [data-cil="posta"]');
+    await page.waitForSelector('#posta-seznam [data-vlakno="v2"]');
+    // aplikace v klidu → jeden dotaz s detaily konverzací ze seznamu (id + otisk), nic se nepřečte
+    await cekej(() => tady().some((d) => d.akce === 'postaDetaily'), 9000, 'přednačtení');
+    const prednacteni = tady().filter((d) => d.akce === 'postaDetaily');
+    const idsPred = prednacteni.length === 1 ? prednacteni[0].ids.map((x) => x.id) : [];
+    jistota(idsPred.includes('v1') && idsPred.includes('v2') && !idsPred.includes('as1') && prednacteni[0].ids.every((x) => x.kdy && x.pocet),
+      'přednačtení: ' + JSON.stringify(tady().filter((d) => d.akce === 'postaDetaily' || d.akce === 'vlakno').map((d) => [d.akce, d.id || (d.ids || []).map((x) => x.id).join('+')])));
+    await page.waitForFunction(() => import('/js/stav.js').then((m) => !!(m.stav.vlakna.v1 && m.stav.vlakna.v1.data && m.stav.vlakna.v2 && m.stav.vlakna.v2.data)));
+    // přečtená konverzace: detail hned, motor se vůbec nevolá
+    let pred = volano.length;
+    let t = Date.now();
+    await page.click('#posta-seznam [data-vlakno="v2"]');
+    await page.waitForSelector('#posta-detail .zprava-html');
+    const sPrednactenim = Date.now() - t;
+    await page.waitForTimeout(500);
+    jistota(volano.length === pred, 'klepnutí volalo motor: ' + JSON.stringify(volano.slice(pred).map((d) => [d.akce, d.id, d.ids])));
+    // nepřečtená: detail hned, motor jen označí přečtené (bez načítání detailu)
+    pred = volano.length;
+    await page.click('#posta-seznam [data-vlakno="v1"]');
+    await page.waitForFunction(() => /Sraz v sobotu/.test((document.querySelector('#posta-detail .vlakno-predmet') || {}).textContent || '') && document.querySelector('#posta-detail .zprava'));
+    await page.waitForTimeout(500);
+    const nove = volano.slice(pred).map((d) => d.akce + ':' + (d.jak || '') + ':' + (d.id || ''));
+    jistota(nove.join() === 'oznacit:prectene:v1', 'nepřečtená: ' + nove.join());
+    // bez detailu v paměti čeká klepnutí na motor (tak to bylo dřív u každého e-mailu)
+    await page.evaluate(() => import('/js/stav.js').then((m) => { delete m.stav.vlakna.v2; }));
+    t = Date.now();
+    await page.click('#posta-seznam [data-vlakno="v2"]');
+    await page.waitForSelector('#posta-detail .zprava-html');
+    const bezPrednacteni = Date.now() - t;
+    console.log('    (otevření e-mailu s přednačtením ' + sPrednactenim + ' ms, bez něj ' + bezPrednacteni + ' ms při motoru 1,5 s)');
+    jistota(sPrednactenim < 700 && bezPrednacteni >= 1400, 'časy otevření: ' + sPrednactenim + ' / ' + bezPrednacteni + ' ms');
+    zpozdeniMotoru.vlakno = 0;
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  await test('pošta: Pracovní bez pošty – místo prázdné stránky proč (přeposílání z WEDOS) a odkaz do Nastavení → Pošta', async () => {
+    postaNavic = { pracovni: [] };
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.click('#rail [data-cil="posta"]');
+    await page.click('#posta-filtry [data-ucet-posty="pracovni"]');
+    await page.waitForSelector('#posta-seznam .posta-prace-prazdna');
+    const text = (await page.textContent('#posta-seznam .posta-prace-prazdna')).replace(/\s+/g, ' ');
+    jistota(/Za 30 dní nepřišla do Gmailu žádná pracovní pošta/.test(text) && /prace@firma\.test/.test(text) && /WEDOS/.test(text), 'text: ' + text);
+    jistota(!/Doručená pošta je prázdná/.test(await page.textContent('#posta-seznam')), 'bez prázdné hlášky navíc');
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_posta_pracovni_prazdna.png') });
+    await page.click('#posta-seznam [data-posta-navod]');
+    await page.waitForSelector('[data-panel="nastaveni"] [data-sekce="posta"] details[data-detail="posta-pracovni"][open]');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+    postaNavic = {};
   });
 
   // ---------- schránka: návrh e-mailu od Clauda (předvyplněné psaní), téma, smazání s Vrátit
@@ -2244,10 +2457,15 @@ function vychoziVikendTestu() {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
     await page.goto(WEB);
     await page.click('#rail [data-cil="posta"]');
-    await page.waitForFunction(() => /Návrh odpovědi/.test((document.querySelector('#posta-seznam [data-vlakno="v1"]') || {}).textContent || ''));
+    // v řádku jen malá ikona (ne limetkový štítek), v detailu karta POD e-mailem (Michal 9. 10.: „nejdřív si ho přečtu“)
+    await page.waitForSelector('#posta-seznam [data-vlakno="v1"] .radek-navrh');
+    jistota(!(await page.locator('#posta-seznam .tag--limetka').count()), 'limetkový štítek v řádku');
     await page.click('#posta-seznam [data-vlakno="v1"]');
     await page.waitForSelector('#posta-detail .navrh-odpovedi');
     jistota(/budu tam v 8:15/.test(await page.textContent('#posta-detail .navrh-odpovedi')), 'text návrhu');
+    jistota(await page.evaluate(() => { const z = document.querySelector('#posta-detail .zprava'), n = document.querySelector('#posta-detail .navrh-odpovedi');
+      return !!(z.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING) && n.getBoundingClientRect().top >= z.getBoundingClientRect().bottom; }), 'návrh má být pod e-mailem');
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_posta_navrh_pod_emailem.png') });
     await page.click('#posta-detail [data-navrh-odpovedi="pouzit"]');
     await page.waitForSelector('[data-panel="psani"] [data-psani-text]');
     jistota(await page.inputValue('[data-panel="psani"] [data-psani-text]') === 'Ahoj, budu tam v 8:15.\n\nMichal', 'psaní s návrhem a podpisem: ' + JSON.stringify(await page.inputValue('[data-panel="psani"] [data-psani-text]')));

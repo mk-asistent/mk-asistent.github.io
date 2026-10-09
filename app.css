@@ -1151,6 +1151,63 @@ button.moje-kdy:hover { color: var(--accent); }
 .posta-prazdny svg { width: 40px; height: 40px; }
 .posta-prazdny p { margin: 0; font-weight: 600; }
 .posta-prazdny small { font-size: 12px; color: var(--dim); }
+/* řádek konverzace (Pošta i Dnes, Michal 9. 10.): odesílatel · předmět · text · čas; stav jen proužkem vlevo,
+   návrh od Clauda malou ikonou, účet drobně jen v zobrazení obou účtů */
+.radek-posta { position: relative; }
+.radek-posta::before { content: ''; position: absolute; left: 0; top: 11px; bottom: 11px; width: 3px; border-radius: 0 3px 3px 0; background: transparent; }
+li.st-hori > .radek-posta::before { background: var(--oranz); }
+li.st-ceka > .radek-posta::before { background: var(--ok); }
+li.st-otazka > .radek-posta::before { background: var(--zluta); }
+li.aktivni > .radek-posta { box-shadow: none; } /* vybraný řádek = písková plocha, proužek vlevo patří stavu */
+.radek-posta .radek-hora { align-items: center; gap: 7px; }
+.radek-navrh { flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 6px; background: var(--limetka-tint); color: var(--text-soft); }
+.radek-navrh svg { width: 12px; height: 12px; }
+.radek-ucet { flex: none; font-size: 10px; font-weight: 650; letter-spacing: .02em; padding: 0 5px; border-radius: 5px; line-height: 1.6; background: var(--sand); color: var(--muted); }
+.radek-ucet--pracovni { background: var(--accent-tint); color: var(--accent); }
+.radek-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 2px; font-size: 12.5px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
+.radek-stav { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } /* stav pro čtečku obrazovky */
+.radek-posta .radek-predmet { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* předmět na jeden řádek */
+.neprect .radek-posta .radek-predmet { color: var(--text); font-weight: 600; }
+@media (pointer: coarse) {
+    /* dlouhé podržení řádku = Přesunout do… (bez výběru textu a systémové nabídky) */
+    #posta-seznam .radek-posta { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+}
+#posta-seznam .radek-posta[draggable="true"] { cursor: pointer; }
+/* skupiny (štítky Gmailu) – druhá lišta pod záložkami: čipy s barevnou tečkou a počtem nepřečtených; podštítek „/ PATRIOT“ */
+.posta-stitky { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 12px; padding: 2px; border-radius: 14px;
+    transition: background .15s, box-shadow .15s; }
+.stitek-cip { flex: none; display: inline-flex; align-items: center; gap: 6px; max-width: 240px; min-height: 32px; padding: 4px 11px 4px 9px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--text-soft); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.stitek-cip:hover { border-color: var(--sand-2); color: var(--text); }
+.stitek-cip__barva { flex: none; width: 9px; height: 9px; border-radius: 3px; background: hsl(var(--h) 55% 52%); }
+.stitek-cip__nazev { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.stitek-cip__lomitko { color: var(--dim); font-weight: 500; margin-right: -2px; }
+.stitek-cip--pod { margin-left: -3px; padding-left: 8px; border-style: dashed; }
+.stitek-cip b { min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--sand); color: var(--text-soft); font-size: 11px; font-weight: 650; text-align: center; }
+.stitek-cip svg { width: 13px; height: 13px; margin-right: -3px; }
+.stitek-cip[aria-pressed="true"] { background: var(--accent-btn); border-color: var(--accent-btn); border-style: solid; color: var(--na-akcentu); }
+.stitek-cip[aria-pressed="true"] b { background: rgba(255, 255, 255, .2); color: inherit; }
+.stitek-cip[aria-pressed="true"] .stitek-cip__lomitko { color: inherit; opacity: .7; }
+.posta-stitky__ikona { flex: none; display: inline-grid; place-items: center; width: 26px; height: 32px; color: var(--dim); }
+.posta-stitky__ikona svg { width: 16px; height: 16px; }
+/* přetahování e-mailu: lišta skupin je cíl, skupina pod myší se zvýrazní (nic se přitom neposune) */
+.tahne-postu .posta-stitky { background: var(--accent-tint); box-shadow: 0 0 0 1.5px var(--accent) inset; }
+.tahne-postu .posta-stitky__ikona { color: var(--accent); }
+.tahne-postu .stitek-cip { border-style: dashed; }
+.stitek-cip.cil { background: var(--accent-btn); border-color: var(--accent-btn); border-style: solid; color: var(--na-akcentu); transform: scale(1.06); }
+.stitek-cip.cil b { background: rgba(255, 255, 255, .2); color: inherit; }
+.posta-tah { position: fixed; top: -200px; left: 0; max-width: 280px; padding: 7px 12px; border-radius: 999px; background: var(--tmava); color: var(--tmava-text);
+    font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+@media (max-width: 759px) {
+    /* telefon: jedna řada, posouvá se do strany */
+    .posta-stitky { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-right: calc(-1 * var(--mezera)); padding-right: var(--mezera); }
+    .posta-stitky::-webkit-scrollbar { display: none; }
+}
+/* pracovní pošta bez e-mailů: proč a kde je návod (místo prázdné stránky) */
+.posta-prace-prazdna { display: flex; align-items: flex-start; gap: 12px; padding: 16px; }
+.posta-prace-prazdna > svg { width: 22px; height: 22px; color: var(--muted); margin-top: 1px; }
+.posta-prace-prazdna > div > b { display: block; font-size: 14.5px; }
+.posta-prace-prazdna p { margin: 4px 0 10px; font-size: 13px; line-height: 1.5; color: var(--text-soft); }
 @media (min-width: 1000px) {
     .posta-rozlozeni { display: grid; grid-template-columns: minmax(320px, 400px) minmax(0, 1fr); gap: 16px; align-items: start; }
     .posta-detail {
@@ -1200,12 +1257,9 @@ button.moje-kdy:hover { color: var(--accent); }
 .psani-zahodit { align-self: flex-start; margin-top: 6px; font-size: 12.5px; color: var(--muted); }
 .psani-podpis { margin: 6px 0 0; }
 
-/* štítky z Gmailu: u konverzace malá barevná pilulka (odstín podle názvu), nahoře výběr štítku */
+/* štítky z Gmailu: v detailu konverzace malá barevná pilulka (odstín podle názvu); skupiny nad seznamem viz .posta-stitky */
 .stitek-gmail { display: inline-block; margin-right: 6px; padding: 0 7px; border-radius: 6px; font-size: 10.5px; font-weight: 650; line-height: 1.65; vertical-align: 1px;
     background: hsl(var(--h) var(--avatar-s) var(--avatar-l)); color: hsl(var(--h) var(--avatar-ts) var(--avatar-tl)); }
-.stitek-volba { display: inline-flex; align-items: center; gap: 6px; padding: 0 4px 0 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); }
-.stitek-volba svg { width: 15px; height: 15px; }
-.stitek-volba select { border: 0; background: transparent; padding: 7px 6px; font-size: 13px; font-weight: 600; color: var(--text); max-width: 220px; outline: none; }
 
 /* kalendář: sekce Svátky – jmeniny a oblíbení lidé (★), okno „Kalendáře a svátky“, Brzy má svátek, svátky v týdnu na Dnes.
    Jmeniny šedě a nenápadně (vpravo v buňce měsíce, pod datem v týdnu, v nadpisu dne), oblíbení korálově a tučně jako
@@ -1353,7 +1407,7 @@ button.moje-kdy:hover { color: var(--accent); }
     border-radius: 12px; background: var(--surface); color: var(--text); font-size: 14px; font-weight: 600; text-align: left; }
 .presun__stitek:hover { border-color: var(--sand-2); }
 .presun__stitek.je { background: var(--bg-soft); }
-.presun__barva { width: 12px; height: 12px; flex: none; border-radius: 4px; background: hsl(var(--h) var(--avatar-s) var(--avatar-l)); }
+.presun__barva { width: 12px; height: 12px; flex: none; border-radius: 4px; background: hsl(var(--h) 55% 52%); } /* stejná barva jako tečka čipu v liště skupin */
 .presun__nazev { flex: 1; min-width: 0; }
 .presun__stitek small { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
 .presun__stitek small svg { width: 12px; height: 12px; }

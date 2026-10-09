@@ -166,6 +166,16 @@ const kategorieUkazka = {
   fora: [{ id: 'k4', ucet: 'osobni', stav: 'info', od: 'Fanklub', predmet: 'Nový příspěvek: rozpis zápasů', ukazka: 'Přidali jsme rozpis podzimní části.', kdy: ted - 10 * H, neprectena: true, pocet: 1, odkaz: '#' }]
 };
 const vsechnyKategorie = () => [].concat(...Object.values(kategorieUkazka));
+const presunuteOdkud = new Map(); // id → seznam, odkud ji přesun do skupiny vyřadil (Vrátit ji tam vrátí)
+/** Detail konverzace v ukázce (nic neoznačí jako přečtené): napsané zprávy, jinak jedna zpráva z náhledu souhrnu. */
+function detailUkazky(id) {
+  const souhrn = vsechnyKategorie().concat(posta.osobni, posta.pracovni, archivovane).find((m) => m.id === id);
+  const v = zpravyVlaken[id] || (souhrn ? { predmet: souhrn.predmet, ucet: souhrn.ucet || 'osobni', zpravy: [{ id: 'z-' + souhrn.id, od: souhrn.od,
+    odAdresa: 'info@example.com', odeMe: false, komu: 'ja@example.com', kdy: souhrn.kdy, text: souhrn.ukazka, html: '' }] } : null);
+  if (!v) return null;
+  const navrh = navrhyOdpovedi[id] ? { navrhOdpovedi: navrhyOdpovedi[id] } : {};
+  return kopie(Object.assign({ id, odkaz: '#', vDorucenych: true, skryto: 0 }, v, navrh));
+}
 const vlastni = [];         // události zapsané v ukázce
 const smazane = new Set();  // smazané nebo přepsané ukázkové události
 let citac = 0;
@@ -456,15 +466,21 @@ const akce = {
   },
   posta: () => kopie(Object.assign({}, posta, { ted: Date.now() })),
   vlakno: (d) => {
-    // konverzace ze záložek ukázky mají jen jednu zprávu (text = ukázka)
-    const k = vsechnyKategorie().find((m) => m.id === d.id);
-    if (k) k.neprectena = false;
-    const v = zpravyVlaken[d.id] || (k ? { predmet: k.predmet, ucet: 'osobni', zpravy: [{ id: 'z-' + k.id, od: k.od, odAdresa: 'info@example.com', odeMe: false,
-      komu: 'ja@example.com', kdy: k.kdy, text: k.ukazka, html: '' }] } : null);
-    if (!v) throw new Error('Zpráva nenalezena.');
-    [posta.osobni, posta.pracovni].forEach((s) => s.forEach((m) => { if (m.id === d.id) m.neprectena = false; }));
-    const navrh = navrhyOdpovedi[d.id] ? { navrhOdpovedi: navrhyOdpovedi[d.id] } : {};
-    return kopie(Object.assign({ id: d.id, odkaz: '#', vDorucenych: true, skryto: 0 }, v, navrh));
+    const detail = detailUkazky(d.id);
+    if (!detail) throw new Error('Zpráva nenalezena.');
+    // otevřením přečteno (přednačtení – postaDetaily – ne)
+    vsechnyKategorie().concat(posta.osobni, posta.pracovni, archivovane).forEach((m) => { if (m.id === d.id) m.neprectena = false; });
+    return detail;
+  },
+  // přednačtení detailů (nejvýš 10) jako motor: stejný tvar jako vlakno, nic nepřečte
+  postaDetaily: (d) => {
+    const detaily = {}, chyby = {};
+    (d.ids || []).slice(0, 10).forEach((x) => {
+      const id = typeof x === 'string' ? x : x && x.id;
+      const detail = detailUkazky(id);
+      if (detail) detaily[id] = detail; else chyby[id] = 'Zpráva nenalezena.';
+    });
+    return { detaily, chyby, vynechano: [], ted: Date.now() };
   },
   navrhZahodit: (d) => { const n = navrhyOdpovedi[d.id] ? 1 : 0; delete navrhyOdpovedi[d.id]; [posta.osobni, posta.pracovni].forEach((s) => s.forEach((m) => { if (m.id === d.id) m.navrh = false; })); return { smazano: n }; },
   navrhyNastavit: (d) => { rezimNavrhu = d.rezim; return akce.info().posta; },
@@ -589,11 +605,23 @@ const akce = {
     m.stitky = (m.stitky || []).filter((x) => x !== d.stitek).concat(pridat ? [d.stitek] : []);
     const i = ids.indexOf(d.id);
     if (pridat && i < 0) ids.unshift(d.id); else if (!pridat && i >= 0) ids.splice(i, 1);
+    // přesun ze skupiny do skupiny (odebrat) a Vrátit (doDorucenych) jako motor
+    [].concat(d.odebrat || []).filter((n) => n && n !== d.stitek).forEach((n) => {
+      m.stitky = m.stitky.filter((x) => x !== n);
+      const j = (stitkyGmailu[n] || []).indexOf(d.id);
+      if (j >= 0) stitkyGmailu[n].splice(j, 1);
+    });
     if (pridat && d.archivovat) {
-      seznamy.forEach((s) => { const j = s.indexOf(m); if (j >= 0) s.splice(j, 1); });
+      seznamy.forEach((s) => { const j = s.indexOf(m); if (j >= 0) { s.splice(j, 1); presunuteOdkud.set(m.id, s); } });
       if (archivovane.indexOf(m) < 0) archivovane.push(m);
+    } else if (d.doDorucenych && archivovane.indexOf(m) >= 0) {
+      archivovane.splice(archivovane.indexOf(m), 1);
+      const kam = presunuteOdkud.get(m.id) || (m.ucet === 'pracovni' ? posta.pracovni : posta.osobni);
+      if (kam.indexOf(m) < 0) kam.unshift(m);
     }
-    return { id: d.id, stitky: kopie(m.stitky), archivovano: !!(pridat && d.archivovat) };
+    const v = { id: d.id, stitky: kopie(m.stitky), archivovano: !!(pridat && d.archivovat) };
+    if (d.doDorucenych) v.vDorucenych = !(pridat && d.archivovat);
+    return v;
   },
   postaPrectene: (d) => {
     const seznam = d.kategorie === 'aktualizace' ? posta.osobni.concat(posta.pracovni).filter((m) => m.aktualizace) : kategorieUkazka[d.kategorie];

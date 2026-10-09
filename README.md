@@ -99,18 +99,35 @@ v Doručené poště má stav, který motor určí hned a bez AI:
 | **Informace** | oznámení, automatické zprávy, kategorie Aktualizace; konverzace uzavřená tvým „díky“ |
 
 **Hotovo** = archiv, **Připomenout** = odložení (vrátí se v den termínu) + úkol do schránky, **Spam**, **Vrátit**.
-Ve vlákně je **nejnovější zpráva nahoře**. **Štítky Gmailu** jsou u konverzací a nahoře jde vybrat štítek (i archivované
-konverzace). **Podpis** (osobní / pracovní) se vloží do psaní; v poli Komu i u hostů události **našeptává** lidi,
+Ve vlákně je **nejnovější zpráva nahoře** a pod ní **návrh odpovědi od Clauda** (nebo Další krok) – nejdřív čtení, pak
+odpověď (Michal 9. 10.). **Řádek seznamu** = odesílatel, předmět, text a čas; stav jen barevným proužkem vlevo (hoří
+korálová, čeká na tebe zelená, otázka žlutá – název a důvod v popisku), návrh od Clauda malou ikonou ✦, účet drobně jen
+v zobrazení „Oba účty“. Náhled je bez hlaviček přeposlání a citací (motor `nahledZpravy_`, starší kopie čistí aplikace).
+**Skupiny (štítky Gmailu)** jsou druhá lišta pod záložkami: čip s počtem nepřečtených, podštítek hned za rodičem
+(„/ PATRIOT“), klepnutí = konverzace skupiny i archivované, znovu klepnutí = zpět; na telefonu se lišta posouvá do strany.
+**Přetažení e-mailu myší na skupinu** = „Přesunout do“ (štítek + pryč z Doručené, ve výběru jiné skupiny i ta odebrána),
+oznámení „Přesunuto do X · Vrátit“; na iPadu a telefonu **dlouhé podržení řádku** (nebo tlačítko v detailu) otevře
+Přesunout do…. **Podpis** (osobní / pracovní) se vloží do psaní; v poli Komu i u hostů události **našeptává** lidi,
 kterým jsi psal. Hledání v celé poště rozumí českým filtrům (`od:`, `předmět:`, `má:přílohu`, `po:1.10.2026`…).
 Klávesy na PC: `j`/`k`, `e` hotovo, `h` připomenout, `v` přesunout, `r` odpovědět, `a` všem, `f` přeposlat, `c` nový, `/` hledat, `1`–`6` sekce.
+
+**Rychlé otevření** (Michal 9. 10.: „vždy posledních 10 mít načtených“): když je aplikace v klidu, jde jedním dotazem
+`postaDetaily` až 10 konverzací, které Michal nejspíš otevře (v Poště seznam, jinde Vyžaduje pozornost), a jen ty, jejichž
+detail v zařízení chybí nebo je starší než souhrn (čas poslední zprávy, návrh od Clauda). Motor detaily drží v mezipaměti
+`detail:<id>` (6 h) podle otisku „počet zpráv:čas poslední“ – beze změny Gmail nevolá; nic neoznačí jako přečtené.
+Klepnutí pak ukáže detail hned (v testu 36 ms proti 1,9 s) a motor jen označí přečtené (`oznacit`). Detaily přežijí
+přenačtení stránky (sessionStorage). **Upozornění Googlu na chyby Apps Scriptu** zůstanou v seznamu jako informace, ale
+nesvítí na Dnes, nepočítají se do nepřečtených, nejdou do ntfy ani do podkladů pro přehled od Clauda (`tiche`).
+**Pracovní bez pošty**: místo prázdné stránky vysvětlení (přeposílání z WEDOS) a tlačítko do Nastavení → Pošta.
 
 **Záložky jako v Gmailu** (Michal 5. 10.): **Primární · Aktualizace · Promoakce · Sociální sítě · Fóra** s počtem
 nepřečtených. Primární a Aktualizace jsou z Doručené (motor u konverzací z kategorie Aktualizace posílá `aktualizace`),
 ostatní se načtou až na klepnutí (`postaKategorie`, v Doručené za 30 dní, 5 min v mezipaměti; čísla `pocty` posílá motor
 s poštou). V záložkách kromě Primární je **Označit vše jako přečtené** (`postaPrectene`, nejvýš 100). **Přesunout do
-skupiny** (tlačítko u konverzace, klávesa `v`) = štítek Gmailu + pryč z Doručené jako „Přesunout do“ v Gmailu; jde i jen
-přidat štítek nebo ho odebrat (`postaPresunout`), pole **Nová skupina** štítek rovnou založí (`novy: true`).
-Štítky jsou ve výběru nad seznamem pod „Skupiny“. Přehled od Clauda prochází i skupiny z vlastnosti `PREHLED_STITKY`
+skupiny** (tlačítko u konverzace, klávesa `v`, přetažení na skupinu, dlouhé podržení) = štítek Gmailu + pryč z Doručené jako
+„Přesunout do“ v Gmailu; jde i jen přidat štítek nebo ho odebrat (`postaPresunout`), pole **Nová skupina** štítek rovnou
+založí (`novy: true`); od motoru 2026-10-09.4 i `odebrat` (štítek, který konverzace ztratí) a `doDorucenych` (Vrátit).
+Skupiny jsou v liště pod záložkami. Přehled od Clauda prochází i skupiny z vlastnosti `PREHLED_STITKY`
 (výchozí `VÝVOJ`), aby selhání automatizací neutekla, ani když je filtr dá mimo Doručenou.
 
 **Denní limit Gmailu** (5. 10. vyčerpaný – server obnovuje poštu každých 10 minut): souhrny konverzací se skládají ze
@@ -128,7 +145,7 @@ položka jde skrýt (pamatuje se v zařízení).
 **Návrhy odpovědí od Clauda:** motor zapíše konverzace, které čekají na odpověď (hoří, čeká na tebe, otázka), do
 `CLAUDE_SCHRANKA/POSTA_K_ODPOVEDI.json` (jen při změně, nejvýš 15). Naplánovaná úloha „Návrhy odpovědí“ (skill
 `asistent-posta-odpovedi`, každou hodinu 7–21 h) k nim napíše návrh do `CLAUDE_SCHRANKA/ODPOVEDI/<id>.json`. V seznamu
-je štítek **Návrh odpovědi**, v konverzaci karta **Použít a upravit** (psaní s textem a podpisem) / **Zahodit**. Odesílá
+je malá ikona ✦, v konverzaci pod e-mailem karta **Použít a upravit** (psaní s textem a podpisem) / **Zahodit**. Odesílá
 vždy Michal; po odeslání odpovědi se návrh zahodí sám. Nastavení → Pošta: osobní i pracovní / jen osobní / vypnuto.
 
 ## Kalendář
