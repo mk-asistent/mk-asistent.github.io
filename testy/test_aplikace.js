@@ -525,6 +525,14 @@ async function novaStranka(prohlizec, v, motiv, volby) {
     if (m.type() === 'error' && !/Content Security Policy directive: "img-src data: cid:"/.test(m.text())) chybyStranky.push(m.text());
   });
   await pripravMotor(page);
+  // snímek celé stránky: obsah mimo obrazovku aplikace neskládá (content-visibility: auto – Pošta, karty na telefonu) a prohlížeč
+  // by ho na snímku nechal prázdný → na dobu snímku vše vykreslit (jen kvůli kontrole očima, aplikace se nemění)
+  const snimek = page.screenshot.bind(page);
+  page.screenshot = async (volby) => {
+    if (!(volby && volby.fullPage)) return snimek(volby);
+    await page.evaluate(() => { const s = document.createElement('style'); s.id = '__cv'; s.textContent = '* { content-visibility: visible !important; }'; document.head.appendChild(s); });
+    try { return await snimek(volby); } finally { await page.evaluate(() => { const s = document.getElementById('__cv'); if (s) s.remove(); }).catch(() => { /* stránka zavřená */ }); }
+  };
   return { ctx, page, chybyStranky };
 }
 

@@ -463,7 +463,9 @@ použití vydává ze zařízení; funkce Firebase (obnovHned) až při první o
 - **Pošta:** řádky mimo obrazovku prohlížeč neskládá (`content-visibility: auto`), náhledy se čistí jednou (paměť
   `cistaUkazka`), výška detailu vedle seznamu se měří (`--posta-detail-nahore`).
 - **Telefon:** karty Dnes a Zdraví pod obrazovkou se skládají až při posunu k nim (`content-visibility` v app.css) – první
-  obraz při otevření o ~0,4 s dřív (měřeno CPU 4×); test, který měří karty, musí stránku napřed projet.
+  obraz při otevření o ~0,4 s dřív (měřeno CPU 4×); test, který měří karty, musí stránku napřed projet. Snímek celé stránky
+  (`fullPage`) by obsah mimo obrazovku nechal prázdný – testy ho na dobu snímku vykreslí (`novaStranka`), ruční kontrola
+  přidá styl `* { content-visibility: visible !important }`.
 
 **Hned na všech zařízeních** (Michal 9. 10.: „na mobilu jsem přidal vodu a na PC to není – má to být aktuální hned“):
 - Zápis ke zdraví nebo k autu → aplikace zapíše do účtu signál `data/_signal` (`{ zdravi: ms, auto: ms }` – jen čas, žádná
