@@ -2070,7 +2070,11 @@ test('týdenní shrnutí: v neděli od 18:00 poznámka pro Clauda (skrytá), e-m
   assert.strictEqual(m.komu, 'osobni+notifikace@gmail.test');
   assert.ok(/5\.–11\. 10\. 2026/.test(m.predmet) && m.m.name === 'Asistent', m.predmet);
   assert.ok(/<b>bílkoviny<\/b>/.test(m.m.htmlBody) && /Út 6\. 10\./.test(m.m.htmlBody) && /45 g/.test(m.m.htmlBody), 'HTML s Claudovým textem a čísly');
-  assert.ok(/^Dobrý týden/.test(m.t) && /Út 6\. 10\.: 45 g bílkovin/.test(m.t), 'textová verze');
+  assert.ok(/^Týdenní shrnutí z aplikace Asistent/.test(m.t) && /\n\nDobrý týden/.test(m.t) && /Út 6\. 10\.: 45 g bílkovin/.test(m.t), 'textová verze');
+  // náhled v seznamu pošty (prvních 180 znaků) jde i do účtu Firebase → bez čísel a Claudova textu
+  assert.ok(!/\d/.test(m.t.slice(0, 180)) && m.t.indexOf('Dobrý') > 180, 'začátek e-mailu bez zdravotních údajů: ' + m.t.slice(0, 180));
+  const nahled = String(m.m.htmlBody).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 220);
+  assert.ok(!/bílkovin|Dobrý|\d+ g|\d+ %/.test(nahled), 'ani HTML nezačíná čísly: ' + nahled);
   const posledni = p.zprava({ id: 'tyden', od: 'Asistent <' + JA + '>', komu: m.komu, predmet: m.predmet, text: m.t.slice(0, 200), kdy: ms('2026-10-11T18:30:00+02:00') });
   assert.strictEqual(p.ctx.stavADuvod_(posledni, true, null, false, ms('2026-10-11T18:31:00+02:00'), true, {}).stav, 'info', 'v Poště aplikace jako Informace, ne Čekáš na ně');
   // nikdy dvakrát

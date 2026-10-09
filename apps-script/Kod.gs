@@ -5783,7 +5783,7 @@ function posliTydenniShrnuti_(s, odClauda) {
     if (predtim === s.tyden) return;
     vl.setProperty('TYDEN_ZDRAVI_ODESLANO', s.tyden);
     try {
-      GmailApp.sendEmail(komu, ZDRAVI_TYDEN_.predmet(s), ZDRAVI_TYDEN_.text(s, odClauda),
+      GmailApp.sendEmail(komu, ZDRAVI_TYDEN_.predmet(s), ZDRAVI_TYDEN_.textEmailu(s, odClauda),
         { htmlBody: ZDRAVI_TYDEN_.html(s, odClauda), name: 'Asistent' });
     } catch (chyba) {
       // nepovedlo se (limit Gmailu…) – při dalším běhu znovu
@@ -6072,7 +6072,7 @@ const ZDRAVI_TYDEN_ = (function () {
       const pj = (v.piti || {})[d] || {};
       const jidla = Array.isArray(pj.jidlo) ? pj.jidlo : [], piti = Array.isArray(pj.piti) ? pj.piti : [];
       const vzato = vzatoDne(d);
-      // bílkoviny i z odškrtnutých doplňků s „bilkoviny“ (whey, smoothie) – jako karta Pití a jídlo v aplikaci
+      // bílkoviny i z odškrtnutých doplňků s „bilkoviny“ (proteinové) – jako karta Pití a jídlo v aplikaci
       const bDoplnku = polozky.filter(function (p) { return Number(p.bilkoviny) > 0 && vzato[p.id]; }).reduce(function (a, p) { return a + Number(p.bilkoviny); }, 0);
       const platne = hlavni.filter(function (p) { return plati(p, d); });
       return {
@@ -6189,6 +6189,12 @@ const ZDRAVI_TYDEN_ = (function () {
 
   function predmet(s) { return 'Tvůj týden ' + rozsah(s.od, s.do) + ' – jídlo, pohyb, spánek'; }
 
+  // Úvod bez čísel: server kopíruje seznam Doručené (předmět a prvních 180 znaků textu) do účtu Firebase – zdravotní
+  // údaje tam nesmí, proto e-mail začíná obecnou větou delší než náhled (čísla a Claudův text až za ní).
+  const UVOD = 'Týdenní shrnutí z aplikace Asistent – jídlo a pití, doplňky, váha, spánek a pohyb za uplynulý týden. Čísla jsou z tvých ' +
+    'zápisů a z hodinek (jen tvůj Disk Google), text píše Claude. Chodí jednou týdně, v neděli večer nebo v pondělí ráno.';
+  function textEmailu(s, odClauda) { return UVOD + '\n\n' + text(s, odClauda); }
+
   /** Claudův text do HTML: odstavce (prázdný řádek), odrážky „- “, **tučně** – jinak čistý text. */
   function textClaudaHtml(t) {
     const tucne = function (x) { return x.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>'); };
@@ -6223,7 +6229,8 @@ const ZDRAVI_TYDEN_ = (function () {
     let h = '<div style="background:#f5f3ee;padding:18px 10px;font:14px/1.5 -apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,sans-serif;color:#1b231e">' +
       '<div style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid ' + LINKA + ';border-radius:14px;padding:18px 16px">' +
       '<div style="font-size:12px;color:' + SEDA + '">Asistent · týden ' + e(rozsah(s.od, s.do)) + '</div>' +
-      '<h1 style="margin:2px 0 14px;font-size:22px;line-height:1.25;color:' + ZELENA + '">Tvůj týden</h1>';
+      '<h1 style="margin:2px 0 6px;font-size:22px;line-height:1.25;color:' + ZELENA + '">Tvůj týden</h1>' +
+      '<p style="margin:0 0 14px;font-size:12.5px;color:' + SEDA + '">' + e(UVOD) + '</p>';
     if (odClauda && odClauda.text) {
       h += '<div style="background:' + SVETLA + ';border-left:4px solid ' + ZELENA + ';border-radius:10px;padding:12px 14px 6px">' +
         '<div style="font-size:12px;font-weight:700;color:' + ZELENA + ';margin-bottom:4px">Claude</div>' + textClaudaHtml(odClauda.text) + '</div>';
@@ -6265,7 +6272,8 @@ const ZDRAVI_TYDEN_ = (function () {
     return h;
   }
 
-  return { souhrn: souhrn, text: text, html: html, predmet: predmet, posun: posun, isoTyden: isoTyden, pondeliTydne: pondeliTydne, rozsah: rozsah, cislo: cislo };
+  return { souhrn: souhrn, text: text, textEmailu: textEmailu, html: html, predmet: predmet, posun: posun, isoTyden: isoTyden, pondeliTydne: pondeliTydne,
+    rozsah: rozsah, cislo: cislo };
 })();
 
 // ---------------------------------------------------------------- upozornění do iPhonu (ntfy, nepovinné)

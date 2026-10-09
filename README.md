@@ -181,6 +181,11 @@ přibližná poloha mimo domov má „≈“ a v detailu radu (iPhone: Polohové
   „Doplňky · út 6. 10.“, tlačítko Dnes zpět) a odškrtnutí se zapíše k němu; šipky ‹ › o týden, nejdál 8 týdnů zpátky,
   bez klepnutí se karta po 15 minutách vrátí na dnešek. Skutečný režim je jen na Disku (zdravotní údaje do repa
   nepatří).
+  - **Hlavní doplňky** (Michal 9. 10.: „podstatné jsou … dál se to nemusí započítávat“): `ZDRAVI_REZIM.json` → `hlavni`
+    (seznam id). Do plnění – „zbývá“, „vše ✓“, „x z y“, procenta a plné dny v týdnu, týdenní e-mail a Claudovo hodnocení
+    dne – se počítají jen hlavní, a to jen ve dny, kdy podle režimu platí (`jen: zapas` → jen v den zápasu). Ostatní se
+    ukazují šedě pod čarou „Ostatní · nepočítají se“ a jdou odškrtnout dál. Bez `hlavni` se počítá vše (starší režim).
+    Aplikace: `doplnkyDnes().plneni` / `plneniDoplnku()` v `js/zdravi.js`.
 - **Pití a jídlo** (karta na Dnes i ve Zdraví): voda tlačítky +0,25 / +0,5 l (zpět = poslední vlastní), bílkoviny
   a kcal z jídel a z odškrtnutých doplňků s `bilkoviny` v režimu, týden pití Po–Ne. Cíle v `ZDRAVI_REZIM.json`
   (`pitiCil` ml, `bilkovinyCil` g; výchozí 2,5 l a 130 g). Data `ZDRAVI/PITI_JIDLO.json` (akce `pitiJidlo`).
@@ -197,6 +202,19 @@ přibližná poloha mimo domov má „≈“ a v detailu radu (iPhone: Polohové
     → `doplnky[den][id]`; motor vše spojí (zrušení v aplikaci = `false` v DOPLNKY.json, přebije Claudův zápis), smazání
     Claudova zápisu = `smazane` v PITI_JIDLO.json. Hotový přehled Zdraví drží motor v mezipaměti (klíč `ZDRAVI_V` se mění
     s každým zápisem), takže čtení bez změny neotevírá sedm souborů na Disku.
+- **Týdenní shrnutí e-mailem** (Michal 9. 10.: „nedělní shrnutí … napsat mailem tu moji aktivitu“): spouštěč
+  `instagramKazdych10Min` v neděli od 18:00 spočítá týden po–ne (`ZDRAVI_TYDEN_` v motoru: bílkoviny, kcal a voda po dnech,
+  hlavní doplňky, ranní váha začátek/konec týdne, WHOOP zotavení / spánek / zátěž a Apple kroky proti minulému týdnu,
+  tréninky, hodnocení dnů A–E) a dá Claudovi poznámku `…_tyden.md` (`typ: tyden-zdravi`, aplikace ji neukazuje). Claude
+  zapíše text do `PITI_JIDLO_CLAUDE.json` → `tydny["RRRR-Www"] = { text, kdy }` (skill `asistent-schranka`). Motor pošle
+  e-mail (HTML s tabulkou, bez cizích obrázků, odesílatel „Asistent“) na vlastní adresu se značkou `+notifikace` – v Poště
+  aplikace je to Informace, ne Čekáš na ně: jakmile je Claudův text (v noci 22–6 h počká na ráno), nejpozději v pondělí
+  v 8:00 i bez něj (jen čísla), když motor v pondělí neběžel, ještě v úterý. Jednou za týden (`TYDEN_ZDRAVI_ODESLANO`),
+  prázdný týden nic. Claudův text je pak týden v kartě **Týden · Claude** ve Zdraví (`zdravi.tydenni`).
+- **Rozvržení a grafy:** karty Zdraví jsou ve sloupcích podle své výšky (od 900 px dva, od 1700 px tři, telefon jeden) –
+  žádná se nenatahuje na výšku sousední. U všech grafů (14 dní, váha, pruh spánku, tepové zóny, týden pití a doplňků, Auto)
+  je **bublina s hodnotou** (`js/grafy.js`, jedna pro celou aplikaci): myš najetím, dotyk klepnutím (zmizí klepnutím jinam),
+  klávesnice – graf je jedno místo pro Tab, šipky ← → mezi body, Esc; drží se 8 px od okrajů obrazovky.
 - **Upozornění do iPhonu** (ntfy, nepovinné): zapínají se v aplikaci **Nastavení → Upozornění** (motor vyrobí téma
   `NTFY_TEMA`, aplikace ho ukáže s návodem pro aplikaci ntfy a umí poslat zkušební). Kontroly běží **každých 10 minut**
   se spouštěčem `instagramKazdych10Min` (jiný spouštěč netřeba; starý `kazdouHodinu` dělá totéž): hoří v poště (6–22 h),
@@ -286,8 +304,9 @@ Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**
   ze schránky) mají přednost, STK se připomíná jen ze zadaného termínu (45 / 21 dní předem). Hotovo = odpovídající zápis
   v Náklady. Karta nahoře na stránce Auto, aktuální věci i na Dnes, do iPhonu jednou za sezónu (`upozorneniAuto_`,
   jednou denně, `OHLASENO_AUTO`).
-- **Výdaje po měsících**: souvislá řada 13 měsíců s rokem, klepnutí na sloupec = rozpis po kategoriích („Ostatní“ =
-  vše kromě paliva).
+- **Výdaje po měsících**: souvislá řada 13 měsíců s rokem; najetí myší nebo klepnutí na sloupec (i Tab a šipky) = bublina
+  „říjen 2026 · 3 450 Kč“ s rozpisem po kategoriích („Ostatní“ = vše kromě paliva). **Cena nafty**: bublina u tankování
+  s datem, Kč/l, litry, částkou a stavem km.
 - Tabulka se propojí odkazem na stránce Auto (vlastnost `AUTO_TABULKA`). Motor k tomu potřebuje oprávnění k Tabulkám
   a službu Drive API – obojí je v `apps-script/appsscript.json`; po jeho vložení jednou spustit **`povolitTabulky`**.
 
@@ -325,6 +344,7 @@ Vlastnosti skriptu (⚙ → Vlastnosti skriptu) – všechny nepovinné kromě k
 | `WHOOP_CLIENT_ID`, `WHOOP_CLIENT_SECRET`, `WHOOP_REDIRECT_URI` | propojení s WHOOP (zadá Michal sám) |
 | `ZDRAVI_KLIC` | klíč zkratky Zdraví (vytvoří aplikace v Nastavení → Zdraví) |
 | `NTFY_TEMA`, `UPOZORNENI_WHOOP` | upozornění do iPhonu (zapíná aplikace v Nastavení → Upozornění), poslední hodina stažení WHOOP pro upozornění |
+| `TYDEN_ZDRAVI_POZADANO`, `TYDEN_ZDRAVI_ODESLANO` | týdenní shrnutí zdraví: poznámka pro Clauda už je (týden a čas úpravy jeho souborů), e-mail za týden odešel (spravuje motor) |
 | `NAVRHY_ODPOVEDI` | návrhy odpovědí: obe / osobni / vypnuto (nastavuje aplikace) |
 | `DOCHAZKA_URL`, `DOCHAZKA_WEB` | odkud číst docházku dorostu (výchozí: odvodí se z webu dorostu) |
 | `POCASI_MISTA`, `POCASI_POLOHA` | místa podle polohy a poslední poloha pro upozornění (spravuje motor) |

@@ -94,8 +94,8 @@ const motor = {
         zatez: { probiha: true, zatez: 6.2, kroky: 4000 } } }],
     treninky: [{ id: 'w1', den: iso(ted), start: den(0, 9), konec: den(0, 10), sport: 'soccer', zatez: 11.5, tepPrumer: 140, tepMax: 180, kcal: 700, zony: [1, 5, 20, 20, 10, 4] }],
     whoop: { nastaveno: true, propojeno: true, sync: { kdy: ted, chyba: '' } }, apple: { kdy: ted }, vaha: vahaZaznamy.slice(), doplnky: JSON.parse(JSON.stringify(doplnkyDny)),
-    pitiJidlo: JSON.parse(JSON.stringify(pitiDny)),
-    rezim: { kofeinDo: '14:00', treninkDny: [], zapasTymy: ['A'], cilVahy: { kg: 70, do: iso(den(150)), od: { kg: 74, den: iso(den(-10)) } }, polozky: [{ id: 'kreatin', nazev: 'Kreatin', davka: '5 g', kdy: 'rano' },
+    pitiJidlo: JSON.parse(JSON.stringify(pitiDny)), tydenni: tydenniMock ? JSON.parse(JSON.stringify(tydenniMock)) : null,
+    rezim: { kofeinDo: '14:00', treninkDny: [], zapasTymy: ['A'], hlavni: rezimHlavni || undefined, cilVahy: { kg: 70, do: iso(den(150)), od: { kg: 74, den: iso(den(-10)) } }, polozky: [{ id: 'kreatin', nazev: 'Kreatin', davka: '5 g', kdy: 'rano' },
       { id: 'kofein', nazev: 'Kofein', davka: 'před výkopem', kdy: 'zapas', jen: 'zapas' }, { id: 'horcik', nazev: 'Hořčík', davka: 'večer', kdy: 'vecer' }] } }),
   zdraviKlic: () => ({ klic: 'testovaci-klic-zdravi' }),
   zmeny: () => ({ auto: 0, zdravi: 0 }),
@@ -253,6 +253,8 @@ let postaNavic = {};              // test záložek: aktualizace v Doručené, �
 const doplnkyDny = {}, doplnkyVolani = []; // odškrtnuté doplňky (motor: ZDRAVI/DOPLNKY.json)
 let jmeninyOblibeni = [];          // oblíbení lidé (jmeniny v kalendáři)
 const pitiDny = {}, pitiVolani = []; // pití a jídlo (motor: ZDRAVI/PITI_JIDLO.json)
+let rezimHlavni = null;             // hlavní doplňky v režimu (ZDRAVI_REZIM.json → hlavni); null = počítá se vše
+let tydenniMock = null;             // týdenní shrnutí od Clauda (motor: zdravi.tydenni)
 const postaPresuny = [], postaPrecteno = [];
 const promoVlakna = [
   { id: 'k1', ucet: 'osobni', stav: 'info', od: 'Obchod Test', predmet: 'Dárek k svátku', ukazka: 'Kredit 200 Kč do neděle.', kdy: ted - 3 * H, neprectena: true, pocet: 1, odkaz: '#' },
@@ -1114,7 +1116,7 @@ function vychoziVikendTestu() {
       await page.click(v.sirka >= 760 ? '#rail [data-cil="zdravi"]' : '.hlava-ja [data-cil="zdravi"]');
       await page.waitForSelector('#p-zdravi .zdravi-hero');
       jistota(/72/.test(await page.textContent('#p-zdravi .zdravi-hero')), 'připravenost 72 %');
-      jistota(await page.locator('#p-zdravi .graf14 rect').count() === 14, 'graf 14 dní');
+      jistota(await page.locator('#p-zdravi .graf14 .graf14__sl').count() === 14, 'graf 14 dní');
       jistota(/Porada/.test(await page.textContent('#p-zdravi .trenink')), 'trénink spárovaný s událostí v kalendáři');
       jistota(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, 'Zdraví přetéká');
       await page.screenshot({ path: path.join(VYSTUP, v.nazev + '_zdravi.png'), fullPage: true });
@@ -1136,6 +1138,139 @@ function vychoziVikendTestu() {
       await ctx.close();
     });
   }
+
+  // ---------- Zdraví: karty ve sloupcích podle výšky (Michal 9. 10.: „stále v jedné stejné výšce“) – žádná se nenatahuje na
+  // výšku sousední; PC (Michalův monitor ~1650 px) 2 sloupce, od 1700 px 3, telefon 1; snímky světlý i tmavý režim
+  const ZDRAVI_VELIKOSTI = [{ nazev: 'pc1650', sirka: 1650, vyska: 1000, sloupcu: 2 }, { nazev: 'pc1800', sirka: 1800, vyska: 1000, sloupcu: 3 },
+    { nazev: 'ipad-sirka', sirka: 1180, vyska: 820, dotyk: true, sloupcu: 2 }, { nazev: 'ipad-vyska', sirka: 820, vyska: 1180, dotyk: true, sloupcu: 1 },
+    { nazev: 'telefon', sirka: 390, vyska: 844, dotyk: true, sloupcu: 1 }];
+  for (const v of ZDRAVI_VELIKOSTI) {
+    for (const motiv of v.nazev === 'pc1650' || v.nazev === 'telefon' ? ['light', 'dark'] : ['light']) {
+      await test('Zdraví ' + v.nazev + (motiv === 'dark' ? ' tmavý' : '') + ': karty podle své výšky (' + v.sloupcu + ' sloupce), nic nepřetéká, týden od Clauda', async () => {
+        tydenniMock = { tyden: '2026-W41', od: iso(den(-6)), do: iso(den(0)), kdy: ted, odeslano: true,
+          text: 'Dobrý týden – **bílkoviny** u cíle ve třech dnech.\n\n- víc vody\n- <b>ne HTML</b>' };
+        vahaZaznamy = [{ kdy: den(-9, 7), kg: 74.1 }, { kdy: den(-6, 7.2), kg: 73.8 }, { kdy: den(-3, 21), kg: 74.6 }, { kdy: den(-1, 6.9), kg: 73.4 }];
+        const { ctx, page, chybyStranky } = await novaStranka(prohlizec, v, motiv);
+        try {
+          await page.goto(WEB);
+          await page.waitForSelector('#aplikace:not([hidden])');
+          await page.click(v.sirka >= 760 ? '#rail [data-cil="zdravi"]' : '.hlava-ja [data-cil="zdravi"]');
+          await page.waitForSelector('#p-zdravi .zd-tyden .tyden-claude');
+          const t = await page.innerHTML('#p-zdravi .tyden-claude');
+          jistota(/<b>bílkoviny<\/b>/.test(t) && /<li>víc vody<\/li>/.test(t) && /&lt;b&gt;ne HTML/.test(t), 'týden od Clauda (tučně, odrážky, bez HTML): ' + t);
+          jistota(/odešlo i e-mailem/.test(await page.textContent('#p-zdravi .zd-tyden')), 'štítek e-mailu');
+          const mira = await page.evaluate(() => {
+            const m = document.querySelector('#p-zdravi .zdravi-mrizka-karet');
+            const karty = Array.from(m.children);
+            // mezera mezi spodkem obsahu karty a spodkem karty – natažená karta má velkou prázdnou plochu
+            const prazdno = karty.map((k) => {
+              const obsah = Array.from(k.querySelectorAll(':scope > :not(.dlazdice__telo), .dlazdice__telo > *')).filter((x) => x.getClientRects().length);
+              const dole = Math.max.apply(null, obsah.map((x) => x.getBoundingClientRect().bottom));
+              return [k.className.split(' ').pop(), Math.round(k.getBoundingClientRect().bottom - dole)];
+            });
+            const sloupce = new Set(karty.map((k) => Math.round(k.getBoundingClientRect().left))).size;
+            return { prazdno, sloupce, pretika: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+          });
+          jistota(mira.pretika <= 0, 'přetéká o ' + mira.pretika + ' px');
+          jistota(mira.sloupce === v.sloupcu, 'sloupců ' + mira.sloupce + ', čekám ' + v.sloupcu);
+          jistota(mira.prazdno.every((x) => x[1] <= 28), 'karta natažená přes obsah: ' + JSON.stringify(mira.prazdno));
+          await page.screenshot({ path: path.join(VYSTUP, 'zdravi_' + v.nazev + (motiv === 'dark' ? '_tmavy' : '') + '.png'), fullPage: true });
+          jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+        } finally {
+          await ctx.close();
+          tydenniMock = null;
+          vahaZaznamy = [];
+        }
+      });
+    }
+  }
+
+  // ---------- grafy: bublina s hodnotou (Michal 9. 10.: „kolik to byla … a který měsíc“) – myš, klepnutí, klávesnice, nepřetéká
+  await test('grafy Zdraví: bublina při najetí (den, připravenost, zátěž), u váhy kg a rozdíl, klávesnicí šipkami, pití týden', async () => {
+    vahaZaznamy = [{ kdy: den(-6, 7), kg: 73.8 }, { kdy: den(-1, 7), kg: 73.4 }];
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="zdravi"]');
+      await page.waitForSelector('#p-zdravi .graf14 .graf14__den');
+      const bublina = () => page.evaluate(() => { const b = document.getElementById('graf-bublina'); if (!b || b.hidden) return null;
+        const r = b.getBoundingClientRect(); return { text: b.textContent, l: r.left, r: r.right, t: r.top, b: r.bottom }; });
+      // najetí myší na dnešní den (poslední sloupec)
+      await page.locator('#p-zdravi .graf14 .graf14__den').last().hover();
+      let b = await bublina();
+      jistota(b && /dnes/.test(b.text) && /připravenost 72 %/.test(b.text) && /zátěž 6,2/.test(b.text) && /spánek 6:30/.test(b.text), 'bublina dne: ' + JSON.stringify(b));
+      jistota(await page.locator('#p-zdravi .graf14 [title], #p-zdravi .graf14 title').count() === 0, 'bez starých title (dvojí bublina)');
+      await page.mouse.move(5, 5);
+      await page.waitForFunction(() => document.getElementById('graf-bublina').hidden);
+      // váha: bod s kg, časem a rozdílem proti minulému rannímu vážení
+      await page.locator('#zd-vaha .graf-vahy .graf-bod circle').last().hover();
+      b = await bublina();
+      jistota(b && /73,4 kg/.test(b.text) && /ráno/.test(b.text) && /−0,4 kg proti/.test(b.text) && /plán/.test(b.text), 'bublina váhy: ' + JSON.stringify(b));
+      // klávesnice: Tab na graf 14 dní, šipka vlevo = včerejšek
+      await page.mouse.move(5, 5);
+      await page.focus('#p-zdravi .graf14');
+      await page.keyboard.press('ArrowLeft'); // focus() z testu není „z klávesnice“ – šipka bublinu ukáže
+      b = await bublina();
+      jistota(b && /připravenost 55 %/.test(b.text) && !/dnes/.test(b.text), 'šipka na včerejšek: ' + JSON.stringify(b));
+      jistota(/připravenost 55 %/.test(await page.textContent('.graf-hlaseni')), 'čtečce obrazovky');
+      await page.keyboard.press('Escape');
+      jistota(!(await bublina()), 'Esc schová');
+      // pití týden: bublina s litry a procentem cíle
+      await page.hover('#p-zdravi .piti__tyden li.dnes');
+      b = await bublina();
+      jistota(b && /dnes/.test(b.text) && / l/.test(b.text) && /% cíle/.test(b.text), 'pití: ' + JSON.stringify(b));
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_zdravi_bublina.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      await ctx.close();
+      vahaZaznamy = [];
+    }
+  });
+
+  await test('grafy na telefonu: klepnutí ukáže bublinu, nepřetéká z obrazovky, klepnutí jinam ji schová', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0], 'dark');
+    try {
+      await page.goto(WEB);
+      await page.click('.hlava-ja [data-cil="zdravi"]');
+      await page.waitForSelector('#p-zdravi .graf14 .graf14__den');
+      const dny = page.locator('#p-zdravi .graf14 .graf14__den');
+      for (const den14 of [dny.last(), dny.first()]) {
+        await den14.scrollIntoViewIfNeeded();
+        await den14.tap();
+        const b = await page.evaluate(() => { const x = document.getElementById('graf-bublina'); const r = x.getBoundingClientRect();
+          return { hidden: x.hidden, l: r.left, r: r.right, sirka: document.documentElement.clientWidth, text: x.textContent }; });
+        jistota(!b.hidden && b.l >= 8 && b.r <= b.sirka - 8, 'bublina na obrazovce: ' + JSON.stringify(b));
+      }
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_zdravi_bublina.png') });
+      await page.tap('#p-zdravi .zdravi-paticka');
+      await page.waitForFunction(() => document.getElementById('graf-bublina').hidden);
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  await test('Zdraví v ukázkovém režimu: týden od Clauda, hlavní a ostatní doplňky, bublina u grafu (bez motoru)', async () => {
+    const ctx = await prohlizec.newContext(Object.assign({ viewport: { width: 1650, height: 1000 } }, PRAHA));
+    await ctx.addInitScript(() => localStorage.setItem('asistent.pripojeni', JSON.stringify({ demo: true })));
+    const page = await ctx.newPage();
+    const chyby = [];
+    page.on('pageerror', (e) => chyby.push(e.message));
+    page.on('console', (m) => { if (m.type() === 'error') chyby.push(m.text()); });
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="zdravi"]');
+      await page.waitForSelector('#p-zdravi .zd-tyden .tyden-claude li');
+      jistota(await page.locator('#p-zdravi .zd-doplnky .doplnky__oddel').count() === 1 &&
+        await page.locator('#p-zdravi .zd-doplnky .doplnek--vedlejsi').count() >= 1, 'ostatní doplňky pod čarou');
+      await page.locator('#p-zdravi .graf14 .graf14__den').nth(10).hover();
+      jistota(/připravenost \d+ %/.test(await page.textContent('#graf-bublina')), 'bublina v ukázce');
+      await page.screenshot({ path: path.join(VYSTUP, 'ukazka_zdravi.png'), fullPage: true });
+      jistota(!chyby.length, 'chyby stránky: ' + chyby.join(' | '));
+    } finally {
+      await ctx.close();
+    }
+  });
 
   // ---------- fotbal na Dnes, tým do kalendáře, filtr druhů kalendářů
   await test('fotbal: výsledky a další zápasy týmů na Dnes, tým do kalendáře, filtr druhů v Kalendáři', async () => {
@@ -1246,6 +1381,37 @@ function vychoziVikendTestu() {
     jistota(/Doplňky dnes/.test(await page.textContent('#dl-doplnky .card-hlava')), 'nadpis zpět na dnes');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
+  });
+
+  // ---------- hlavní doplňky (Michal 9. 10.: podstatné jsou jen některé, „dál se to nemusí započítávat“):
+  // ZDRAVI_REZIM.json → hlavni; ostatní se ukazují šedě pod čarou, jdou odškrtnout, ale do plnění se nepočítají
+  await test('hlavní doplňky: do plnění (zbývá, vše ✓, týden) jen hlavní, ostatní šedě pod čarou', async () => {
+    rezimHlavni = ['kreatin'];
+    const dnesIso = iso(ted), drive = doplnkyDny[dnesIso];
+    doplnkyDny[dnesIso] = { kreatin: true };
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-doplnky:not([hidden]) .doplnky__oddel');
+      const poradi = await page.$$eval('#dl-doplnky [data-doplnek]', (b) => b.map((x) => x.dataset.doplnek + (x.classList.contains('doplnek--vedlejsi') ? '(ostatní)' : '')).join());
+      jistota(poradi === 'kreatin,horcik(ostatní)', 'hlavní nahoře, ostatní pod čarou: ' + poradi);
+      jistota(/vše ✓/.test(await page.textContent('#dl-doplnky .card-hlava')), 'hořčík nevzatý, a přesto vše ✓ (nepočítá se)');
+      jistota(await page.locator('#dl-doplnky .doplnky-tyden li.dnes.plny').count() === 1, 'dnešek v týdnu plný');
+      await page.locator('#dl-doplnky').screenshot({ path: path.join(VYSTUP, 'pc_doplnky_hlavni.png') });
+      // odškrtnout jde i ostatní; zrušit hlavní → zbývá 1
+      await page.click('#dl-doplnky [data-doplnek="horcik"]');
+      await page.waitForSelector('#dl-doplnky [data-doplnek="horcik"][aria-pressed="true"]');
+      await page.click('#dl-doplnky [data-doplnek="kreatin"]');
+      await page.waitForSelector('#dl-doplnky [data-doplnek="kreatin"][aria-pressed="false"]');
+      jistota(/zbývá 1/.test(await page.textContent('#dl-doplnky .card-hlava')), 'zbývá jen hlavní: ' + await page.textContent('#dl-doplnky .card-hlava'));
+      const den = await page.getAttribute('#dl-doplnky .doplnky-tyden li.dnes > *', 'aria-label');
+      jistota(/0 z 1 hlavních/.test(den), 'den v týdnu: ' + den);
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      await ctx.close();
+      rezimHlavni = null;
+      if (drive) doplnkyDny[dnesIso] = drive; else delete doplnkyDny[dnesIso];
+    }
   });
 
   // ---------- kalendář: co ukazovat (zaškrtnutí, jen tento – jen v Kalendáři) a jmeniny s oblíbenými (hvězdička)
@@ -2210,11 +2376,27 @@ function vychoziVikendTestu() {
     await page.screenshot({ path: path.join(VYSTUP, 'pc_auto_pece.png') });
     await page.click('[data-panel="auto-pece"] [data-zavrit-panel]');
     await page.waitForFunction(() => !document.querySelector('[data-panel="auto-pece"]'));
-    // výdaje po měsících: rok u prvního sloupce a u ledna, klepnutí = rozpis
+    // výdaje po měsících: rok u prvního sloupce a u ledna; najetí = bublina s měsícem, částkou a rozpisem (Michal 9. 10.)
     const popisky = await page.$$eval('.auto-sloupec small', (s) => s.map((x) => x.textContent));
     jistota(popisky.length <= 13 && /\d{4}$/.test(popisky[0]), 'měsíce s rokem: ' + JSON.stringify(popisky));
-    await page.click('.auto-sloupec:last-child');
-    await page.waitForFunction(() => /\d{4}: /.test(document.getElementById('toast').textContent));
+    const bublinaAuta = () => page.evaluate(() => { const b = document.getElementById('graf-bublina'); return b && !b.hidden ? b.textContent.replace(/\s+/g, ' ') : ''; });
+    await page.hover('.auto-sloupec[aria-label*="palivo"]');
+    const vMesici = await bublinaAuta();
+    jistota(/^(leden|únor|březen|duben|květen|červen|červenec|srpen|září|říjen|listopad|prosinec) \d{4}/.test(vMesici) && /\d Kč/.test(vMesici) && /palivo \d/.test(vMesici),
+      'bublina měsíce: ' + vMesici);
+    // klávesnicí: Tab na sloupec, šipka vlevo = předchozí měsíc
+    await page.focus('.auto-sloupec:last-child');
+    await page.keyboard.press('ArrowLeft');
+    await page.waitForFunction(() => { const s = document.querySelectorAll('.auto-sloupec'); return document.activeElement === s[s.length - 2]; });
+    const predchozi = await bublinaAuta();
+    jistota(/\d{4}/.test(predchozi) && predchozi === await page.evaluate(() => { const a = document.activeElement.dataset;
+      return (a.bublina + (a.bublinaHodnota || '') + (a.bublinaPod || '')).replace(/\s+/g, ' '); }), 'šipka: bublina předchozího měsíce: ' + predchozi);
+    // cena nafty: najetí na tankování = datum, Kč/l, litry a částka
+    await page.locator('.auto-cara .graf-bod').last().hover();
+    const tankovani = await bublinaAuta();
+    jistota(/tankování/.test(tankovani) && /35,00 Kč\/l/.test(tankovani) && /40,0 l/.test(tankovani) && /1 400 Kč/.test(tankovani), 'bublina tankování: ' + tankovani);
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_auto_bublina.png') });
+    await page.mouse.move(2, 2);
     // auto hlásí tankování, které v tabulce chybí (to před měsícem v tabulce je)
     const hlaseni = (await page.textContent('.auto-hlaseni')).replace(/\s+/g, ' ');
     jistota(/asi 36,4 l/.test(hlaseni) && !/asi 39 l/.test(hlaseni), 'hlášení z auta: ' + hlaseni);
@@ -2336,6 +2518,15 @@ function vychoziVikendTestu() {
     const prekryv = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     jistota(prekryv <= 0, 'stránka přetéká do strany o ' + prekryv + ' px');
     await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_auto.png'), fullPage: true });
+    // klepnutí na krajní sloupce měsíců: bublina s měsícem a částkou celá na obrazovce (8 px od okraje)
+    for (const sloupec of [page.locator('.auto-sloupec').first(), page.locator('.auto-sloupec').last()]) {
+      await sloupec.scrollIntoViewIfNeeded();
+      await sloupec.tap();
+      const b = await page.evaluate(() => { const x = document.getElementById('graf-bublina'); const r = x.getBoundingClientRect();
+        return { hidden: x.hidden, l: r.left, r: r.right, sirka: document.documentElement.clientWidth, text: x.textContent.replace(/\s+/g, ' ') }; });
+      jistota(!b.hidden && b.l >= 8 && b.r <= b.sirka - 8 && /\d{4}/.test(b.text), 'bublina měsíce na telefonu: ' + JSON.stringify(b));
+    }
+    await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_auto_bublina.png') });
     // Dnes: připomínka auta je karta Auta – ne e-mail s časem v ms místo názvu, „NaN“ místo data a „Neplatný argument“ po klepnutí
     await page.click('#lista [data-cil="dnes"]');
     await page.waitForSelector('.pozornost .pozor[data-cil="auto"]');
