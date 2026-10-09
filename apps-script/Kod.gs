@@ -36,7 +36,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-09.1';
+const VERZE = '2026-10-09.2';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -290,8 +290,10 @@ function povolitTabulky() {
 
 function nactiSchranku_() {
   const koren = koren_();
-  const nove = soubory_(podslozka_(koren, 'NOVE')).map(function (f) { return polozka_(f, 'NOVE'); });
-  const ceka = soubory_(podslozka_(koren, 'CEKA')).map(function (f) { return polozka_(f, 'CEKA'); });
+  // poznámky pro Clauda od motoru (jídlo k odhadu, hodnocení dne) jsou jen vnitřní pokyn – aplikace je neukazuje
+  const viditelne = function (f) { return !SKRYTE_POZNAMKY.test(f.getName()); };
+  const nove = soubory_(podslozka_(koren, 'NOVE')).filter(viditelne).map(function (f) { return polozka_(f, 'NOVE'); });
+  const ceka = soubory_(podslozka_(koren, 'CEKA')).filter(viditelne).map(function (f) { return polozka_(f, 'CEKA'); });
 
   // HOTOVO je po měsících (HOTOVO/2026-10); stačí poslední dva měsíce + soubory přímo v HOTOVO
   const hotovoSlozka = podslozka_(koren, 'HOTOVO');
@@ -302,7 +304,7 @@ function nactiSchranku_() {
   mesice.sort(function (a, b) { return b.getName().localeCompare(a.getName()); });
   mesice.slice(0, 2).forEach(function (m) { hotovo = hotovo.concat(soubory_(m)); });
   hotovo.sort(function (a, b) { return b.getLastUpdated() - a.getLastUpdated(); });
-  hotovo = hotovo.slice(0, MAX_VYRIZENYCH).map(function (f) { return polozka_(f, 'HOTOVO'); });
+  hotovo = hotovo.filter(viditelne).slice(0, MAX_VYRIZENYCH).map(function (f) { return polozka_(f, 'HOTOVO'); });
 
   // kdy Claude naposledy zpracoval schránku (obnovil PREHLED.md) – aplikace pozná, že úloha neběží (PC vypnuté)
   const prehled = koren.getFilesByName('PREHLED.md');
@@ -2447,6 +2449,7 @@ function instagramKazdych10Min() {
     if (hodina >= 7 && hodina <= 22) ulozPostuKPrehledu_();
   } catch (chyba) { /* příště */ }
   try { whoopNaPozadi_(); } catch (chyba) { /* příště (chyba je ve WHOOP_SYNC, aplikace ji ukáže) */ }
+  try { hodnoceniJidlaNaPozadi_(); } catch (chyba) { /* příště */ }
   instagramPlan_();
 }
 
@@ -2619,7 +2622,12 @@ function oblastZapisu_(akce) {
 
 function oznacZmenu_(oblast) {
   if (!ZNACKY_ZMEN[oblast]) return;
-  try { vlastnosti_().setProperty(ZNACKY_ZMEN[oblast], String(Date.now())); } catch (chyba) { /* jen zrychlení */ }
+  try {
+    const vl = vlastnosti_();
+    vl.setProperty(ZNACKY_ZMEN[oblast], String(Date.now()));
+    // zdraví: nová verze dat = jiný klíč hotového přehledu v mezipaměti (čas by se při dvou zápisech v jedné ms nezměnil)
+    if (oblast === 'zdravi') vl.setProperty('ZDRAVI_V', Utilities.getUuid().slice(0, 8));
+  } catch (chyba) { /* jen zrychlení */ }
 }
 
 /** Akce zmeny: { auto, zdravi } (ms). Zdraví i podle souborů, které Claude píše rovnou na Disk (diktát pití a jídla, režim). */
@@ -4084,7 +4092,7 @@ const POCASI_VYCHOZI = {
   domov: null                                       // { lat, lon } – nastavený domov (akce pocasiDomov); místo výše je pak domov
 };
 // Domov: poloha z Wi-Fi bývá o pár km vedle (telefon i PC hlásily sousední obec – Michal 9. 10.: „nevím proč mám počasí
-// jinde“), proto v okolí domova (do 8 km, při nepřesné poloze i dál podle přesnosti) ukáže počasí pro domov.
+// jinde“), proto v okolí domova (do 8 km, při nepřesné poloze i dál podle přesnosti, a v celém ORP domova) ukáže domov.
 const DOMOV_OKOLI_M = 8000;
 const POCASI_URL = {
   cap: 'https://vystrahy-cr.chmi.cz/data2/XOCZ50_OKPR.xml',
@@ -4124,11 +4132,13 @@ function pocasi_(znovu, poloha) {
   else if (poloha === undefined) p = posledniPoloha_(); // upozornění: poslední poloha z aplikace (nejvýš den stará)
   else if (vlastnosti_().getProperty('POCASI_POLOHA')) vlastnosti_().deleteProperty('POCASI_POLOHA'); // poloha vypnutá
   let n = null, chybaPolohy = '';
-  // v okolí domova domov (poloha z Wi-Fi bývá o pár km vedle); jinak místo podle polohy
+  // v okolí domova domov (poloha z Wi-Fi bývá o pár km vedle): do 8 km (při nepřesné poloze i dál), nebo kdekoli ve stejném
+  // ORP – výstrahy ČHMÚ jsou pro celé ORP stejné (Michal 9. 10.: domov Veselí n. M., Wi-Fi hlásí obec 10 km od něj)
   const vychozi = (function () { try { return nastaveniPocasi_(); } catch (chyba) { return null; } })();
-  const doma = !!(p && vychozi && vychozi.domov && vzdalenostM_(p, vychozi.domov) <= Math.max(DOMOV_OKOLI_M, (p.presnost || 0) + 3000));
+  let doma = !!(p && vychozi && vychozi.domov && vzdalenostM_(p, vychozi.domov) <= Math.max(DOMOV_OKOLI_M, (p.presnost || 0) + 3000));
+  if (p && !doma) { try { n = nastaveniZPolohy_(p); } catch (chyba) { chybaPolohy = String(chyba.message || chyba); } }
+  if (n && vychozi && vychozi.domov && Object.keys(n.orp)[0] === Object.keys(vychozi.orp || {})[0]) doma = true;
   if (doma) n = Object.assign({}, vychozi, { poloha: vychozi.domov });
-  else if (p) { try { n = nastaveniZPolohy_(p); } catch (chyba) { chybaPolohy = String(chyba.message || chyba); } }
   if (!n) n = nastaveniPocasi_();
   const klic = n.poloha ? 'pocasi:prehled:' + klicMista_(n) : 'pocasi:prehled';
   // domov: aplikace ukáže jméno místa i bez polohy; přibližná poloha mimo domov → „≈ místo“ a rada v detailu
@@ -4993,19 +5003,30 @@ function zdravi_(znovu) {
   if (whoop.propojeno && (znovu || Date.now() - whoop.sync.kdy > ZDRAVI_SYNC_ZALOHA_MIN * 60000)) {
     try { whoopSync_(whoop.sync.kdy ? 5 : ZDRAVI_DNI); } catch (chyba) { chybaSync = String(chyba.message || chyba); }
   }
-  const slozka = slozkaZdravi_();
+  // hotový přehled z mezipaměti, dokud se nic nezapsalo (značka ZDRAVI_V se mění s každým zápisem, i ze zkratky a WHOOP)
+  // ani Claude neupravil své soubory – čtení pak nemusí otevírat sedm souborů na Disku
   const ted = Date.now();
-  const tento = Utilities.formatDate(new Date(ted), CASOVE_PASMO, 'yyyy-MM');
-  const minuly = Utilities.formatDate(new Date(ted - (ZDRAVI_DNI + 1) * 864e5), CASOVE_PASMO, 'yyyy-MM');
-  const soubory = (minuly === tento ? [tento] : [minuly, tento]).map(function (m) { return nactiMesicZdravi_(slozka, m).data; });
-  const p = ZDRAVI_.prehled(soubory, ted, ZDRAVI_DNI);
-  p.whoop = whoopStav_();
-  if (chybaSync) p.whoop.sync.chyba = chybaSync;
-  p.apple = { kdy: Number(vlastnosti_().getProperty('APPLE_SYNC') || 0), posledni: nactiZCache_('APPLE_POSLEDNI') };
-  p.rezim = zdraviRezim_();
-  p.vaha = nactiVahu_(slozka).zaznamy;
-  p.doplnky = nactiDoplnky_(slozka).dny;
-  p.pitiJidlo = pitiJidloDny_(slozka, 14);
+  const vl = vlastnosti_();
+  const klic = ['zdravi', vl.getProperty('ZDRAVI_V') || '', zmenaSouboruClauda_(), whoopStav_().sync.kdy, vl.getProperty('APPLE_SYNC') || '',
+    Utilities.formatDate(new Date(ted), CASOVE_PASMO, 'yyyy-MM-dd')].join(':');
+  let p = !znovu && !chybaSync ? nactiZCache_(klic) : null;
+  if (!p) {
+    const slozka = slozkaZdravi_();
+    const tento = Utilities.formatDate(new Date(ted), CASOVE_PASMO, 'yyyy-MM');
+    const minuly = Utilities.formatDate(new Date(ted - (ZDRAVI_DNI + 1) * 864e5), CASOVE_PASMO, 'yyyy-MM');
+    const soubory = (minuly === tento ? [tento] : [minuly, tento]).map(function (m) { return nactiMesicZdravi_(slozka, m).data; });
+    p = ZDRAVI_.prehled(soubory, ted, ZDRAVI_DNI);
+    p.whoop = whoopStav_();
+    if (chybaSync) p.whoop.sync.chyba = chybaSync;
+    p.rezim = zdraviRezim_();
+    p.vaha = nactiVahu_(slozka).zaznamy;
+    const claude = nactiJson_(slozka, 'PITI_JIDLO_CLAUDE.json').data || {};
+    p.doplnky = spojDoplnky_(nactiDoplnky_(slozka).dny, claude);
+    p.pitiJidlo = pitiJidloDny_(slozka, 14, claude);
+    if (!chybaSync) ulozDoCache_(klic, p, 1800);
+  }
+  // poslední pokus zkratky Zdraví (i nepovedený, ten značku nemění) vždy čerstvý
+  p.apple = { kdy: Number(vl.getProperty('APPLE_SYNC') || 0), posledni: nactiZCache_('APPLE_POSLEDNI') };
   return p;
 }
 
@@ -5028,7 +5049,10 @@ function vahaKg_(x) {
   return kg >= 30 && kg <= 250 ? kg : null;
 }
 
-/** Akce vaha: d.kg = zapsat (čas zápisu = teď), d.smazat = čas záznamu ke smazání (překlep). Vrací všechny záznamy. */
+/**
+ * Akce vaha: d.kg = zapsat (čas = d.kdy, když se vážil dřív – Michal 9. 10.: „ne vždy si to hned napíšu“; jinak teď),
+ * d.smazat = čas záznamu ke smazání (překlep). Čas nejvýš 60 dní zpátky a ne v budoucnu. Vrací všechny záznamy.
+ */
 function vaha_(d) {
   const zamek = LockService.getScriptLock();
   zamek.waitLock(30000);
@@ -5042,7 +5066,15 @@ function vaha_(d) {
     } else {
       const kg = vahaKg_(d.kg);
       if (kg == null) throw new Error('Váha musí být číslo v kg (např. 80,4).');
-      zaznamy.push({ kdy: Date.now(), kg: kg });
+      const ted = Date.now();
+      let kdy = ted;
+      if (d.kdy != null && d.kdy !== '') {
+        kdy = typeof d.kdy === 'number' ? d.kdy : Date.parse(String(d.kdy));
+        if (!(kdy > ted - 60 * 864e5 && kdy <= ted + 5 * 60000)) throw new Error('Čas vážení musí být v posledních 60 dnech (ne v budoucnu).');
+        kdy = Math.round(kdy / 60000) * 60000;
+        while (zaznamy.some(function (z) { return z.kdy === kdy; })) kdy += 1000; // stejná minuta → o vteřinu dál (čas je id záznamu)
+      }
+      zaznamy.push({ kdy: kdy, kg: kg });
     }
     zaznamy.sort(function (a, b) { return a.kdy - b.kdy; });
     const obsah = JSON.stringify({ aktualizovano: Date.now(), zaznamy: zaznamy });
@@ -5078,19 +5110,39 @@ function doplnky_(d) {
     const v = nactiDoplnky_(slozka);
     const dny = v.dny;
     const zaznam = dny[den] || {};
+    // zrušené odškrtnutí = výslovné „ne“ (false): přebije doplněk, který zapsal Claude z diktátu (jeho soubor motor nemění)
     Object.keys(zmeny).slice(0, 50).forEach(function (id) {
       if (!/^[\w-]{1,40}$/.test(id)) return;
-      if (zmeny[id]) zaznam[id] = true; else delete zaznam[id];
+      zaznam[id] = !!zmeny[id];
     });
     if (Object.keys(zaznam).length) dny[den] = zaznam; else delete dny[den];
     const hranice = Utilities.formatDate(new Date(Date.now() - DOPLNKY_DNI * 864e5), CASOVE_PASMO, 'yyyy-MM-dd');
     Object.keys(dny).forEach(function (k) { if (k < hranice) delete dny[k]; });
     const obsah = JSON.stringify({ aktualizovano: Date.now(), dny: dny });
     if (v.soubor) v.soubor.setContent(obsah); else slozka.createFile('DOPLNKY.json', obsah, MimeType.PLAIN_TEXT);
-    return { dny: dny };
+    return { dny: spojDoplnky_(dny, nactiJson_(slozka, 'PITI_JIDLO_CLAUDE.json').data) };
   } finally {
     zamek.releaseLock();
   }
+}
+
+/**
+ * Odškrtnuté doplňky po dnech pro aplikaci: z aplikace (DOPLNKY.json) + z diktátu („vzal jsem kreatin“ – Claude je zapíše
+ * do PITI_JIDLO_CLAUDE.json → doplnky); výslovné „ne“ z aplikace (false) Claudův zápis přebije. Jen true – { den: { id: true } }.
+ */
+function spojDoplnky_(dny, claude) {
+  const ven = {};
+  const den = function (d) { return (ven[d] = ven[d] || {}); };
+  const od = claude && claude.doplnky && typeof claude.doplnky === 'object' ? claude.doplnky : {};
+  Object.keys(od).forEach(function (d) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !od[d] || typeof od[d] !== 'object') return;
+    Object.keys(od[d]).forEach(function (id) { if (od[d][id] === true && /^[\w-]{1,40}$/.test(id)) den(d)[id] = true; });
+  });
+  Object.keys(dny || {}).forEach(function (d) {
+    Object.keys(dny[d] || {}).forEach(function (id) { if (dny[d][id] === true) den(d)[id] = true; else if (ven[d]) delete ven[d][id]; });
+  });
+  Object.keys(ven).forEach(function (d) { if (!Object.keys(ven[d]).length) delete ven[d]; });
+  return ven;
 }
 
 // ---- pití a jídlo (Michal 5. 10.: „piju málo, když to uvidím, třeba to půjde“; bílkoviny k cíli 130 g):
@@ -5107,20 +5159,36 @@ function nactiJson_(slozka, nazev) {
   return { soubor: soubor, data: data };
 }
 
-/** Pití a jídlo po dnech (posledních n dní) z aplikace i od Clauda, bez smazaných: { 'RRRR-MM-DD': { piti: [], jidlo: [] } }. */
-function pitiJidloDny_(slozka, dni) {
+/**
+ * Pití a jídlo po dnech (posledních n dní) z aplikace i od Clauda, bez smazaných: { 'RRRR-MM-DD': { piti: [], jidlo: [], hodnoceni? } }.
+ * Jídlo z aplikace s místním odhadem (odhad: 'mistni') dostane Claudův odhad z PITI_JIDLO_CLAUDE.json → odhady[id]
+ * (odhad: 'claude'); hodnocení dne od Clauda → hodnoceni[den] = { znamka, text, kdy }.
+ */
+function pitiJidloDny_(slozka, dni, claudeData) {
   const vlastni = nactiJson_(slozka, 'PITI_JIDLO.json').data || {};
-  const claude = nactiJson_(slozka, 'PITI_JIDLO_CLAUDE.json').data || {};
+  const claude = claudeData || nactiJson_(slozka, 'PITI_JIDLO_CLAUDE.json').data || {};
+  const odhady = claude.odhady && typeof claude.odhady === 'object' ? claude.odhady : {};
   const smazane = {};
   (Array.isArray(vlastni.smazane) ? vlastni.smazane : []).forEach(function (id) { smazane[id] = true; });
   const hranice = Utilities.formatDate(new Date(Date.now() - (dni - 1) * 864e5), CASOVE_PASMO, 'yyyy-MM-dd');
   const dny = {};
   const den = function (d) { return (dny[d] = dny[d] || { piti: [], jidlo: [] }); };
+  const cislo = function (x, max) { return Math.max(0, Math.min(max, Math.round(Number(x) || 0))); };
   Object.keys(vlastni.dny || {}).forEach(function (d) {
     if (d < hranice) return;
     const z = vlastni.dny[d] || {};
     (z.piti || []).forEach(function (x) { den(d).piti.push(x); });
-    (z.jidlo || []).forEach(function (x) { den(d).jidlo.push(x); });
+    (z.jidlo || []).forEach(function (x) {
+      const o = x && x.id && odhady[x.id];
+      den(d).jidlo.push(o && typeof o === 'object' ? Object.assign({}, x, { bilkoviny: cislo(o.bilkoviny, 300), kcal: cislo(o.kcal, 5000), odhad: 'claude',
+        poznamka: String(o.poznamka || '').slice(0, 160) }) : x);
+    });
+  });
+  const hodnoceni = claude.hodnoceni && typeof claude.hodnoceni === 'object' ? claude.hodnoceni : {};
+  Object.keys(hodnoceni).forEach(function (d) {
+    const h = hodnoceni[d];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d < hranice || !h || typeof h !== 'object' || !h.text) return;
+    den(d).hodnoceni = { znamka: String(h.znamka || '').slice(0, 2), text: String(h.text).slice(0, 700), kdy: Date.parse(h.kdy) || null };
   });
   (Array.isArray(claude.zapisy) ? claude.zapisy : []).forEach(function (x) {
     const d = String((x && x.den) || '');
@@ -5166,8 +5234,12 @@ function pitiJidlo_(d) {
     } else if (d.jak === 'jidlo') {
       const co = String(d.co || '').replace(/\s+/g, ' ').trim().slice(0, 120);
       if (!co) throw new Error('Napiš, co jsi snědl.');
-      zaznam.jidlo.push({ id: noveId('j'), kdy: Date.now(), co: co, bilkoviny: Math.max(0, Math.min(300, Math.round(Number(d.bilkoviny) || 0))),
-        kcal: Math.max(0, Math.min(5000, Math.round(Number(d.kcal) || 0))) });
+      const zapis = { id: noveId('j'), kdy: Date.now(), co: co, bilkoviny: Math.max(0, Math.min(300, Math.round(Number(d.bilkoviny) || 0))),
+        kcal: Math.max(0, Math.min(5000, Math.round(Number(d.kcal) || 0))) };
+      // bílkoviny nezadal Michal, jen je odhadla aplikace → upřesní Claude (poznámka do schránky)
+      if (d.odhad) zapis.odhad = 'mistni';
+      zaznam.jidlo.push(zapis);
+      if (d.odhad) { try { jidloKOdhadu_(den, zapis); } catch (chyba) { /* jídlo je zapsané, odhad zůstane místní */ } }
     } else if (d.jak === 'smazat') {
       const id = String(d.id || '');
       if (/^c-/.test(id)) { if (data.smazane.indexOf(id) < 0) data.smazane.push(id); }
@@ -5188,6 +5260,49 @@ function pitiJidlo_(d) {
   } finally {
     zamek.releaseLock();
   }
+}
+
+// ---- jídlo k odhadu a hodnocení dne: pokyn pro Clauda jako poznámka v NOVE. Úloha schránky (obě PC, každých 30 min)
+// ji zpracuje jako ostatní poznámky podle skillu asistent-schranka – prompt úlohy se kvůli tomu nemění. Aplikace tyhle
+// poznámky neukazuje (SKRYTE_POZNAMKY). Michal 9. 10.: „napíšu, co jsem měl, bez bílkovin, pošle se to Claudovi a zapíše“.
+const SKRYTE_POZNAMKY = /_(jidl|hodn)\.md$/;
+
+/** Jídlo s místním odhadem → řádek do poznámky „jídlo k odhadu“ v NOVE (jedna, dokud ji Claude nezpracuje, pak další). */
+function jidloKOdhadu_(den, zapis) {
+  const nove = podslozka_(koren_(), 'NOVE');
+  const radek = '- id ' + zapis.id + ', ' + den + ' ' + Utilities.formatDate(new Date(zapis.kdy), CASOVE_PASMO, 'HH:mm') + ': „' + zapis.co + '“' +
+    (zapis.bilkoviny || zapis.kcal ? ' (aplikace odhadla ' + zapis.bilkoviny + ' g bílkovin, ' + zapis.kcal + ' kcal)' : '');
+  const it = nove.getFiles();
+  while (it.hasNext()) {
+    const f = it.next();
+    if (!/_jidl\.md$/.test(f.getName())) continue;
+    f.setContent(f.getBlob().getDataAsString('UTF-8').replace(/\s*$/, '\n') + radek + '\n');
+    return;
+  }
+  const ted = new Date(Date.now());
+  nove.createFile(Utilities.formatDate(ted, CASOVE_PASMO, 'yyyy-MM-dd_HHmmss') + '_jidl.md', ['---',
+    'kdy: ' + Utilities.formatDate(ted, CASOVE_PASMO, "yyyy-MM-dd'T'HH:mm:ssXXX"),
+    'odkud: aplikace (jídlo)', 'typ: jidlo', '---', '',
+    'Odhadni bílkoviny a kcal jídel, která Michal zapsal v aplikaci bez bílkovin, a zapiš je do ZDRAVI\\PITI_JIDLO_CLAUDE.json → ' +
+    '„odhady“ (skill asistent-schranka, Jídlo k odhadu). Vezmi i starší jídla s „odhad: mistni“ bez odhadu, ať žádné nezůstane.',
+    '', radek, ''].join('\n'), MimeType.PLAIN_TEXT);
+}
+
+/** Spouštěč (každých 10 min): od 21:30 jednou denně poznámka pro Clauda „zhodnoť dnešní jídlo a pití“ – jen když se něco zapsalo. */
+function hodnoceniJidlaNaPozadi_() {
+  const ted = new Date(Date.now());
+  if (Utilities.formatDate(ted, CASOVE_PASMO, 'HH:mm') < '21:30') return;
+  const den = Utilities.formatDate(ted, CASOVE_PASMO, 'yyyy-MM-dd');
+  const vl = vlastnosti_();
+  if (vl.getProperty('HODNOCENI_JIDLA_DEN') === den) return;
+  const z = pitiJidloDny_(slozkaZdravi_(), 1)[den];
+  if (!z || !(z.jidlo.length || z.piti.length)) return;
+  vl.setProperty('HODNOCENI_JIDLA_DEN', den);
+  podslozka_(koren_(), 'NOVE').createFile(Utilities.formatDate(ted, CASOVE_PASMO, 'yyyy-MM-dd_HHmmss') + '_hodn.md', ['---',
+    'kdy: ' + Utilities.formatDate(ted, CASOVE_PASMO, "yyyy-MM-dd'T'HH:mm:ssXXX"),
+    'odkud: aplikace (hodnocení dne)', 'typ: hodnoceni-jidla', '---', '',
+    'Zhodnoť Michalovo jídlo a pití za ' + den + ' a zapiš hodnocení do ZDRAVI\\PITI_JIDLO_CLAUDE.json → „hodnoceni“ ' +
+    '(skill asistent-schranka, Hodnocení dne – cíle v ZDRAVI_REZIM.json, váha v ZDRAVI\\VAHA.json).', ''].join('\n'), MimeType.PLAIN_TEXT);
 }
 
 /**

@@ -338,7 +338,10 @@ function prostredi() {
       if (url.indexOf('chmi.cz') >= 0) return odpovedChmu(url, moznosti);
       if (url.indexOf('ags.cuzk.cz') >= 0) { // RÚIAN: bod → ORP (vrstva 14) / obec (vrstva 12) – jen okolí Veselí n. M.
         log.cuzk = (log.cuzk || 0) + 1;
-        const atributy = /MapServer\/14\//.test(url) ? { kod: 1490, nazev: 'Veselí nad Moravou' } : { kod: 586587, nazev: 'Strážnice' };
+        // západně od 17° (Brno) jiné ORP než Veselí n. M. – domov se pozná i podle ORP
+        const lon = Number((/geometry=([\d.]+),/.exec(url) || [])[1] || 17.3);
+        const atributy = /MapServer\/14\//.test(url) ? (lon < 17 ? { kod: 1325, nazev: 'Brno' } : { kod: 1490, nazev: 'Veselí nad Moravou' })
+          : (lon < 17 ? { kod: 582786, nazev: 'Brno' } : { kod: 586587, nazev: 'Strážnice' });
         return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ features: [{ attributes: atributy }] }) };
       }
       if (url.indexOf('api.prod.whoop.com') >= 0) return odpovedWhoop(url, moznosti || {});
@@ -1625,6 +1628,9 @@ test('počasí: domov – v okolí 8 km (poloha z Wi-Fi o pár km vedle) i bez p
   assert.strictEqual(o.data.presnost, 6000);
   o = p.volej('pocasi', { poloha: { lat: 49.2, lon: 16.6, presnost: 25 } });
   assert.strictEqual(o.data.presnost, undefined, 'přesnost z mezipaměti nepřetrvá');
+  // 23 km od domova, přesně, ale ve stejném ORP (výstrahy stejné) → domov
+  o = p.volej('pocasi', { poloha: { lat: 49.03, lon: 17.45, presnost: 20 } });
+  assert.deepStrictEqual([o.data.misto, o.data.domov], ['Hodonín', true]);
   // přibližná poloha 9 km od domova, ale s nejistotou 7 km → domov (kruh nejistoty domov pokrývá)
   o = p.volej('pocasi', { poloha: { lat: 48.77, lon: 17.13, presnost: 7000 } });
   assert.deepStrictEqual([o.data.misto, o.data.domov], ['Hodonín', true]);
@@ -1875,7 +1881,7 @@ test('doplňky: odškrtnutí na Disk (ZDRAVI/DOPLNKY.json) – víc položek nar
   assert.ok(!('2026-05-01' in o.data.dny), 'starší než 120 dní se nedrží');
   assert.ok(/RRRR-MM-DD/.test(p.volej('doplnky', { den: '5. 10.', zmeny: { kreatin: true } }).chyba));
   const soubor = p.schranka.deti.ZDRAVI.soubory.find((f) => f.getName() === 'DOPLNKY.json');
-  assert.deepStrictEqual(JSON.parse(soubor.getBlob().getDataAsString()).dny, { '2026-10-05': { kreatin: true } });
+  assert.deepStrictEqual(JSON.parse(soubor.getBlob().getDataAsString()).dny, { '2026-10-05': { kreatin: true, champion: false } }, 'zrušené = výslovné ne');
   assert.deepStrictEqual(json(p.volej('zdravi').data.doplnky), { '2026-10-05': { kreatin: true } });
 });
 
@@ -1905,6 +1911,61 @@ test('pití a jídlo: zápis z aplikace, zápisy Clauda z diktátu, smazání ob
   assert.ok(/zapisy/.test(p.schranka.deti.ZDRAVI.soubory.find((f) => f.getName() === 'PITI_JIDLO_CLAUDE.json').getBlob().getDataAsString()), 'Claudův soubor nezměněn');
 });
 
+test('jídlo bez bílkovin: místní odhad + poznámka pro Clauda (jedna, skrytá v aplikaci), Claudův odhad, hodnocení dne, doplňky z diktátu', () => {
+  const p = prostredi();
+  p.nastavCas(Date.parse('2026-10-09T12:30:00+02:00'));
+  let o = p.volej('pitiJidlo', { den: '2026-10-09', jak: 'jidlo', co: 'kuře s rýží', bilkoviny: 38, kcal: 560, odhad: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  const j1 = o.data.dny['2026-10-09'].jidlo[0];
+  assert.deepStrictEqual([j1.co, j1.bilkoviny, j1.odhad], ['kuře s rýží', 38, 'mistni']);
+  p.nastavCas(Date.parse('2026-10-09T18:10:00+02:00'));
+  o = p.volej('pitiJidlo', { den: '2026-10-09', jak: 'jidlo', co: '3 vejce a chleba', bilkoviny: 23, kcal: 420, odhad: true });
+  p.volej('pitiJidlo', { den: '2026-10-09', jak: 'jidlo', co: 'tvaroh', bilkoviny: 30, kcal: 250 }); // bílkoviny zadal sám → bez Clauda
+  const nove = p.schranka.deti.NOVE.soubory.filter((f) => /_jidl\.md$/.test(f.getName()));
+  assert.strictEqual(nove.length, 1, 'jedna poznámka „jídlo k odhadu“, další jídla se připíšou');
+  const text = nove[0].getBlob().getDataAsString();
+  assert.ok(/typ: jidlo/.test(text) && /„kuře s rýží“ \(aplikace odhadla 38 g bílkovin, 560 kcal\)/.test(text) && /„3 vejce a chleba“/.test(text) && !/tvaroh/.test(text), text);
+  assert.ok(/PITI_JIDLO_CLAUDE\.json/.test(text), 'pokyn kam zapsat');
+  assert.strictEqual(p.volej('schranka').data.nove.length, 0, 'aplikace poznámku pro Clauda neukazuje');
+  // Claude odhadne (odhady), zhodnotí den a z diktátu zapíše doplněk
+  const j2 = o.data.dny['2026-10-09'].jidlo[1];
+  p.schranka.deti.ZDRAVI.createFile('PITI_JIDLO_CLAUDE.json', JSON.stringify({
+    zapisy: [],
+    odhady: { [j1.id]: { bilkoviny: 42, kcal: 610, poznamka: 'porce ~180 g kuřete' }, [j2.id]: { bilkoviny: 22, kcal: 400 } },
+    hodnoceni: { '2026-10-09': { znamka: 'B', text: 'Bílkovin 94 g ze 130 – chybí večeře s masem; voda dobrá.', kdy: '2026-10-09T21:45:00+02:00' } },
+    doplnky: { '2026-10-09': { elektrolyty: true, kreatin: true }, '2026-10-08': { omega: true } }
+  }));
+  p.cache.delete('zmena:claude');
+  let z = p.volej('zdravi').data;
+  const jidla = z.pitiJidlo['2026-10-09'].jidlo;
+  assert.deepStrictEqual(jidla.map((x) => [x.co, x.bilkoviny, x.odhad || '']), [['kuře s rýží', 42, 'claude'], ['3 vejce a chleba', 22, 'claude'], ['tvaroh', 30, '']]);
+  assert.strictEqual(jidla[0].poznamka, 'porce ~180 g kuřete');
+  assert.deepStrictEqual([z.pitiJidlo['2026-10-09'].hodnoceni.znamka, /Bílkovin 94 g/.test(z.pitiJidlo['2026-10-09'].hodnoceni.text)], ['B', true]);
+  assert.deepStrictEqual(json(z.doplnky), { '2026-10-09': { elektrolyty: true, kreatin: true }, '2026-10-08': { omega: true } });
+  // Michal v aplikaci zruší Claudův doplněk → výslovné „ne“ přebije diktát
+  o = p.volej('doplnky', { den: '2026-10-09', zmeny: { kreatin: false } });
+  assert.deepStrictEqual(json(o.data.dny), { '2026-10-09': { elektrolyty: true }, '2026-10-08': { omega: true } });
+  assert.deepStrictEqual(json(p.volej('zdravi').data.doplnky['2026-10-09']), { elektrolyty: true }, 'i ve Zdraví (nová verze dat po zápisu)');
+});
+
+test('hodnocení dne: od 21:30 jednou denně poznámka pro Clauda, jen když se jedlo nebo pilo', () => {
+  const p = prostredi();
+  const hodn = () => p.schranka.deti.NOVE ? p.schranka.deti.NOVE.soubory.filter((f) => /_hodn\.md$/.test(f.getName())) : [];
+  p.nastavCas(Date.parse('2026-10-09T21:40:00+02:00'));
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(hodn().length, 0, 'bez zápisů nic');
+  p.nastavCas(Date.parse('2026-10-09T20:00:00+02:00'));
+  p.volej('pitiJidlo', { den: '2026-10-09', jak: 'piti', ml: 500 });
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(hodn().length, 0, 'před 21:30 ne');
+  p.nastavCas(Date.parse('2026-10-09T21:40:00+02:00'));
+  p.ctx.instagramKazdych10Min();
+  p.nastavCas(Date.parse('2026-10-09T21:50:00+02:00'));
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(hodn().length, 1, 'jednou za den');
+  assert.ok(/typ: hodnoceni-jidla/.test(hodn()[0].getBlob().getDataAsString()) && /2026-10-09/.test(hodn()[0].getBlob().getDataAsString()));
+});
+
 test('váha: zápis s časem zápisu, česká čárka, nesmysl odmítnut, smazání překlepu, v přehledu Zdraví', () => {
   const p = prostredi();
   const rano = Date.parse('2026-10-05T07:12:00+02:00');
@@ -1918,6 +1979,16 @@ test('váha: zápis s časem zápisu, česká čárka, nesmysl odmítnut, smazá
   assert.strictEqual(p.volej('vaha', { kg: 8 }).ok, false);
   assert.strictEqual(p.volej('vaha', { kg: '' }).ok, false);
   assert.strictEqual(p.ctx.vahaKg_('80.4 kg'), 80.4);
+  // zpětně s časem vážení (zapsal až později): mezi ostatní podle času; budoucnost a víc než 60 dní zpátky ne
+  const vcerRano = Date.parse('2026-10-06T07:05:00+02:00');
+  let z2 = p.volej('vaha', { kg: '80,1', kdy: vcerRano }).data.zaznamy;
+  assert.deepStrictEqual(json(z2.map((x) => [x.kdy, x.kg])), [[rano, 80.4], [vcerRano, 80.1], [Date.parse('2026-10-06T21:05:00+02:00'), 79.9]]);
+  z2 = p.volej('vaha', { kg: 80.2, kdy: '2026-10-06T07:05:00+02:00' }).data.zaznamy; // stejná minuta → o vteřinu dál
+  assert.strictEqual(z2.filter((x) => Math.abs(x.kdy - vcerRano) < 60000).length, 2);
+  assert.ok(/60 dnech/.test(p.volej('vaha', { kg: 80, kdy: Date.parse('2026-10-07T09:00:00+02:00') }).chyba), 'budoucnost ne');
+  assert.ok(/60 dnech/.test(p.volej('vaha', { kg: 80, kdy: Date.parse('2026-07-01T09:00:00+02:00') }).chyba), 'moc staré ne');
+  p.volej('vaha', { smazat: vcerRano + 1000 });
+  p.volej('vaha', { smazat: vcerRano });
   // jen na Disku ve složce ZDRAVI, s časy zápisu
   const soubor = p.schranka.deti.ZDRAVI.soubory.find((f) => f.getName() === 'VAHA.json');
   assert.deepStrictEqual(JSON.parse(soubor.getBlob().getDataAsString()).zaznamy.map((x) => x.kdy), [rano, Date.parse('2026-10-06T21:05:00+02:00')]);
