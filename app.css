@@ -945,34 +945,109 @@ li.aktivni > .radek { background: var(--sand); box-shadow: inset 3px 0 0 var(--a
 .stitek-volba svg { width: 15px; height: 15px; }
 .stitek-volba select { border: 0; background: transparent; padding: 7px 6px; font-size: 13px; font-weight: 600; color: var(--text); max-width: 220px; outline: none; }
 
-/* kalendář: jmeniny (oblíbení s hvězdičkou) a okno „Kalendáře“ – co ukazovat */
+/* kalendář: sekce Svátky – jmeniny a oblíbení lidé (★), okno „Kalendáře a svátky“, Brzy má svátek, svátky v týdnu na Dnes.
+   Jmeniny šedě a nenápadně (vpravo v buňce měsíce, pod datem v týdnu, v nadpisu dne), oblíbení korálově a tučně jako
+   celodenní položka sekce Svátky (čip v měsíci a v „celý den“, řádek v seznamu dne). */
 .svatek { display: block; font-size: 10.5px; font-weight: 500; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
 .svatek--oblibeny { color: var(--oranz); font-weight: 700; }
 .den-nadpis .svatek, .kal-den__hlava .svatek { display: inline; font-size: 12px; margin-left: 4px; }
 .svatek--hlava { margin-top: 1px; max-width: 100%; }
+.cip-udalost.cip-svatek { background: var(--oranz-tint); color: var(--oranz); font-weight: 700; }
+.udalost.udalost--svatek, .udalost.udalost--svatek:hover { background: color-mix(in srgb, var(--oranz-tint) 70%, transparent); cursor: default; }
+.udalost--svatek .cas { color: var(--oranz); font-size: 12px; font-weight: 650; }
+.udalost--svatek .udalost-barva { background: var(--oranz); }
+.udalost--svatek .nazev { color: var(--oranz); font-weight: 700; }
 .mini__den.svatek-oblibeny { box-shadow: inset 0 -2px 0 var(--oranz); }
+.mini__den.svatek-oblibeny:not(.dnes):not(.vybrany) { color: var(--oranz); font-weight: 700; }
 .pas-den { position: relative; }
 .pas-den__svatek { position: absolute; top: 2px; right: 4px; font-style: normal; font-size: 10px; color: var(--oranz); }
 .kal-zobrazeni-btn b { margin-left: 2px; padding: 0 6px; border-radius: 9px; background: var(--accent-tint); color: var(--accent); font-size: 11px; }
+/* sekce Svátky v bočním panelu a v okně: řádky se zaškrtnutím jako kalendáře */
+.kal-seznam .znak-svatku, .kal-viditelne .znak-svatku { width: 10px; height: 10px; border-radius: 3px; flex: none; background: var(--sand-2); }
+.kal-seznam .znak-svatku--oblibeny, .kal-viditelne .znak-svatku--oblibeny { display: grid; place-items: center; background: none; color: var(--oranz); font-style: normal; font-size: 13px; line-height: 1; }
+.kal-svatky small { margin-left: 4px; font-size: 11.5px; font-weight: 500; color: var(--muted); }
+/* Brzy má svátek (boční panel; na užším displeji pod měsícem) */
+.karta-brzy { --o: var(--oranz); } /* hvězdička v nadpisu korálově i na stránce Kalendář (jinak barva oblasti) */
+.karta-brzy .card-hlava .nadpis, .karta-brzy .card-hlava .nadpis svg { color: var(--oranz); }
+.brzy-seznam { list-style: none; margin: 0; padding: 4px 0 8px; }
+.brzy__radek { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; padding: 6px 14px; border: 0; background: none; color: inherit; text-align: left; }
+.brzy__radek:hover { background: var(--bg-soft); }
+.brzy__datum { display: flex; flex-direction: column; align-items: center; padding: 4px 0 3px; border-radius: 9px; background: var(--oranz-tint); color: var(--oranz); line-height: 1.15; }
+.brzy__datum b { font-size: 12.5px; font-weight: 700; }
+.brzy__datum small { font-size: 10px; font-weight: 650; text-transform: uppercase; opacity: .85; }
+.brzy__kdo { min-width: 0; }
+.brzy__kdo b, .brzy__kdo small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brzy__kdo b { font-size: 13.5px; font-weight: 700; }
+.brzy__kdo small { font-size: 12px; color: var(--muted); }
+.brzy__za { font-style: normal; font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.brzy__radek--hned .brzy__datum { background: var(--oranz); color: #fff; }
+.brzy__radek--hned .brzy__za { color: var(--oranz); font-weight: 700; }
+@media (min-width: 1180px) { .karta-brzy--uzka { display: none; } }
+/* týden na Dnes (kalendar.js agenda): každý den se svátkem, den = tlačítko do kalendáře; dny bez událostí úzké */
+.agenda > li.agenda__den { padding: 0; }
+.agenda__den-btn { display: flex; align-items: baseline; gap: 7px; width: 100%; min-width: 0; padding: 10px 16px 3px; border: 0; background: none; color: inherit; text-align: left; }
+.agenda__den-btn:hover { background: var(--bg-soft); }
+.agenda > li.agenda__den:first-child .agenda__den-btn { padding-top: 4px; }
+.agenda__den--volny .agenda__den-btn { padding-top: 6px; padding-bottom: 1px; }
+.agenda__den--volny + .agenda__den--volny .agenda__den-btn { padding-top: 2px; }
+.agenda__den--volny b { color: var(--text-soft); font-weight: 600; }
+.agenda__svatek { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); }
+.agenda__svatek--oblibeny { padding: 0 8px; border-radius: 7px; background: var(--oranz-tint); color: var(--oranz); font-weight: 700; }
+.agenda__skryto { flex: none; padding: 0 6px; border-radius: 6px; background: var(--sand); color: var(--muted); font-style: normal; font-size: 11px; font-weight: 650; }
+/* okno „Kalendáře a svátky“ */
 .kal-zobrazeni { display: flex; flex-direction: column; gap: 18px; }
 .kal-zobrazeni h3 { margin: 0 0 6px; font-size: 14px; }
+.kal-zobrazeni h3 small { margin-left: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.jmeniny-sekce h3 { color: var(--oranz); }
 .kal-viditelne { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 2px; }
 .kal-viditelne li { display: flex; align-items: center; gap: 8px; padding: 4px 2px; }
 .kal-viditelne label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 550; cursor: pointer; }
 .kal-viditelne i { width: 10px; height: 10px; border-radius: 3px; flex: none; background: var(--b); }
 .kal-viditelne .odkaz { flex: none; font-size: 12.5px; }
-.kal-jmeniny-prepinac { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 550; }
 .jmeniny-oblibeni { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 4px; }
-.jmeniny-oblibeni li { display: flex; align-items: center; gap: 10px; padding: 5px 6px 5px 10px; border-radius: 10px; background: var(--bg-soft); font-size: 13.5px; }
-.jmeniny-oblibeni li > span { flex: 1; min-width: 0; }
-.jmeniny-oblibeni li small { color: var(--muted); }
-.jmeniny-pridat { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto; gap: 6px; margin-top: 8px; }
+.jmeniny-oblibeni li { display: flex; align-items: center; gap: 10px; padding: 5px 6px 5px 12px; border-radius: 10px; background: var(--bg-soft); font-size: 13.5px; }
+.jmeniny-oblibeni li.jo--brzy { background: var(--oranz-tint); }
+.jo__kdo { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.jo__kdo b { flex: none; color: var(--oranz); font-weight: 700; }
+.jo__kdo small, .jo__kdy small { color: var(--muted); }
+.jo__kdo small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jo__kdy { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25; white-space: nowrap; }
+.jo__kdy b { font-size: 12.5px; font-weight: 650; }
+.jo__kdy small { font-size: 11.5px; }
+.jmeniny-hromadne { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
+.jmeniny-hromadne .label { margin-bottom: 0; }
+.jmeniny-hromadne textarea { min-height: 64px; resize: none; line-height: 1.45; }
+.jmeniny-hromadne .napoveda { margin: 0; }
+.jn { list-style: none; margin: 2px 0 0; padding: 0; display: grid; gap: 4px; }
+.jn__radek { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 6px 10px; border-radius: 10px; background: var(--bg-soft); font-size: 13.5px; }
+.jn__znak { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; flex: none; background: var(--ok-tint); color: var(--ok); font-size: 12px; font-weight: 800; }
+.jn__text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.jn__puvodni, .jn__vztah { color: var(--muted); }
+.jn__vztah { margin-left: 6px; font-size: 12.5px; }
+.jn__text .odkaz { font-size: 12.5px; margin-left: 6px; }
+.jn__den { font-size: 12.5px; font-weight: 650; color: var(--text-soft); }
+.jn--uz-je { color: var(--muted); }
+.jn--uz-je .jn__znak { background: var(--sand); color: var(--muted); }
+.jn--vyber { background: var(--zluta-tint); }
+.jn--vyber .jn__znak { background: var(--zluta); color: #fff; }
+.jn--nezname { background: var(--oranz-tint); }
+.jn--nezname .jn__znak { background: var(--oranz); color: #fff; }
+.jn__volby { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; padding-left: 32px; }
+.jn__volba { padding: 4px 11px; font-size: 13px; }
+.jn__volba small { font-size: 11px; color: var(--muted); }
+.jmeniny-akce { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px 12px; }
+.jmeniny-akce .napoveda { margin-right: auto; }
+@media (min-width: 760px) {
+    /* měsíc: jmeniny vpravo nahoře vedle čísla dne – nezaberou řádek */
+    .mesic-den .svatek--bunka { position: absolute; top: 10px; right: 8px; max-width: calc(100% - 46px); font-size: 11px; text-align: right; }
+    .svatek--mobil { display: none; }
+}
 @media (max-width: 759px) {
-    .mesic-den .svatek--bunka:not(.svatek--oblibeny) { display: none; }
-    .mesic-den .svatek--bunka.svatek--oblibeny { font-size: 9px; }
-    .jmeniny-pridat { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-    .jmeniny-pridat .btn { grid-column: 1 / -1; }
+    .mesic-den .svatek--bunka { display: none; }
+    .mesic-den .svatek--mobil { max-width: 100%; padding: 0 4px; border-radius: 5px; background: var(--oranz-tint); font-size: 9px; line-height: 1.5; }
     .kal-zobrazeni-btn span { display: none; }
+    .agenda__svatek--oblibeny { padding: 0 6px; }
+    .jn__volby { padding-left: 0; }
 }
 
 /* záložky jako v Gmailu (Primární, Aktualizace, Promoakce, Sociální sítě, Fóra) */

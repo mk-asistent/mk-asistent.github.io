@@ -1248,9 +1248,10 @@ function vychoziVikendTestu() {
     await ctx.close();
   });
 
-  // ---------- kalendář: co ukazovat (zaškrtnutí, jen tento – jen v Kalendáři) a jmeniny s oblíbenými (hvězdička)
-  await test('kalendář: zaškrtávání kalendářů, jen tento, jmeniny a oblíbení se zvýrazněním', async () => {
-    jmeninyOblibeni = [];
+  // ---------- kalendář: co ukazovat (zaškrtnutí, jen tento – jen v Kalendáři) a sekce Svátky: hromadné přidání oblíbených
+  // (vymyšlená jména: domácký tvar, výběr u nejednoznačného, jméno bez svátku, duplicita, doplnění vztahu) jedním uložením
+  await test('kalendář: zaškrtávání kalendářů, jen tento; Svátky – hromadné přidání oblíbených (domácké tvary, výběr, bez svátku, bez duplicit), zaškrtnutí sekce', async () => {
+    jmeninyOblibeni = [{ jmeno: 'Josef', kdo: '' }];
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
     await page.goto(WEB);
     await page.click('#rail [data-cil="kalendar"]');
@@ -1266,29 +1267,249 @@ function vychoziVikendTestu() {
     // jen tento = jen Osobní
     await page.click('[data-panel="kal-zobrazeni"] [data-kal-jen="g1"]');
     await page.waitForFunction(() => !document.querySelector('#p-kalendar [data-udalost^="u2|"]') && document.querySelector('#p-kalendar [data-udalost^="u4|"]'));
-    // oblíbený člověk: zadané bez diakritiky se uloží v tvaru z kalendáře
+    // nejbližší jednoslovné jméno z kalendáře (dnes nebo pár dní) – napsané bez diakritiky, se vztahem
     const svatek = await page.evaluate(() => import('/js/jmeniny.js').then((m) => {
       const d = new Date(); d.setHours(0, 0, 0, 0);
-      const t = m.hlavniJmeno(d.getTime()) ? d.getTime() : d.getTime() + 864e5;
-      return { den: t, jmeno: m.hlavniJmeno(t).split(' a ')[0], bez: m.bezDiakritiky(m.hlavniJmeno(t).split(' a ')[0]) };
+      let t = d.getTime();
+      for (let i = 0; i < 10; i++, t = new Date(d.getFullYear(), d.getMonth(), d.getDate() + i).getTime()) {
+        const j = m.hlavniJmeno(t);
+        if (/^\p{L}+$/u.test(j) && ['Josef', 'Veronika', 'Alexandra'].indexOf(j) < 0) return { den: t, jmeno: j, bez: m.bezDiakritiky(j) };
+      }
+      return null;
     }));
-    await page.fill('[data-panel="kal-zobrazeni"] [data-jmeniny-jmeno]', svatek.bez);
-    await page.fill('[data-panel="kal-zobrazeni"] [data-jmeniny-kdo]', 'kamarád');
-    await page.click('[data-panel="kal-zobrazeni"] [data-jmeniny-pridat]');
-    await page.waitForFunction((j) => document.getElementById('toast').textContent.indexOf('Přidáno: ' + j) >= 0, svatek.jmeno);
-    jistota(JSON.stringify(jmeninyOblibeni) === JSON.stringify([{ jmeno: svatek.jmeno, kdo: 'kamarád' }]), 'oblíbení do motoru: ' + JSON.stringify(jmeninyOblibeni));
+    const O = '[data-panel="kal-zobrazeni"] ';
+    const ulozeni = () => volano.filter((d) => d.akce === 'jmeninyUlozit').length;
+    const pred = ulozeni();
+    await page.fill(O + '[data-jmeniny-hromadne]', 'Pepa (děda), Verča, Saša – kolegyně, Xyzzy, ' + svatek.bez + ' (kamarád), Verča');
+    await page.waitForSelector(O + '.jn--nezname');
+    const radky = await page.$$eval(O + '.jn__radek', (li) => li.map((x) => ({ stav: x.className.replace('jn__radek jn--', ''),
+      text: x.querySelector('.jn__text').textContent.replace(/\s+/g, ' ').trim(), den: (x.querySelector('.jn__den') || {}).textContent || '' })));
+    const radek = (i) => JSON.stringify(radky[i]);
+    jistota(radky.length === 6, 'řádky náhledu: ' + JSON.stringify(radky));
+    jistota(radky[0].stav === 'doplnit' && /^Pepa → Josef/.test(radky[0].text) && /děda/.test(radky[0].text) && radky[0].den === '19. 3.', 'Pepa → Josef (doplní vztah): ' + radek(0));
+    jistota(radky[1].stav === 'pridat' && /^Verča → Veronika/.test(radky[1].text), 'Verča → Veronika: ' + radek(1));
+    jistota(radky[2].stav === 'vyber' && /^Saša/.test(radky[2].text) && await page.locator(O + '.jn--vyber [data-jmeno="Alexandra"]').count() === 1, 'Saša – výběr: ' + radek(2));
+    jistota(radky[3].stav === 'nezname' && /^Xyzzy – v kalendáři jmen není, svátek nemá/.test(radky[3].text), 'Xyzzy bez svátku: ' + radek(3));
+    jistota(radky[4].stav === 'pridat' && radky[4].text.indexOf(svatek.jmeno) === 0 && /kamarád/.test(radky[4].text), 'jméno bez diakritiky: ' + radek(4));
+    jistota(radky[5].stav === 'uz-je', 'druhá Verča už je: ' + radek(5));
+    jistota(/1× vyber jméno · 1× bez svátku · 1× už je/.test(await page.textContent(O + '[data-jmeniny-souhrn]')), 'souhrn');
+    await page.click(O + '.jn--vyber [data-jmeno="Alexandra"]');
+    await page.waitForFunction((o) => !document.querySelector(o + '.jn--vyber'), O);
+    jistota(/Přidat 3 a doplnit 1/.test(await page.textContent(O + '[data-jmeniny-pridat]')), 'tlačítko: ' + await page.textContent(O + '[data-jmeniny-pridat]'));
     await page.screenshot({ path: path.join(VYSTUP, 'pc_kalendar_zobrazeni.png') });
-    // zavřít, ukázat všechny, měsíc: hvězdička u dne svátku
-    await page.click('[data-panel="kal-zobrazeni"] [data-kal-vse]');
-    await page.click('[data-panel="kal-zobrazeni"] [data-zavrit-panel]');
+    await page.click(O + '[data-jmeniny-pridat]');
+    await page.waitForFunction(() => /Přidáno: Josef, Veronika, Alexandra, .* · nepřidáno: Xyzzy/.test(document.getElementById('toast').textContent));
+    jistota(ulozeni() === pred + 1, 'jedno uložení do motoru');
+    jistota(JSON.stringify(jmeninyOblibeni) === JSON.stringify([{ jmeno: 'Josef', kdo: 'děda' }, { jmeno: 'Veronika', kdo: '' }, { jmeno: 'Alexandra', kdo: 'kolegyně' },
+      { jmeno: svatek.jmeno, kdo: 'kamarád' }]), 'oblíbení do motoru: ' + JSON.stringify(jmeninyOblibeni));
+    // po uložení zůstane v poli jen to, co přidat nešlo (jméno bez svátku); stejné jméno znovu = už je (tlačítko nejde)
+    await page.waitForFunction((o) => document.querySelector(o + '[data-jmeniny-hromadne]').value === 'Xyzzy' && document.querySelectorAll(o + '.jmeniny-oblibeni li').length === 4, O);
+    jistota(await page.locator(O + '.jn--nezname').count() === 1, 'náhled zbylého jména');
+    jistota(await page.locator(O + '.jmeniny-oblibeni li.jo--brzy', { hasText: '★ ' + svatek.jmeno }).count() === 1, 'blízký svátek v seznamu zvýrazněný');
+    await page.fill(O + '[data-jmeniny-hromadne]', 'verca');
+    await page.waitForSelector(O + '.jn--uz-je');
+    jistota(await page.isDisabled(O + '[data-jmeniny-pridat]'), 'duplicitu nejde přidat');
+    // sekce Svátky v okně: vypnout jmeniny → v měsíci zůstane jen oblíbený (★ čip)
+    await page.click(O + '[data-kal-vse]');
+    await page.uncheck(O + '[data-kal-svatky="jmeniny"]');
+    await page.click(O + '[data-zavrit-panel]');
     await page.click('#p-kalendar [data-kal-pohled="mesic"]');
-    await page.waitForSelector('#p-kalendar .mesic-den[data-den="' + svatek.den + '"] .svatek--oblibeny');
-    jistota((await page.textContent('#p-kalendar .mesic-den[data-den="' + svatek.den + '"] .svatek--oblibeny')).indexOf('★ ' + svatek.jmeno) >= 0, 'hvězdička v měsíci');
+    const bunka = '#p-kalendar .mesic-den[data-den="' + svatek.den + '"]';
+    await page.waitForSelector(bunka + ' .cip-svatek');
+    jistota((await page.textContent(bunka + ' .cip-svatek')).indexOf('★ ' + svatek.jmeno) >= 0, 'hvězdička v měsíci');
+    jistota(await page.locator('#p-kalendar .mesic-den .svatek--bunka').count() === 0, 'jmeniny skryté');
+    // boční panel: sekce Svátky se stejným zaškrtnutím; jmeniny zpět
+    jistota(!(await page.isChecked('.kal-boc [data-kal-svatky="jmeniny"]')) && await page.isChecked('.kal-boc [data-kal-svatky="oblibeni"]'), 'Svátky v bočním panelu');
+    await page.check('.kal-boc [data-kal-svatky="jmeniny"]');
+    await page.waitForSelector('#p-kalendar .mesic-den .svatek--bunka');
+    jistota(!(await page.locator(bunka + ' .svatek--bunka').count()), 'u oblíbeného jen čip, ne i šedé jméno');
+    // vybraný den: oblíbený jako celodenní řádek sekce Svátky
+    await page.click(bunka);
+    await page.waitForSelector('#p-kalendar .kal-den .udalost--svatek');
+    jistota(/★ .*kamarád · Svátky/.test(await page.textContent('#p-kalendar .kal-den .udalost--svatek')), 'řádek Svátky v seznamu dne');
     await page.waitForSelector('#p-kalendar [data-udalost^="u2|"]', { state: 'attached' });
     await page.screenshot({ path: path.join(VYSTUP, 'pc_kalendar_jmeniny.png') });
+    // oblíbení vypnutí → bez hvězdičky, jméno je zase šedé
+    await page.uncheck('.kal-boc [data-kal-svatky="oblibeni"]');
+    await page.waitForFunction((b) => !document.querySelector('#p-kalendar .cip-svatek') && document.querySelector(b + ' .svatek--bunka'), bunka);
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
     jmeninyOblibeni = [];
+  });
+
+  // ---------- Dnes: týden se svátkem u každého dne (i bez událostí), oblíbený ★ výrazně; kalendář: Brzy má svátek, celý den, Seznam
+  const jmeninyModul = () => import(require('url').pathToFileURL(path.join(KOREN, 'js', 'jmeniny.js')).href);
+  /** Vymyšlený oblíbený: první den za od…od+6 dní s jednoslovným jménem (bez státních svátků a dvojic). */
+  const oblibenyZa = async (od) => {
+    const jm = await jmeninyModul();
+    let za = od;
+    while (za < od + 6 && !/^\p{L}+$/u.test(jm.hlavniJmeno(den(za)))) za++;
+    return { jm, za, jmeno: jm.hlavniJmeno(den(za)) };
+  };
+  /** Vymyšlený oblíbený s druhým jménem dne (jako Elza vedle Elišky): první takový den za od…od+13 dní kromě dne krome. */
+  const druheJmenoZa = async (od, krome) => {
+    const jm = await jmeninyModul();
+    for (let i = od; i < od + 14; i++) {
+      const z = jm.jmeninyDne(den(i)).split(/,\s*/).map((x) => x.trim());
+      if (i !== krome && z.length >= 2 && /^\p{L}+$/u.test(z[0]) && /^\p{L}+$/u.test(z[1])) return { za: i, jmeno: z[1], hlavni: z[0] };
+    }
+    return null;
+  };
+  await test('Dnes: týden se svátky u všech 7 dní, oblíbení ★ (i druhé jméno dne); kalendář – Brzy má svátek, celý den v týdnu, Seznam', async () => {
+    const { jm, za, jmeno } = await oblibenyZa(3);
+    // druhý vymyšlený oblíbený má druhé jméno dne (jako Elza vedle Elišky) – svátek se musí poznat i tak
+    const druhe = await druheJmenoZa(0, za);
+    jmeninyOblibeni = [{ jmeno, kdo: 'kamarádka' }].concat(druhe ? [{ jmeno: druhe.jmeno, kdo: 'sousedka' }] : []);
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.waitForSelector('#dl-tyden .agenda__svatek--oblibeny');
+    jistota(await page.locator('#dl-tyden .agenda__den').count() === 7, 'sedm dní');
+    const svatky = await page.$$eval('#dl-tyden .agenda__den', (li) => li.map((x) => ((x.querySelector('.agenda__svatek') || {}).textContent || '')));
+    let oblibenychDnu = 0;
+    for (let i = 0; i < 7; i++) {
+      const obl = jm.oblibeniDne(den(i), jmeninyOblibeni);
+      if (obl.length) oblibenychDnu++;
+      const cekam = obl.length ? '★ ' + obl.map((o) => o.jmeno + ' (' + o.kdo + ')').join(', ') : jm.hlavniJmeno(den(i));
+      jistota(svatky[i] === cekam, 'den ' + i + ': „' + svatky[i] + '“ místo „' + cekam + '“');
+    }
+    jistota(svatky[za].indexOf('★ ' + jmeno + ' (kamarádka)') === 0, 'oblíbený v týdnu: ' + svatky[za]);
+    if (druhe && druhe.za < 7) jistota(svatky[druhe.za].indexOf('★ ' + druhe.jmeno + ' (sousedka)') === 0, 'druhé jméno dne v týdnu: ' + svatky[druhe.za]);
+    jistota(await page.locator('#dl-tyden .agenda__den--oblibeny .agenda__svatek--oblibeny').count() === oblibenychDnu, 'oblíbení zvýraznění');
+    jistota(await page.locator('#dl-tyden .agenda__den--volny').count() >= 3, 'dny bez událostí jen s řádkem svátku');
+    jistota(await page.locator('#dl-tyden .agenda__u').count() >= 2, 'události zůstaly');
+    await page.locator('#dl-tyden').screenshot({ path: path.join(VYSTUP, 'pc_dnes_tyden_svatky.png') });
+    // klepnutí na den → kalendář na tom dni
+    await page.locator('#dl-tyden .agenda__den').nth(za).locator('.agenda__den-btn').click();
+    await page.waitForSelector('#p-kalendar .kal-lista');
+    await page.click('#p-kalendar [data-kal-pohled="mesic"]');
+    await page.waitForSelector('#p-kalendar .mesic-den[data-den="' + den(za) + '"][aria-current="date"] .cip-svatek');
+    // Brzy má svátek (boční panel): ★ jméno, vztah, za kolik dní
+    const brzy = (await page.textContent('.kal-boc .karta-brzy')).replace(/\s+/g, ' ');
+    jistota(brzy.indexOf('★ ' + jmeno) >= 0 && brzy.indexOf('kamarádka') >= 0 && /za \d+ (dny|dní)/.test(brzy), 'Brzy má svátek: ' + brzy);
+    if (druhe) jistota(brzy.indexOf('★ ' + druhe.jmeno) >= 0 && brzy.indexOf('sousedka') >= 0, 'druhé jméno dne v Brzy má svátek: ' + brzy);
+    // týden: oblíbený jako celodenní čip
+    const cip = (j) => page.locator('#p-kalendar .cas-celodenni .cip-svatek', { hasText: new RegExp('^★ ' + j + '$') });
+    await page.click('#p-kalendar [data-kal-pohled="tyden"]');
+    await cip(jmeno).waitFor();
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_kalendar_svatky_tyden.png') });
+    // Seznam: den oblíbeného má řádek sekce Svátky
+    await page.click('#p-kalendar [data-kal-pohled="seznam"]');
+    await page.locator('#p-kalendar .udalost--svatek', { hasText: 'kamarádka · Svátky' }).waitFor();
+    if (druhe) await page.locator('#p-kalendar .udalost--svatek', { hasText: 'sousedka · Svátky' }).waitFor();
+    // měsíc, dnešek; klepnutí v Brzy má svátek vybere den svátku
+    const brzyRadek = (j) => page.locator('.kal-boc .brzy__radek').filter({ has: page.locator('.brzy__kdo b', { hasText: new RegExp('^★ ' + j + '$') }) });
+    await page.click('#p-kalendar [data-kal-pohled="mesic"]');
+    await page.click('#p-kalendar [data-kal="dnes"]');
+    await page.waitForSelector('#p-kalendar .mesic-den.dnes[aria-current="date"]');
+    await brzyRadek(jmeno).click();
+    await page.waitForSelector('#p-kalendar .mesic-den[data-den="' + den(za) + '"][aria-current="date"]');
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_kalendar_svatky.png') });
+    if (druhe) {
+      // druhé jméno dne: v měsíci ★ čip a žádné šedé hlavní jméno (to je jen u dne bez oblíbeného)
+      await brzyRadek(druhe.jmeno).click();
+      const bunka = '#p-kalendar .mesic-den[data-den="' + den(druhe.za) + '"]';
+      await page.waitForSelector(bunka + '[aria-current="date"] .cip-svatek');
+      jistota((await page.textContent(bunka + ' .cip-svatek')).indexOf('★ ' + druhe.jmeno) >= 0, 'čip druhého jména dne');
+      jistota(!(await page.locator(bunka + ' .svatek--bunka').count()), 'u dne s oblíbeným bez šedého jména ' + druhe.hlavni);
+      jistota(/sousedka · Svátky/.test(await page.textContent('#p-kalendar .kal-den .udalost--svatek')), 'řádek Svátky u druhého jména');
+    }
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+    jmeninyOblibeni = [];
+  });
+
+  await test('telefon (tmavý režim): svátky v týdnu na Dnes, ★ v měsíci, Brzy má svátek, okno s hromadným přidáním bez přetékání', async () => {
+    const { za, jmeno } = await oblibenyZa(2);
+    jmeninyOblibeni = [{ jmeno, kdo: 'soused' }];
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0], 'dark');
+    await page.goto(WEB);
+    await page.waitForSelector('#dl-tyden .agenda__svatek--oblibeny');
+    const pretika = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    jistota(await pretika() <= 0, 'Dnes přetéká');
+    jistota(await page.evaluate(() => { const b = document.querySelector('#dl-tyden .agenda__den--oblibeny .agenda__den-btn'); return b.scrollWidth <= b.clientWidth + 1; }), 'řádek se svátkem přetéká');
+    await page.locator('#dl-tyden').screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_dnes_tyden_svatky.png') });
+    await page.click('#lista [data-cil="kalendar"]');
+    await page.click('#p-kalendar [data-kal-pohled="mesic"]');
+    await page.waitForSelector('#p-kalendar .mesic-den[data-den="' + den(za) + '"] .svatek--mobil');
+    jistota(await page.isVisible('#p-kalendar .mesic-den[data-den="' + den(za) + '"] .svatek--mobil'), '★ v buňce na telefonu');
+    await page.waitForSelector('#p-kalendar .karta-brzy--uzka .brzy__radek');
+    jistota(await pretika() <= 0, 'Kalendář přetéká');
+    await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_kalendar_svatky.png'), fullPage: true });
+    // týden na telefonu: ★ v pruhu dnů, po klepnutí na den oblíbený v „celý den“
+    await page.click('#p-kalendar .karta-brzy--uzka .brzy__radek');
+    await page.click('#p-kalendar [data-kal-pohled="tyden"]');
+    await page.waitForSelector('#p-kalendar .pas-den.vybrany .pas-den__svatek');
+    await page.waitForSelector('#p-kalendar .cas-celodenni .cip-svatek');
+    jistota((await page.textContent('#p-kalendar .cas-celodenni .cip-svatek')).indexOf('★ ' + jmeno) >= 0, 'celý den na telefonu');
+    jistota(await pretika() <= 0, 'Týden přetéká');
+    await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_kalendar_svatky_tyden.png') });
+    await page.click('#p-kalendar .kal-lista [data-kal-zobrazeni]');
+    const O = '[data-panel="kal-zobrazeni"] ';
+    await page.waitForSelector(O + '[data-jmeniny-hromadne]');
+    await page.fill(O + '[data-jmeniny-hromadne]', 'Honza (bratranec), Míša, Xyzzy, Bára – teta, Kristina');
+    await page.waitForSelector(O + '.jn--vyber');
+    jistota(await page.locator(O + '.jn__radek').count() === 5, 'pět řádků náhledu');
+    jistota(await page.evaluate((o) => { const t = document.querySelector(o + '.panel-telo'); return t.scrollWidth <= t.clientWidth + 1; }, O), 'okno přetéká');
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_svatky_okno.png') });
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+    jmeninyOblibeni = [];
+  });
+
+  await test('iPad na výšku: svátky – ★ čip v měsíci, Brzy má svátek pod měsícem (bez bočního panelu), okno se vejde', async () => {
+    const { za, jmeno } = await oblibenyZa(1);
+    jmeninyOblibeni = [{ jmeno, kdo: 'teta' }];
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[1]);
+    await page.goto(WEB);
+    await page.waitForSelector('#dl-tyden .agenda__svatek--oblibeny');
+    await page.click('#rail [data-cil="kalendar"]');
+    await page.click('#p-kalendar [data-kal-pohled="mesic"]');
+    if (new Date(den(za)).getMonth() !== new Date().getMonth()) await page.click('#p-kalendar [data-kal="dalsi"]');
+    await page.waitForSelector('#p-kalendar .mesic-den[data-den="' + den(za) + '"] .cip-svatek');
+    jistota(!(await page.isVisible('.kal-boc')) && await page.isVisible('#p-kalendar .karta-brzy--uzka'), 'Brzy má svátek pod měsícem');
+    jistota(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, 'Kalendář přetéká');
+    await page.screenshot({ path: path.join(VYSTUP, 'ipad-vyska_kalendar_svatky.png'), fullPage: true });
+    await page.click('#p-kalendar .kal-lista [data-kal-zobrazeni]');
+    const O = '[data-panel="kal-zobrazeni"] ';
+    await page.fill(O + '[data-jmeniny-hromadne]', 'Pepa (děda), Saša');
+    await page.waitForSelector(O + '.jn--vyber');
+    jistota(await page.evaluate((o) => { const t = document.querySelector(o + '.panel-telo'); return t.scrollWidth <= t.clientWidth + 1; }, O), 'okno přetéká');
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(VYSTUP, 'ipad-vyska_svatky_okno.png') });
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+    jmeninyOblibeni = [];
+  });
+
+  await test('Svátky v ukázkovém režimu: oblíbený ★ v týdnu na Dnes, hromadné přidání vymyšlených jmen (bez motoru)', async () => {
+    const ctx = await prohlizec.newContext({ viewport: { width: 1440, height: 900 } });
+    await ctx.addInitScript(() => localStorage.setItem('asistent.pripojeni', JSON.stringify({ demo: true })));
+    const page = await ctx.newPage();
+    const chyby = [];
+    page.on('pageerror', (e) => chyby.push(e.message));
+    page.on('console', (m) => { if (m.type() === 'error') chyby.push(m.text()); });
+    try {
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-tyden .agenda__svatek--oblibeny'); // ukázka má oblíbeného se svátkem za pár dní
+      // dva domácké tvary, jejichž jména ukázka mezi oblíbenými ještě nemá
+      const pridat = await page.evaluate(() => import('/js/stav.js').then((m) => {
+        const ma = (m.stav.info.jmeniny || []).map((o) => o.jmeno);
+        return [['Honza', 'Jan'], ['Bára', 'Barbora'], ['Pepa', 'Josef'], ['Verča', 'Veronika']].filter((x) => ma.indexOf(x[1]) < 0).slice(0, 2);
+      }));
+      await page.click('#rail [data-cil="kalendar"]');
+      await page.click('#p-kalendar .kal-lista [data-kal-zobrazeni]');
+      const O = '[data-panel="kal-zobrazeni"] ';
+      await page.fill(O + '[data-jmeniny-hromadne]', pridat[0][0] + ' (soused), ' + pridat[1][0]);
+      await page.waitForFunction((o) => document.querySelectorAll(o + '.jn--pridat').length === 2, O);
+      await page.click(O + '[data-jmeniny-pridat]');
+      await page.waitForFunction((t) => document.getElementById('toast').textContent.indexOf(t) >= 0, 'Přidáno: ' + pridat[0][1] + ', ' + pridat[1][1]);
+      const seznam = await page.textContent(O + '.jmeniny-oblibeni');
+      jistota(seznam.indexOf('★ ' + pridat[0][1]) >= 0 && seznam.indexOf('soused') >= 0 && seznam.indexOf('★ ' + pridat[1][1]) >= 0, 'seznam v ukázce: ' + seznam);
+      jistota(!chyby.length, 'chyby stránky: ' + chyby.join(' | '));
+    } finally {
+      await ctx.close();
+    }
   });
 
   // ---------- pití a jídlo na Dnes: voda tlačítky (hned + motor), zpět, jídlo s bílkovinami, týden
