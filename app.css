@@ -1309,6 +1309,7 @@ li.aktivni > .radek-posta { box-shadow: none; } /* vybraný řádek = písková 
 .agenda__den--volny b { color: var(--text-soft); font-weight: 600; }
 .agenda__svatek { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); }
 .agenda__svatek--oblibeny { padding: 0 8px; border-radius: 7px; background: var(--oranz-tint); color: var(--oranz); font-weight: 700; }
+.agenda__prazdno { margin: 0; padding: 0 16px 14px; color: var(--muted); font-size: 12.5px; }
 .agenda__skryto { flex: none; padding: 0 6px; border-radius: 6px; background: var(--sand); color: var(--muted); font-style: normal; font-size: 11px; font-weight: 650; }
 /* okno „Kalendáře a svátky“ */
 .kal-zobrazeni { display: flex; flex-direction: column; gap: 18px; }

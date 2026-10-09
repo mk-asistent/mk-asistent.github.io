@@ -82,7 +82,7 @@ const motor = {
     zpravy: (d.id === 'v1' ? [{ id: 'm-starsi', od: 'Já', odAdresa: 'tester@example.com', odeMe: true, komu: 'trener@klub.test', kopie: '', kdy: ted - 30 * H, predmet: 'Sraz',
       text: 'Kdy je sraz?', html: '', prilohy: [] }] : []).concat([{ id: 'm-' + d.id, od: 'Trenér', odAdresa: 'trener@klub.test', odeMe: false, komu: 'tester@example.com', kopie: '', kdy: kdySouhrnu(d.id), predmet: 'Sraz',
       text: 'Ahoj, sraz v 8:30.', html: d.id === 'v2' ? '<p>Protokol <img src="https://sledovani.example/pixel.gif" width="1" height="1"></p>' : '', prilohy: [] }]) }),
-  kalendar: (d) => ({ udalosti: [
+  kalendar: (d) => ({ udalosti: kalendarPrazdny ? [] : [
     { id: 'u1|' + den(0, 9), nazev: 'Porada', zacatek: den(0, 9), konec: den(0, 10), celodenni: false, misto: 'kancelář', popis: '', kalendar: 'Osobní', kalendarId: 'g1', barva: '#2f6bff', zdroj: 'google', opakovana: true },
     { id: 'u3|' + den(0, 23), nazev: 'Pozdní hovor', zacatek: den(0, 23), konec: den(0, 23.5), celodenni: false, misto: '', popis: '', kalendar: 'Osobní', kalendarId: 'g1', barva: '#2f6bff', zdroj: 'google', opakovana: false },
     { id: 'u2|' + den(1), nazev: 'Narozeniny', zacatek: den(1), konec: den(2), celodenni: true, misto: '', popis: '', kalendar: 'Rodina', kalendarId: 'ics-1', barva: '#e2860a', zdroj: 'icloud' },
@@ -340,6 +340,7 @@ let reelyZverejneno = {};
 const reelyPlan = {}, reelyPopisky = {}, reelyNaplanovano = [];
 let vahaZaznamy = [];
 let pocasiDomov = null; // domov pro počasí (akce pocasiDomov)
+let kalendarPrazdny = false;  // test prázdného týdne na Dnes (žádné události)
 let upozorneniStav = { zapnuto: false, tema: '' }, upozorneniOdeslano = 0;
 // plakáty: data motoru (testy si je mění, jako když popisek napíše Claude)
 const plakatyData = { nastaveni: {}, kola: {}, popisky: {}, plan: {}, obrazky: {} };
@@ -2271,6 +2272,31 @@ function vychoziVikendTestu() {
     jmeninyOblibeni = [];
   });
 
+  await test('Dnes: prázdný týden (7 dní bez událostí) – svátky u dnů zůstanou, oblíbený ★, pod nimi „nic v kalendáři“', async () => {
+    const { za, jmeno } = await oblibenyZa(1);
+    jmeninyOblibeni = [{ jmeno, kdo: 'kamarádka' }];
+    kalendarPrazdny = true;
+    try {
+      for (const v of [VELIKOSTI[3], VELIKOSTI[0]]) {
+        const { ctx, page, chybyStranky } = await novaStranka(prohlizec, v, v.nazev === 'telefon' ? 'dark' : 'light');
+        await page.goto(WEB);
+        await page.waitForSelector('#dl-tyden .agenda__prazdno');
+        jistota(await page.locator('#dl-tyden .agenda__den').count() === 7 && !(await page.locator('#dl-tyden .agenda__u').count()), v.nazev + ': sedm dní bez událostí');
+        jistota(/nic v kalendáři/.test(await page.textContent('#dl-tyden .agenda__prazdno')), v.nazev + ': věta o prázdném týdnu');
+        const obl = await page.locator('#dl-tyden .agenda__den').nth(za).locator('.agenda__svatek--oblibeny').textContent();
+        jistota(obl.indexOf('★ ' + jmeno) === 0, v.nazev + ': oblíbený v prázdném týdnu: ' + obl);
+        jistota(await page.locator('#dl-tyden .agenda__svatek').count() >= 6, v.nazev + ': svátky u dnů');
+        jistota(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), v.nazev + ': přetéká do strany');
+        await page.locator('#dl-tyden').screenshot({ path: path.join(VYSTUP, v.nazev + '_dnes_tyden_prazdny.png') });
+        jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+        await ctx.close();
+      }
+    } finally {
+      kalendarPrazdny = false;
+      jmeninyOblibeni = [];
+    }
+  });
+
   await test('telefon (tmavý režim): svátky v týdnu na Dnes, ★ v měsíci, Brzy má svátek, okno s hromadným přidáním bez přetékání', async () => {
     const { za, jmeno } = await oblibenyZa(2);
     jmeninyOblibeni = [{ jmeno, kdo: 'soused' }];
@@ -2822,6 +2848,16 @@ function vychoziVikendTestu() {
     await page.evaluate(() => import('/js/posta.js').then((m) => m.nactiPostu(false)));
     jistota(volano.some((d) => d.akce === 'posta'), 'po změně pošty se pošta nečetla z motoru');
     await page.waitForSelector('#posta-seznam :text("Sraz v sobotu")');
+    // Připomenout = odložení e-mailu + úkol do schránky → zneplatní poštu i schránku a server obnoví obojí
+    // (dřív jen poštu – úkol se z kopie ztratil a na druhém zařízení se ukázal až za 10 minut)
+    fbVolanoData.length = 0;
+    await page.waitForFunction(() => import('/js/stav.js').then((m) => !m.stav.nacita.schranka));
+    await page.evaluate(() => import('/js/api.js').then((m) => m.volej('pripomenout', { id: 'v1', termin: '2030-01-01' })));
+    volano.length = 0;
+    await page.evaluate(() => import('/js/schranka.js').then((m) => m.nactiSchranku()));
+    jistota(volano.some((d) => d.akce === 'schranka'), 'po Připomenout se schránka nečetla z motoru (kopie bez nového úkolu)');
+    for (let i = 0; i < 50 && !fbVolanoData.some((d) => d.jen); i++) await page.waitForTimeout(100);
+    jistota(fbVolanoData.some((d) => d.jen && d.jen.indexOf('schranka') >= 0 && d.jen.indexOf('posta') >= 0), 'obnova pošty i schránky po Připomenout: ' + JSON.stringify(fbVolanoData));
     // stará kopie (40 min – server nejel) → motor a žádost o obnovu na serveru; nová kopie pak přijde živě
     const stare = Date.now() - 40 * 60e3;
     kopie('Stará kopie', stare);

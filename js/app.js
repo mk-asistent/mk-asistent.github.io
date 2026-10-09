@@ -598,7 +598,8 @@ function kartaTydne() {
   const a = kal.agenda(7, 9);
   let telo;
   if (!kal.mameData(Date.now())) telo = kal.chybaKalendare() ? chybaHtml(kal.chybaKalendare(), 'data-kal-znovu') : kostra(3);
-  else if (!a.celkem) telo = '<div class="prazdne">Příštích 7 dní nic v kalendáři.</div>';
+  // prázdný týden: dny se svátky zůstanou (svátky nejsou v kalendáři Google – oblíbený ★ by jinak zmizel), pod nimi věta
+  else if (!a.celkem) telo = a.html + '<p class="agenda__prazdno">Příštích 7 dní nic v kalendáři.</p>';
   else telo = a.html + (a.celkem > a.pocet ? '<button type="button" class="agenda__vic" data-cil="kalendar">+ ' + (a.celkem - a.pocet) + ' další v kalendáři</button>' : '');
   return hlavickaKarty(IKONY.kalendar, 'Týden' + (a.celkem ? ' · ' + a.celkem : ''), sipkaKarty('data-cil="kalendar"', 'Otevřít kalendář')) +
     '<div class="dlazdice__telo">' + telo + '</div>';
