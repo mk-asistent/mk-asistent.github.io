@@ -7,10 +7,11 @@
 
 import { stav, zmeneno, umiMotor } from './stav.js';
 import { volej } from './api.js';
-import { esc, uloziste, dm, isoDatum, kdyKratce, MESICE_1, velkePrvni } from './pomocne.js';
+import { esc, uloziste, dm, isoDatum, kdyKratce, MESICE_1 } from './pomocne.js';
 import { kostra, chybaHtml, toast, toastAkce, potvrd, segment, hlavickaKarty } from './ui.js';
 import { IKONY } from './ikony.js';
 import { otevriPanel, zavriPanel, obnovPanel, elementPanelu } from './panely.js';
+import { bublina, grafAtr } from './grafy.js';
 
 const ULOZISTE = 'asistent.data.auto';
 const CELE = new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 });
@@ -131,7 +132,8 @@ export function prehledAuta(d) {
     najeto, kmStart, datumStart, kmPosledni: posledniKm ? posledniKm.km : null, kmPosledniDatum: posledniKm ? posledniKm.datum : null,
     kmMesic: najeto != null && mesicu > 0.5 ? najeto / mesicu : null, spotreba, palivoKm, palivo, litry,
     cenaPrumer: litry ? palivo / litry : null, kategorie, celkem, koupeKc, provoz: celkem - koupeKc, mesice,
-    posledniTankovani: t.length ? t[t.length - 1] : null, ceny: t.filter((z) => z.cenaLitr).map((z) => ({ t: z.datum, c: z.cenaLitr })), auto
+    posledniTankovani: t.length ? t[t.length - 1] : null,
+    ceny: t.filter((z) => z.cenaLitr).map((z) => ({ t: z.datum, c: z.cenaLitr, litry: z.litry, castka: z.castka, km: z.km })), auto
   };
 }
 
@@ -245,7 +247,10 @@ function akceHtml() {
     '<button type="button" class="btn btn--ghost" data-auto-pece>' + IKONY.auto + '<span>Péče o auto</span></button></div>';
 }
 
-/** Cena nafty v čase – čára s tečkami, nejvyšší a nejnižší cena. */
+/**
+ * Cena nafty v čase – čára s tečkami, nejvyšší a nejnižší cena. Každé tankování má pás přes celou výšku grafu: najetí,
+ * klepnutí nebo šipky ukážou bublinu s datem, cenou za litr, litry a částkou (js/grafy.js).
+ */
 function cenyHtml(p) {
   const c = p.ceny;
   if (c.length < 2) return '';
@@ -255,30 +260,38 @@ function cenyHtml(p) {
   const lo = Math.floor(min - 1), hi = Math.ceil(max + 1);
   const x = (t) => L + (t1 > t0 ? (t - t0) / (t1 - t0) : 0.5) * (W - L - R);
   const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
-  const body = c.map((v) => x(v.t).toFixed(1) + ',' + y(v.c).toFixed(1)).join(' ');
+  const xs = c.map((v) => x(v.t));
+  const body = c.map((v, i) => xs[i].toFixed(1) + ',' + y(v.c).toFixed(1)).join(' ');
   const iMax = c.findIndex((v) => v.c === max), iMin = c.findIndex((v) => v.c === min);
   const stitek = (v, nahore) => '<text x="' + Math.min(W - 40, Math.max(40, x(v.t))).toFixed(1) + '" y="' +
     (y(v.c) + (nahore || y(v.c) + 17 > H - B - 4 ? -9 : 17)).toFixed(1) +
     '" text-anchor="middle">' + DVE.format(v.c) + '</text>';
   const mesic = (t) => MES_KR[new Date(t).getMonth()] + ' ' + String(new Date(t).getFullYear()).slice(2);
   const posledni = c[c.length - 1];
+  const bod = (v, i) => {
+    const l = i ? (xs[i - 1] + xs[i]) / 2 : 0, r = i < c.length - 1 ? (xs[i] + xs[i + 1]) / 2 : W;
+    const pod = [v.litry != null ? JEDNO.format(v.litry) + ' l' : '', v.castka != null ? kc(v.castka) : '', v.km != null ? CELE.format(v.km) + ' km' : ''].filter(Boolean).join(' · ');
+    return '<g class="graf-bod"' + bublina(dm(v.t) + ' ' + new Date(v.t).getFullYear() + ' · tankování', DVE.format(v.c) + ' Kč/l', pod) + '>' +
+      '<rect class="graf-zasah" x="' + l.toFixed(1) + '" y="0" width="' + Math.max(0, r - l).toFixed(1) + '" height="' + H + '"/>' +
+      '<line class="graf-voditko" x1="' + xs[i].toFixed(1) + '" x2="' + xs[i].toFixed(1) + '" y1="' + T + '" y2="' + (H - B) + '"/>' +
+      '<circle cx="' + xs[i].toFixed(1) + '" cy="' + y(v.c).toFixed(1) + '" r="' + (i === iMax || i === iMin || i === c.length - 1 ? 4.5 : 3) + '"' +
+      (i === iMax ? ' class="max"' : i === iMin ? ' class="min"' : '') + ' data-kotva/></g>';
+  };
   return '<section class="card auto-graf" data-oblast="auto">' + hlavickaKarty(IKONY.palivo, 'Cena nafty', '<span class="muted">naposledy</span> <b>' +
       DVE.format(posledni.c) + ' Kč/l</b>') +
-    '<svg class="auto-cara" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Cena nafty od ' + esc(dm(t0)) + ' do ' + esc(dm(t1)) + '">' +
+    '<svg class="auto-cara" viewBox="0 0 ' + W + ' ' + H + '"' + grafAtr('Cena nafty od ' + dm(t0) + ' do ' + dm(t1)) + '>' +
       '<line class="osa" x1="' + L + '" x2="' + (W - R) + '" y1="' + (H - B) + '" y2="' + (H - B) + '"/>' +
-      '<polyline points="' + body + '"/>' + c.map((v, i) => '<circle cx="' + x(v.t).toFixed(1) + '" cy="' + y(v.c).toFixed(1) + '" r="' +
-        (i === iMax || i === iMin || i === c.length - 1 ? 4.5 : 3) + '"' + (i === iMax ? ' class="max"' : i === iMin ? ' class="min"' : '') + '><title>' +
-        esc(dm(v.t) + ': ' + DVE.format(v.c) + ' Kč/l') + '</title></circle>').join('') +
+      '<polyline points="' + body + '"/>' + c.map(bod).join('') +
       '<g class="stitky">' + stitek(c[iMax], true) + (iMin !== iMax ? stitek(c[iMin], false) : '') + '</g>' +
       '<g class="osa-x"><text x="' + L + '" y="' + (H - 6) + '">' + esc(mesic(t0)) + '</text><text x="' + (W - R) + '" y="' + (H - 6) + '" text-anchor="end">' +
         esc(mesic(t1)) + '</text></g>' +
     '</svg></section>';
 }
 
-/** Výdaje po měsících (posledních 12): palivo a ostatní ve sloupcích, bez koupě auta. */
 /**
  * Výdaje po měsících: souvislá řada posledních 13 měsíců (i prázdné), u ledna a prvního sloupce rok – stejný měsíc
- * loni je vidět zvlášť (Michal 5. 10.: „neslučuj dohromady roky“). Klepnutí na sloupec = rozpis po kategoriích.
+ * loni je vidět zvlášť (Michal 5. 10.: „neslučuj dohromady roky“). Najetí, klepnutí nebo Tab / šipky na sloupec = bublina
+ * s měsícem, částkou a rozpisem po kategoriích (Michal 9. 10.: „kolik to byla cena a který měsíc“).
  */
 function mesiceHtml(p) {
   const prvni = Object.keys(p.mesice).sort()[0];
@@ -295,25 +308,22 @@ function mesiceHtml(p) {
   const prumer = klice.reduce((s, k) => s + m(k).palivo + m(k).ostatni, 0) / klice.length;
   return '<section class="card auto-graf" data-oblast="auto">' + hlavickaKarty(IKONY.tabulka, 'Výdaje po měsících', '<span class="muted">průměr</span> <b>' +
       kc(prumer) + '</b>') +
-    '<div class="auto-sloupce">' + klice.map((k, i) => {
+    '<div class="auto-sloupce"' + grafAtr('Výdaje po měsících', false) + '>' + klice.map((k, i) => {
       const x = m(k), celkem = x.palivo + x.ostatni, mes = Number(k.slice(5));
       const v = (y) => (y ? Math.max(3, Math.round(y / max * 118)) : 0);
-      return '<button type="button" class="auto-sloupec" data-auto-mesic="' + k + '" aria-label="' + esc(MESICE_1[mes - 1] + ' ' + k.slice(0, 4) + ': ' + kc(celkem)) + '">' +
+      return '<button type="button" class="auto-sloupec"' + bublina(MESICE_1[mes - 1] + ' ' + k.slice(0, 4), celkem ? kc(celkem) : 'žádné výdaje', rozpisMesice(x)) + '>' +
         '<span class="auto-sloupec__cislo cisla">' + (celkem ? (celkem >= 1000 ? JEDNO.format(celkem / 1000) + ' tis.' : CELE.format(celkem)) : '') + '</span>' +
         '<span class="auto-sloupec__ostatni" style="height:' + v(x.ostatni) + 'px"></span><span class="auto-sloupec__palivo" style="height:' + v(x.palivo) + 'px"></span>' +
         '<small>' + esc(MES_KR[mes - 1]) + (i === 0 || mes === 1 ? '<i>' + k.slice(0, 4) + '</i>' : '') + '</small></button>';
     }).join('') + '</div>' +
     '<div class="auto-legenda"><span><i class="auto-legenda__palivo"></i>Palivo</span><span><i class="auto-legenda__ostatni"></i>Ostatní = vše kromě paliva</span>' +
-    '<span class="muted">klepni na měsíc pro rozpis</span></div></section>';
+    '<span class="muted">najeď nebo klepni na měsíc – částka a rozpis</span></div></section>';
 }
 
-/** Rozpis měsíce po kategoriích (klepnutí na sloupec). */
-function rozpisMesice(k) {
-  const p = prehledAuta(stav.auto || {});
-  const x = p.mesice[k] || { palivo: 0, ostatni: 0, kat: {} };
-  const casti = (x.palivo ? ['palivo ' + kc(x.palivo)] : [])
-    .concat(Object.keys(x.kat).sort((a, b) => x.kat[b] - x.kat[a]).map((c) => c.toLowerCase() + ' ' + kc(x.kat[c])));
-  toast(velkePrvni(MESICE_1[Number(k.slice(5)) - 1]) + ' ' + k.slice(0, 4) + ': ' + (casti.length ? casti.join(' · ') : 'žádné výdaje'));
+/** Rozpis měsíce po kategoriích do bubliny: „palivo 2 100 Kč · servis 1 350 Kč“. */
+function rozpisMesice(x) {
+  return (x.palivo ? ['palivo ' + kc(x.palivo)] : [])
+    .concat(Object.keys(x.kat).sort((a, b) => x.kat[b] - x.kat[a]).map((c) => c.toLowerCase() + ' ' + kc(x.kat[c]))).join(' · ');
 }
 
 function kategorieHtml(d, p) {
@@ -851,7 +861,7 @@ export function klikAuto(el) {
   if (el.hasAttribute('data-auto-znovu')) { stav.chyby.auto = null; nactiAuto(true); return true; }
   if (el.dataset.autoZapis) { otevriZapis(el.dataset.autoZapis); return true; }
   if (el.hasAttribute('data-auto-pece')) { otevriPeci(); return true; }
-  if (el.dataset.autoMesic) { rozpisMesice(el.dataset.autoMesic); return true; }
+  if (el.classList.contains('auto-sloupec')) return true; // sloupec měsíce: rozpis ukáže bublina (js/grafy.js)
   if (el.dataset.autoUpravit) { const [list, radek] = el.dataset.autoUpravit.split(':'); otevriUpravu(najdiZapis(list, radek)); return true; }
   if (el.hasAttribute('data-az-foto-velka') && f) { ukazFotku(f.foto || f.velka || f.nahled); return true; }
   if (el.hasAttribute('data-az-foto-vedle') && f) { f.fotoVedle = !f.fotoVedle; f.fotoZoom = false; fotkaVedle(); return true; }

@@ -365,14 +365,20 @@ function zdraviUkazka() {
     if (trenink) pridej('soccer', 17, 0, 90, +(11 + nahoda(i, 11) * 2).toFixed(1), 138, 178);
     if (posilovna) pridej('weightlifting', 19, 0, 60, 7.8, 112, 151);
   }
+  // týdenní shrnutí od Clauda za minulý týden (vymyšlený text – ve skutečnosti ho píše Claude v neděli večer)
+  const nedele = pridejDny(dnes, -((new Date(dnes).getDay() + 7) % 7 || 7));
+  const tydenni = { tyden: 'ukazka', od: iso(pridejDny(nedele, -6)), do: iso(nedele), kdy: nedele + 19 * H, odeslano: true,
+    text: 'Solidní týden – **bílkoviny** jsi měl u cíle ve třech dnech ze sedmi, voda kolem 2 litrů.\n\n- Doplňky: večerní hořčík chyběl dvakrát.\n' +
+      '- Spánek se proti minulému týdnu prodloužil o čtvrt hodiny.\n- Na příští týden: k večeři přidej tvaroh nebo kuře.' };
   return { vytvoreno: Date.now(), dny: dnyZ, treninky: treninky.sort((a, b) => b.start - a.start), vaha: kopie(vahaUkazka), doplnky: kopie(doplnkyUkazka),
-    pitiJidlo: kopie(pitiUkazka),
+    pitiJidlo: kopie(pitiUkazka), tydenni,
     whoop: { nastaveno: true, propojeno: true, sync: { kdy: Date.now() - 12 * 6e4, chyba: '' } }, apple: { kdy: Date.now() - 3 * H },
-    // obecný ukázkový režim doplňků (skutečný je jen v ZDRAVI_REZIM.json na Disku)
-    rezim: { kofeinDo: '14:00', treninkDny: [2, 4], zapasTymy: ['dorost'], polozky: [
+    // obecný ukázkový režim doplňků (skutečný je jen v ZDRAVI_REZIM.json na Disku); hlavni = počítají se do plnění
+    rezim: { kofeinDo: '14:00', treninkDny: [2, 4], zapasTymy: ['dorost'], hlavni: ['multivitamin', 'kreatin', 'omega3', 'horcik'], polozky: [
       { id: 'multivitamin', nazev: 'Multivitamin', davka: '1 tbl po snídani', kdy: 'rano' },
       { id: 'kreatin', nazev: 'Kreatin', davka: '5 g ke snídani', kdy: 'rano' },
       { id: 'omega3', nazev: 'Omega-3', davka: '2 tob k jídlu', kdy: 'obed' },
+      { id: 'vitaminc', nazev: 'Vitamin C', davka: '1 tbl odpoledne', kdy: 'obed' }, // vedlejší – ukazuje se, nepočítá se
       { id: 'protein', nazev: 'Protein', davka: 'po zátěži', kdy: 'po', jen: 'zatez' },
       { id: 'elektrolyty', nazev: 'Elektrolyty', davka: 'během zápasu', kdy: 'zapas', jen: 'zapas' },
       { id: 'horcik', nazev: 'Hořčík', davka: '1 kps večer', kdy: 'vecer' }] } };

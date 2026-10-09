@@ -2584,6 +2584,7 @@ function instagramKazdych10Min() {
   } catch (chyba) { /* příště */ }
   try { whoopNaPozadi_(); } catch (chyba) { /* příště (chyba je ve WHOOP_SYNC, aplikace ji ukáže) */ }
   try { hodnoceniJidlaNaPozadi_(); } catch (chyba) { /* příště */ }
+  try { tydenniShrnutiNaPozadi_(); } catch (chyba) { /* příště (e-mail se zkusí znovu) */ }
   try { popisekPlakatuNaPozadi_(); } catch (chyba) { /* příště */ }
   instagramPlan_();
 }
@@ -5475,10 +5476,12 @@ function zdravi_(znovu) {
     const claude = nactiJson_(slozka, 'PITI_JIDLO_CLAUDE.json').data || {};
     p.doplnky = spojDoplnky_(nactiDoplnky_(slozka).dny, claude);
     p.pitiJidlo = pitiJidloDny_(slozka, 14, claude);
+    p.tydenni = posledniTydenni_(claude, ted); // týdenní shrnutí od Clauda (karta ve Zdraví)
     if (!chybaSync) ulozDoCache_(klic, p, 1800);
   }
   // poslední pokus zkratky Zdraví (i nepovedený, ten značku nemění) vždy čerstvý
   p.apple = { kdy: Number(vl.getProperty('APPLE_SYNC') || 0), posledni: nactiZCache_('APPLE_POSLEDNI') };
+  if (p.tydenni) p.tydenni.odeslano = vl.getProperty('TYDEN_ZDRAVI_ODESLANO') === p.tydenni.tyden;
   return p;
 }
 
@@ -5717,7 +5720,8 @@ function pitiJidlo_(d) {
 // ---- jídlo k odhadu a hodnocení dne: pokyn pro Clauda jako poznámka v NOVE. Úloha schránky (obě PC, každých 30 min)
 // ji zpracuje jako ostatní poznámky podle skillu asistent-schranka – prompt úlohy se kvůli tomu nemění. Aplikace tyhle
 // poznámky neukazuje (SKRYTE_POZNAMKY). Michal 9. 10.: „napíšu, co jsem měl, bez bílkovin, pošle se to Claudovi a zapíše“.
-const SKRYTE_POZNAMKY = /_(jidl|hodn|plak)\.md$/;
+// _tyden = týdenní shrnutí zdraví pro e-mail (tydenniShrnutiNaPozadi_).
+const SKRYTE_POZNAMKY = /_(jidl|hodn|plak|tyden)\.md$/;
 
 /** Jídlo s místním odhadem → řádek do poznámky „jídlo k odhadu“ v NOVE (jedna, dokud ji Claude nezpracuje, pak další). */
 function jidloKOdhadu_(den, zapis) {
@@ -5754,7 +5758,158 @@ function hodnoceniJidlaNaPozadi_() {
     'kdy: ' + Utilities.formatDate(ted, CASOVE_PASMO, "yyyy-MM-dd'T'HH:mm:ssXXX"),
     'odkud: aplikace (hodnocení dne)', 'typ: hodnoceni-jidla', '---', '',
     'Zhodnoť Michalovo jídlo a pití za ' + den + ' a zapiš hodnocení do ZDRAVI\\PITI_JIDLO_CLAUDE.json → „hodnoceni“ ' +
-    '(skill asistent-schranka, Hodnocení dne – cíle v ZDRAVI_REZIM.json, váha v ZDRAVI\\VAHA.json).', ''].join('\n'), MimeType.PLAIN_TEXT);
+    '(skill asistent-schranka, Hodnocení dne – cíle v ZDRAVI_REZIM.json, váha v ZDRAVI\\VAHA.json). Doplňky počítej jen hlavní ' +
+    '(ZDRAVI_REZIM.json → hlavni; bez seznamu všechny).', ''].join('\n'), MimeType.PLAIN_TEXT);
+}
+
+// ---- týdenní shrnutí e-mailem (Michal 9. 10.: „nedělní shrnutí můžeš pak udělat a napsat mailem tu moji aktivitu tam“).
+// Spouštěč (každých 10 min): v neděli od 18:00 založí Claudovi poznámku …_tyden.md s čísly týdne po–ne (jídlo a bílkoviny
+// po dnech, voda, hlavní doplňky, ranní váha, WHOOP, Apple, tréninky, hodnocení dnů). Claude (úloha schránky, skill
+// asistent-schranka – Týdenní shrnutí) zapíše text do ZDRAVI/PITI_JIDLO_CLAUDE.json → tydny['RRRR-Www'] = { text, kdy }.
+// Motor pošle Michalovi e-mail, jakmile text je (v noci 22–6 h počká na ráno), nejpozději v pondělí v 8:00 i bez něj (jen
+// čísla); když motor v pondělí neběžel, ještě v úterý. Jednou za týden: vlastnost TYDEN_ZDRAVI_ODESLANO = týden (nikdy dvakrát),
+// TYDEN_ZDRAVI_POZADANO = týden|čas úpravy Claudových souborů při poslední kontrole (poznámka pro Clauda jen jednou; jeho
+// soubor se znovu čte, jen když se od té doby změnil).
+const TYDEN_ZDRAVI_ODKDY = '18:00';            // neděle – poznámka pro Clauda
+const TYDEN_ZDRAVI_NEJPOZDEJI = '08:00';       // pondělí – e-mail i bez Claudova textu
+const TYDEN_ZDRAVI_TICHO = ['22:00', '06:00']; // v noci e-mail čeká na ráno
+// e-mail jde na vlastní adresu se značkou (jmeno+notifikace@…, Gmail ho doručí do stejné schránky) – v Poště aplikace je pak
+// „Informace“ (automatická adresa), ne „Čekáš na ně“ jako každá jiná zpráva sobě
+const TYDEN_ZDRAVI_ZNACKA = 'notifikace';
+
+/** Který týden se teď shrnuje: { tyden: 'RRRR-Www', od, do (RRRR-MM-DD), faze: 'ceka' (na Clauda) | 'posli', ticho } nebo null. */
+function tydenZdraviOkno_(ms) {
+  const d = new Date(ms);
+  const den = Number(Utilities.formatDate(d, CASOVE_PASMO, 'u')); // 1 = pondělí … 7 = neděle
+  const hm = Utilities.formatDate(d, CASOVE_PASMO, 'HH:mm');
+  const dnes = Utilities.formatDate(d, CASOVE_PASMO, 'yyyy-MM-dd');
+  let nedele, faze;
+  if (den === 7 && hm >= TYDEN_ZDRAVI_ODKDY) { nedele = dnes; faze = 'ceka'; }
+  else if (den === 1) { nedele = ZDRAVI_TYDEN_.posun(dnes, -1); faze = hm < TYDEN_ZDRAVI_NEJPOZDEJI ? 'ceka' : 'posli'; }
+  else if (den === 2) { nedele = ZDRAVI_TYDEN_.posun(dnes, -2); faze = 'posli'; } // motor v pondělí neběžel
+  else return null;
+  const od = ZDRAVI_TYDEN_.posun(nedele, -6);
+  return { tyden: ZDRAVI_TYDEN_.isoTyden(od), od: od, do: nedele, faze: faze, ticho: hm >= TYDEN_ZDRAVI_TICHO[0] || hm < TYDEN_ZDRAVI_TICHO[1] };
+}
+
+/** Spouštěč (každých 10 min): týdenní shrnutí – poznámka pro Clauda (neděle od 18:00), e-mail s jeho textem, v pondělí v 8:00 i bez něj. */
+function tydenniShrnutiNaPozadi_() {
+  const okno = tydenZdraviOkno_(Date.now());
+  if (!okno) return;
+  const vl = vlastnosti_();
+  if (vl.getProperty('TYDEN_ZDRAVI_ODESLANO') === okno.tyden) return;
+  const pozadano = String(vl.getProperty('TYDEN_ZDRAVI_POZADANO') || '').split('|');
+  if (okno.faze === 'ceka') {
+    if (pozadano[0] !== okno.tyden) {
+      const s = souhrnTydneZdravi_(okno.od);
+      if (!s.maData) { vl.setProperty('TYDEN_ZDRAVI_ODESLANO', okno.tyden); return; } // prázdný týden – nic neposílat
+      vl.setProperty('TYDEN_ZDRAVI_POZADANO', okno.tyden + '|' + zmenaSouboruClauda_());
+      pozadejOTydenniShrnuti_(s);
+      return;
+    }
+    if (okno.ticho) return;
+    // Claudův soubor se od poslední kontroly nezměnil (čas úpravy na Disku, z mezipaměti) → nic nečíst
+    const zmena = zmenaSouboruClauda_();
+    if (zmena <= Number(pozadano[1] || 0)) return;
+    if (!tydenniOdClauda_(okno.tyden)) { vl.setProperty('TYDEN_ZDRAVI_POZADANO', okno.tyden + '|' + zmena); return; }
+  }
+  if (okno.ticho) return;
+  const s = souhrnTydneZdravi_(okno.od);
+  if (!s.maData) { vl.setProperty('TYDEN_ZDRAVI_ODESLANO', okno.tyden); return; }
+  posliTydenniShrnuti_(s, tydenniOdClauda_(okno.tyden));
+}
+
+/**
+ * Čísla týdne od pondělí od (RRRR-MM-DD) z Disku: měsíční soubory (WHOOP, Apple, tréninky; i minulý týden kvůli srovnání),
+ * pití a jídlo s Claudovými odhady, doplňky, váha, režim a dny zápasů z FOTBAL.json (doplňky „jen k zápasu“).
+ */
+function souhrnTydneZdravi_(od) {
+  const slozka = slozkaZdravi_();
+  const P = ZDRAVI_TYDEN_.posun;
+  const mesice = [P(od, -7), od, P(od, 6)].map(function (x) { return x.slice(0, 7); }).filter(function (m, i, a) { return a.indexOf(m) === i; });
+  const dny = {}, treninky = [];
+  mesice.forEach(function (m) {
+    const s = nactiMesicZdravi_(slozka, m).data;
+    Object.keys(s.dny || {}).forEach(function (x) { dny[x] = Object.assign({}, dny[x], s.dny[x]); });
+    Object.keys(s.treninky || {}).forEach(function (id) { treninky.push(s.treninky[id]); });
+  });
+  const claude = nactiJson_(slozka, 'PITI_JIDLO_CLAUDE.json').data || {};
+  const rezim = zdraviRezim_() || {};
+  let zapasy = [];
+  try {
+    const f = fotbalData_();
+    const tymy = Array.isArray(rezim.zapasTymy) ? rezim.zapasTymy : [];
+    if (f) zapasy = f.zapasy.filter(function (z) { return tymy.indexOf(z.tym) >= 0 && z.zacatek; })
+      .map(function (z) { return Utilities.formatDate(new Date(Date.parse(z.zacatek)), CASOVE_PASMO, 'yyyy-MM-dd'); });
+  } catch (chyba) { /* bez zápasů – doplňky k zápasu se ten týden nepočítají */ }
+  const zpet = Math.ceil((Date.now() - Date.parse(od + 'T00:00:00Z')) / 864e5) + 2;
+  return ZDRAVI_TYDEN_.souhrn({ od: od, dny: dny, treninky: treninky, piti: pitiJidloDny_(slozka, Math.min(PITI_JIDLO_DNI, zpet), claude),
+    doplnky: spojDoplnky_(nactiDoplnky_(slozka).dny, claude), rezim: rezim, vaha: nactiVahu_(slozka).zaznamy, zapasy: zapasy });
+}
+
+/** Poznámka pro Clauda v NOVE (aplikace ji neukazuje – SKRYTE_POZNAMKY): napsat týdenní shrnutí, čísla spočítal motor. */
+function pozadejOTydenniShrnuti_(s) {
+  const ted = new Date(Date.now());
+  podslozka_(koren_(), 'NOVE').createFile(Utilities.formatDate(ted, CASOVE_PASMO, 'yyyy-MM-dd_HHmmss') + '_tyden.md', ['---',
+    'kdy: ' + Utilities.formatDate(ted, CASOVE_PASMO, "yyyy-MM-dd'T'HH:mm:ssXXX"),
+    'odkud: aplikace (týdenní shrnutí)', 'typ: tyden-zdravi', 'tyden: ' + s.tyden, '---', '',
+    'Napiš Michalovi týdenní shrnutí ' + ZDRAVI_TYDEN_.rozsah(s.od, s.do) + ' a zapiš ho do ZDRAVI\\PITI_JIDLO_CLAUDE.json → „tydny“ → „' +
+    s.tyden + '“ = { "text": "…", "kdy": "<ISO>" } (skill asistent-schranka, Týdenní shrnutí). Motor ho pošle e-mailem i s čísly níž; ' +
+    'nejpozději v pondělí v 8:00 odejde e-mail i bez tvého textu.', '',
+    'Čísla týdne (spočítal motor; doplňky jen hlavní – ZDRAVI_REZIM.json → hlavni):', ZDRAVI_TYDEN_.text(s, null), ''].join('\n'), MimeType.PLAIN_TEXT);
+}
+
+/** Týdenní texty od Clauda (PITI_JIDLO_CLAUDE.json → tydny), jen platné: { 'RRRR-Www': { text, kdy } }. */
+function tydnyClauda_(claude) {
+  const t = claude && claude.tydny && typeof claude.tydny === 'object' ? claude.tydny : {};
+  const ven = {};
+  Object.keys(t).forEach(function (k) {
+    const x = t[k];
+    if (!/^\d{4}-W\d{2}$/.test(k) || !x || typeof x !== 'object' || !String(x.text || '').trim()) return;
+    ven[k] = { text: String(x.text).replace(/\r\n/g, '\n').trim().slice(0, 3000), kdy: Date.parse(x.kdy) || null };
+  });
+  return ven;
+}
+
+function tydenniOdClauda_(tyden) {
+  return tydnyClauda_(nactiJson_(slozkaZdravi_(), 'PITI_JIDLO_CLAUDE.json').data)[tyden] || null;
+}
+
+/** Poslední týdenní shrnutí od Clauda pro kartu ve Zdraví (do 8 dní po neděli): { tyden, od, do, text, kdy } nebo null. */
+function posledniTydenni_(claude, ted) {
+  const t = tydnyClauda_(claude);
+  const klic = Object.keys(t).sort().pop();
+  const od = klic ? ZDRAVI_TYDEN_.pondeliTydne(klic) : '';
+  if (!od) return null;
+  const nedele = ZDRAVI_TYDEN_.posun(od, 6);
+  if (ted - Date.parse(nedele + 'T12:00:00Z') > 8 * 864e5) return null;
+  return { tyden: klic, od: od, do: nedele, text: t[klic].text, kdy: t[klic].kdy };
+}
+
+/** E-mail Michalovi (HTML i text, bez cizích obrázků) – jednou za týden; pod zámkem, ať ho dva souběžné běhy nepošlou oba. */
+function posliTydenniShrnuti_(s, odClauda) {
+  const ja = mojeAdresa_();
+  const zavinac = ja.indexOf('@');
+  if (zavinac < 1) return;
+  const komu = ja.slice(0, zavinac).split('+')[0] + '+' + TYDEN_ZDRAVI_ZNACKA + ja.slice(zavinac);
+  const zamek = LockService.getScriptLock();
+  try { zamek.waitLock(20000); } catch (chyba) { return; } // jiný běh právě pracuje – příště
+  try {
+    const vl = vlastnosti_();
+    const predtim = vl.getProperty('TYDEN_ZDRAVI_ODESLANO');
+    if (predtim === s.tyden) return;
+    vl.setProperty('TYDEN_ZDRAVI_ODESLANO', s.tyden);
+    try {
+      GmailApp.sendEmail(komu, ZDRAVI_TYDEN_.predmet(s), ZDRAVI_TYDEN_.textEmailu(s, odClauda),
+        { htmlBody: ZDRAVI_TYDEN_.html(s, odClauda), name: 'Asistent' });
+    } catch (chyba) {
+      // nepovedlo se (limit Gmailu…) – při dalším běhu znovu
+      if (predtim) vl.setProperty('TYDEN_ZDRAVI_ODESLANO', predtim); else vl.deleteProperty('TYDEN_ZDRAVI_ODESLANO');
+      throw chyba;
+    }
+  } finally {
+    zamek.releaseLock();
+  }
 }
 
 /**
@@ -5951,6 +6106,291 @@ const ZDRAVI_ = (function () {
   }
 
   return { zWhoop: zWhoop, zApple: zApple, prehled: prehled, cisloCz: cisloCz, spanekApple: spanekApple, mistniDen: mistniDen };
+})();
+
+/**
+ * Týdenní shrnutí zdraví – čisté funkce (testuje motor.test.js): čísla týdne po–ne, text pro Clauda a pro e-mail, HTML e-mailu.
+ * Doplňky jen hlavní (ZDRAVI_REZIM.json → hlavni, bez seznamu všechny) a jen ve dny, kdy podle režimu platí (jen: zapas,
+ * trenink, zatez). Váha jen z ranních vážení (do 11 h – jako aplikace, večer bývá o 1–2 kg víc).
+ */
+const ZDRAVI_TYDEN_ = (function () {
+  const DNY = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
+  const RANO_DO = 11;
+  const SPORTY = { soccer: 'Fotbal', running: 'Běh', walking: 'Chůze', cycling: 'Kolo', weightlifting: 'Posilovna', 'functional-fitness': 'Funkční trénink',
+    functional_fitness: 'Funkční trénink', 'strength-trainer': 'Posilování', strength_trainer: 'Posilování', hiit: 'HIIT', hiking: 'Turistika',
+    stretching: 'Protahování', yoga: 'Jóga', swimming: 'Plavání', tennis: 'Tenis', basketball: 'Basketbal', sauna: 'Sauna', activity: 'Aktivita' };
+
+  function posun(iso, n) { const c = String(iso).split('-').map(Number); return new Date(Date.UTC(c[0], c[1] - 1, c[2] + n)).toISOString().slice(0, 10); }
+  /** Pondělí 'RRRR-MM-DD' → ISO týden 'RRRR-Www' (týden patří do roku svého čtvrtka). */
+  function isoTyden(pondeli) {
+    const c = String(pondeli).split('-').map(Number);
+    const ctvrtek = Date.UTC(c[0], c[1] - 1, c[2] + 3);
+    const rok = new Date(ctvrtek).getUTCFullYear();
+    return rok + '-W' + ('0' + (1 + Math.floor((ctvrtek - Date.UTC(rok, 0, 1)) / (7 * 864e5)))).slice(-2);
+  }
+  /** 'RRRR-Www' → pondělí 'RRRR-MM-DD' ('' když to není týden). */
+  function pondeliTydne(klic) {
+    const m = /^(\d{4})-W(\d{2})$/.exec(String(klic || ''));
+    if (!m) return '';
+    const ctvrty = Date.UTC(Number(m[1]), 0, 4); // 4. ledna je vždy v 1. týdnu
+    const pondeli1 = ctvrty - ((new Date(ctvrty).getUTCDay() + 6) % 7) * 864e5;
+    return new Date(pondeli1 + (Number(m[2]) - 1) * 7 * 864e5).toISOString().slice(0, 10);
+  }
+  function dm(iso) { const c = String(iso).split('-').map(Number); return c[2] + '. ' + c[1] + '.'; }
+  /** „5.–11. 10. 2026“, „28. 9.–4. 10. 2026“ */
+  function rozsah(od, do_) {
+    const a = String(od).split('-').map(Number), b = String(do_).split('-').map(Number);
+    return (a[1] === b[1] ? a[2] + '.' : a[2] + '. ' + a[1] + '.') + '–' + b[2] + '. ' + b[1] + '. ' + b[0];
+  }
+  /** České číslo: tisíce s pevnou mezerou, desetinná čárka, minus „−“. */
+  function cislo(n, des) {
+    if (n == null || !isFinite(n)) return '–';
+    const r = Number(Number(n).toFixed(des || 0));
+    const c = Math.abs(r).toFixed(des || 0).split('.');
+    return (r < 0 ? '−' : '') + c[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + (c[1] ? ',' + c[1] : '');
+  }
+  function hodMin(ms) { if (ms == null || !isFinite(ms)) return '–'; const m = Math.round(ms / 6e4); return Math.floor(m / 60) + ':' + ('0' + (m % 60)).slice(-2); }
+  function litry(ml) { return cislo(ml / 1000, 1) + ' l'; }
+  function prumer(pole) {
+    const x = pole.filter(function (n) { return n != null && isFinite(n); });
+    return x.length ? x.reduce(function (a, b) { return a + b; }, 0) / x.length : null;
+  }
+  function soucet(pole, k) { return pole.reduce(function (a, x) { return a + (Number(x && x[k]) || 0); }, 0); }
+  function nazevSportu(s) { const k = String(s || '').toLowerCase(); return SPORTY[k] || (k ? k.charAt(0).toUpperCase() + k.slice(1).replace(/[-_]/g, ' ') : 'Trénink'); }
+  function mistni(ms) {
+    const d = new Date(ms);
+    return { den: Utilities.formatDate(d, CASOVE_PASMO, 'yyyy-MM-dd'), hodina: Number(Utilities.formatDate(d, CASOVE_PASMO, 'H')) };
+  }
+
+  /**
+   * Čísla týdne. v = { od: pondělí, dny: { den: { whoop, apple } } (i minulý týden), treninky: [], piti: { den: { piti, jidlo, hodnoceni } },
+   *   doplnky: { den: { id: true } }, rezim, vaha: [{ kdy, kg }], zapasy: ['RRRR-MM-DD'] }
+   */
+  function souhrn(v) {
+    const rezim = v.rezim || {};
+    const polozky = (Array.isArray(rezim.polozky) ? rezim.polozky : []).filter(function (p) { return p && p.id; });
+    const idHlavnich = Array.isArray(rezim.hlavni) && rezim.hlavni.length ? rezim.hlavni.map(String) : polozky.map(function (p) { return p.id; });
+    const hlavni = polozky.filter(function (p) { return idHlavnich.indexOf(p.id) >= 0; });
+    const cilB = Number(rezim.bilkovinyCil) || 130, cilVoda = Number(rezim.pitiCil) || 2500;
+    const zapas = {};
+    (v.zapasy || []).forEach(function (d) { zapas[d] = true; });
+    const trenink = function (d) { return (rezim.treninkDny || []).indexOf(new Date(d + 'T12:00:00Z').getUTCDay()) >= 0; };
+    const plati = function (p, d) { return !p.jen || (p.jen === 'zapas' && !!zapas[d]) || (p.jen === 'trenink' && trenink(d)) || (p.jen === 'zatez' && (trenink(d) || !!zapas[d])); };
+    const tyden = function (od) { const x = []; for (let i = 0; i < 7; i++) x.push(posun(od, i)); return x; };
+    const dnyT = tyden(v.od), minule = tyden(posun(v.od, -7)), nedele = dnyT[6];
+    const zDne = function (d, zdroj) { return ((v.dny || {})[d] || {})[zdroj] || {}; };
+    const vzatoDne = function (d) { return (v.doplnky || {})[d] || {}; };
+    const pripr = function (d) { const w = zDne(d, 'whoop'); return w.pripravenost && w.pripravenost.skore != null ? w.pripravenost.skore : null; };
+    const spanek = function (d) { const w = zDne(d, 'whoop'); return w.spanek && w.spanek.celkem ? w.spanek.celkem : null; };
+    const zatez = function (d) { const w = zDne(d, 'whoop'); return w.zatez && w.zatez.zatez != null ? w.zatez.zatez : null; };
+    const kroky = function (d) { const a = zDne(d, 'apple'), w = zDne(d, 'whoop'); return a.kroky != null ? a.kroky : w.zatez && w.zatez.kroky != null ? w.zatez.kroky : null; };
+    const energie = function (d) { const a = zDne(d, 'apple'); return a.energie != null ? a.energie : null; };
+    const radky = dnyT.map(function (d, i) {
+      const pj = (v.piti || {})[d] || {};
+      const jidla = Array.isArray(pj.jidlo) ? pj.jidlo : [], piti = Array.isArray(pj.piti) ? pj.piti : [];
+      const vzato = vzatoDne(d);
+      // bílkoviny i z odškrtnutých doplňků s „bilkoviny“ (proteinové) – jako karta Pití a jídlo v aplikaci
+      const bDoplnku = polozky.filter(function (p) { return Number(p.bilkoviny) > 0 && vzato[p.id]; }).reduce(function (a, p) { return a + Number(p.bilkoviny); }, 0);
+      const platne = hlavni.filter(function (p) { return plati(p, d); });
+      return {
+        den: d, nazev: DNY[i] + ' ' + dm(d), zapas: !!zapas[d], jidel: jidla.length,
+        bilkoviny: jidla.length || bDoplnku ? Math.round(soucet(jidla, 'bilkoviny') + bDoplnku) : null,
+        kcal: jidla.length ? Math.round(soucet(jidla, 'kcal')) : null,
+        vodaMl: piti.length ? Math.round(soucet(piti, 'ml')) : null,
+        znamka: pj.hodnoceni && pj.hodnoceni.znamka ? String(pj.hodnoceni.znamka).trim().charAt(0).toUpperCase() : '',
+        doplnky: { vzato: platne.filter(function (p) { return vzato[p.id]; }).length, celkem: platne.length },
+        pripravenost: pripr(d), spanek: spanek(d), zatez: zatez(d), kroky: kroky(d)
+      };
+    });
+    const metrika = function (f) { return { ted: prumer(dnyT.map(f)), minule: prumer(minule.map(f)) }; };
+    // váha: první a poslední ranní vážení týdne (jediné → proti poslednímu rannímu do 14 dní před týdnem)
+    const vahy = (Array.isArray(v.vaha) ? v.vaha : []).filter(function (z) { return z && Number(z.kg) > 0 && Number(z.kdy) > 0; })
+      .map(function (z) { return Object.assign({ kdy: Number(z.kdy), kg: Number(z.kg) }, mistni(Number(z.kdy))); })
+      .sort(function (a, b) { return a.kdy - b.kdy; });
+    const vTydnu = vahy.filter(function (z) { return z.den >= v.od && z.den <= nedele; });
+    const rano = vTydnu.filter(function (z) { return z.hodina < RANO_DO; });
+    let vaha = null;
+    if (rano.length) {
+      const konec = rano[rano.length - 1];
+      const zacatek = rano.length > 1 ? rano[0] : vahy.filter(function (z) { return z.hodina < RANO_DO && z.den < v.od && z.den >= posun(v.od, -14); }).pop() || null;
+      vaha = { zacatek: zacatek, konec: konec, rozdil: zacatek ? Math.round((konec.kg - zacatek.kg) * 10) / 10 : null, pocet: vTydnu.length, ranni: rano.length };
+    } else if (vTydnu.length) {
+      vaha = { zacatek: null, konec: vTydnu[vTydnu.length - 1], rozdil: null, pocet: vTydnu.length, ranni: 0 };
+    }
+    const tr = (Array.isArray(v.treninky) ? v.treninky : []).filter(function (t) { return t && t.den >= v.od && t.den <= nedele; });
+    const sporty = {};
+    tr.forEach(function (t) { const n = nazevSportu(t.sport); sporty[n] = (sporty[n] || 0) + 1; });
+    const sJidlem = radky.filter(function (r) { return r.jidel > 0; });
+    const sPitim = radky.filter(function (r) { return r.vodaMl != null; });
+    const sDoplnky = radky.filter(function (r) { return r.doplnky.celkem > 0; });
+    const znamky = {};
+    radky.forEach(function (r) { if (r.znamka) znamky[r.znamka] = (znamky[r.znamka] || 0) + 1; });
+    return {
+      tyden: isoTyden(v.od), od: v.od, do: nedele, dny: radky,
+      jidlo: { dnu: sJidlem.length, bilkoviny: prumer(sJidlem.map(function (r) { return r.bilkoviny; })), kcal: prumer(sJidlem.map(function (r) { return r.kcal; })),
+        dnuCil: sJidlem.filter(function (r) { return r.bilkoviny >= cilB; }).length, cil: cilB },
+      voda: { dnu: sPitim.length, ml: prumer(sPitim.map(function (r) { return r.vodaMl; })), dnuCil: sPitim.filter(function (r) { return r.vodaMl >= cilVoda; }).length, cil: cilVoda },
+      doplnky: { dnu: sDoplnky.length, splneno: sDoplnky.filter(function (r) { return r.doplnky.vzato >= r.doplnky.celkem; }).length,
+        polozky: hlavni.map(function (p) {
+          const dni = dnyT.filter(function (d) { return plati(p, d); });
+          return { id: p.id, nazev: String(p.nazev || p.id), dni: dni.length, vzato: dni.filter(function (d) { return vzatoDne(d)[p.id]; }).length };
+        }).filter(function (x) { return x.dni > 0; }) },
+      vaha: vaha,
+      whoop: { pripravenost: metrika(pripr), spanek: metrika(spanek), zatez: metrika(zatez) },
+      apple: { kroky: metrika(kroky), energie: metrika(energie), cviceni: soucet(dnyT.map(function (d) { return zDne(d, 'apple'); }), 'cviceni') },
+      treninky: { pocet: tr.length, minut: Math.round(tr.reduce(function (a, t) { return a + Math.max(0, ((t.konec - t.start) / 6e4) || 0); }, 0)), sporty: sporty },
+      znamky: znamky,
+      maData: radky.some(function (r) { return r.jidel || r.vodaMl != null || r.doplnky.vzato || r.pripravenost != null || r.spanek != null || r.kroky != null; }) ||
+        !!vaha || tr.length > 0
+    };
+  }
+
+  // ---- texty (stejná čísla pro Clauda, textovou verzi e-mailu i HTML)
+  function vahaText(w) {
+    if (!w) return 'žádné vážení';
+    const kdy = function (z) { return DNY[(new Date(z.den + 'T12:00:00Z').getUTCDay() + 6) % 7].toLowerCase() + ' ' + dm(z.den); };
+    if (!w.ranni) return cislo(w.konec.kg, 1) + ' kg (' + kdy(w.konec) + ', ne ráno – s ranním se nesrovnává)';
+    if (!w.zacatek) return cislo(w.konec.kg, 1) + ' kg ráno (' + kdy(w.konec) + ')';
+    return cislo(w.zacatek.kg, 1) + ' kg (' + kdy(w.zacatek) + ') → ' + cislo(w.konec.kg, 1) + ' kg (' + kdy(w.konec) + '), ' +
+      (w.rozdil > 0 ? '+' : '') + cislo(w.rozdil, 1) + ' kg';
+  }
+  function proti(m, f) { return m.minule != null ? ' (minulý týden ' + f(m.minule) + ')' : ''; }
+  function whoopText(s) {
+    const w = s.whoop;
+    const casti = [w.pripravenost.ted != null ? 'zotavení ø ' + cislo(w.pripravenost.ted) + ' %' + proti(w.pripravenost, function (x) { return cislo(x) + ' %'; }) : '',
+      w.spanek.ted != null ? 'spánek ø ' + hodMin(w.spanek.ted) + proti(w.spanek, hodMin) : '',
+      w.zatez.ted != null ? 'zátěž ø ' + cislo(w.zatez.ted, 1) + proti(w.zatez, function (x) { return cislo(x, 1); }) : ''].filter(Boolean);
+    return casti.length ? casti.join(' · ') : 'bez dat';
+  }
+  function pohybText(s) {
+    const a = s.apple;
+    const casti = [a.kroky.ted != null ? 'kroky ø ' + cislo(a.kroky.ted) + ' denně' + proti(a.kroky, cislo) : '',
+      a.energie.ted != null ? 'aktivní energie ø ' + cislo(a.energie.ted) + ' kcal' : '', a.cviceni ? 'cvičení ' + cislo(a.cviceni) + ' min' : ''].filter(Boolean);
+    return casti.length ? casti.join(' · ') : 'bez dat';
+  }
+  function treninkyText(t) {
+    return t.pocet ? t.pocet + '× – ' + Object.keys(t.sporty).map(function (k) { return k + ' ' + t.sporty[k] + '×'; }).join(', ') + ' · ' + hodMin(t.minut * 6e4) + ' h' : 'žádný z WHOOP';
+  }
+  function doplnkyText(d) {
+    if (!d.polozky.length) return 'režim bez hlavních doplňků';
+    return 'všechny hlavní ' + d.splneno + ' z ' + d.dnu + ' dní – ' + d.polozky.map(function (p) { return p.nazev + ' ' + p.vzato + '/' + p.dni; }).join(' · ');
+  }
+  function znamkyText(z) { return Object.keys(z).sort().map(function (k) { return k + ' ' + z[k] + '×'; }).join(' · '); }
+
+  /** Textová verze (poznámka pro Clauda bez jeho textu; e-mail s ním nahoře). */
+  function text(s, odClauda) {
+    const r = [];
+    if (odClauda && odClauda.text) r.push(odClauda.text, '', '– – –', '');
+    r.push('Týden ' + rozsah(s.od, s.do) + ' (' + s.tyden + ')', '');
+    r.push('Po dnech – bílkoviny · kcal · voda · hlavní doplňky · hodnocení | zotavení · spánek · zátěž · kroky:');
+    s.dny.forEach(function (d) {
+      const jidlo = [d.bilkoviny != null ? d.bilkoviny + ' g bílkovin' : 'jídlo nezapsané', d.kcal != null ? cislo(d.kcal) + ' kcal' : '',
+        d.vodaMl != null ? 'voda ' + litry(d.vodaMl) : 'voda nezapsaná', d.doplnky.celkem ? 'doplňky ' + d.doplnky.vzato + '/' + d.doplnky.celkem : '',
+        d.znamka ? 'hodnocení ' + d.znamka : ''].filter(Boolean).join(' · ');
+      const pohyb = [d.pripravenost != null ? 'zotavení ' + d.pripravenost + ' %' : '', d.spanek ? 'spánek ' + hodMin(d.spanek) : '',
+        d.zatez != null ? 'zátěž ' + cislo(d.zatez, 1) : '', d.kroky != null ? cislo(d.kroky) + ' kroků' : ''].filter(Boolean).join(' · ');
+      r.push('- ' + d.nazev + (d.zapas ? ' (zápas)' : '') + ': ' + jidlo + (pohyb ? ' | ' + pohyb : ''));
+    });
+    r.push('');
+    r.push('Jídlo: ' + (s.jidlo.dnu ? 'bílkoviny ø ' + cislo(s.jidlo.bilkoviny) + ' g (cíl ' + s.jidlo.cil + ' g – splněno ' + s.jidlo.dnuCil + ' z ' + s.jidlo.dnu +
+      ' dní se zápisem)' + (s.jidlo.kcal != null ? ' · ø ' + cislo(s.jidlo.kcal) + ' kcal' : '') : 'nic zapsáno'));
+    r.push('Voda: ' + (s.voda.dnu ? 'ø ' + litry(s.voda.ml) + ' (cíl ' + litry(s.voda.cil) + ' – splněno ' + s.voda.dnuCil + ' z ' + s.voda.dnu + ' dní)' : 'nic zapsáno'));
+    r.push('Doplňky: ' + doplnkyText(s.doplnky));
+    r.push('Váha ráno: ' + vahaText(s.vaha));
+    r.push('WHOOP: ' + whoopText(s));
+    r.push('Pohyb (Apple Watch): ' + pohybText(s));
+    r.push('Tréninky: ' + treninkyText(s.treninky));
+    if (Object.keys(s.znamky).length) r.push('Hodnocení dnů: ' + znamkyText(s.znamky));
+    return r.join('\n');
+  }
+
+  function predmet(s) { return 'Tvůj týden ' + rozsah(s.od, s.do) + ' – jídlo, pohyb, spánek'; }
+
+  // Úvod bez čísel: server kopíruje seznam Doručené (předmět a prvních 180 znaků textu) do účtu Firebase – zdravotní
+  // údaje tam nesmí, proto e-mail začíná obecnou větou delší než náhled (čísla a Claudův text až za ní).
+  const UVOD = 'Týdenní shrnutí z aplikace Asistent – jídlo a pití, doplňky, váha, spánek a pohyb za uplynulý týden. Čísla jsou z tvých ' +
+    'zápisů a z hodinek (jen tvůj Disk Google), text píše Claude. Chodí jednou týdně, v neděli večer nebo v pondělí ráno.';
+  function textEmailu(s, odClauda) { return UVOD + '\n\n' + text(s, odClauda); }
+
+  /** Claudův text do HTML: odstavce (prázdný řádek), odrážky „- “, **tučně** – jinak čistý text. */
+  function textClaudaHtml(t) {
+    const tucne = function (x) { return x.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>'); };
+    return String(t).split(/\n\s*\n/).map(function (odst) {
+      const radky = odst.split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
+      if (!radky.length) return '';
+      if (radky.every(function (x) { return /^[-•]\s+/.test(x); })) {
+        return '<ul style="margin:0 0 8px;padding-left:20px">' + radky.map(function (x) { return '<li>' + tucne(escHtml_(x.replace(/^[-•]\s+/, ''))) + '</li>'; }).join('') + '</ul>';
+      }
+      return '<p style="margin:0 0 8px">' + radky.map(function (x) { return tucne(escHtml_(x)); }).join('<br>') + '</p>';
+    }).join('');
+  }
+
+  /** HTML e-mailu: vše vložené (žádné cizí obrázky ani styly), barvy aplikace (Fixtrack). */
+  function html(s, odClauda) {
+    const e = escHtml_;
+    const ZELENA = '#1f3d2c', SVETLA = '#e7efe9', LINKA = '#ebe6dd', SEDA = '#7a817c', OK = '#2f7a4f', KORAL = '#d4552a';
+    const oddil = function (t) { return '<h2 style="margin:22px 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:' + SEDA + '">' + e(t) + '</h2>'; };
+    const sipka = function (m, f, lepsiVys) {
+      if (m.ted == null || m.minule == null) return '';
+      const roz = m.ted - m.minule;
+      if (Math.abs(roz) < 1e-9) return 'stejně jako minulý týden';
+      const barva = lepsiVys == null ? SEDA : (roz > 0) === lepsiVys ? OK : KORAL;
+      return '<span style="color:' + barva + ';font-weight:600">' + (roz > 0 ? '↑ ' : '↓ ') + e(f(Math.abs(roz))) + '</span> proti minulému týdnu';
+    };
+    const kpi = function (nazev, hodnota, pod) {
+      return '<td style="width:50%;padding:4px;vertical-align:top"><div style="border:1px solid ' + LINKA + ';border-radius:12px;padding:10px 12px">' +
+        '<div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:' + SEDA + '">' + e(nazev) + '</div>' +
+        '<div style="font-size:22px;font-weight:700;line-height:1.25">' + hodnota + '</div><div style="font-size:12px;color:' + SEDA + '">' + (pod || '&nbsp;') + '</div></div></td>';
+    };
+    const w = s.whoop, a = s.apple;
+    let h = '<div style="background:#f5f3ee;padding:18px 10px;font:14px/1.5 -apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,sans-serif;color:#1b231e">' +
+      '<div style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid ' + LINKA + ';border-radius:14px;padding:18px 16px">' +
+      '<div style="font-size:12px;color:' + SEDA + '">Asistent · týden ' + e(rozsah(s.od, s.do)) + '</div>' +
+      '<h1 style="margin:2px 0 6px;font-size:22px;line-height:1.25;color:' + ZELENA + '">Tvůj týden</h1>' +
+      '<p style="margin:0 0 14px;font-size:12.5px;color:' + SEDA + '">' + e(UVOD) + '</p>';
+    if (odClauda && odClauda.text) {
+      h += '<div style="background:' + SVETLA + ';border-left:4px solid ' + ZELENA + ';border-radius:10px;padding:12px 14px 6px">' +
+        '<div style="font-size:12px;font-weight:700;color:' + ZELENA + ';margin-bottom:4px">Claude</div>' + textClaudaHtml(odClauda.text) + '</div>';
+    }
+    // čtyři čísla: zotavení, spánek, zátěž, kroky (šipka proti minulému týdnu)
+    h += '<table role="presentation" style="width:100%;border-collapse:collapse;margin-top:12px"><tr>' +
+      kpi('Zotavení ø', w.pripravenost.ted != null ? cislo(w.pripravenost.ted) + ' %' : '–', sipka(w.pripravenost, function (x) { return cislo(x) + ' %'; }, true)) +
+      kpi('Spánek ø', w.spanek.ted != null ? hodMin(w.spanek.ted) + ' h' : '–', sipka(w.spanek, hodMin, true)) + '</tr><tr>' +
+      kpi('Zátěž ø', w.zatez.ted != null ? cislo(w.zatez.ted, 1) : '–', sipka(w.zatez, function (x) { return cislo(x, 1); }, null)) +
+      kpi('Kroky ø', a.kroky.ted != null ? cislo(a.kroky.ted) : '–', sipka(a.kroky, cislo, true)) + '</tr></table>';
+    // jídlo a pití po dnech
+    const th = function (t, vlevo) { return '<th style="padding:6px;font-size:11px;font-weight:600;color:' + SEDA + ';text-align:' + (vlevo ? 'left' : 'right') + '">' + t + '</th>'; };
+    const td = function (t, styl) { return '<td style="padding:6px;border-top:1px solid ' + LINKA + ';text-align:right;white-space:nowrap;' + (styl || '') + '">' + t + '</td>'; };
+    h += oddil('Jídlo, pití a doplňky po dnech') + '<table role="presentation" style="width:100%;border-collapse:collapse;font-size:13px"><tr>' +
+      th('Den', true) + th('Bílkoviny') + th('Voda') + th('Doplňky') + th('Hodnocení') + '</tr>';
+    s.dny.forEach(function (d) {
+      const bOk = d.bilkoviny != null && d.bilkoviny >= s.jidlo.cil, vOk = d.vodaMl != null && d.vodaMl >= s.voda.cil;
+      const dOk = d.doplnky.celkem && d.doplnky.vzato >= d.doplnky.celkem;
+      h += '<tr>' + td(e(d.nazev) + (d.zapas ? ' <span style="color:' + SEDA + '">⚽</span>' : ''), 'text-align:left') +
+        td(d.bilkoviny != null ? cislo(d.bilkoviny) + ' g' + (d.kcal != null ? '<div style="font-size:11px;color:' + SEDA + '">' + cislo(d.kcal) + ' kcal</div>' : '') : '–', bOk ? 'color:' + OK + ';font-weight:600' : '') +
+        td(d.vodaMl != null ? litry(d.vodaMl) : '–', vOk ? 'color:' + OK + ';font-weight:600' : '') +
+        td(d.doplnky.celkem ? d.doplnky.vzato + '/' + d.doplnky.celkem + (dOk ? ' ✓' : '') : '–', dOk ? 'color:' + OK + ';font-weight:600' : '') +
+        td(d.znamka ? '<b>' + e(d.znamka) + '</b>' : '–') + '</tr>';
+    });
+    h += '<tr>' + td('<b>Průměr</b>', 'text-align:left') +
+      td(s.jidlo.dnu ? '<b>' + cislo(s.jidlo.bilkoviny) + ' g</b><div style="font-size:11px;color:' + SEDA + '">cíl ' + s.jidlo.cil + ' g</div>' : '–') +
+      td(s.voda.dnu ? '<b>' + litry(s.voda.ml) + '</b><div style="font-size:11px;color:' + SEDA + '">cíl ' + litry(s.voda.cil) + '</div>' : '–') +
+      td(s.doplnky.dnu ? '<b>' + s.doplnky.splneno + '/' + s.doplnky.dnu + '</b><div style="font-size:11px;color:' + SEDA + '">dní vše</div>' : '–') +
+      td(Object.keys(s.znamky).length ? e(znamkyText(s.znamky)) : '–', 'white-space:normal') + '</tr></table>';
+    const radek = function (nazev, hodnota) {
+      return '<tr><td style="padding:7px 8px 7px 0;border-top:1px solid ' + LINKA + ';color:' + SEDA + ';white-space:nowrap;vertical-align:top">' + e(nazev) + '</td>' +
+        '<td style="padding:7px 0;border-top:1px solid ' + LINKA + '">' + e(hodnota) + '</td></tr>';
+    };
+    h += oddil('Další čísla') + '<table role="presentation" style="width:100%;border-collapse:collapse;font-size:13px">' +
+      radek('Hlavní doplňky', doplnkyText(s.doplnky)) + radek('Váha ráno', vahaText(s.vaha)) + radek('WHOOP', whoopText(s)) +
+      radek('Pohyb', pohybText(s)) + radek('Tréninky', treninkyText(s.treninky)) + '</table>';
+    h += '<p style="margin:18px 0 0;font-size:11.5px;color:' + SEDA + '">Poslal Asistent z tvých dat na Disku Google (WHOOP, Apple Watch, zápisy v aplikaci). ' +
+      'Doplňky se počítají jen hlavní, vždy ve dny, kdy podle režimu platí. Váha jen z ranních vážení.</p></div></div>';
+    return h;
+  }
+
+  return { souhrn: souhrn, text: text, textEmailu: textEmailu, html: html, predmet: predmet, posun: posun, isoTyden: isoTyden, pondeliTydne: pondeliTydne,
+    rozsah: rozsah, cislo: cislo };
 })();
 
 // ---------------------------------------------------------------- upozornění do iPhonu (ntfy, nepovinné)

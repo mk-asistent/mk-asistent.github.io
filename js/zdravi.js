@@ -10,6 +10,7 @@ import { kostra, chybaHtml, hlavickaKarty, toast, okno, potvrd } from './ui.js';
 import { otevriPanel, zavriPanel, elementPanelu } from './panely.js';
 import { udalostiVRozsahu, jeZapas } from './kalendar.js';
 import { odhadniJidlo } from './jidlo_odhad.js';
+import { bublina, grafAtr } from './grafy.js';
 
 const ULOZISTE = 'asistent.data.zdravi';
 
@@ -123,46 +124,52 @@ hooky.detailUdalosti = treninkKUdalosti;
 
 // ---------------------------------------------------------------- grafy
 
-/** 14 dní: sloupce připravenosti v barvě zóny, tečky zátěže (0–21) a čárky spánku. */
+/**
+ * 14 dní: sloupce připravenosti v barvě zóny, tečky a čára zátěže (0–21). Každý den je skupina s plochou přes celý
+ * sloupec – najetí, klepnutí nebo šipky ukážou bublinu (den, připravenost, zátěž, spánek; js/grafy.js).
+ */
 function graf14(seznam) {
   const n = seznam.length;
   if (!n) return '';
   const W = 560, H = 150, P = 18, sirka = (W - 2 * P) / n;
-  let s = '<svg class="graf14" viewBox="0 0 ' + W + ' ' + (H + 22) + '" role="img" aria-label="Připravenost a zátěž za posledních ' + n + ' dní">';
+  const dnes = isoDatum(Date.now());
+  const zatezDne = (d) => (d.whoop && d.whoop.zatez && d.whoop.zatez.zatez != null ? d.whoop.zatez.zatez : null);
+  let s = '<svg class="graf14" viewBox="0 0 ' + W + ' ' + (H + 22) + '"' + grafAtr('Připravenost a zátěž za posledních ' + n + ' dní') + '>';
   [33, 66].forEach((h) => { const y = H - (h / 100) * (H - 10); s += '<line class="graf14__mez" x1="' + P + '" x2="' + (W - P) + '" y1="' + y + '" y2="' + y + '"/>'; });
-  let cara = '';
+  // čára zátěže pod sloupci dnů (body jsou ve skupinách dnů)
+  const cara = seznam.map((d, i) => { const z = zatezDne(d); return z == null ? '' : (P + i * sirka + sirka / 2).toFixed(1) + ' ' + (H - (z / 21) * (H - 10)).toFixed(1); })
+    .filter(Boolean).map((b, i) => (i ? 'L ' : 'M ') + b).join(' ');
+  if (cara) s += '<path class="graf14__cara" d="' + cara + '"/>';
   seznam.forEach((d, i) => {
-    const x = P + i * sirka + sirka * 0.18, w = sirka * 0.64;
+    const x0 = P + i * sirka, x = x0 + sirka * 0.18, w = sirka * 0.64, cx = x0 + sirka / 2;
     const p = d.whoop && d.whoop.pripravenost ? d.whoop.pripravenost.skore : null;
-    if (p != null) {
-      const v = Math.max(4, (p / 100) * (H - 10));
-      s += '<rect class="graf14__sl graf14__sl--' + zona(p) + '" x="' + x.toFixed(1) + '" y="' + (H - v).toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + v.toFixed(1) + '" rx="4"><title>' +
-        esc(denPopis(d.den) + ': připravenost ' + p + ' %') + '</title></rect>';
-    } else {
-      s += '<rect class="graf14__sl graf14__sl--prazdny" x="' + x.toFixed(1) + '" y="' + (H - 6) + '" width="' + w.toFixed(1) + '" height="6" rx="3"/>';
-    }
-    const z = d.whoop && d.whoop.zatez ? d.whoop.zatez.zatez : null;
-    if (z != null) {
-      const cx = P + i * sirka + sirka / 2, cy = H - (z / 21) * (H - 10);
-      cara += (cara ? ' L ' : 'M ') + cx.toFixed(1) + ' ' + cy.toFixed(1);
-      s += '<circle class="graf14__zatez" cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="3.4"><title>' + esc(denPopis(d.den) + ': zátěž ' + cisloCz(z, 1)) + '</title></circle>';
-    }
+    const z = zatezDne(d);
+    const sp = d.whoop && d.whoop.spanek;
     const t = new Date(d.den + 'T12:00');
-    s += '<text class="graf14__popis" x="' + (P + i * sirka + sirka / 2).toFixed(1) + '" y="' + (H + 16) + '" text-anchor="middle">' +
-      (d.den === isoDatum(Date.now()) ? 'dnes' : DNY_KR[t.getDay()]) + '</text>';
+    const v = p != null ? Math.max(4, (p / 100) * (H - 10)) : 6;
+    const cy = z != null ? H - (z / 21) * (H - 10) : null;
+    // bublina míří na vyšší z obou (vrchol sloupce, nebo tečka zátěže nad ním)
+    const kSloupci = cy == null || H - v <= cy;
+    s += '<g class="graf14__den"' + bublina((d.den === dnes ? 'dnes · ' : '') + DNY_KR[t.getDay()] + ' ' + dm(t.getTime()),
+      p != null ? 'připravenost ' + p + ' %' : z == null && !(sp && sp.celkem) ? 'bez dat z WHOOP' : 'připravenost chybí',
+      [z != null ? 'zátěž ' + cisloCz(z, 1) : '', sp && sp.celkem ? 'spánek ' + hodMinKratce(sp.celkem) : ''].filter(Boolean).join(' · ')) + '>' +
+      '<rect class="graf-zasah" x="' + x0.toFixed(1) + '" y="0" width="' + sirka.toFixed(1) + '" height="' + (H + 22) + '"/>' +
+      '<rect class="graf14__sl graf14__sl--' + (p != null ? zona(p) : 'prazdny') + '" x="' + x.toFixed(1) + '" y="' + (H - v).toFixed(1) + '" width="' + w.toFixed(1) +
+        '" height="' + v.toFixed(1) + '" rx="' + (p != null ? 4 : 3) + '"' + (kSloupci ? ' data-kotva' : '') + '/>' +
+      (cy != null ? '<circle class="graf14__zatez" cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="3.4"' + (kSloupci ? '' : ' data-kotva') + '/>' : '') +
+      '<text class="graf14__popis" x="' + cx.toFixed(1) + '" y="' + (H + 16) + '" text-anchor="middle">' + (d.den === dnes ? 'dnes' : DNY_KR[t.getDay()]) + '</text></g>';
   });
-  if (cara) s = s.replace('<circle', '<path class="graf14__cara" d="' + cara + '"/><circle');
   return s + '</svg>';
 }
 
-/** Fáze spánku jako jeden pruh (lehký, hluboký, REM, bdění). */
+/** Fáze spánku jako jeden pruh (lehký, hluboký, REM, bdění) – u každého úseku bublina s časem a podílem noci. */
 function pruhSpanku(sp) {
-  const casti = [['hluboky', 'Hluboký', sp.hluboky], ['rem', 'REM', sp.rem], ['lehky', 'Lehký', sp.lehky != null ? sp.lehky : sp.jadro], ['bdeni', 'Bdění', sp.bdeni]]
-    .filter((c) => c[2] > 0);
+  const casti = [['hluboky', 'Hluboký spánek', sp.hluboky, 'Hluboký'], ['rem', 'REM', sp.rem, 'REM'], ['lehky', 'Lehký spánek', sp.lehky != null ? sp.lehky : sp.jadro, 'Lehký'],
+    ['bdeni', 'Bdění', sp.bdeni, 'Bdění']].filter((c) => c[2] > 0);
   const celkem = casti.reduce((a, c) => a + c[2], 0) || 1;
-  return '<div class="pruh-spanku">' + casti.map((c) => '<i class="pruh-spanku__' + c[0] + '" style="width:' + (c[2] / celkem * 100).toFixed(1) + '%" title="' +
-    esc(c[1] + ' ' + hodMinKratce(c[2])) + '"></i>').join('') + '</div>' +
-    '<ul class="legenda-spanku">' + casti.map((c) => '<li><i class="pruh-spanku__' + c[0] + '"></i>' + c[1] + ' <b>' + hodMinKratce(c[2]) + '</b></li>').join('') + '</ul>';
+  return '<div class="pruh-spanku">' + casti.map((c) => '<i class="pruh-spanku__' + c[0] + '" style="width:' + (c[2] / celkem * 100).toFixed(1) + '%"' +
+    bublina(c[1], hodMinKratce(c[2]) + ' h', Math.round(c[2] / celkem * 100) + ' % noci') + '></i>').join('') + '</div>' +
+    '<ul class="legenda-spanku">' + casti.map((c) => '<li><i class="pruh-spanku__' + c[0] + '"></i>' + c[3] + ' <b>' + hodMinKratce(c[2]) + '</b></li>').join('') + '</ul>';
 }
 
 // ---------------------------------------------------------------- stránka Zdraví
@@ -211,18 +218,23 @@ function kpi(nazev, ikona, hodnota, jednotka, pod, atr) {
     '<span class="kpi__hodnota">' + hodnota + (jednotka ? '<small>' + jednotka + '</small>' : '') + '</span><span class="kpi__pod">' + pod + '</span></button>';
 }
 
+// tepové zóny WHOOP (podíl maximálního tepu) – do bubliny u pruhu zón
+const ZONY = ['pod 50 % max. tepu', '50–60 % max. tepu', '60–70 % max. tepu', '70–80 % max. tepu', '80–90 % max. tepu', '90–100 % max. tepu'];
+
 function treninkyHtml(seznam) {
   if (!seznam.length) return '<div class="prazdne">Za posledních 14 dní žádný trénink z WHOOP.</div>';
   return '<ul class="seznam">' + seznam.slice(0, 12).map((t) => {
     const u = udalostTreninku(t);
     const zony = t.zony || [];
     const soucet = zony.reduce((a, b) => a + b, 0) || 1;
+    const zonyPopis = 'Čas v tepových zónách: ' + zony.map((m, i) => 'zóna ' + i + ' ' + m + ' min').join(', ');
     return '<li class="trenink' + (u && jeZapas(u) ? ' trenink--zapas' : '') + '"' + (u ? ' data-udalost="' + esc(u.id) + '"' : '') + '>' +
       '<span class="trenink__ikona">' + (t.sport === 'soccer' ? IKONY.zapas : IKONY.aktivita) + '</span>' +
       '<span class="trenink__text"><b>' + esc(nazevSportu(t.sport)) + (u ? ' · ' + esc(u.nazev.replace(/^⚽\s*/, '')) : '') + '</b>' +
       '<small>' + esc(denPopis(t.den)) + ' ' + hhmm(t.start) + ' · ' + trvani(t.konec - t.start) + ' · tep ø ' + (t.tepPrumer || '–') + ' / max ' + (t.tepMax || '–') +
       ' · ' + cisloCz(t.kcal) + ' kcal' + (t.vzdalenost ? ' · ' + cisloCz(t.vzdalenost / 1000, 1) + ' km' : '') + '</small>' +
-      '<span class="zony" title="Čas v tepových zónách 0–5">' + zony.map((m, i) => '<i class="zony__' + i + '" style="width:' + (m / soucet * 100).toFixed(1) + '%"></i>').join('') + '</span></span>' +
+      '<span class="zony" role="img" aria-label="' + esc(zonyPopis) + '">' + zony.map((m, i) => (m ? '<i class="zony__' + i + '" style="width:' + (m / soucet * 100).toFixed(1) + '%"' +
+        bublina('Zóna ' + i + ' · ' + ZONY[i], m + ' min', Math.round(m / soucet * 100) + ' % tréninku') + '></i>' : '')).join('') + '</span></span>' +
       '<em class="trenink__zatez cisla">' + cisloCz(t.zatez, 1) + '<small>zátěž</small></em></li>';
   }).join('') + '</ul>';
 }
@@ -245,6 +257,30 @@ function appleHtml(seznam) {
     (vo2 ? radek('VO₂ max', cisloCz(vo2.apple.vo2max, 1), '', null) : '') +
     (a.klidovyTep != null ? radek('Klidový tep', cisloCz(a.klidovyTep), 'bpm', null) : '') +
     '</ul>';
+}
+
+/**
+ * Týdenní shrnutí od Clauda (motor: zdravi.tydenni – do týdne po neděli). Stejný text jako v nedělním e-mailu
+ * (Michal 9. 10.: „nedělní shrnutí … napsat mailem tu moji aktivitu“).
+ */
+function tydenniHtml(t) {
+  if (!t || !t.text || !/^\d{4}-\d{2}-\d{2}$/.test(String(t.od || '')) || !/^\d{4}-\d{2}-\d{2}$/.test(String(t.do || ''))) return '';
+  const od = new Date(t.od + 'T12:00'), konec = new Date(t.do + 'T12:00');
+  const rozsah = (od.getMonth() === konec.getMonth() ? od.getDate() + '.' : dm(od.getTime())) + '–' + dm(konec.getTime());
+  return '<section class="card dlazdice zd-tyden" id="zd-tyden">' + hlavickaKarty(IKONY.claude, 'Týden ' + esc(rozsah) + ' · Claude',
+      t.odeslano ? '<span class="muted small">odešlo i e-mailem</span>' : '') +
+    '<div class="dlazdice__telo"><div class="tyden-claude">' + textTydne(t.text) + '</div></div></section>';
+}
+
+/** Claudův text: odstavce (prázdný řádek), odrážky „- “, **tučně** – jinak čistý text. */
+function textTydne(text) {
+  const tucne = (x) => x.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  return String(text).split(/\n\s*\n/).map((odst) => {
+    const radky = odst.split('\n').map((x) => x.trim()).filter(Boolean);
+    if (!radky.length) return '';
+    if (radky.every((x) => /^[-•]\s+/.test(x))) return '<ul>' + radky.map((x) => '<li>' + tucne(esc(x.replace(/^[-•]\s+/, ''))) + '</li>').join('') + '</ul>';
+    return '<p>' + radky.map((x) => tucne(esc(x))).join('<br>') + '</p>';
+  }).join('');
 }
 
 export function vykresliZdravi(el) {
@@ -285,9 +321,12 @@ export function vykresliZdravi(el) {
     '</div>';
   const doplnky = kartaDoplnkuHtml();
   const piti = kartaPitiHtml();
+  // karty ve sloupcích podle své výšky (app.css: columns) – pořadí shora dolů a zleva doprava: denní zápisy, týden od Clauda,
+  // pak čísla z hodinek; žádná karta se nenatahuje na výšku sousední (Michal 9. 10.: „stále v jedné stejné výšce“)
   h += '<div class="zdravi-mrizka-karet">' + (doplnky ? '<section class="card dlazdice zd-doplnky">' + doplnky + '</section>' : '') +
     (piti ? '<section class="card dlazdice zd-piti">' + piti + '</section>' : '') +
     (umiMotor('vaha') ? '<section class="card dlazdice zd-vaha" id="zd-vaha">' + kartaVahyHtml() + '</section>' : '') +
+    tydenniHtml(z.tydenni) +
     '<section class="card dlazdice zd-graf">' + hlavickaKarty(IKONY.srdce, 'Posledních 14 dní') +
       '<div class="dlazdice__telo"><p class="zdravi-legenda"><i class="graf14__sl--zelena"></i>připravenost <i class="graf14__tecka"></i>zátěž (0–21)</p>' + graf14(plny) + '</div></section>' +
     '<section class="card dlazdice zd-spanek" id="zd-spanek">' + hlavickaKarty(IKONY.spanek, 'Spánek' + (d ? ' · ' + esc(denPopis(d.den)) : '')) +
@@ -385,9 +424,13 @@ function cilVahyHtml() {
     '</div>';
 }
 
-/** Čára z posledních 30 zápisů (osa x podle času, takže mezery mezi vážením jsou vidět); s cílem i čárkovaný plán. */
+/**
+ * Čára z posledních 30 zápisů (osa x podle času, takže mezery mezi vážením jsou vidět); s cílem i čárkovaný plán.
+ * U bodu bublina: kdy, kg, rozdíl proti minulému vážení ve stejnou denní dobu a plán k cíli (js/grafy.js).
+ */
 function grafVahy(z) {
   const body = z.slice(-30);
+  const posun = z.length - body.length;
   const W = 520, H = 110, P = 16;
   const t0 = body[0].kdy, t1 = body[body.length - 1].kdy;
   const c = cilVahy();
@@ -400,14 +443,26 @@ function grafVahy(z) {
   const rano = body.filter((b) => dobaVazeni(b.kdy) === 'rano');
   const naCare = rano.length >= 2 ? rano : body;
   const cara = naCare.map((b, i) => (i ? 'L ' : 'M ') + x(b.kdy).toFixed(1) + ' ' + y(b.kg).toFixed(1)).join(' ');
-  return '<svg class="graf-vahy" viewBox="0 0 ' + W + ' ' + (H + 18) + '" role="img" aria-label="Váha – posledních ' + body.length + ' zápisů">' +
+  const xs = body.map((b) => x(b.kdy));
+  return '<svg class="graf-vahy" viewBox="0 0 ' + W + ' ' + (H + 18) + '"' + grafAtr('Váha – posledních ' + body.length + ' zápisů') + '>' +
     [hi, lo].map((v) => '<line class="graf-vahy__mez" x1="' + P + '" x2="' + (W - P) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '"/>' +
       '<text class="graf-vahy__popis" x="' + (W - P) + '" y="' + (y(v) - 4).toFixed(1) + '" text-anchor="end">' + kgCz(v) + '</text>').join('') +
     (plan ? '<line class="graf-vahy__plan" x1="' + x(Math.max(t0, c.od.t)).toFixed(1) + '" x2="' + x(t1).toFixed(1) + '" y1="' + y(plan[0]).toFixed(1) +
-      '" y2="' + y(plan[1]).toFixed(1) + '"><title>Plán k cíli ' + kgCz(c.kg) + ' kg</title></line>' : '') +
+      '" y2="' + y(plan[1]).toFixed(1) + '"/>' : '') +
     '<path class="graf-vahy__cara" d="' + cara + '"/>' +
-    body.map((b) => '<circle class="graf-vahy__bod' + (dobaVazeni(b.kdy) === 'rano' ? ' graf-vahy__bod--rano' : '') + '" cx="' + x(b.kdy).toFixed(1) + '" cy="' + y(b.kg).toFixed(1) +
-      '" r="3.6"><title>' + esc(kdyZapsano(b.kdy) + ' (' + NAZEV_DOBY[dobaVazeni(b.kdy)] + '): ' + kgCz(b.kg) + ' kg') + '</title></circle>').join('') +
+    body.map((b, i) => {
+      // plocha bodu = pás od půlky k předchozímu po půlku k dalšímu (myš i prst trefí bod kdekoli nad ním)
+      const l = i ? (xs[i - 1] + xs[i]) / 2 : 0, r = i < body.length - 1 ? (xs[i] + xs[i + 1]) / 2 : W;
+      const pred = minuleStejne(z, posun + i);
+      const rozdil = pred ? Math.round((b.kg - pred.kg) * 10) / 10 : null;
+      const pod = [rozdil != null ? (rozdil > 0 ? '+' : rozdil < 0 ? '−' : '±') + kgCz(Math.abs(rozdil)) + ' kg proti ' + kdyZapsano(pred.kdy) : '',
+        c && b.kdy > c.od.t ? 'plán ' + kgCz(planVahy(c, b.kdy)) + ' kg' : ''].filter(Boolean).join(' · ');
+      return '<g class="graf-bod"' + bublina(kdyZapsano(b.kdy) + ' · ' + NAZEV_DOBY[dobaVazeni(b.kdy)], kgCz(b.kg) + ' kg', pod) + '>' +
+        '<rect class="graf-zasah" x="' + l.toFixed(1) + '" y="0" width="' + Math.max(0, r - l).toFixed(1) + '" height="' + (H + 18) + '"/>' +
+        '<line class="graf-voditko" x1="' + xs[i].toFixed(1) + '" x2="' + xs[i].toFixed(1) + '" y1="' + P + '" y2="' + (H - 4) + '"/>' +
+        '<circle class="graf-vahy__bod' + (dobaVazeni(b.kdy) === 'rano' ? ' graf-vahy__bod--rano' : '') + '" cx="' + xs[i].toFixed(1) + '" cy="' + y(b.kg).toFixed(1) +
+        '" r="3.6" data-kotva/></g>';
+    }).join('') +
     '<text class="graf-vahy__popis" x="' + P + '" y="' + (H + 14) + '">' + esc(dm(t0)) + '</text>' +
     '<text class="graf-vahy__popis" x="' + (W - P) + '" y="' + (H + 14) + '" text-anchor="end">' + esc(dm(t1)) + '</text></svg>';
 }
@@ -606,7 +661,19 @@ function vzatoVDen(den) {
   return vzato;
 }
 
-/** Týden (Po–Ne) se dnem denMs: kolik z platných položek bylo vzato – po dnech, celkem a u každé položky (budoucí dny se nepočítají). */
+/**
+ * Hlavní doplňky (Michal 9. 10.: podstatné jsou jen některé, „dále se to nemusí započítávat“):
+ * ZDRAVI_REZIM.json → hlavni = [id…]. Do plnění (zbývá, x z y, procenta týdne) se počítají jen ty; ostatní se ukazují
+ * šedě pod nimi. Bez seznamu (starší režim) se počítá všechno. Doplněk „jen k zápasu“ je hlavní jen v den zápasu.
+ */
+function jeHlavni(rezim, p) {
+  return !Array.isArray(rezim.hlavni) || !rezim.hlavni.length || rezim.hlavni.indexOf(p.id) >= 0;
+}
+
+/**
+ * Týden (Po–Ne) se dnem denMs: kolik z platných hlavních položek bylo vzato – po dnech a celkem; u každé položky
+ * (i vedlejší) kolik dní z platných (budoucí dny se nepočítají).
+ */
 function tydenDoplnku(rezim, denMs) {
   const dnes = pulnoc(Date.now());
   const vybrany = pulnoc(denMs);
@@ -619,16 +686,20 @@ function tydenDoplnku(rezim, denMs) {
     if (d > dnes) { dny.push({ d, budouci: true }); continue; }
     const x = vzatoVDen(isoDatum(d));
     const plati = rezim.polozky.filter(denRezimu(rezim, d).plati);
-    const n = plati.filter((p) => x[p.id]).length;
+    const hlavni = plati.filter((p) => jeHlavni(rezim, p));
+    const n = hlavni.filter((p) => x[p.id]).length;
     plati.forEach((p) => { const s = (polozky[p.id] = polozky[p.id] || { vzato: 0, dni: 0 }); s.dni++; if (x[p.id]) s.vzato++; });
-    dny.push({ d, vzato: n, celkem: plati.length, dnes: d === dnes, vybrany: d === vybrany });
+    dny.push({ d, vzato: n, celkem: hlavni.length, dnes: d === dnes, vybrany: d === vybrany });
     vzato += n;
-    celkem += plati.length;
+    celkem += hlavni.length;
   }
   return { dny, vzato, celkem, polozky, pondeli, tentoTyden: pondeli === zacatekTydne(dnes) };
 }
 
-/** Co brát v den (půlnoc v ms; bez něj dnes): položky režimu podle dne (trénink, zápas), odškrtnutí a týden. */
+/**
+ * Co brát v den (půlnoc v ms; bez něj dnes): položky režimu podle dne (trénink, zápas), odškrtnutí a týden.
+ * polozky[].hlavni = počítá se do plnění; plneni = { vzato, celkem } jen z hlavních, které ten den platí (kroužky, karta).
+ */
 export function doplnkyDnes(denMs) {
   const rezim = stav.zdravi && stav.zdravi.rezim;
   if (!rezim || !Array.isArray(rezim.polozky) || !rezim.polozky.length) return null;
@@ -636,16 +707,24 @@ export function doplnkyDnes(denMs) {
   const den = denRezimu(rezim, d);
   const vzato = vzatoVDen(isoDatum(d));
   // i doplněk, který ten den podle režimu neplatí, ale byl vzat (elektrolyty mimo zápas – napsané do jídla) → „navíc“
-  const polozky = rezim.polozky.filter((p) => den.plati(p) || vzato[p.id]).map((p) => Object.assign({ vzato: !!vzato[p.id], navic: !den.plati(p) }, p))
+  const polozky = rezim.polozky.filter((p) => den.plati(p) || vzato[p.id])
+    .map((p) => Object.assign({ vzato: !!vzato[p.id], navic: !den.plati(p), hlavni: jeHlavni(rezim, p) }, p))
     .sort((a, b) => KDY.findIndex((k) => k[0] === a.kdy) - KDY.findIndex((k) => k[0] === b.kdy));
+  const pocitane = polozky.filter((p) => p.hlavni && !p.navic);
   return { d, dnes: d === pulnoc(Date.now()), polozky, vykop: den.vykop, trenink: den.trenink, kofeinDo: rezim.kofeinDo || '', chyba: rezim.chyba || '',
-    tyden: tydenDoplnku(rezim, d) };
+    plneni: { vzato: pocitane.filter((p) => p.vzato).length, celkem: pocitane.length }, tyden: tydenDoplnku(rezim, d) };
+}
+
+/** Plnění hlavních doplňků dnes { vzato, celkem } (null bez režimu) – pro kroužky na Dnes. */
+export function plneniDoplnku() {
+  const d = doplnkyDnes();
+  return d ? d.plneni : null;
 }
 
 export function kartaDoplnkuHtml() {
   const d = doplnkyDnes(denKartyDoplnku());
   if (!d) return '';
-  const zbyva = d.polozky.filter((p) => !p.vzato).length;
+  const zbyva = d.plneni.celkem - d.plneni.vzato;
   const nazevKdy = (k) => (KDY.find((x) => x[0] === k) || [k, k])[1];
   const den = d.vykop ? 'den zápasu · výkop ' + hhmm(d.vykop) : d.trenink ? 'tréninkový den' : '';
   const kofein = d.dnes && !d.vykop && d.kofeinDo && new Date().getHours() < 18 ? 'Kofein naposledy ve ' + d.kofeinDo + '.' : '';
@@ -655,27 +734,36 @@ export function kartaDoplnkuHtml() {
   const predchozi = pridejDny(d.d, -7), dalsi = Math.min(pridejDny(d.d, 7), pulnoc(Date.now()));
   const sipka = (cil, smi, ikona, popis) => '<button type="button" class="doplnky-tyden__sipka" data-doplnky-ukaz="' + isoDatum(cil) + '" aria-label="' + popis + '"' +
     (smi ? '' : ' disabled') + '>' + ikona + '</button>';
-  const tyden = t.celkem ? '<div class="doplnky-tyden" title="Kolik doplňků jsi ten týden vzal (z těch, které ten den platily) – klepnutím na den ho opravíš"><span>' +
+  const sHlavnimi = Array.isArray(((stav.zdravi && stav.zdravi.rezim) || {}).hlavni);
+  // pásek týdne: plný / částečný den podle hlavních doplňků; bublina s „x z y“, klepnutím se den otevře (oprava zpětně)
+  const tyden = t.celkem ? '<div class="doplnky-tyden"><span>' +
     (t.tentoTyden ? 'Tento týden' : dm(t.pondeli) + '–' + dm(pridejDny(t.pondeli, 6))) + '</span>' +
     sipka(predchozi, predchozi >= nejdal, IKONY.vlevo, 'Předchozí týden') + sipka(dalsi, !t.tentoTyden, IKONY.vpravo, 'Další týden') +
     '<b class="cisla">' + Math.round(t.vzato / t.celkem * 100) + ' %</b><ol>' +
     t.dny.map((x, i) => {
-      const popis = DNY_TYDNE[i] + ' ' + dm(x.d) + (x.budouci ? '' : ': ' + x.vzato + ' z ' + x.celkem);
       const trida = (x.budouci ? 'budouci' : !x.celkem ? 'volno' : x.vzato >= x.celkem ? 'plny' : x.vzato ? 'cast' : 'nic') + (x.dnes ? ' dnes' : '') + (x.vybrany ? ' vybrany' : '');
-      return '<li class="' + trida + '" title="' + popis + '">' + (x.budouci || !x.celkem || x.d < nejdal ? '<span>' + DNY_TYDNE[i] + '</span>' :
-        '<button type="button" data-doplnky-ukaz="' + isoDatum(x.d) + '" aria-label="' + popis + '"' + (x.vybrany ? ' aria-current="date"' : '') + '>' + DNY_TYDNE[i] + '</button>') + '</li>';
+      const klik = !(x.budouci || !x.celkem || x.d < nejdal);
+      const atr = bublina((x.dnes ? 'dnes · ' : '') + DNY_TYDNE[i] + ' ' + dm(x.d), x.budouci ? 'ještě nebyl' : !x.celkem ? 'nic k braní' :
+        x.vzato + ' z ' + x.celkem + (sHlavnimi ? ' hlavních' : ''), klik && !x.vybrany ? 'klepnutím den otevřeš a opravíš' : '');
+      return '<li class="' + trida + '">' + (klik ? '<button type="button" data-doplnky-ukaz="' + isoDatum(x.d) + '"' + atr + (x.vybrany ? ' aria-current="date"' : '') + '>' +
+        DNY_TYDNE[i] + '</button>' : '<span' + atr + '>' + DNY_TYDNE[i] + '</span>') + '</li>';
     }).join('') + '</ol></div>' : '';
   const nadpis = d.dnes ? 'Doplňky dnes' : 'Doplňky · ' + DNY_KR[new Date(d.d).getDay()] + ' ' + dm(d.d);
-  const stavDne = !zbyva ? 'vše ✓' : d.dnes ? 'zbývá ' + zbyva : 'vzato ' + (d.polozky.length - zbyva) + ' z ' + d.polozky.length;
+  const stavDne = !d.plneni.celkem ? '' : !zbyva ? 'vše ✓' : d.dnes ? 'zbývá ' + zbyva : 'vzato ' + d.plneni.vzato + ' z ' + d.plneni.celkem;
+  const radek = (p) => {
+    const s = t.polozky[p.id];
+    return '<li><button type="button" class="doplnek' + (p.hlavni ? '' : ' doplnek--vedlejsi') + '" data-doplnek="' + esc(p.id) + '" data-doplnek-den="' + isoDatum(d.d) +
+      '" aria-pressed="' + p.vzato + '">' +
+      '<i class="zaskrt" aria-hidden="true">' + IKONY.fajfka + '</i><span><b>' + esc(p.nazev) + '</b><small>' + (p.navic ? 'navíc · ' : '') + esc(nazevKdy(p.kdy)) + (p.davka ? ' · ' + esc(p.davka) : '') + '</small></span>' +
+      (s && s.dni > 1 ? '<em class="doplnek__tyden cisla" title="za týden">' + s.vzato + '/' + s.dni + '</em>' : '') + '</button></li>';
+  };
+  // hlavní nahoře, ostatní šedě pod čarou – ukazují se a jdou odškrtnout, ale do plnění se nepočítají
+  const vedlejsi = d.polozky.filter((p) => !p.hlavni);
   return hlavickaKarty(IKONY.doplnky, nadpis, '<span class="muted small">' + stavDne + '</span>' +
       (d.dnes ? '' : '<button type="button" class="odkaz small" data-doplnky-ukaz="dnes">Dnes</button>')) +
     (d.chyba ? '<p class="pruh pruh-varovani">' + esc(d.chyba) + '</p>' : '') +
-    '<ul class="doplnky">' + d.polozky.map((p) => {
-      const s = t.polozky[p.id];
-      return '<li><button type="button" class="doplnek" data-doplnek="' + esc(p.id) + '" data-doplnek-den="' + isoDatum(d.d) + '" aria-pressed="' + p.vzato + '">' +
-        '<i class="zaskrt" aria-hidden="true">' + IKONY.fajfka + '</i><span><b>' + esc(p.nazev) + '</b><small>' + (p.navic ? 'navíc · ' : '') + esc(nazevKdy(p.kdy)) + (p.davka ? ' · ' + esc(p.davka) : '') + '</small></span>' +
-        (s && s.dni > 1 ? '<em class="doplnek__tyden cisla" title="za týden">' + s.vzato + '/' + s.dni + '</em>' : '') + '</button></li>';
-    }).join('') + '</ul>' + tyden +
+    '<ul class="doplnky">' + d.polozky.filter((p) => p.hlavni).map(radek).join('') +
+      (vedlejsi.length ? '<li class="doplnky__oddel">Ostatní · nepočítají se</li>' + vedlejsi.map(radek).join('') : '') + '</ul>' + tyden +
     (den || kofein ? '<p class="doplnky-pozn">' + [den ? velkym(den) : '', kofein].filter(Boolean).join(' · ') + '</p>' : '');
 }
 
@@ -759,8 +847,11 @@ export function kartaPitiHtml() {
       IKONY.zavrit + '</button>' : '<span class="piti__misto"></span>') + '</li>').join('') + '</ul>';
   }
   h += hodnoceniHtml(dnes);
-  h += '<ol class="piti__tyden" aria-label="Pití tento týden">' + tyden.map((t, i) => '<li class="' + (t.d > dnes ? 'budouci' : t.d === dnes ? 'dnes' : '') + '" title="' +
-    DNY_TYDNE[i] + ': ' + litry(t.ml) + '"><span><i style="height:' + pct(t.ml, cilPiti) + '%"></i></span><small>' + DNY_TYDNE[i] + '</small></li>').join('') + '</ol>' +
+  // týden pití: sloupek = podíl cíle; bublina (najetí, klepnutí, šipky) s litry a procentem cíle
+  h += '<ol class="piti__tyden"' + grafAtr('Pití tento týden') + ' data-graf-i="' + tyden.findIndex((t) => t.d === dnes) + '">' +
+    tyden.map((t, i) => '<li class="' + (t.d > dnes ? 'budouci' : t.d === dnes ? 'dnes' : '') + '"' +
+    bublina((t.d === dnes ? 'dnes · ' : '') + DNY_TYDNE[i] + ' ' + dm(t.d), t.d > dnes ? 'ještě nebyl' : litry(t.ml), t.d > dnes ? '' : 'z ' + litry(cilPiti) + ' · ' +
+      Math.round(t.ml / cilPiti * 100) + ' % cíle') + '><span><i style="height:' + pct(t.ml, cilPiti) + '%"></i></span><small>' + DNY_TYDNE[i] + '</small></li>').join('') + '</ol>' +
     '<p class="napoveda">Jídlo stačí napsat („3 vejce a chleba“) – bílkoviny odhadnu hned, Claude je upřesní a večer zhodnotí den. Jde to i diktátem pro Clauda.</p></div>';
   return h;
 }
