@@ -98,6 +98,7 @@ function reelHtml(r) {
         '<div class="reel__popisek">' + esc(popisekReelu(r)) + '</div>'
         : '<p class="reel__bez">Popisek zatím není – připíše ho Claude při výrobě reelu.</p>') +
       (plan(r) && plan(r).stav === 'chyba' ? '<p class="reel__chyba">Na Instagram se nepodařilo: ' + esc(plan(r).chyba || '') + '</p>' : '') +
+      (plan(r) && plan(r).stav === 'hotovo' && plan(r).pribehChyba ? '<p class="reel__chyba">Reel vyšel, příběh ne: ' + esc(plan(r).pribehChyba) + '</p>' : '') +
       '<div class="reel__akce">' + planAkceHtml(r) + kopirovatHtml(r) +
         (r.odkaz ? '<a class="btn btn--ghost" href="' + esc(r.odkaz) + '" target="_blank" rel="noopener noreferrer">' + IKONY.prehrat + '<span>Video</span></a>' : '') +
         '<button type="button" class="btn btn--ghost reel__prepinac" data-reel-zverejneno="' + esc(r.id) + '" aria-pressed="' + z + '" title="' +
@@ -110,7 +111,7 @@ function reelHtml(r) {
 function stitekPlanu(r) {
   const p = plan(r);
   if (p && p.stav === 'ceka') {
-    return '<span class="tag tag--plan">' + IKONY.kalendar + 'vyjde ' + esc(kdyPlan(p.kdy)) + '</span>' +
+    return '<span class="tag tag--plan">' + IKONY.kalendar + 'vyjde ' + esc(kdyPlan(p.kdy)) + (p.pribeh ? ' + příběh' : '') + '</span>' +
       (p.oznacit && p.oznacit.length ? '<span class="tag tag--seda">označí ' + esc(p.oznacit.map((u) => '@' + u).join(', ')) + '</span>' : '');
   }
   if (p && (p.stav === 'nahrava' || p.stav === 'zverejnuji')) return '<span class="tag tag--plan">' + IKONY.obnovit + 'nahrává se na Instagram</span>';
@@ -158,7 +159,9 @@ function oznaceniTymu(r) {
 function otevriPlan(r) {
   const p = plan(r);
   rp = { id: r.id, kdy: vychoziCas(r), oznacit: p && p.stav === 'ceka' && p.oznacit ? p.oznacit.map((u) => '@' + u).join(', ') : oznaceniTymu(r),
-    popisek: popisekReelu(r), ukladam: false };
+    popisek: popisekReelu(r), ukladam: false,
+    // Michal 9. 10.: „u reelů to přidání rovnou do příběhu“ – výchozí zapnuto, pamatuje se poslední volba
+    pribeh: p && p.stav === 'ceka' ? !!p.pribeh : uloziste.cti('asistent.ig.pribeh') !== false };
   const moje = rp;
   otevriPanel({
     id: 'reel-plan', trida: 'panel-okno panel-formular', titul: 'Naplánovat na Instagram', vykresli: planHtml,
@@ -181,6 +184,8 @@ function planHtml() {
     '<label><span class="label">Kdy</span><input class="field" type="datetime-local" data-rp="kdy" value="' + esc(rp.kdy) + '"></label>' +
     '<label><span class="label">Označit účty</span><input class="field" data-rp="oznacit" value="' + esc(rp.oznacit) + '" placeholder="např. @dorost_agro" ' +
       'autocomplete="off" autocapitalize="off" spellcheck="false"></label>' +
+    '<label class="prepinac-radek"><span><b>I do příběhu</b><small>stejné video rovnou i do příběhu (story)</small></span>' +
+      '<span class="prepinac"><input type="checkbox" data-rp-pribeh' + (rp.pribeh ? ' checked' : '') + '><span></span></span></label>' +
     '<label><span class="label">Popisek na Instagram</span><textarea class="odpoved reel-plan__popisek" data-rp="popisek" rows="12">' + esc(text) + '</textarea></label>' +
     '<p class="napoveda">Úprava popisku platí jen pro tenhle příspěvek – soubor s popiskem na PC zůstává, jak je.</p>' +
     '<p class="pruh pruh-varovani" data-rp-chyba hidden></p></div>';
@@ -193,16 +198,18 @@ async function ulozPlan() {
   if (!String(rp.popisek || '').trim()) { ukaz('Popisek je prázdný.'); return; }
   const kdy = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])).getTime();
   const r = najdi(rp.id);
+  const pribeh = !!rp.pribeh;
   rp.ukladam = true;
   obnovPanel('reel-plan');
   try {
-    const v = await volej('reelNaplanovat', { id: rp.id, kdy, oznacit: rp.oznacit, popisek: rp.popisek });
+    const v = await volej('reelNaplanovat', { id: rp.id, kdy, oznacit: rp.oznacit, popisek: rp.popisek, pribeh });
+    uloziste.pis('asistent.ig.pribeh', pribeh);
     stav.reely.plan = v.plan || {};
     stav.reely.popiskyPlanu = v.popisky || {};
     uloziste.pis(ULOZISTE, { data: stav.reely, kdy: Date.now() });
     if (r && r.tymy[0]) { const ul = uloziste.cti('asistent.ig.oznacit') || {}; ul[r.tymy[0]] = rp.oznacit; uloziste.pis('asistent.ig.oznacit', ul); }
     zavriPanel();
-    toast('Naplánováno – vyjde ' + kdyPlan(kdy));
+    toast('Naplánováno – vyjde ' + kdyPlan(kdy) + (pribeh ? ' i v příběhu' : ''));
     zmeneno();
   } catch (e) {
     if (!rp) return;
@@ -215,7 +222,9 @@ async function ulozPlan() {
 /** Psaní do okna plánu (pole se nepřekreslují, jen se pamatuje hodnota). */
 export function vstupReely(e) {
   const t = e.target;
-  if (!rp || !t.matches || !t.matches('[data-rp]')) return false;
+  if (!rp || !t.matches) return false;
+  if (t.matches('[data-rp-pribeh]')) { rp.pribeh = t.checked; return true; }
+  if (!t.matches('[data-rp]')) return false;
   rp[t.dataset.rp] = t.value;
   return true;
 }

@@ -3,18 +3,25 @@
 // se sama znovu načte (js/start.js, controllerchange) → živá verze pár vteřin po otevření (Michal chce vždy live).
 // Dřív šel každý soubor zvlášť ze sítě s limitem 3 s → při pomalé síti se míchaly soubory dvou verzí a aplikace
 // (ES moduly) vůbec nenastartovala (5. 10.: „aplikace v mobilu se mi nezapíná“).
-// Data z motoru (script.google.com) a z Firebase (googleapis.com, knihovny z gstatic.com) jdou mimo – nikdy se neukládají.
+// Data z motoru (script.google.com) a z Firebase (googleapis.com) jdou mimo – nikdy se neukládají. Knihovny Firebase
+// (gstatic.com, adresa s pevnou verzí) se uloží při prvním použití do vlastní mezipaměti a pak jdou ze zařízení – start
+// v telefonu na ně nečeká na síť (Michal 9. 10.: „načtení stránky na sekundu“).
 //
 // VERZE = otisk obsahu souborů aplikace: po každé změně `node testy/sw_verze.js --zapsat` (testy jinak selžou).
 
-const VERZE = 'asistent-500faccf0874';
+const VERZE = 'asistent-5ce390b86971';
 const SOUBORY = [
   './', 'index.html', 'app.css', 'manifest.webmanifest',
   'js/start.js', 'js/app.js', 'js/api.js', 'js/pomocne.js', 'js/stav.js', 'js/ui.js', 'js/ikony.js', 'js/panely.js',
   'js/schranka.js', 'js/posta.js', 'js/kalendar.js', 'js/nastaveni.js', 'js/ukazka.js', 'js/grafy.js', 'js/hledat.js', 'js/udalost.js',
   'js/pocasi.js', 'js/zdravi.js', 'js/adresy.js', 'js/fotbal.js', 'js/rozbor.js', 'js/dochazka.js', 'js/reely.js', 'js/ucet.js', 'js/auto.js',
+  'js/jidlo_odhad.js', 'js/jmeniny.js',
   'ikony/ikona-192.png', 'ikony/apple-touch-icon.png'
 ];
+
+// knihovny Firebase: verze je v adrese (js/ucet.js SDK) – nová verze = nová mezipaměť, stará se smaže
+const FIREBASE = 'https://www.gstatic.com/firebasejs/12.19.0/';
+const FIREBASE_CACHE = 'firebase-12.19.0';
 
 self.addEventListener('install', (e) => {
   // cache: 'reload' – mimo mezipaměť prohlížeče, ať se nová verze neposkládá ze starých kusů
@@ -26,16 +33,28 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((klice) => Promise.all(klice.filter((k) => k !== VERZE).map((k) => caches.delete(k))))
+      .then((klice) => Promise.all(klice.filter((k) => k !== VERZE && k !== FIREBASE_CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
+  if (e.request.method !== 'GET') return;
+  if (e.request.url.indexOf(FIREBASE) === 0) { e.respondWith(knihovnaFirebase(e.request)); return; }
+  if (url.origin !== self.location.origin) return;
   e.respondWith(zUlozeneVerze(e.request));
 });
+
+/** Knihovna Firebase: ze zařízení, jinak ze sítě a uložit (jen úspěšnou odpověď). */
+async function knihovnaFirebase(pozadavek) {
+  const cache = await caches.open(FIREBASE_CACHE);
+  const ulozena = await cache.match(pozadavek.url);
+  if (ulozena) return ulozena;
+  const odpoved = await fetch(pozadavek);
+  if (odpoved.ok) cache.put(pozadavek.url, odpoved.clone()).catch(() => { /* příště */ });
+  return odpoved;
+}
 
 async function zUlozeneVerze(pozadavek) {
   const cache = await caches.open(VERZE);

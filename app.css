@@ -476,6 +476,16 @@ button.legenda-radek { width: 100%; background: none; border: 0; text-align: lef
 .graf-vahy__mez { stroke: var(--line); stroke-dasharray: 3 4; }
 .graf-vahy__cara { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
 .graf-vahy__bod { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
+.graf-vahy__bod--rano { fill: var(--accent); }
+.graf-vahy__plan { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 5; }
+/* cíl váhy (jen ve Zdraví – Michal 9. 10.: váha teď není hlavní) */
+.vaha-cil { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 14px; background: var(--bg-soft); }
+.vaha-cil__hlava { display: flex; justify-content: space-between; gap: 8px; font-size: 13.5px; }
+.vaha-cil__hlava span { color: var(--muted); }
+.vaha-cil__pruh { height: 8px; border-radius: 99px; background: var(--sand); overflow: hidden; }
+.vaha-cil__pruh i { display: block; height: 100%; border-radius: 99px; background: var(--o-zdravi, #2f9e5a); }
+.vaha-cil__text, .vaha-cil__tempo { margin: 0; font-size: 13px; color: var(--text-soft); }
+.vaha-ted small { color: var(--muted); }
 .graf-vahy__popis { font-size: 10.5px; fill: var(--muted); font-weight: 600; }
 .vaha-seznam { list-style: none; margin: 0 0 8px; padding: 0; }
 .vaha-seznam li { display: flex; align-items: center; gap: 10px; padding: 6px 10px 6px 16px; font-size: 13px; }
@@ -735,7 +745,32 @@ a.reel__nahled:hover .reel__play { background: var(--limetka); }
 .piti__tyden li.dnes small { color: var(--accent); }
 .piti__tyden li.budouci { opacity: .45; }
 .jidlo-form { display: flex; flex-direction: column; gap: 12px; }
-.jidlo-cisla { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.jidlo-form textarea { resize: vertical; min-height: 64px; font-size: 16px; }
+.jidlo-cisla { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-top: 8px; }
+/* okamžitý odhad bílkovin pod polem (js/jidlo_odhad.js) */
+.jidlo-odhad { padding: 10px 12px; border-radius: 14px; background: var(--bg-soft); font-size: 13.5px; }
+.jidlo-odhad p { margin: 0; }
+.jidlo-odhad__prazdne { color: var(--muted); }
+.jidlo-odhad__soucet b { font-size: 17px; }
+.jidlo-odhad__soucet small { color: var(--muted); }
+.jidlo-odhad__polozky { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; }
+.jidlo-odhad__polozky li { display: flex; justify-content: space-between; gap: 8px; }
+.jidlo-odhad__polozky small { color: var(--muted); }
+.jidlo-odhad__doplnky { display: flex; align-items: center; gap: 6px; margin-top: 6px !important; color: var(--ok, #2f9e5a); }
+.jidlo-odhad__doplnky svg { width: 16px; height: 16px; flex: none; }
+.jidlo-presne summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+/* hodnocení dne od Clauda v kartě Pití a jídlo */
+.piti__hodnoceni { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 14px; background: var(--bg-soft); font-size: 13px; }
+.piti__hodnoceni p { margin: 0; }
+.piti__hodnoceni b { display: block; font-size: 12px; color: var(--muted); font-weight: 650; margin-bottom: 2px; }
+.znamka { flex: none; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-weight: 750; font-size: 15px; background: var(--sand); color: var(--text); }
+.znamka--A { background: #2f9e5a; color: #fff; }
+.znamka--B { background: #8cc63f; color: #1d2b0e; }
+.znamka--C { background: #f6d24a; color: #3a2c00; }
+.znamka--D, .znamka--E, .znamka--F { background: #f39a2e; color: #fff; }
+/* okno Váha: kg, čas vážení a rychlé volby */
+.vaha-okno { display: flex; flex-direction: column; gap: 12px; }
+.chipy { display: flex; flex-wrap: wrap; gap: 6px; }
 /* týden po–ne: plný den limetkově, částečný napůl, budoucí prázdný; klepnutí na den ho otevře (oprava zpětně), šipky o týden */
 .doplnky-tyden { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0 16px 10px; padding: 8px 10px; border-radius: 12px; background: var(--bg-soft); font-size: 12px; color: var(--muted); }
 .doplnky-tyden > span { font-weight: 600; }

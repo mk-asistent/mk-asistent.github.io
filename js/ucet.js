@@ -24,11 +24,11 @@ const UCET = 'asistent.ucet';        // { email } – v tomhle zařízení je za
 const PLATNOST = 'asistent.kopie';   // { zmena: ms, primo: { id: ms } } – co v zařízení proběhlo po kopiích ze serveru
 const MAX_STARI = 30 * 60e3;         // starší kopie = server asi nejede → motor
 // fotbal, nastavení a reely server obnovuje jen jednou za hodinu / půl hodiny (mění se málo) – kopie platí déle
-const MAX_STARI_ID = { info: 3 * 3600e3, fotbal: 3 * 3600e3, reely: 90 * 60e3 };
+const MAX_STARI_ID = { info: 3 * 3600e3, fotbal: 3 * 3600e3, reely: 90 * 60e3, plakaty: 90 * 60e3 };
 const REZERVA = 3e3;                 // hodiny zařízení a serveru se můžou o vteřinu dvě lišit
 const OBNOVIT_PO = 4 * 60e3;         // starší kopie → při otevření požádat server o čerstvé
 const CEKAT_NA_KOPIE = 4000;         // déle se při startu na Firebase nečeká (pak motor jako dřív)
-const OBNOVA_PO_ZMENE = 5e3;         // po změně z aplikace server obnoví změněné kopie (víc klepnutí za sebou = jedna obnova)
+const OBNOVA_PO_ZMENE = 2e3;         // po změně z aplikace server obnoví změněné kopie (víc klepnutí za sebou = jedna obnova)
 
 // Které kopie zápis mění (ostatní zápisy: všechny – bezpečná výchozí volba). Zdraví a auto server nekopíruje – zápis
 // kopie neovlivní a ostatním zařízením to hned řekne signál.
@@ -39,6 +39,8 @@ const KOPIE_ZAPISU = {
   udalostUlozit: ['kalendar'], udalostSmazat: ['kalendar'], zapasyImport: ['kalendar'], fotbalKalendar: ['kalendar', 'info', 'fotbal'],
   kalendarPridat: ['kalendar', 'info'], kalendarUpravit: ['kalendar', 'info'], kalendarOdebrat: ['kalendar', 'info'], kalendarZalozit: ['kalendar', 'info'],
   jmeninyUlozit: ['info'], skupinyHostuUlozit: ['info'], pocasiDomov: ['info'], reelStav: ['reely'], reelNaplanovat: ['reely'], reelZrusitPlan: ['reely'],
+  plakatUlozit: ['plakaty'], plakatNastaveni: ['plakaty'], plakatPopisek: ['plakaty'], plakatPopisekUlozit: ['plakaty'], plakatObrazky: ['plakaty'],
+  plakatNaplanovat: ['plakaty'], plakatZrusitPlan: ['plakaty'],
   vaha: [], doplnky: [], pitiJidlo: [], whoopPropojit: [], whoopOdpojit: [], zdraviKlic: [], upozorneniZapnout: [], upozorneniVypnout: [], upozorneniTest: []
 };
 const SIGNAL_ZAPISU = { vaha: 'zdravi', doplnky: 'zdravi', pitiJidlo: 'zdravi', whoopPropojit: 'zdravi', whoopOdpojit: 'zdravi' };
@@ -51,12 +53,12 @@ const oblastKopie = (id) => (id.indexOf('kalendar_') === 0 ? 'kalendar' : id);
 
 // čtení, která můžou přijít z kopie (bez dalších parametrů); kalendář podle mřížky měsíce.
 // Zdraví a počasí server nechystá (zdravotní data jen na Disku, počasí podle polohy telefonu) – ty jdou vždy z motoru.
-const Z_KOPIE = ['info', 'schranka', 'posta', 'fotbal', 'reely', 'zmeny'];
+const Z_KOPIE = ['info', 'schranka', 'posta', 'fotbal', 'reely', 'zmeny', 'plakaty'];
 // akce, které jen čtou – všechno ostatní mění data (i otevření konverzace: označí ji jako přečtenou)
 export const CTENI = ['info', 'schranka', 'posta', 'kalendar', 'kalendare', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky',
-  'kontakty', 'hledat', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'zmeny']; // čtení bez kopie nic nezneplatní
+  'kontakty', 'hledat', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'zmeny', 'plakaty']; // čtení bez kopie nic nezneplatní
 
-const s = { fb: null, fbSlib: null, uzivatel: null, kopie: {}, server: null, pripraveno: null, odber: null, prvni: true,
+const s = { fb: null, fbSlib: null, fnSlib: null, uzivatel: null, kopie: {}, server: null, pripraveno: null, odber: null, prvni: true,
   obnovuje: null, naposledyObnova: 0, casovac: 0, chyba: null, naKopie: [], naStav: [], naSignal: [],
   signal: {}, moje: {}, cekaVse: false, cekaJen: [], dalsi: null };
 
@@ -81,17 +83,28 @@ function oznam(seznam, arg) { seznam.forEach((fn) => { try { fn(arg); } catch (e
 
 function nactiFirebase() {
   if (!s.fbSlib) {
-    s.fbSlib = Promise.all(['firebase-app.js', 'firebase-auth.js', 'firebase-firestore.js', 'firebase-functions.js'].map((f) => import(SDK + f)))
-      .then(([app, auth, fs, fn]) => {
+    // funkce (obnovHned) se stahují až při první obnově na serveru – start čeká jen na přihlášení a databázi
+    s.fbSlib = Promise.all(['firebase-app.js', 'firebase-auth.js', 'firebase-firestore.js'].map((f) => import(SDK + f)))
+      .then(([app, auth, fs]) => {
         const a = app.initializeApp(KONFIGURACE);
         // bez okna/přesměrování Googlu (v aplikaci z plochy iPhonu nejde) – jen e-mail a heslo, přihlášení drží IndexedDB
         const ov = auth.initializeAuth(a, { persistence: [auth.indexedDBLocalPersistence, auth.browserLocalPersistence] });
-        s.fb = { auth, fs, fn, ov, db: fs.getFirestore(a), funkce: fn.getFunctions(a, REGION) };
+        s.fb = { a, auth, fs, ov, db: fs.getFirestore(a) };
         return s.fb;
       })
       .catch((e) => { s.fbSlib = null; throw e; });
   }
   return s.fbSlib;
+}
+
+/** Firebase Functions (jen pro obnovHned) – až při prvním použití. */
+function nactiFunkce() {
+  if (!s.fnSlib) {
+    s.fnSlib = Promise.all([nactiFirebase(), import(SDK + 'firebase-functions.js')])
+      .then(([fb, fn]) => ({ fn, funkce: fn.getFunctions(fb.a, REGION) }))
+      .catch((e) => { s.fnSlib = null; throw e; });
+  }
+  return s.fnSlib;
 }
 
 /** Při startu: obnoví přihlášení a začne odebírat kopie. Slib se splní po prvních kopiích, nejpozději do 4 s. */
@@ -238,8 +251,8 @@ export function obnovNaServeru(vzdy, jen) {
   if (!vzdy && Date.now() - s.naposledyObnova < 60e3) return Promise.resolve();
   if (!jen) s.naposledyObnova = Date.now();
   const data = jen ? { vse: true, jen } : { vse: !!vzdy };
-  s.obnovuje = nactiFirebase()
-    .then((fb) => fb.fn.httpsCallable(fb.funkce, 'obnovHned', { timeout: 120000 })(data))
+  s.obnovuje = nactiFunkce()
+    .then((f) => f.fn.httpsCallable(f.funkce, 'obnovHned', { timeout: 120000 })(data))
     .then((r) => { s.chyba = null; return (r && r.data) || {}; })
     .catch((e) => { s.chyba = e; return null; })
     .finally(() => {

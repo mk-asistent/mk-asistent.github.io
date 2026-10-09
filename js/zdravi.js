@@ -9,6 +9,7 @@ import { IKONY } from './ikony.js';
 import { kostra, chybaHtml, hlavickaKarty, toast, okno, potvrd } from './ui.js';
 import { otevriPanel, zavriPanel, elementPanelu } from './panely.js';
 import { udalostiVRozsahu, jeZapas } from './kalendar.js';
+import { odhadniJidlo } from './jidlo_odhad.js';
 
 const ULOZISTE = 'asistent.data.zdravi';
 
@@ -327,41 +328,123 @@ function kdyZapsano(t) {
   return (r === 0 ? 'dnes' : r === -1 ? 'včera' : DNY_KR[new Date(t).getDay()] + ' ' + dm(t) + (new Date(t).getFullYear() !== new Date().getFullYear() ? ' ' + new Date(t).getFullYear() : '')) + ' ' + hhmm(t);
 }
 
-/** Čára z posledních 30 zápisů (osa x podle času, takže mezery mezi vážením jsou vidět). */
+// ---- cíl váhy (ZDRAVI_REZIM.json → cilVahy { kg, do, od: { kg, den } }; Michal 9. 10.: cíl a „sledovat svůj postup“)
+
+/** Cíl s časy v ms: { kg, t, od: { kg, t } }; null, když cíl v režimu není. Bez „od“ = první zápis váhy. */
+function cilVahy() {
+  const c = stav.zdravi && stav.zdravi.rezim && stav.zdravi.rezim.cilVahy;
+  if (!c || !(Number(c.kg) > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(String(c.do || ''))) return null;
+  const prvni = vahy()[0];
+  const od = c.od && Number(c.od.kg) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(String(c.od.den || '')) ? { kg: Number(c.od.kg), t: Date.parse(c.od.den + 'T07:00:00') }
+    : prvni ? { kg: prvni.kg, t: prvni.kdy } : null;
+  return od ? { kg: Number(c.kg), t: Date.parse(c.do + 'T07:00:00'), od } : null;
+}
+
+/** Plánovaná váha v čase t (přímka od startu k cíli). */
+function planVahy(c, t) {
+  if (t <= c.od.t) return c.od.kg;
+  if (t >= c.t) return c.kg;
+  return c.od.kg - (c.od.kg - c.kg) * (t - c.od.t) / (c.t - c.od.t);
+}
+
+/**
+ * Tempo v kg za týden (záporné = hubne): přímka nejmenších čtverců přes vážení za 21 dní – jen ranní (do 11 h), když jsou
+ * aspoň dvě (večer bývá o 1–2 kg víc). Null = málo dat (méně než 2 zápisy nebo rozpětí pod 3 dny).
+ */
+function tempoVahy() {
+  const hranice = Date.now() - 21 * 864e5;
+  let z = vahy().filter((x) => x.kdy >= hranice);
+  const rano = z.filter((x) => new Date(x.kdy).getHours() < 11);
+  if (rano.length >= 2) z = rano;
+  if (z.length < 2 || z[z.length - 1].kdy - z[0].kdy < 3 * 864e5) return null;
+  const n = z.length;
+  const mx = z.reduce((s, x) => s + x.kdy, 0) / n, my = z.reduce((s, x) => s + x.kg, 0) / n;
+  const sxx = z.reduce((s, x) => s + (x.kdy - mx) * (x.kdy - mx), 0);
+  if (!sxx) return null;
+  return z.reduce((s, x) => s + (x.kdy - mx) * (x.kg - my), 0) / sxx * 7 * 864e5;
+}
+
+/** Cíl na kartě Váha: pruh od startu k cíli, kolik zbývá, potřebné a skutečné tempo. */
+function cilVahyHtml() {
+  const c = cilVahy();
+  const posl = vahy().slice(-1)[0];
+  if (!c || !posl) return '';
+  const celkem = c.od.kg - c.kg, hotovo = c.od.kg - posl.kg, zbyva = Math.round((posl.kg - c.kg) * 10) / 10;
+  const pct = celkem > 0 ? Math.max(0, Math.min(100, Math.round(hotovo / celkem * 100))) : 100;
+  const potreba = zbyva > 0 ? zbyva / Math.max(0.5, (c.t - Date.now()) / (7 * 864e5)) : 0;
+  const tempo = tempoVahy();
+  const vPlanu = tempo != null && -tempo >= potreba * 0.9;
+  const kgTyden = (v) => (v > 0.005 ? '+' : v < -0.005 ? '−' : '') + cisloCz(Math.abs(v), 2) + ' kg/týden';
+  return '<div class="vaha-cil">' +
+    '<div class="vaha-cil__hlava"><b>Cíl ' + (Number.isInteger(c.kg) ? c.kg : kgCz(c.kg)) + ' kg</b><span>do ' + dm(c.t) + ' ' + new Date(c.t).getFullYear() + '</span></div>' +
+    '<div class="vaha-cil__pruh" role="img" aria-label="Splněno ' + pct + ' %"><i style="width:' + pct + '%"></i></div>' +
+    '<p class="vaha-cil__text">' + (zbyva <= 0 ? '🎉 Cíl splněný!' : 'zbývá <b class="cisla">' + kgCz(zbyva) + ' kg</b>' +
+      (hotovo > 0.05 ? ' · ubylo ' + kgCz(hotovo) + ' kg' : '')) + '</p>' +
+    (zbyva > 0 ? '<p class="vaha-cil__tempo">potřeba ' + kgTyden(-potreba) + (tempo != null ? ' · teď ' + kgTyden(tempo) +
+      ' <span class="tag ' + (vPlanu ? 'tag--limetka' : 'tag--warn') + '">' + (vPlanu ? 'v plánu' : 'pomaleji') + '</span>' : ' · tempo ukážu po pár ranních váženích') + '</p>' : '') +
+    '</div>';
+}
+
+/** Čára z posledních 30 zápisů (osa x podle času, takže mezery mezi vážením jsou vidět); s cílem i čárkovaný plán. */
 function grafVahy(z) {
   const body = z.slice(-30);
   const W = 520, H = 110, P = 16;
   const t0 = body[0].kdy, t1 = body[body.length - 1].kdy;
-  const kg = body.map((b) => b.kg);
+  const c = cilVahy();
+  const plan = c && t1 > c.od.t ? [planVahy(c, Math.max(t0, c.od.t)), planVahy(c, t1)] : null;
+  const kg = body.map((b) => b.kg).concat(plan || []);
   const lo = Math.floor((Math.min.apply(null, kg) - 0.3) * 2) / 2, hi = Math.ceil((Math.max.apply(null, kg) + 0.3) * 2) / 2;
   const x = (t) => P + (t1 > t0 ? (t - t0) / (t1 - t0) : 0.5) * (W - 2 * P);
   const y = (v) => P + (hi - v) / ((hi - lo) || 1) * (H - 2 * P);
-  const cara = body.map((b, i) => (i ? 'L ' : 'M ') + x(b.kdy).toFixed(1) + ' ' + y(b.kg).toFixed(1)).join(' ');
+  // čára jen přes ranní vážení (aspoň dvě), ostatní body prázdné – jinak by kreslila kolísání během dne
+  const rano = body.filter((b) => dobaVazeni(b.kdy) === 'rano');
+  const naCare = rano.length >= 2 ? rano : body;
+  const cara = naCare.map((b, i) => (i ? 'L ' : 'M ') + x(b.kdy).toFixed(1) + ' ' + y(b.kg).toFixed(1)).join(' ');
   return '<svg class="graf-vahy" viewBox="0 0 ' + W + ' ' + (H + 18) + '" role="img" aria-label="Váha – posledních ' + body.length + ' zápisů">' +
     [hi, lo].map((v) => '<line class="graf-vahy__mez" x1="' + P + '" x2="' + (W - P) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '"/>' +
       '<text class="graf-vahy__popis" x="' + (W - P) + '" y="' + (y(v) - 4).toFixed(1) + '" text-anchor="end">' + kgCz(v) + '</text>').join('') +
+    (plan ? '<line class="graf-vahy__plan" x1="' + x(Math.max(t0, c.od.t)).toFixed(1) + '" x2="' + x(t1).toFixed(1) + '" y1="' + y(plan[0]).toFixed(1) +
+      '" y2="' + y(plan[1]).toFixed(1) + '"><title>Plán k cíli ' + kgCz(c.kg) + ' kg</title></line>' : '') +
     '<path class="graf-vahy__cara" d="' + cara + '"/>' +
-    body.map((b) => '<circle class="graf-vahy__bod" cx="' + x(b.kdy).toFixed(1) + '" cy="' + y(b.kg).toFixed(1) + '" r="3.6"><title>' +
-      esc(kdyZapsano(b.kdy) + ': ' + kgCz(b.kg) + ' kg') + '</title></circle>').join('') +
+    body.map((b) => '<circle class="graf-vahy__bod' + (dobaVazeni(b.kdy) === 'rano' ? ' graf-vahy__bod--rano' : '') + '" cx="' + x(b.kdy).toFixed(1) + '" cy="' + y(b.kg).toFixed(1) +
+      '" r="3.6"><title>' + esc(kdyZapsano(b.kdy) + ' (' + NAZEV_DOBY[dobaVazeni(b.kdy)] + '): ' + kgCz(b.kg) + ' kg') + '</title></circle>').join('') +
     '<text class="graf-vahy__popis" x="' + P + '" y="' + (H + 14) + '">' + esc(dm(t0)) + '</text>' +
     '<text class="graf-vahy__popis" x="' + (W - P) + '" y="' + (H + 14) + '" text-anchor="end">' + esc(dm(t1)) + '</text></svg>';
 }
 
-/** Poslední váha s časem zápisu a rozdílem proti minulému vážení (karta ve Zdraví i na Dnes). */
+// Denní doba vážení: ráno (do 11 h) / přes den / večer (od 17 h). Váha během dne kolísá o 1–2 kg (jídlo, pití) –
+// Michal 9. 10.: „za den jsem ‚přibral‘ 2 kila, ráno 81,5 a pak 83,5“ → rozdíl i čára jen ve stejnou denní dobu.
+const dobaVazeni = (t) => { const h = new Date(t).getHours(); return h < 11 ? 'rano' : h < 17 ? 'den' : 'vecer'; };
+const NAZEV_DOBY = { rano: 'ráno', den: 'přes den', vecer: 'večer' };
+
+/** Minulé vážení ve stejnou denní dobu (nejvýš 21 dní zpátky), nebo null. */
+function minuleStejne(z, i) {
+  const x = z[i];
+  for (let j = i - 1; j >= 0; j--) {
+    if (x.kdy - z[j].kdy > 21 * 864e5) return null;
+    if (dobaVazeni(z[j].kdy) === dobaVazeni(x.kdy)) return z[j];
+  }
+  return null;
+}
+
+/** Poslední váha s časem vážení a rozdílem proti minulému vážení ve stejnou denní dobu (karta ve Zdraví i na Dnes). */
 function posledniVahaHtml(z) {
-  const posl = z[z.length - 1], pred = z[z.length - 2];
-  if (!posl) return '<p class="prazdne vaha-prazdne">Zatím žádný zápis. Napiš váhu – uloží se i s časem, kdy jsi ji zapsal.</p>';
+  const posl = z[z.length - 1];
+  if (!posl) return '<p class="prazdne vaha-prazdne">Zatím žádný zápis. Napiš váhu – nejlíp ráno po probuzení, ať se dá porovnávat.</p>';
+  const pred = minuleStejne(z, z.length - 1);
   const rozdil = pred ? Math.round((posl.kg - pred.kg) * 10) / 10 : null;
-  return '<p class="vaha-ted"><b class="cisla">' + kgCz(posl.kg) + '<small>kg</small></b><span>zapsáno ' + esc(kdyZapsano(posl.kdy)) +
-    (rozdil != null ? '<br><em>' + (rozdil > 0 ? '+' : rozdil < 0 ? '−' : '±') + kgCz(Math.abs(rozdil)) + ' kg</em> proti ' + esc(kdyZapsano(pred.kdy)) : '') + '</span></p>';
+  return '<p class="vaha-ted"><b class="cisla">' + kgCz(posl.kg) + '<small>kg</small></b><span>' + esc(kdyZapsano(posl.kdy)) + ' · ' + NAZEV_DOBY[dobaVazeni(posl.kdy)] +
+    (rozdil != null ? '<br><em>' + (rozdil > 0 ? '+' : rozdil < 0 ? '−' : '±') + kgCz(Math.abs(rozdil)) + ' kg</em> proti ' + esc(kdyZapsano(pred.kdy))
+      : '<br><small>srovnám s dalším vážením ' + (dobaVazeni(posl.kdy) === 'rano' ? 'ráno' : 've stejnou dobu') + '</small>') + '</span></p>';
 }
 
 function vahaZapisHtml() {
   return '<div class="vaha-zapis"><input class="field" data-vaha-pole inputmode="decimal" enterkeyhint="done" autocomplete="off" placeholder="např. 80,4" aria-label="Váha v kg" value="' +
-    esc(rozepsanaVaha) + '"><span>kg</span><button type="button" class="btn btn--primary" data-vaha-zapsat>Zapsat</button></div>';
+    esc(rozepsanaVaha) + '"><span>kg</span><button type="button" class="btn btn--primary" data-vaha-zapsat>Zapsat</button>' +
+    '<button type="button" class="btn btn--ikona" data-vaha-cas aria-label="Zapsat s jiným časem (vážil ses dřív)" title="Zapsat s jiným časem">' + IKONY.cas + '</button></div>';
 }
 
-/** Váha na Dnes (Michal 5. 10.: zapisovat i z hlavní stránky) – poslední zápis a pole; čára a historie jsou ve Zdraví. */
+/** Váha na Dnes (Michal 5. 10.: zapisovat i z hlavní stránky) – poslední zápis a pole; cíl, čára a historie jsou ve Zdraví. */
 export function kartaVahyDnesHtml() {
   return hlavickaKarty(IKONY.vaha, 'Váha', '<button type="button" class="sipka" data-cil="zdravi" aria-label="Historie váhy ve Zdraví" title="Historie váhy ve Zdraví">' + IKONY.sipka + '</button>') +
     '<div class="dlazdice__telo">' + posledniVahaHtml(vahy()) + vahaZapisHtml() + '</div>';
@@ -370,7 +453,7 @@ export function kartaVahyDnesHtml() {
 export function kartaVahyHtml() {
   const z = vahy();
   return hlavickaKarty(IKONY.vaha, 'Váha', z.length ? '<span class="muted small">' + z.length + ' ' + tvar(z.length, 'zápis', 'zápisy', 'zápisů') + '</span>' : '') +
-    '<div class="dlazdice__telo">' + posledniVahaHtml(z) + vahaZapisHtml() +
+    '<div class="dlazdice__telo">' + posledniVahaHtml(z) + cilVahyHtml() + vahaZapisHtml() +
       (z.length > 1 ? grafVahy(z) : '') +
       (z.length ? '<ul class="vaha-seznam">' + z.slice(-6).reverse().map((x) => '<li><span>' + esc(kdyZapsano(x.kdy)) + '</span><b class="cisla">' + kgCz(x.kg) + ' kg</b>' +
         '<button type="button" class="vaha-smazat" data-vaha-smazat="' + x.kdy + '" aria-label="Smazat zápis ' + esc(kdyZapsano(x.kdy)) + '" title="Smazat zápis">' + IKONY.zavrit + '</button></li>').join('') + '</ul>' : '') +
@@ -385,11 +468,11 @@ function poVaze(zaznamy) {
   zmeneno();
 }
 
-/** Zapíše váhu (čas zápisu dá motor). Vrací true, když se povedlo. */
-export function zapisVahu(text) {
+/** Zapíše váhu (kdy = čas vážení v ms, když se vážil dřív; jinak čas dá motor). Vrací true, když se povedlo. */
+export function zapisVahu(text, kdy) {
   const kg = kgZTextu(text);
   if (kg == null) { toast('Napiš váhu v kg, třeba 80,4', true); return Promise.resolve(false); }
-  return volej('vaha', { kg })
+  return volej('vaha', kdy ? { kg, kdy } : { kg })
     .then((v) => {
       rozepsanaVaha = '';
       // pole pustit (zavře klávesnici na telefonu) – karta se pak překreslí s novou váhou
@@ -403,20 +486,74 @@ export function zapisVahu(text) {
     .catch((e) => { toast(e.message, true); return false; });
 }
 
-/** „+“ → Váha: okno s polem (číselná klávesnice na telefonu). */
-export function zapisVahuOknem() {
-  return okno({ ikona: IKONY.vaha, nadpis: 'Váha', text: 'Zapíše se i s časem, kdy ji zapisuješ.', pole: { popisek: 'Kg', placeholder: 'např. 80,4', inputmode: 'decimal' },
-    ano: 'Zapsat', ne: 'Zrušit' }).then((t) => (t ? zapisVahu(t) : false));
+/** Datum a čas pro pole datetime-local (místní čas, bez vteřin). */
+const proPole = (t) => { const d = new Date(t); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+
+/**
+ * „+“ → Váha a hodiny u pole na Dnes: okno s kg a časem vážení (Michal 9. 10.: „ne vždy když se zvážím, si to hned
+ * napíšu“) – Teď / Dnes ráno / Včera večer nebo vlastní čas.
+ */
+export function otevriVahu() {
+  const ted = Date.now();
+  const dnesRano = new Date(); dnesRano.setHours(7, 0, 0, 0);
+  const vcerVecer = new Date(); vcerVecer.setDate(vcerVecer.getDate() - 1); vcerVecer.setHours(21, 0, 0, 0);
+  const volby = [['Teď', ted], ['Dnes ráno', dnesRano.getTime()], ['Včera večer', vcerVecer.getTime()]].filter((v) => v[1] <= ted);
+  otevriPanel({
+    id: 'vaha', trida: 'panel-okno panel-vaha', titul: 'Váha',
+    vykresli: () => '<div class="vaha-okno"><label><span class="label">Kg</span><input class="field" data-vaha-okno-kg inputmode="decimal" enterkeyhint="done" ' +
+        'autocomplete="off" placeholder="např. 80,4" value="' + esc(rozepsanaVaha) + '"></label>' +
+      '<label><span class="label">Kdy ses vážil</span><input class="field" type="datetime-local" data-vaha-okno-kdy max="' + proPole(ted) + '" value="' + proPole(ted) + '"></label>' +
+      '<div class="chipy" role="group" aria-label="Rychlý výběr času">' + volby.map((v) => '<button type="button" class="chip" data-vaha-okno-cas="' + proPole(v[1]) + '">' + v[0] + '</button>').join('') + '</div>' +
+      '<p class="napoveda">Nejlíp se porovnává ráno po probuzení – přes den váha kolísá o 1–2 kg (jídlo, pití). Rozdíl ukazuju proti vážení ve stejnou denní dobu.</p></div>',
+    paticka: () => '<div class="akce"><button type="button" class="btn btn--ghost" data-zavrit-panel>Zrušit</button>' +
+      '<button type="button" class="btn btn--primary" data-vaha-okno-zapsat>Zapsat</button></div>',
+    poOtevreni: (el) => { const p = el.querySelector('[data-vaha-okno-kg]'); if (p) p.focus({ preventScroll: true }); }
+  });
 }
+
+/** Zápis z okna: čas do dvou minut od teď = teď (čas dá motor), jinak zvolený čas vážení. */
+function zapisZOknaVahy(tlacitko) {
+  const el = elementPanelu('vaha');
+  if (!el) return;
+  const pole = el.querySelector('[data-vaha-okno-kdy]').value;
+  const kdy = pole ? new Date(pole).getTime() : NaN;
+  const zpetne = kdy && Math.abs(Date.now() - kdy) > 2 * 60000 ? kdy : null;
+  tlacitko.disabled = true;
+  zapisVahu(el.querySelector('[data-vaha-okno-kg]').value, zpetne).then((ok) => { if (ok) zavriPanel(); else tlacitko.disabled = false; });
+}
+
+/** Starší název (jinde v aplikaci) – okno s časem. */
+export function zapisVahuOknem() { otevriVahu(); return Promise.resolve(true); }
 
 /** Psaní do pole váhy (app.js – událost input) a Enter = Zapsat (app.js – keydown). */
 export function vstupZdravi(e) {
-  if (!e.target.matches || !e.target.matches('[data-vaha-pole]')) return false;
+  if (!e.target.matches) return false;
+  if (e.target.matches('[data-jidlo-co]')) {
+    // odhad bílkovin se přepočítá při psaní (jen box pod polem – pole i klávesnice zůstanou)
+    const box = e.target.closest('.jidlo-form').querySelector('[data-jidlo-odhad]');
+    if (box) box.innerHTML = odhadJidlaHtml(e.target.value);
+    return true;
+  }
+  if (!e.target.matches('[data-vaha-pole]')) return false;
   rozepsanaVaha = e.target.value;
   return true;
 }
 export function klavesaZdravi(e) {
-  if (e.key !== 'Enter' || !e.target.matches || !e.target.matches('[data-vaha-pole]')) return false;
+  if (e.key !== 'Enter' || !e.target.matches) return false;
+  // jídlo: Enter = Uložit (Shift+Enter nový řádek)
+  if (e.target.matches('[data-jidlo-co]') && !e.shiftKey) {
+    e.preventDefault();
+    const b = document.querySelector('[data-panel="jidlo"] [data-jidlo-ulozit]');
+    if (b) b.click();
+    return true;
+  }
+  if (e.target.matches('[data-vaha-okno-kg]')) {
+    e.preventDefault();
+    const b = document.querySelector('[data-panel="vaha"] [data-vaha-okno-zapsat]');
+    if (b) b.click();
+    return true;
+  }
+  if (!e.target.matches('[data-vaha-pole]')) return false;
   e.preventDefault();
   zapisVahu(e.target.value);
   return true;
@@ -498,7 +635,8 @@ export function doplnkyDnes(denMs) {
   const d = pulnoc(denMs || Date.now());
   const den = denRezimu(rezim, d);
   const vzato = vzatoVDen(isoDatum(d));
-  const polozky = rezim.polozky.filter(den.plati).map((p) => Object.assign({ vzato: !!vzato[p.id] }, p))
+  // i doplněk, který ten den podle režimu neplatí, ale byl vzat (elektrolyty mimo zápas – napsané do jídla) → „navíc“
+  const polozky = rezim.polozky.filter((p) => den.plati(p) || vzato[p.id]).map((p) => Object.assign({ vzato: !!vzato[p.id], navic: !den.plati(p) }, p))
     .sort((a, b) => KDY.findIndex((k) => k[0] === a.kdy) - KDY.findIndex((k) => k[0] === b.kdy));
   return { d, dnes: d === pulnoc(Date.now()), polozky, vykop: den.vykop, trenink: den.trenink, kofeinDo: rezim.kofeinDo || '', chyba: rezim.chyba || '',
     tyden: tydenDoplnku(rezim, d) };
@@ -535,10 +673,19 @@ export function kartaDoplnkuHtml() {
     '<ul class="doplnky">' + d.polozky.map((p) => {
       const s = t.polozky[p.id];
       return '<li><button type="button" class="doplnek" data-doplnek="' + esc(p.id) + '" data-doplnek-den="' + isoDatum(d.d) + '" aria-pressed="' + p.vzato + '">' +
-        '<i class="zaskrt" aria-hidden="true">' + IKONY.fajfka + '</i><span><b>' + esc(p.nazev) + '</b><small>' + esc(nazevKdy(p.kdy)) + (p.davka ? ' · ' + esc(p.davka) : '') + '</small></span>' +
+        '<i class="zaskrt" aria-hidden="true">' + IKONY.fajfka + '</i><span><b>' + esc(p.nazev) + '</b><small>' + (p.navic ? 'navíc · ' : '') + esc(nazevKdy(p.kdy)) + (p.davka ? ' · ' + esc(p.davka) : '') + '</small></span>' +
         (s && s.dni > 1 ? '<em class="doplnek__tyden cisla" title="za týden">' + s.vzato + '/' + s.dni + '</em>' : '') + '</button></li>';
     }).join('') + '</ul>' + tyden +
     (den || kofein ? '<p class="doplnky-pozn">' + [den ? velkym(den) : '', kofein].filter(Boolean).join(' · ') + '</p>' : '');
+}
+
+/** Odškrtnout (vzato) / zrušit doplňky v den: hned v kartě, na Disk (stejné na telefonu i PC); víc klepnutí = jeden dotaz. */
+function nastavDoplnky(den, idy, vzato) {
+  const c = uloziste.cti(CEKAJICI) || {};
+  idy.forEach((id) => { (c[den] = c[den] || {})[id] = vzato; });
+  uloziste.pis(CEKAJICI, c);
+  clearTimeout(casovacDoplnku);
+  casovacDoplnku = setTimeout(odesliDoplnky, 700);
 }
 
 /** Změny odškrtnutí → motor (ZDRAVI/DOPLNKY.json na Disku). Bez sítě zůstanou čekat a odejdou při dalším načtení Zdraví. */
@@ -571,7 +718,17 @@ function souctyDne(den) {
   const vzato = vzatoVDen(den);
   const doplnky = (rezim.polozky || []).filter((p) => Number(p.bilkoviny) > 0 && vzato[p.id]).map((p) => ({ co: p.nazev, bilkoviny: Number(p.bilkoviny), doplnek: true }));
   const jidla = z.jidlo.concat(doplnky);
-  return { ml: z.piti.reduce((s, x) => s + (x.ml || 0), 0), b: jidla.reduce((s, x) => s + (x.bilkoviny || 0), 0), z, jidla };
+  return { ml: z.piti.reduce((s, x) => s + (x.ml || 0), 0), b: jidla.reduce((s, x) => s + (x.bilkoviny || 0), 0), kcal: z.jidlo.reduce((s, x) => s + (x.kcal || 0), 0),
+    odhad: z.jidlo.some((x) => x.odhad === 'mistni'), z, jidla };
+}
+
+/** Hodnocení stravy od Clauda (večer za den): dnešní, ráno ještě včerejší. */
+function hodnoceniHtml(dnes) {
+  const dnesni = pitiDne(isoDatum(dnes)).hodnoceni, vcerejsi = pitiDne(isoDatum(pridejDny(dnes, -1))).hodnoceni;
+  const h = dnesni || (new Date().getHours() < 14 ? vcerejsi : null);
+  if (!h) return '';
+  return '<div class="piti__hodnoceni">' + (h.znamka ? '<span class="znamka znamka--' + esc(String(h.znamka).charAt(0).toUpperCase()) + '">' + esc(h.znamka) + '</span>' : '') +
+    '<p><b>' + (dnesni ? 'Dnešek' : 'Včerejšek') + ' podle Clauda</b>' + esc(h.text) + '</p></div>';
 }
 
 export function kartaPitiHtml() {
@@ -589,17 +746,22 @@ export function kartaPitiHtml() {
       '<small> z ' + litry(cilPiti) + '</small><div class="piti__pruh"><i style="width:' + pct(s.ml, cilPiti) + '%"></i></div></div>' +
       '<div class="piti__akce"><button type="button" class="btn btn--sm" data-piti="250">+0,25 l</button><button type="button" class="btn btn--sm" data-piti="500">+0,5 l</button>' +
       (posledni ? '<button type="button" class="odkaz" data-piti-zpet="' + esc(posledni.id) + '">zpět</button>' : '') + '</div></div>' +
-    '<div class="piti__radek"><span class="piti__ikona" aria-hidden="true">🥩</span><div class="piti__text"><b class="cisla">' + s.b + ' g</b>' +
-      '<small> bílkovin z ' + cilB + ' g</small><div class="piti__pruh piti__pruh--b"><i style="width:' + pct(s.b, cilB) + '%"></i></div></div>' +
+    '<div class="piti__radek"><span class="piti__ikona" aria-hidden="true">🥩</span><div class="piti__text"><b class="cisla">' + (s.odhad ? '≈ ' : '') + s.b + ' g</b>' +
+      '<small> bílkovin z ' + cilB + ' g' + (s.kcal ? ' · ' + (s.odhad ? '≈ ' : '') + s.kcal.toLocaleString('cs-CZ') + ' kcal' : '') + '</small>' +
+      '<div class="piti__pruh piti__pruh--b"><i style="width:' + pct(s.b, cilB) + '%"></i></div></div>' +
       '<div class="piti__akce"><button type="button" class="btn btn--sm btn--ghost" data-jidlo-pridat>' + IKONY.plus + '<span>Jídlo</span></button></div></div>';
   if (s.jidla.length) {
-    h += '<ul class="piti__jidla">' + s.jidla.map((j) => '<li><span class="orez-1">' + esc(j.co) + (j.doplnek ? ' <small>doplněk</small>' : j.claude ? ' <small>z diktátu</small>' : '') + '</span>' +
-      '<b class="cisla">' + j.bilkoviny + ' g</b>' + (j.id ? '<button type="button" class="btn btn--ikona btn--sm" data-jidlo-smazat="' + esc(j.id) + '" aria-label="Smazat ' + esc(j.co) + '">' +
+    // ≈ = odhad aplikace (Claude ho upřesní), „Claude“ = upřesněno (v titulku jeho poznámka)
+    const stitek = (j) => (j.doplnek ? ' <small>doplněk</small>' : j.claude ? ' <small>z diktátu</small>' : j.odhad === 'claude' ? ' <small title="' + esc(j.poznamka || 'upřesnil Claude') + '">Claude</small>' : '');
+    h += '<ul class="piti__jidla">' + s.jidla.map((j) => '<li><span class="orez-1">' + esc(j.co) + stitek(j) + '</span>' +
+      '<b class="cisla"' + (j.odhad === 'mistni' ? ' title="odhad aplikace – Claude ho upřesní"' : '') + '>' + (j.odhad === 'mistni' ? '≈ ' : '') + j.bilkoviny + ' g</b>' +
+      (j.id ? '<button type="button" class="btn btn--ikona btn--sm" data-jidlo-smazat="' + esc(j.id) + '" aria-label="Smazat ' + esc(j.co) + '">' +
       IKONY.zavrit + '</button>' : '<span class="piti__misto"></span>') + '</li>').join('') + '</ul>';
   }
+  h += hodnoceniHtml(dnes);
   h += '<ol class="piti__tyden" aria-label="Pití tento týden">' + tyden.map((t, i) => '<li class="' + (t.d > dnes ? 'budouci' : t.d === dnes ? 'dnes' : '') + '" title="' +
     DNY_TYDNE[i] + ': ' + litry(t.ml) + '"><span><i style="height:' + pct(t.ml, cilPiti) + '%"></i></span><small>' + DNY_TYDNE[i] + '</small></li>').join('') + '</ol>' +
-    '<p class="napoveda">Jde to i diktátem pro Clauda („vypil jsem půl litru vody“, „k obědu kuře s rýží“) – zapíše to a bílkoviny odhadne sám.</p></div>';
+    '<p class="napoveda">Jídlo stačí napsat („3 vejce a chleba“) – bílkoviny odhadnu hned, Claude je upřesní a večer zhodnotí den. Jde to i diktátem pro Clauda.</p></div>';
   return h;
 }
 
@@ -607,9 +769,10 @@ export function kartaPitiHtml() {
 function zapisPiti(data, zprava) {
   const den = data.den;
   const puvodni = stav.zdravi && stav.zdravi.pitiJidlo;
-  if (data.jak === 'piti') {
+  if (data.jak === 'piti' || data.jak === 'jidlo') {
     const z = JSON.parse(JSON.stringify(pitiDne(den)));
-    z.piti.push({ ml: data.ml, kdy: Date.now() });
+    if (data.jak === 'piti') z.piti.push({ ml: data.ml, kdy: Date.now() });
+    else z.jidlo.push({ co: data.co, bilkoviny: data.bilkoviny, kcal: data.kcal, kdy: Date.now(), odhad: data.odhad ? 'mistni' : undefined });
     stav.zdravi.pitiJidlo = Object.assign({}, puvodni, { [den]: z });
     zmeneno();
   }
@@ -623,13 +786,38 @@ function zapisPiti(data, zprava) {
     .catch((e) => { stav.zdravi.pitiJidlo = puvodni; zmeneno(); toast(e.message, true); throw e; });
 }
 
-function otevriJidlo() {
+// ---- Jídlo napsané slovy (Michal 9. 10.: „napíšu, co jsem měl, bez bílkovin – pošle se to Claudovi a zapíše“):
+// bílkoviny a kcal hned odhadne aplikace (js/jidlo_odhad.js), Claude je při další schránce upřesní a večer zhodnotí den;
+// doplňky v textu („elektrolyty“, „kreatin“) se jen odškrtnou.
+
+/** Doplňky režimu pro poznání v textu jídla. */
+function doplnkyRezimu() { return ((stav.zdravi && stav.zdravi.rezim && stav.zdravi.rezim.polozky) || []).map((p) => ({ id: p.id, nazev: p.nazev })); }
+function nazevDoplnku(id) { const p = doplnkyRezimu().find((x) => x.id === id); return p ? p.nazev : id; }
+
+/** Odhad pod polem (překresluje se při psaní). */
+function odhadJidlaHtml(text) {
+  if (!String(text || '').trim()) return '<p class="jidlo-odhad__prazdne">Napiš, co jsi měl – bílkoviny a kcal spočítám hned.</p>';
+  const o = odhadniJidlo(text, doplnkyRezimu());
+  let h = '';
+  if (o.polozky.length) {
+    h += '<p class="jidlo-odhad__soucet"><b class="cisla">≈ ' + o.bilkoviny + ' g</b> bílkovin · <span class="cisla">' + o.kcal.toLocaleString('cs-CZ') + ' kcal</span>' +
+      (o.jisty ? '' : ' <small>– část neznám, Claude doplní</small>') + '</p><ul class="jidlo-odhad__polozky">' + o.polozky.map((x) =>
+        '<li><span>' + esc(x.co) + (x.g ? ' <small>' + x.g + ' g</small>' : '') + (x.znamo === false ? ' <small>?</small>' : '') + '</span><b class="cisla">' + x.bilkoviny + ' g</b></li>').join('') + '</ul>';
+  }
+  if (o.doplnky.length) h += '<p class="jidlo-odhad__doplnky">' + IKONY.fajfka + '<span>Odškrtnu doplněk: <b>' + o.doplnky.map((id) => esc(nazevDoplnku(id))).join(', ') + '</b></span></p>';
+  return h || '<p class="jidlo-odhad__prazdne">Tohle neznám – Claude to odhadne.</p>';
+}
+
+/** Okno „Co jsi jedl?“ (Pití a jídlo → Jídlo, „+“ → Jídlo). */
+export function otevriJidlo() {
   otevriPanel({
-    id: 'jidlo', trida: 'panel-okno panel-jidlo', titul: 'Co jsi snědl',
-    vykresli: () => '<div class="jidlo-form"><label><span class="label">Jídlo</span><input class="field" data-jidlo-co maxlength="120" placeholder="např. kuřecí prsa s rýží"></label>' +
-      '<div class="jidlo-cisla"><label><span class="label">Bílkoviny (g)</span><input class="field" data-jidlo-b inputmode="numeric" placeholder="např. 40"></label>' +
-      '<label><span class="label">kcal (nepovinné)</span><input class="field" data-jidlo-kcal inputmode="numeric"></label></div>' +
-      '<p class="napoveda">Nevíš, kolik má bílkovin? Nadiktuj jídlo Claudovi do schránky – odhadne je sám a zapíše.</p></div>',
+    id: 'jidlo', trida: 'panel-okno panel-jidlo', titul: 'Co jsi jedl?',
+    vykresli: () => '<div class="jidlo-form"><label><span class="label">Jídlo, pití, doplňky</span><textarea class="field" data-jidlo-co rows="2" maxlength="200" enterkeyhint="done" ' +
+        'placeholder="např. 3 vejce a chleba · k obědu kuře s rýží · elektrolyty"></textarea></label>' +
+      '<div class="jidlo-odhad" data-jidlo-odhad aria-live="polite">' + odhadJidlaHtml('') + '</div>' +
+      '<details class="jidlo-presne"><summary>Bílkoviny vím přesně</summary><div class="jidlo-cisla"><label><span class="label">Bílkoviny (g)</span>' +
+        '<input class="field" data-jidlo-b inputmode="numeric"></label><label><span class="label">kcal</span><input class="field" data-jidlo-kcal inputmode="numeric"></label></div></details>' +
+      '<p class="napoveda">Claude odhad upřesní při další schránce a večer zhodnotí celý den.</p></div>',
     paticka: () => '<div class="akce"><button type="button" class="btn btn--ghost" data-zavrit-panel>Zrušit</button>' +
       '<button type="button" class="btn btn--primary" data-jidlo-ulozit>Uložit</button></div>',
     poOtevreni: (el) => { const p = el.querySelector('[data-jidlo-co]'); if (p) p.focus({ preventScroll: true }); }
@@ -639,12 +827,19 @@ function otevriJidlo() {
 function ulozJidlo(tlacitko) {
   const el = elementPanelu('jidlo');
   if (!el) return;
-  const co = el.querySelector('[data-jidlo-co]').value.trim();
-  const b = Number(String(el.querySelector('[data-jidlo-b]').value).replace(',', '.')) || 0;
-  const kcal = Number(String(el.querySelector('[data-jidlo-kcal]').value).replace(',', '.')) || 0;
-  if (!co) { toast('Napiš, co jsi snědl.', true); return; }
+  const text = el.querySelector('[data-jidlo-co]').value.trim();
+  if (!text) { toast('Napiš, co jsi jedl.', true); return; }
+  const rucneB = String(el.querySelector('[data-jidlo-b]').value).trim(), rucneK = String(el.querySelector('[data-jidlo-kcal]').value).trim();
+  const o = odhadniJidlo(text, doplnkyRezimu());
+  const den = isoDatum(Date.now());
+  const doplnky = o.doplnky.map(nazevDoplnku).join(', ');
+  if (o.doplnky.length && umiMotor('doplnky')) { nastavDoplnky(den, o.doplnky, true); zmeneno(); }
+  if (!o.text) { toast('Zapsáno: ' + doplnky + ' ✓'); zavriPanel(); return; }
+  const rucne = rucneB !== '';
+  const cislo = (t) => Math.round(Number(String(t).replace(',', '.')) || 0);
+  const data = { den, jak: 'jidlo', co: o.text, bilkoviny: rucne ? cislo(rucneB) : o.bilkoviny, kcal: rucneK ? cislo(rucneK) : o.kcal, odhad: !rucne };
   tlacitko.disabled = true;
-  zapisPiti({ den: isoDatum(Date.now()), jak: 'jidlo', co, bilkoviny: b, kcal }, 'Zapsáno: ' + co + (b ? ' · ' + b + ' g bílkovin' : ''))
+  zapisPiti(data, 'Zapsáno: ' + data.co + ' · ' + (rucne ? '' : '≈ ') + data.bilkoviny + ' g bílkovin' + (doplnky ? ' + ' + doplnky + ' ✓' : ''))
     .then(() => zavriPanel())
     .catch(() => { tlacitko.disabled = false; });
 }
@@ -693,12 +888,7 @@ export function klikZdravi(el) {
     const id = el.dataset.doplnek;
     const vzato = !vzatoVDen(den)[id];
     if (umiMotor('doplnky')) {
-      // na Disk (stejné na telefonu i PC); víc klepnutí za sebou odejde jedním dotazem
-      const c = uloziste.cti(CEKAJICI) || {};
-      (c[den] = c[den] || {})[id] = vzato;
-      uloziste.pis(CEKAJICI, c);
-      clearTimeout(casovacDoplnku);
-      casovacDoplnku = setTimeout(odesliDoplnky, 700);
+      nastavDoplnky(den, [id], vzato);
     } else {
       const klic = VZATO + den;
       const mistni = uloziste.cti(klic) || {};
@@ -716,6 +906,18 @@ export function klikZdravi(el) {
     zapisVahu(pole.value).then(() => { el.disabled = false; });
     return true;
   }
+  if (el.hasAttribute('data-vaha-cas')) {
+    const pole = el.closest('.vaha-zapis').querySelector('[data-vaha-pole]');
+    if (pole) rozepsanaVaha = pole.value;
+    otevriVahu();
+    return true;
+  }
+  if (el.dataset.vahaOknoCas) {
+    const pole = el.closest('.vaha-okno').querySelector('[data-vaha-okno-kdy]');
+    if (pole) pole.value = el.dataset.vahaOknoCas;
+    return true;
+  }
+  if (el.hasAttribute('data-vaha-okno-zapsat')) { zapisZOknaVahy(el); return true; }
   if (el.dataset.vahaSmazat) {
     const kdy = Number(el.dataset.vahaSmazat);
     const x = vahy().find((v) => v.kdy === kdy);

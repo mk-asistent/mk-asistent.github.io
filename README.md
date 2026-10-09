@@ -165,9 +165,12 @@ přibližná poloha mimo domov má „≈“ a v detailu radu (iPhone: Polohové
   pole `akce`; při chybě dostane zkratka v odpovědi i důvod (`zprava`, např. „ve zkratce je hlavní klíč aplikace“).
 - Data po měsících v `CLAUDE_SCHRANKA/ZDRAVI/RRRR-MM.json` (soukromý Disk, nikdy do gitu). Trénink se spáruje s událostí
   v kalendáři (zápas, trénink) a čísla z WHOOP jsou i v detailu zápasu.
-- **Váha:** ruční zápis v kartě Váha na stránce Zdraví (Enter nebo Zapsat) nebo na telefonu přes „+“ → Váha. Motor
-  (akce `vaha`) ke každému zápisu uloží čas zápisu → `CLAUDE_SCHRANKA/ZDRAVI/VAHA.json`; karta ukáže poslední váhu
-  s časem, rozdíl proti minulému vážení, čáru posledních 30 zápisů a 6 posledních zápisů (překlep jde smazat).
+- **Váha:** ruční zápis v kartě Váha (Dnes i Zdraví, Enter nebo Zapsat) – čas = teď; hodiny u pole a „+“ → Váha otevřou
+  okno s **časem vážení** (Teď / Dnes ráno / Včera večer / vlastní – Michal 9. 10.: „ne vždy si to hned napíšu“; motor
+  `vaha` s `kdy`, nejvýš 60 dní zpátky) → `CLAUDE_SCHRANKA/ZDRAVI/VAHA.json`. Váha během dne kolísá o 1–2 kg, proto
+  **rozdíl jen proti vážení ve stejnou denní dobu** (ráno do 11 h / přes den / večer od 17 h) a čára grafu přes ranní
+  vážení (ostatní body prázdné). **Cíl** (`ZDRAVI_REZIM.json` → `cilVahy { kg, do, od: { kg, den } }`) jen ve Zdraví: pruh,
+  zbývá, potřebné a skutečné tempo (z ranních vážení za 21 dní), čárkovaný plán v grafu – na Dnes ne (váha není hlavní).
 - **Doplňky:** režim v `CLAUDE_SCHRANKA/ZDRAVI_REZIM.json` (položky s časem dne, `jen`: trenink / zapas / zatez,
   `treninkDny`, `zapasTymy`, `kofeinDo`) – motor ho posílá se Zdravím, aplikace z něj skládá Doplňky dnes. Časy dne:
   rano, svacina, obed, pred, zapas, po, vecer. **Odškrtnutí** jde přes motor (akce `doplnky`) do
@@ -178,10 +181,21 @@ přibližná poloha mimo domov má „≈“ a v detailu radu (iPhone: Polohové
   bez klepnutí se karta po 15 minutách vrátí na dnešek. Skutečný režim je jen na Disku (zdravotní údaje do repa
   nepatří).
 - **Pití a jídlo** (karta na Dnes i ve Zdraví): voda tlačítky +0,25 / +0,5 l (zpět = poslední vlastní), bílkoviny
-  z jídel (okno Jídlo: co, g, kcal) a z odškrtnutých doplňků s `bilkoviny` v režimu, týden pití Po–Ne. Cíle v
-  `ZDRAVI_REZIM.json` (`pitiCil` ml, `bilkovinyCil` g; výchozí 2,5 l a 130 g). Data `ZDRAVI/PITI_JIDLO.json` (akce
-  `pitiJidlo`); diktát přes schránku zapisuje Claude do `ZDRAVI/PITI_JIDLO_CLAUDE.json` (jen přidává, id `c-…`,
-  bílkoviny odhadne) – motor oba soubory spojí, smazání Claudova zápisu = `smazane` v PITI_JIDLO.json.
+  a kcal z jídel a z odškrtnutých doplňků s `bilkoviny` v režimu, týden pití Po–Ne. Cíle v `ZDRAVI_REZIM.json`
+  (`pitiCil` ml, `bilkovinyCil` g; výchozí 2,5 l a 130 g). Data `ZDRAVI/PITI_JIDLO.json` (akce `pitiJidlo`).
+  - **Jídlo slovy** (Michal 9. 10.: „napíšu, co jsem měl, bez bílkovin“): okno „Co jsi jedl?“ (karta i „+“ → Jídlo) –
+    při psaní hned odhad bílkovin a kcal z místní tabulky (`js/jidlo_odhad.js`, test `testy/test_jidlo_odhad.mjs`);
+    doplňky v textu („elektrolyty“, „kreatin“) se jen odškrtnou (i mimo režim dne → „navíc“). Uloží se s `odhad: true`
+    → motor zapíše jídlo s `odhad: 'mistni'` (v kartě „≈“) a do schránky poznámku pro Clauda `…_jidl.md` (`typ: jidlo`,
+    aplikace ji neukazuje); Claude (úloha schránky na obou PC, skill `asistent-schranka`) zapíše upřesnění do
+    `ZDRAVI/PITI_JIDLO_CLAUDE.json` → `odhady[id]` (v kartě štítek „Claude“). Bílkoviny vím přesně = bez Clauda.
+  - **Hodnocení dne:** spouštěč motoru po 21:30 (jen když se jedlo nebo pilo) dá Claudovi poznámku `…_hodn.md` → Claude
+    zapíše `hodnoceni[den] = { znamka A–E, text }` (strava, voda, šetrně pohyb); karta ho ukáže večer
+    a ráno ještě za včerejšek.
+  - Diktát přes schránku zapisuje Claude do `PITI_JIDLO_CLAUDE.json` → `zapisy` (jen přidává, id `c-…`) a doplňky
+    → `doplnky[den][id]`; motor vše spojí (zrušení v aplikaci = `false` v DOPLNKY.json, přebije Claudův zápis), smazání
+    Claudova zápisu = `smazane` v PITI_JIDLO.json. Hotový přehled Zdraví drží motor v mezipaměti (klíč `ZDRAVI_V` se mění
+    s každým zápisem), takže čtení bez změny neotevírá sedm souborů na Disku.
 - **Upozornění do iPhonu** (ntfy, nepovinné): zapínají se v aplikaci **Nastavení → Upozornění** (motor vyrobí téma
   `NTFY_TEMA`, aplikace ho ukáže s návodem pro aplikaci ntfy a umí poslat zkušební). Kontroly běží **každých 10 minut**
   se spouštěčem `instagramKazdych10Min` (jiný spouštěč netřeba; starý `kazdouHodinu` dělá totéž): hoří v poště (6–22 h),
@@ -305,17 +319,21 @@ Adresa: <https://mk-asistent.github.io> (organizace `mk-asistent`, vlastní adre
 | Fotbal, nastavení (`info`) | jednou za hodinu | kopie platí 3 h |
 | Reely | jednou za půl hodiny | kopie platí 90 min |
 | Značky změn (`zmeny`) | každá obnova (v dávce – do 9. 10. ji motor v dávce odmítal, aplikace se proto ptala zvlášť) | auto a zdraví se načtou, když se k nim zapisovalo odjinud (i zkratka, Claude, WHOOP) |
-| Zdraví (voda, jídlo, doplňky, váha) | – (jen motor, zdravotní data jen na Disku) | hned po zápisu na jiném zařízení (signál), jinak při návratu nejvýš 1× za 15 min |
+| Zdraví (voda, jídlo, doplňky, váha) | – (jen motor, zdravotní data jen na Disku; motor drží hotový přehled v mezipaměti) | s účtem jen po signálu / značce změny (záloha po 6 h), bez účtu při návratu nejvýš 1× za 15 min |
 | WHOOP | spouštěč motoru každých 10 min stáhne nová data nejvýš 1× za 30 min | čtení Zdraví na WHOOP nečeká (dřív 10 s) |
 | Počasí | – (jen motor, podle polohy zařízení) | při návratu nejvýš 1× za 30 min |
 | Auto (tabulka) | – | na stránce Auto: poprvé, po 6 h, podle značky změny nebo hned po signálu |
+
+**Start** (Michal 9. 10.: „dostat načtení na sekundu“): aplikace se ukáže hned z dat v zařízení a obnoví se potichu –
+kolečko u Obnovit jen po klepnutí. Knihovny Firebase stahuje index.html hned (`modulepreload`) a service worker je po prvním
+použití vydává ze zařízení; funkce Firebase (obnovHned) až při první obnově.
 
 **Hned na všech zařízeních** (Michal 9. 10.: „na mobilu jsem přidal vodu a na PC to není – má to být aktuální hned“):
 - Zápis ke zdraví nebo k autu → aplikace zapíše do účtu signál `data/_signal` (`{ zdravi: ms, auto: ms }` – jen čas, žádná
   zdravotní data; pravidla `firestore.rules` nic jiného nepustí). Ostatní zařízení ho dostanou živě a načtou si zdraví / auto
   z motoru; zařízení, které zapisovalo, svůj signál znovu nenačítá. Zápis ke zdraví ani autu kopie na serveru nezneplatní.
 - Ostatní zápisy zneplatní jen kopie své oblasti (poznámka → schránka, archivace → pošta, událost → kalendář; neznámý zápis
-  všechno) a server za 5 s obnoví jen je (`obnovHned` s `jen`, bez omezení 45 s) – poznámka je na druhém zařízení za pár
+  všechno) a server za 2 s obnoví jen je (`obnovHned` s `jen`, bez omezení 45 s) – poznámka je na druhém zařízení za pár
   vteřin, bez čekání na poštu. Běží-li zrovna jiná obnova, ta po změně se pustí hned po ní.
 - **Obnovit** a otevření se staršími kopiemi (> 4 min) = celá obnova (`vse`, nejvýš 1× za 45 s). Server jede 6:00–23:50.
 Intervaly: `INTERVALY_MIN` v `firebase/functions/obnova.js`, platnost kopií `MAX_STARI_ID` a oblasti zápisů `KOPIE_ZAPISU`

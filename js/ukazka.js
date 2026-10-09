@@ -587,7 +587,7 @@ const akce = {
   pitiJidlo: (d) => {
     const z = (pitiUkazka[d.den] = pitiUkazka[d.den] || { piti: [], jidlo: [] });
     if (d.jak === 'piti') z.piti.push({ id: 'p' + Date.now(), kdy: Date.now(), ml: Number(d.ml) });
-    else if (d.jak === 'jidlo') z.jidlo.push({ id: 'j' + Date.now(), kdy: Date.now(), co: d.co, bilkoviny: Number(d.bilkoviny) || 0, kcal: Number(d.kcal) || 0 });
+    else if (d.jak === 'jidlo') z.jidlo.push({ id: 'j' + Date.now(), kdy: Date.now(), co: d.co, bilkoviny: Number(d.bilkoviny) || 0, kcal: Number(d.kcal) || 0, odhad: d.odhad ? 'mistni' : undefined });
     else if (d.jak === 'smazat') { z.piti = z.piti.filter((x) => x.id !== d.id); z.jidlo = z.jidlo.filter((x) => x.id !== d.id); }
     return { dny: kopie(pitiUkazka) };
   },
@@ -602,7 +602,8 @@ const akce = {
       const m = /(\d{2,3})(?:[.,](\d+))?/.exec(String(d.kg == null ? '' : d.kg));
       const kg = m ? Math.round(Number(m[1] + '.' + (m[2] || '0')) * 10) / 10 : NaN;
       if (!(kg >= 30 && kg <= 250)) throw new Error('Váha musí být číslo v kg (např. 80,4).');
-      vahaUkazka.push({ kdy: Date.now(), kg });
+      vahaUkazka.push({ kdy: Number(d.kdy) || Date.now(), kg });
+      vahaUkazka.sort((a, b) => a.kdy - b.kdy);
     }
     return { zaznamy: kopie(vahaUkazka) };
   },

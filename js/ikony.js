@@ -50,6 +50,8 @@ export const IKONY = {
   spanek: s('<path d="M20.5 14.5A8.5 8.5 0 1 1 9.5 3.5a7 7 0 0 0 11 11z"/>'),
   zatez: s('<path d="M13 2.5L4.5 13.5H12l-1 8 8.5-11H12z"/>'),
   kapka: s('<path d="M12 3.2l5.3 5.6a7.4 7.4 0 1 1-10.6 0z"/>'),
+  // jídlo: vidlička a nůž
+  jidlo: s('<path d="M7 3v7.5a2 2 0 0 0 2 2V21"/><path d="M5 3v5.5a2 2 0 0 0 2 2M11 3v5.5a2 2 0 0 1-2 2"/><path d="M17 21V3c-2.2 1.2-3.3 3.6-3.3 6.4V13H17"/>'),
   // počasí (ČHMÚ): ikona podle úvodní věty předpovědi
   slunce: s('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>'),
   polojasno: s('<path d="M9 2.8v1.6M3.2 8.6h1.6M4.9 4.5l1.1 1.1M13.1 4.5L12 5.6"/><path d="M5.6 11.4A3.8 3.8 0 0 1 12.2 7"/><path d="M17.5 20H8.2a3.7 3.7 0 1 1 .8-7.3 5 5 0 0 1 9.6 1.4A3 3 0 0 1 17.5 20z"/>'),

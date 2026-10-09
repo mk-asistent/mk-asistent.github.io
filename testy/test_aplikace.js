@@ -95,7 +95,7 @@ const motor = {
     treninky: [{ id: 'w1', den: iso(ted), start: den(0, 9), konec: den(0, 10), sport: 'soccer', zatez: 11.5, tepPrumer: 140, tepMax: 180, kcal: 700, zony: [1, 5, 20, 20, 10, 4] }],
     whoop: { nastaveno: true, propojeno: true, sync: { kdy: ted, chyba: '' } }, apple: { kdy: ted }, vaha: vahaZaznamy.slice(), doplnky: JSON.parse(JSON.stringify(doplnkyDny)),
     pitiJidlo: JSON.parse(JSON.stringify(pitiDny)),
-    rezim: { kofeinDo: '14:00', treninkDny: [], zapasTymy: ['A'], polozky: [{ id: 'kreatin', nazev: 'Kreatin', davka: '5 g', kdy: 'rano' },
+    rezim: { kofeinDo: '14:00', treninkDny: [], zapasTymy: ['A'], cilVahy: { kg: 70, do: iso(den(150)), od: { kg: 74, den: iso(den(-10)) } }, polozky: [{ id: 'kreatin', nazev: 'Kreatin', davka: '5 g', kdy: 'rano' },
       { id: 'kofein', nazev: 'Kofein', davka: 'před výkopem', kdy: 'zapas', jen: 'zapas' }, { id: 'horcik', nazev: 'Hořčík', davka: 'večer', kdy: 'vecer' }] } }),
   zdraviKlic: () => ({ klic: 'testovaci-klic-zdravi' }),
   zmeny: () => ({ auto: 0, zdravi: 0 }),
@@ -103,7 +103,7 @@ const motor = {
     pitiVolani.push({ den: d.den, jak: d.jak, ml: d.ml, co: d.co, bilkoviny: d.bilkoviny, id: d.id });
     const z = (pitiDny[d.den] = pitiDny[d.den] || { piti: [], jidlo: [] });
     if (d.jak === 'piti') z.piti.push({ id: 'p' + pitiVolani.length, kdy: Date.now(), ml: d.ml });
-    if (d.jak === 'jidlo') z.jidlo.push({ id: 'j' + pitiVolani.length, kdy: Date.now(), co: d.co, bilkoviny: d.bilkoviny, kcal: d.kcal });
+    if (d.jak === 'jidlo') z.jidlo.push({ id: 'j' + pitiVolani.length, kdy: Date.now(), co: d.co, bilkoviny: d.bilkoviny, kcal: d.kcal, odhad: d.odhad ? 'mistni' : undefined });
     if (d.jak === 'smazat') { z.piti = z.piti.filter((x) => x.id !== d.id); z.jidlo = z.jidlo.filter((x) => x.id !== d.id); }
     return { dny: JSON.parse(JSON.stringify(pitiDny)) };
   },
@@ -119,7 +119,8 @@ const motor = {
   upozorneniVypnout: () => { upozorneniStav = { zapnuto: false, tema: '' }; return Object.assign({}, upozorneniStav); },
   vaha: (d) => {
     if (d.smazat != null) vahaZaznamy = vahaZaznamy.filter((x) => x.kdy !== Number(d.smazat));
-    else vahaZaznamy.push({ kdy: Date.now(), kg: Number(d.kg) });
+    else vahaZaznamy.push({ kdy: d.kdy || Date.now(), kg: Number(d.kg) });
+    vahaZaznamy.sort((a, b) => a.kdy - b.kdy);
     return { zaznamy: vahaZaznamy.slice() };
   },
   fotbal: () => ({ vKalendari: [], kalendar: null, data: { verze: 1, aktualizovano: new Date(ted).toISOString(), klub: 'FK Agro Vnorovy',
@@ -149,7 +150,7 @@ const motor = {
   reelStav: (d) => { if (d.zverejneno) reelyZverejneno[d.id] = iso(ted); else delete reelyZverejneno[d.id]; return { zverejneno: Object.assign({}, reelyZverejneno) }; },
   reelNaplanovat: (d) => {
     reelyNaplanovano.push(d);
-    reelyPlan[d.id] = { kdy: d.kdy, stav: 'ceka', oznacit: String(d.oznacit || '').split(/[\s,]+/).filter(Boolean).map((u) => u.replace(/^@/, '').toLowerCase()), upraveno: true };
+    reelyPlan[d.id] = { kdy: d.kdy, stav: 'ceka', oznacit: String(d.oznacit || '').split(/[\s,]+/).filter(Boolean).map((u) => u.replace(/^@/, '').toLowerCase()), upraveno: true, pribeh: !!d.pribeh };
     reelyPopisky[d.id] = d.popisek;
     return { plan: Object.assign({}, reelyPlan), popisky: Object.assign({}, reelyPopisky) };
   },
@@ -1206,6 +1207,7 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.waitForFunction(() => /^0,0 l/.test(document.querySelector('#dl-piti .piti__text b').textContent.trim()));
     await page.click('#dl-piti [data-jidlo-pridat]');
     await page.fill('[data-panel="jidlo"] [data-jidlo-co]', 'Kuře s rýží');
+    await page.click('[data-panel="jidlo"] .jidlo-presne summary');
     await page.fill('[data-panel="jidlo"] [data-jidlo-b]', '40');
     await page.click('[data-panel="jidlo"] [data-jidlo-ulozit]');
     await page.waitForFunction(() => /Kuře s rýží/.test(document.querySelector('#dl-piti').textContent) && /40 g/.test(document.querySelector('#dl-piti').textContent));
@@ -1213,6 +1215,52 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.locator('#dl-piti').screenshot({ path: path.join(VYSTUP, 'pc_piti.png') });
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
+  });
+
+  // ---------- jídlo slovy (Michal 9. 10.): napíše, co měl → bílkoviny hned odhadne aplikace, Claude upřesní; doplněk se odškrtne
+  await test('jídlo slovy: odhad bílkovin hned, doplněk z textu odškrtnutý, k motoru s odhadem pro Clauda; hodnocení dne', async () => {
+    const dnes = iso(ted);
+    pitiDny[dnes] = { piti: [], jidlo: [], hodnoceni: { znamka: 'B', text: 'Bílkovin 94 g ze 130 – k večeři přidej tvaroh.', kdy: ted } };
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.waitForSelector('#dl-piti:not([hidden]) [data-jidlo-pridat]');
+    jistota(/Dnešek podle Clauda/.test(await page.textContent('#dl-piti .piti__hodnoceni')) && await page.locator('#dl-piti .znamka--B').count() === 1, 'hodnocení dne od Clauda');
+    await page.click('#dl-piti [data-jidlo-pridat]');
+    const O = '[data-panel="jidlo"] ';
+    await page.waitForSelector(O + '[data-jidlo-co]');
+    await page.fill(O + '[data-jidlo-co]', '3 vejce a chleba, hořčík');
+    await page.waitForFunction((o) => /≈ \d+ g/.test(document.querySelector(o + '[data-jidlo-odhad]').textContent), O);
+    const odhad = await page.textContent(O + '[data-jidlo-odhad]');
+    jistota(/Hořčík/.test(odhad), 'doplněk poznaný v textu: ' + odhad);
+    await page.locator('[data-panel="jidlo"]').screenshot({ path: path.join(VYSTUP, 'pc_jidlo_odhad.png') });
+    const pred = pitiVolani.length;
+    await page.click(O + '[data-jidlo-ulozit]');
+    await page.waitForFunction(() => /Zapsáno:/.test(document.getElementById('toast').textContent));
+    const j = pitiVolani.slice(pred).find((x) => x.jak === 'jidlo');
+    jistota(j && /vejce/.test(j.co) && !/hořčík/i.test(j.co) && j.bilkoviny > 10, 'jídlo s odhadem do motoru: ' + JSON.stringify(j));
+    jistota(volano.some((d) => d.akce === 'pitiJidlo' && d.odhad === true), 'odhad pro Clauda');
+    for (let i = 0; i < 20 && !doplnkyVolani.some((x) => x.den === dnes && x.zmeny.horcik === true); i++) await page.waitForTimeout(150);
+    jistota(doplnkyVolani.some((x) => x.den === dnes && x.zmeny.horcik === true), 'hořčík odškrtnutý: ' + JSON.stringify(doplnkyVolani));
+    await page.waitForFunction(() => /≈ \d+ g/.test(document.querySelector('#dl-piti .piti__jidla').textContent));
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+    delete pitiDny[dnes];
+  });
+
+  // ---------- cíl váhy jen ve Zdraví (Michal 9. 10.: váha teď není hlavní) – pruh, zbývá, tempo; na Dnes jen zápis
+  await test('cíl váhy: ve Zdraví pruh a zbývá, na Dnes ne', async () => {
+    vahaZaznamy = [{ kdy: Date.now() - 5 * 864e5, kg: 73.6 }, { kdy: Date.now() - 864e5, kg: 73.1 }];
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.waitForSelector('#dl-vaha:not([hidden]) .vaha-ted');
+    jistota(await page.locator('#dl-vaha .vaha-cil').count() === 0, 'na Dnes bez cíle');
+    await page.click('#rail [data-cil="zdravi"]');
+    await page.waitForSelector('#zd-vaha .vaha-cil');
+    const t = await page.textContent('#zd-vaha .vaha-cil');
+    jistota(/Cíl 70 kg/.test(t) && /zbývá 3,1 kg/.test(t) && /ubylo 0,9 kg/.test(t), 'cíl: ' + t);
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+    vahaZaznamy = [];
   });
 
   // ---------- docházka dorostu (Týmuj) u tréninku v kalendáři: v týdnu „18/21“, v detailu počty a jména bez omluvy
@@ -1445,7 +1493,7 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.waitForFunction(() => /80,4/.test(document.querySelector('#zd-vaha .vaha-ted').textContent));
     jistota(volano.some((d) => d.akce === 'vaha' && d.kg === 80.4), 'kg do motoru');
     const t = await page.textContent('#zd-vaha .vaha-ted');
-    jistota(/zapsáno dnes \d{1,2}:\d{2}/.test(t) && /−0,8 kg/.test(t), 'čas zápisu a rozdíl: ' + t);
+    jistota(/dnes \d{1,2}:\d{2} · (ráno|přes den|večer)/.test(t) && /−0,8 kg/.test(t), 'čas zápisu, denní doba a rozdíl (stejná doba před 3 dny): ' + t);
     jistota(await page.locator('#zd-vaha .graf-vahy').count() === 1 && await page.inputValue('#zd-vaha [data-vaha-pole]') === '', 'čára a prázdné pole');
     await page.fill('#zd-vaha [data-vaha-pole]', '80,1');
     await page.press('#zd-vaha [data-vaha-pole]', 'Enter');
@@ -1477,7 +1525,7 @@ async function novaStranka(prohlizec, v, motiv) {
       await page.press('#dl-vaha [data-vaha-pole]', 'Enter');
       await page.waitForFunction(() => /81,1/.test(document.querySelector('#dl-vaha .vaha-ted').textContent));
       const t = await page.textContent('#dl-vaha .vaha-ted');
-      jistota(/zapsáno dnes \d{1,2}:\d{2}/.test(t) && /−0,4 kg/.test(t), 'čas a rozdíl na Dnes: ' + t);
+      jistota(/dnes \d{1,2}:\d{2} · (ráno|přes den|večer)/.test(t) && /−0,4 kg/.test(t), 'čas, denní doba a rozdíl na Dnes: ' + t);
       jistota(await page.inputValue('#dl-vaha [data-vaha-pole]') === '', 'pole po zápisu prázdné');
       await page.locator('#dl-vaha').screenshot({ path: path.join(VYSTUP, v.nazev + '_dnes_vaha.png') });
       jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
@@ -1485,17 +1533,20 @@ async function novaStranka(prohlizec, v, motiv) {
     });
   }
 
-  await test('Váha na telefonu: + → Váha → zápis s časem', async () => {
+  await test('Váha na telefonu: + → Váha → zápis s časem (i zpětně – včera večer)', async () => {
     vahaZaznamy = [];
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
     await page.goto(WEB);
     await page.click('.lista [data-rychle]');
     await page.click('[data-rychle-akce="vaha"]');
-    await page.waitForSelector('.okno-pozadi.videt .okno__pole input[inputmode="decimal"]');
-    await page.fill('.okno-pozadi .okno__pole input', '79,9');
-    await page.click('.okno-pozadi [data-okno="ano"]');
-    await page.waitForFunction(() => /Zapsáno 79,9 kg · dnes \d/.test(document.getElementById('toast').textContent));
-    jistota(volano.some((d) => d.akce === 'vaha' && d.kg === 79.9), 'kg z okna do motoru');
+    const O = '[data-panel="vaha"] ';
+    await page.waitForSelector(O + '[data-vaha-okno-kg]');
+    await page.fill(O + '[data-vaha-okno-kg]', '79,9');
+    await page.click(O + '[data-vaha-okno-cas]:has-text("Včera večer")');
+    await page.click(O + '[data-vaha-okno-zapsat]');
+    await page.waitForFunction(() => /Zapsáno 79,9 kg · včera 21:00/.test(document.getElementById('toast').textContent));
+    const vecer = new Date(); vecer.setDate(vecer.getDate() - 1); vecer.setHours(21, 0, 0, 0);
+    jistota(volano.some((d) => d.akce === 'vaha' && d.kg === 79.9 && d.kdy === vecer.getTime()), 'kg a čas vážení do motoru: ' + JSON.stringify(volano.filter((d) => d.akce === 'vaha')));
     await page.click('.hlava-akce [data-cil="zdravi"]');
     await page.waitForFunction(() => /79,9/.test((document.querySelector('#zd-vaha .vaha-ted') || {}).textContent || ''));
     await page.locator('#zd-vaha').screenshot({ path: path.join(VYSTUP, 'telefon_vaha.png') });
@@ -1678,8 +1729,9 @@ async function novaStranka(prohlizec, v, motiv) {
     await page.waitForSelector('[data-reel="reel_dorost_tesany"] .tag--plan');
     const z = reelyNaplanovano[reelyNaplanovano.length - 1] || {};
     jistota(z.id === 'reel_dorost_tesany' && z.kdy === den(1, 19.5) && z.oznacit === '@dorost_agro' && /^Upravený popisek/.test(z.popisek), 'plán do motoru: ' + JSON.stringify(z));
+    jistota(z.pribeh === true, 'rovnou i do příběhu (výchozí zapnuto): ' + JSON.stringify(z));
     const karta = await page.textContent('[data-reel="reel_dorost_tesany"]');
-    jistota(/vyjde .*19:30/.test(karta) && /označí @dorost_agro/.test(karta) && /Upravený popisek/.test(karta) && /upravený popisek pro Instagram/.test(karta), 'karta po naplánování: ' + karta.slice(0, 200));
+    jistota(/vyjde .*19:30 \+ příběh/.test(karta) && /označí @dorost_agro/.test(karta) && /Upravený popisek/.test(karta) && /upravený popisek pro Instagram/.test(karta), 'karta po naplánování: ' + karta.slice(0, 200));
     // naplánovaný reel už na Dnes nestraší jako „k vyvěšení“
     jistota(!(await page.evaluate(() => import('/js/reely.js').then((m) => m.kVyveseni().some((r) => r.id === 'reel_dorost_tesany')))), 'naplánovaný není k vyvěšení');
     await page.click('[data-reel="reel_dorost_tesany"] [data-reel-zrusit-plan]');

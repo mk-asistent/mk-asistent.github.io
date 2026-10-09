@@ -74,7 +74,8 @@ function obnovVse(znovu) {
   nast.nactiInfo();
   // počasí a zdraví server nechystá (jdou z motoru) – při pouhém návratu do aplikace nejvýš jednou za 30 / 15 minut
   if (znovu || stara('asistent.data.pocasi', 30)) pocasi.nactiPocasi(znovu);
-  if (znovu || stara('asistent.data.zdravi', 15)) zdravi.nactiZdravi(znovu);
+  // s účtem se zdraví načte hned po signálu nebo značce změny (zkontrolujZmeny, poSignalu) – jinak jen záloha po 6 h
+  if (znovu || stara('asistent.data.zdravi', ucet.zapnuty() ? 360 : 15)) zdravi.nactiZdravi(znovu);
   zkontrolujZmeny();
   fotbal.nactiFotbal();
   reely.nactiReely(primo);
@@ -131,6 +132,14 @@ function pocty() {
 }
 
 function nacitaSe() { return Object.keys(stav.nacita).some((k) => stav.nacita[k]) || kal.nacitaSe(); }
+
+// Kolečko u Obnovit jen po klepnutí na Obnovit – obnova při otevření a návratu jde potichu na pozadí (data z uložené
+// kopie jsou vidět hned a doplní se samy; Michal 9. 10.: „načítání je dlouhé“ = točící se kolečko při každém otevření).
+let rucneObnovuje = false;
+function tociSe() {
+  if (rucneObnovuje && !nacitaSe()) rucneObnovuje = false;
+  return rucneObnovuje;
+}
 
 // ---------------------------------------------------------------- vykreslení
 
@@ -233,7 +242,7 @@ function hlavniAkce() {
 function vykresliHorni() {
   $('horni').innerHTML = '<button type="button" class="hledat-tl" data-hledat>' + IKONY.hledat +
     '<span>Hledat v poště, schránce a kalendáři…</span><kbd>' + (MAC ? '⌘ K' : 'Ctrl K') + '</kbd></button>' +
-    '<div class="horni__akce"><button type="button" class="btn btn--ikona' + (nacitaSe() ? ' toci' : '') + '" data-obnovit aria-label="Obnovit" title="Obnovit">' +
+    '<div class="horni__akce"><button type="button" class="btn btn--ikona' + (tociSe() ? ' toci' : '') + '" data-obnovit aria-label="Obnovit" title="Obnovit">' +
     IKONY.obnovit + '</button>' + hlavniAkce() + '</div>';
 }
 
@@ -278,7 +287,7 @@ function vykresliHlavu(p) {
       '<div class="hlava-akce">' +
         (umiMotor('zdravi') && stav.pohled !== 'zdravi' ? '<button type="button" class="btn btn--ikona" data-cil="zdravi" aria-label="Zdraví">' + IKONY.srdce + '</button>' : '') +
         '<button type="button" class="btn btn--ikona" data-hledat aria-label="Hledat">' + IKONY.hledat + '</button>' +
-        '<button type="button" class="btn btn--ikona' + (nacitaSe() ? ' toci' : '') + '" data-obnovit aria-label="Obnovit">' + IKONY.obnovit + '</button>' +
+        '<button type="button" class="btn btn--ikona' + (tociSe() ? ' toci' : '') + '" data-obnovit aria-label="Obnovit">' + IKONY.obnovit + '</button>' +
       '</div></div>' +
     '<div class="hlava-radek"><div class="hlava-titul"><h1>' + (stav.pohled !== 'dnes' ? '<span class="hlava-ikona" data-oblast="' +
       (stav.pohled === 'reely' ? 'fotbal' : stav.pohled) + '">' + IKONY[stav.pohled] + '</span>' : '') + esc(nadpis) + '</h1>' + (pod ? '<p>' + pod + '</p>' : '') + '</div></div>';
@@ -345,6 +354,7 @@ function otevriRychle() {
       volba('email', IKONY.psat, 'zluta', 'Nový e-mail', 'z osobní nebo pracovní adresy') +
       volba('udalost', IKONY.kalendar, 'zelena', 'Událost', 'do kalendáře, i s pozvánkami') +
       volba('zapas', IKONY.zapas, 'limetka', 'Zápas', 'tým, soupeř, výkop, sraz') +
+      (umiMotor('pitiJidlo') ? volba('jidlo', IKONY.jidlo, 'zdravi', 'Jídlo', 'napiš, co jsi měl – bílkoviny spočítám') : '') +
       (umiMotor('vaha') ? volba('vaha', IKONY.vaha, 'oranz', 'Váha', 'kg – zapíše se i s časem') : '') +
       (umiMotor('autoZapsat') ? volba('tankovani', IKONY.palivo, 'auto', 'Tankování', 'částka, cena za litr, km – do tabulky auta') : '') +
       // účtenka: popisek s polem pro fotku – klepnutí otevře nabídku iPhonu (Fotky / Vyfotit / Soubory; jinak okno nepustí)
@@ -358,7 +368,8 @@ function rychlaAkce(akce) {
   else if (akce === 'email') posta.otevriPsani('novy');
   else if (akce === 'udalost') udalost.otevriFormular({ den: stav.pohled === 'kalendar' ? stav.kal.vybrany : undefined });
   else if (akce === 'zapas') udalost.otevriFormular({ typ: 'zapas', den: stav.pohled === 'kalendar' ? stav.kal.vybrany : undefined });
-  else if (akce === 'vaha') zdravi.zapisVahuOknem();
+  else if (akce === 'vaha') zdravi.otevriVahu();
+  else if (akce === 'jidlo') zdravi.otevriJidlo();
   else if (akce === 'tankovani') auto.otevriZapis('tankovani');
 }
 
@@ -634,7 +645,7 @@ document.addEventListener('click', (e) => {
     zmeneno();
     return;
   }
-  if (el.hasAttribute('data-obnovit')) { obnovVse(true); return; }
+  if (el.hasAttribute('data-obnovit')) { rucneObnovuje = true; obnovVse(true); return; }
   if (el.hasAttribute('data-hledat')) { hledat.otevriHledani(); return; }
   if (el.hasAttribute('data-otevri-nastaveni')) { nast.otevriNastaveni(el.dataset.otevriNastaveni); return; }
   if (el.hasAttribute('data-nova-poznamka')) { schranka.zamerZapis(); return; }
