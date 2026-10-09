@@ -11,13 +11,14 @@
 //
 // VERZE = otisk obsahu souborů aplikace: po každé změně `node testy/sw_verze.js --zapsat` (testy jinak selžou).
 
-const VERZE = 'asistent-87d54667ff7a';
+const VERZE = 'asistent-3b03a005954b';
 const SOUBORY = [
   './', 'index.html', 'app.css', 'manifest.webmanifest',
   'js/start.js', 'js/app.js', 'js/api.js', 'js/pomocne.js', 'js/stav.js', 'js/ui.js', 'js/ikony.js', 'js/panely.js',
   'js/schranka.js', 'js/posta.js', 'js/kalendar.js', 'js/nastaveni.js', 'js/ukazka.js', 'js/grafy.js', 'js/hledat.js', 'js/udalost.js',
   'js/pocasi.js', 'js/zdravi.js', 'js/adresy.js', 'js/fotbal.js', 'js/rozbor.js', 'js/dochazka.js', 'js/reely.js', 'js/ucet.js', 'js/auto.js',
   'js/jidlo_odhad.js', 'js/jmeniny.js', 'js/plakaty.js', 'js/plakat.js', 'js/plakat_data.js', 'plakaty.css', 'js/moje.js',
+  'js/wedos.js', // WEDOS – pracovní schránka přímo
   'ikony/ikona-192.png', 'ikony/apple-touch-icon.png'
 ];
 

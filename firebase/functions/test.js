@@ -120,5 +120,8 @@ function motor(odpovedi, zaznam) {
     assert.ok(!platnePripojeni(null));
   });
 
+  // ---------- WEDOS – pracovní pošta přímo (IMAP/SMTP), napodobený server: test_wedos.js
+  await require('./test_wedos')(test);
+
   console.log('\n' + ok + ' testů prošlo' + (process.exitCode ? ', některé SELHALY' : ''));
 })();

@@ -13,6 +13,7 @@ import { tymyHtml as fotbalTymyHtml } from './fotbal.js';
 import { DRUHY } from './kalendar.js';
 import * as pocasi from './pocasi.js';
 import * as ucet from './ucet.js';
+import * as wedos from './wedos.js'; // WEDOS – pracovní schránka přímo: oddíl v Nastavení → Pošta (ovládání v js/wedos.js)
 
 export const VERZE_APLIKACE = '2026-10-09';
 
@@ -342,6 +343,8 @@ function sekcePosty() {
     '(wes1-smtp.wedos.net, login celá adresa, heslo zadáš jen ty).</li>' +
     '<li>Sem napiš pracovní adresu a ulož. Aplikace pak pracovní poštu oddělí a odpovídá z ní.</li></ol>' +
     '<p>Přeposíláním se firemní e-maily ukládají i v osobním účtu Google – je to rozhodnutí firmy, ne aplikace.</p></details>';
+  // ---- WEDOS – pracovní schránka přímo (server IMAP/SMTP): celý oddíl i jeho tlačítka jsou v js/wedos.js
+  h += wedos.nastaveniHtml();
   // podpis na konec e-mailu – vloží se do psaní (nový e-mail i odpověď), před odesláním jde upravit
   const podpisy = p.podpisy || {};
   const jmeno = uloziste.cti('asistent.jmeno') || '';

@@ -6,7 +6,7 @@
     {
       "source": "functions",
       "runtime": "nodejs22",
-      "ignore": ["node_modules", ".git", "test.js", "*.log"]
+      "ignore": ["node_modules", ".git", "test.js", "test_*.js", "*.log"]
     }
   ]
 }
