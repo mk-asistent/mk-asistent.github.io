@@ -1,11 +1,14 @@
 // Schránka pro Clauda: poznámky z iPhonu i z aplikace, co čeká na Michala, co dělá Claude, co je vyřízené.
 // Aplikace připíše odpověď nebo doplnění a soubor přesune, nastaví nadpis a téma; smazání = koš na Disku (30 dní).
 // Návrh od Clauda (událost / e-mail z diktátu) se jedním klepnutím otevře předvyplněný – nic se neodešle samo.
+// Stránka (Michal 9. 10.: „je taková prázdná“): vlevo zápis, filtry a seznam, vpravo týden v číslech a Claude,
+// Moje poznámky (js/moje.js), termíny a nápady na později. Pravé tlačítko / dlouhé podržení na položce = nabídka
+// (Otevřít, Hotovo / Vyřízeno, Dopsat, Smazat – bez dotazu, s Vrátit v oznámení; js/nabidka.js).
 
-import { stav, zmeneno, prejdi, umiMotor } from './stav.js';
+import { stav, zmeneno, prejdi, umiMotor, hooky } from './stav.js';
 import { volej } from './api.js';
-import { esc, kdyKratce, prvniRadek, dm, hhmm, rozdilDni, terminDatum, DNY_KR, uloziste, odstin, sOdkazy } from './pomocne.js';
-import { toast, toastAkce, kostra, chybaHtml, prizpusobVysku, okno, potvrd } from './ui.js';
+import { esc, kdyKratce, prvniRadek, dm, hhmm, rozdilDni, terminDatum, DNY_KR, uloziste, odstin, sOdkazy, pulnoc, pridejDny } from './pomocne.js';
+import { toast, toastAkce, kostra, chybaHtml, prizpusobVysku, okno, hlavickaKarty } from './ui.js';
 import { IKONY } from './ikony.js';
 import { otevriFormular } from './udalost.js';
 import { otevriPsani } from './posta.js';
@@ -17,6 +20,11 @@ const ULOZISTE = 'asistent.data.schranka';
 export function nactiZUloziste() {
   const v = uloziste.cti(ULOZISTE);
   if (v && v.data) stav.schranka = v.data;
+}
+
+/** Schránku po změně v aplikaci (smazání, moje poznámka…) uložit i v zařízení – po otevření bez sítě sedí. */
+export function ulozMistne() {
+  if (stav.schranka) uloziste.pis(ULOZISTE, { data: stav.schranka, kdy: Date.now() });
 }
 
 export function nactiSchranku() {
@@ -130,7 +138,7 @@ export function terminy() {
 
 function terminZnacka(p) {
   const t = terminDatum(p.termin);
-  if (t == null) return '';
+  if (t == null || skupina(p) === 'hotovo') return ''; // vyřízený úkol není „po termínu“
   const r = rozdilDni(t);
   if (r < 0) return '<span class="tag tag--danger">po termínu · ' + dm(t) + '</span>';
   if (r === 0) return '<span class="tag tag--warn">dnes</span>';
@@ -217,9 +225,12 @@ export function zamerZapis() {
   }, 30);
 }
 
-/** Otevře položku ve Schránce (z hledání). */
+/** Otevře položku ve Schránce (z hledání, z termínů, z Dnes na telefonu). */
 export function ukazPolozku(id) {
+  const p = najdi(id);
   stav.filtrSchranky = 'vse';
+  if (p && stav.temaSchranky && p.tema !== stav.temaSchranky) stav.temaSchranky = ''; // filtr tématu by ji schoval
+  if (p && skupina(p) === 'hotovo') stav.hotovoVse = true;                            // i starší vyřízená
   stav.otevrene[id] = true;
   prejdi('schranka');
   zmeneno();
@@ -247,12 +258,22 @@ function filtryHtml(pocty) {
 
 export function vykresliSchranku(el) {
   if (!el.querySelector('#schranka-obsah')) {
-    el.innerHTML = zapisHtml() + '<div id="schranka-filtry"></div><div id="schranka-obsah" class="pohled"></div>';
+    // vlevo zápis, filtry a seznam; vpravo přehled (na telefonu a iPadu na výšku pod seznamem). Pole pro zápis se
+    // vytváří jen jednou – překreslování ho nemaže.
+    el.innerHTML = '<div class="schranka-mrizka"><div class="schranka-hlavni">' + zapisHtml() +
+      '<div id="schranka-filtry"></div><div id="schranka-obsah" class="pohled"></div></div>' +
+      '<aside class="schranka-bok" aria-label="Přehled schránky">' +
+        '<section class="card dlazdice sb-tyden" id="sb-tyden" data-oblast="schranka"></section>' +
+        '<section class="card dlazdice sb-moje" id="sb-moje" hidden></section>' +
+        '<section class="card dlazdice sb-terminy" id="sb-terminy" hidden></section>' +
+        '<section class="card dlazdice sb-napady" id="sb-napady" hidden></section>' +
+      '</aside></div>';
   }
   const obsah = el.querySelector('#schranka-obsah');
   if (!stav.schranka) {
     el.querySelector('#schranka-filtry').innerHTML = '';
     obsah.innerHTML = '<div class="card">' + (stav.chyby.schranka ? chybaHtml(stav.chyby.schranka, 'data-schranka-znovu') : kostra(4)) + '</div>';
+    vykresliBok(el, null);
     return;
   }
   const sk = { rozhodni: [], ukol: [], napad: [], nove: [], hotovo: [] };
@@ -260,6 +281,7 @@ export function vykresliSchranku(el) {
   sk.ukol.sort(seradUkoly);
   sk.rozhodni.sort((a, b) => a.kdy - b.kdy);
   sk.nove.sort((a, b) => b.kdy - a.kdy);
+  sk.napad.sort((a, b) => b.kdy - a.kdy);
   const pocty = {};
   Object.keys(sk).forEach((k) => { pocty[k] = sk[k].length; });
   el.querySelector('#schranka-filtry').innerHTML = filtryHtml(pocty);
@@ -272,10 +294,12 @@ export function vykresliSchranku(el) {
     h += '<p class="pruh pruh-varovani">U Clauda čeká ' + sk.nove.length + ' ' + (sk.nove.length === 1 ? 'poznámka' : sk.nove.length < 5 ? 'poznámky' : 'poznámek') +
       ' déle než 3 hodiny' + (zpracovano ? ' – naposledy zpracováno ' + esc(kdyKratce(zpracovano)) : '') + '. Běží PC s Claudem?</p>';
   }
+  // nápady na později jsou ve „Vše“ v kartě vedle seznamu (seznam nechává to, co se má řešit); ve filtru Nápady tady
+  const napadyBokem = stav.filtrSchranky === 'vse';
   let neco = false;
   SKUPINY.forEach((s) => {
     const pol = sk[s[0]];
-    if (!pol.length || (stav.filtrSchranky !== 'vse' && stav.filtrSchranky !== s[0])) return;
+    if (!pol.length || (stav.filtrSchranky !== 'vse' && stav.filtrSchranky !== s[0]) || (s[0] === 'napad' && napadyBokem)) return;
     neco = true;
     // vyřízené ve „Vše“ jen posledních 5 (schránka roste) – zbytek na klepnutí nebo ve filtru Vyřízeno
     const sbalit = s[0] === 'hotovo' && stav.filtrSchranky === 'vse' && !stav.hotovoVse && pol.length > 5;
@@ -284,8 +308,101 @@ export function vykresliSchranku(el) {
       '<div class="card"><ul class="seznam">' + (sbalit ? pol.slice(0, 5) : pol).map((p) => polozkaHtml(p, false)).join('') + '</ul>' +
       (sbalit ? '<button type="button" class="agenda__vic" data-hotovo-vse>Ukázat všech ' + pol.length + ' vyřízených</button>' : '') + '</div></section>';
   });
-  if (!neco) h += '<div class="card"><div class="prazdne">' + (stav.filtrSchranky === 'vse' ? 'Schránka je prázdná. Nadiktuj první poznámku.' : 'Tady nic není.') + '</div></div>';
+  if (!neco) h += prazdnaHtml(napadyBokem && sk.napad.length);
   obsah.innerHTML = h;
+  vykresliBok(el, sk);
+}
+
+/** Prázdný seznam: schránka bez poznámek, jen nápady, nebo prázdný filtr. */
+function prazdnaHtml(jenNapady) {
+  const [nadpisPrazdne, text] = stav.filtrSchranky !== 'vse'
+    ? ['Tady nic není', stav.temaSchranky ? 'V tomhle tématu a skupině teď nic neleží.' : 'V téhle skupině teď nic neleží.']
+    : jenNapady ? ['Nic nečeká', 'Zbývají jen nápady na později.']
+      : vsechnyPolozky().length || stav.temaSchranky ? ['Tady nic není', 'V tomhle tématu teď nic neleží.']
+        : ['Schránka je prázdná', 'Napiš poznámku nahoře, nebo ji nadiktuj v iPhonu zkratkou „Pro Clauda“.'];
+  return '<div class="card"><div class="prazdne prazdne--velke"><i class="kruh kruh--fialova">' + IKONY.schranka + '</i><b>' + nadpisPrazdne + '</b><span>' + text + '</span></div></div>';
+}
+
+// ---------------------------------------------------------------- přehled vpravo: týden v číslech, moje poznámky, termíny, nápady
+
+function vykresliBok(el, sk) {
+  const tyden = el.querySelector('#sb-tyden'), moje = el.querySelector('#sb-moje'), terminy = el.querySelector('#sb-terminy'), napady = el.querySelector('#sb-napady');
+  if (!sk) {
+    tyden.innerHTML = hlavickaKarty(IKONY.aktivita, 'Týden v číslech') + kostra(3);
+    moje.hidden = terminy.hidden = napady.hidden = true;
+    return;
+  }
+  tyden.innerHTML = tydenHtml();
+  // Moje poznámky (js/moje.js přes hooky – se starším motorem karta není)
+  const sMoje = !!hooky.mojeKarta && umiMotor('mojePridat');
+  moje.hidden = !sMoje;
+  if (sMoje) hooky.mojeKarta(moje);
+  terminy.hidden = false;
+  terminy.innerHTML = terminyHtml();
+  const napadyBokem = stav.filtrSchranky === 'vse' && sk.napad.length;
+  napady.hidden = !napadyBokem;
+  napady.innerHTML = napadyBokem ? hlavickaKarty(IKONY.claude, 'Nápady na později · ' + sk.napad.length,
+    '<button type="button" class="sipka" data-sb-filtr="napad" aria-label="Jen nápady" title="Jen nápady">' + IKONY.sipka + '</button>') +
+    '<div class="dlazdice__telo"><ul class="seznam">' + sk.napad.map((p) => polozkaHtml(p, false)).join('') + '</ul></div>' : '';
+}
+
+/** Kdy se s poznámkou naposledy něco dělo (poslední sekce Claude / Michal), jinak úprava souboru, jinak zápis. */
+function casVyrizeni(p) {
+  let t = 0;
+  p.vlakno.forEach((v) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/.exec(v.kdy || '');
+    if (m) t = Math.max(t, new Date(+m[1], m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)).getTime());
+  });
+  return t || p.upraveno || p.kdy;
+}
+
+/** „dnes 14:05“, „včera 21:30“, „po“, „2. 10.“ */
+function kdyClaude(t) {
+  const r = rozdilDni(t);
+  return r === 0 ? 'dnes ' + hhmm(t) : r === -1 ? 'včera ' + hhmm(t) : kdyKratce(t);
+}
+
+/** Týden v číslech: zadáno, vyřízeno, čeká na tebe; sloupce zadaných poznámek po dnech; kdy Claude naposledy zpracoval. */
+function tydenHtml() {
+  const od = pridejDny(pulnoc(Date.now()), -6);
+  const dny = [];
+  for (let i = 0; i < 7; i++) dny.push({ t: pridejDny(od, i), n: 0 });
+  vsechnyPolozky().forEach((p) => { const i = rozdilDni(p.kdy, od); if (i >= 0 && i < 7) dny[i].n++; });
+  const zadano = dny.reduce((s, d) => s + d.n, 0);
+  const vyrizeno = stav.schranka.hotovo.filter((p) => casVyrizeni(p) >= od).length;
+  const ceka = naTebe().length;
+  const nejvic = Math.max.apply(null, dny.map((d) => d.n));
+  const cislo = (atr, nazev, n, pod) => (atr ? '<button type="button" class="sb-cislo" ' + atr + '>' : '<div class="sb-cislo">') +
+    '<small>' + nazev + '</small><b class="cisla">' + n + '</b><span>' + pod + '</span>' + (atr ? '<i class="sb-cislo__sipka" aria-hidden="true">' + IKONY.sipka + '</i></button>' : '</div>');
+  const graf = '<div class="sb-graf" role="img" aria-label="Zadané poznámky za 7 dní: ' + dny.map((d) => DNY_KR[new Date(d.t).getDay()] + ' ' + d.n).join(', ') + '">' +
+    dny.map((d, i) => '<div class="sb-graf__den"><span class="sb-graf__sloupec' + (i === 6 ? ' dnes' : d.n && d.n === nejvic ? ' nejvic' : d.n ? ' plny' : '') +
+      '" style="height:' + (d.n ? Math.round(18 + 82 * d.n / nejvic) : 10) + '%">' + (d.n ? '<em class="cisla">' + d.n + '</em>' : '') + '</span>' +
+      '<small>' + DNY_KR[new Date(d.t).getDay()] + '</small></div>').join('') + '</div>';
+  // Claude: kdy naposledy zpracoval schránku; čeká-li u něj něco přes 3 h bez zpracování, korálově (PC asi neběží)
+  const u = uClauda();
+  const z = stav.schranka.zpracovano;
+  const nejstarsi = u.length ? Math.min.apply(null, u.map((p) => p.kdy)) : null;
+  const pozde = nejstarsi && Date.now() - nejstarsi > 3 * 36e5 && (!z || z < nejstarsi);
+  const claude = '<p class="sb-claude' + (pozde ? ' sb-claude--pozde' : '') + '"><i aria-hidden="true"></i><span>' +
+    (z ? 'Claude naposledy ' + esc(kdyClaude(z)) : 'Claude schránku ještě nezpracoval') +
+    (u.length ? ' · <button type="button" class="odkaz" data-sb-filtr="nove">u Clauda ' + u.length + '</button>' : ' · nic u něj nečeká') + '</span></p>';
+  return hlavickaKarty(IKONY.aktivita, 'Týden v číslech') +
+    '<div class="sb-cisla">' + cislo('', 'Zadáno', zadano, 'za 7 dní') + cislo('data-sb-filtr="hotovo"', 'Vyřízeno', vyrizeno, 'za 7 dní') +
+      cislo('data-sb-skoc="tebe" title="Tvoje úkoly a rozhodnutí"', 'Čeká', ceka, 'na tebe') + '</div>' + graf + claude;
+}
+
+/** Nejbližší termíny tvých úkolů a rozhodnutí (po termínu nahoře) – klepnutí položku otevře v seznamu. */
+function terminyHtml() {
+  const s = naTebe().filter((p) => terminDatum(p.termin) != null).sort((a, b) => terminDatum(a.termin) - terminDatum(b.termin));
+  const telo = !s.length
+    ? '<p class="sb-prazdne">' + IKONY.fajfka + '<span>Žádný termín nehoří. Úkolu dáš termín v jeho detailu (Termín).</span></p>'
+    : '<ul class="sb-terminy">' + s.slice(0, 6).map((p) => {
+      const t = terminDatum(p.termin), r = rozdilDni(t);
+      return '<li><button type="button" class="sb-termin' + (r < 0 ? ' sb-termin--po' : r === 0 ? ' sb-termin--dnes' : '') + '" data-sb-polozka="' + esc(p.id) + '">' +
+        '<span class="sb-termin__kdy">' + (r < 0 ? 'po termínu' : r === 0 ? 'dnes' : r === 1 ? 'zítra' : DNY_KR[new Date(t).getDay()] + ' ' + dm(t)) + '</span>' +
+        '<span class="sb-termin__co">' + esc(nadpis(p)) + (r < 0 ? '<small>od ' + dm(t) + '</small>' : '') + '</span></button></li>';
+    }).join('') + '</ul>' + (s.length > 6 ? '<p class="dlazdice__napoveda">a další ' + (s.length - 6) + ' v seznamu</p>' : '');
+  return hlavickaKarty(IKONY.cas, 'Termíny' + (s.length ? ' · ' + s.length : '')) + '<div class="dlazdice__telo">' + telo + '</div>';
 }
 
 // ---------------------------------------------------------------- ovládání
@@ -298,6 +415,15 @@ export function klikSchranka(el) {
   }
   if (el.dataset.filtrSchranky && el.closest('#p-schranka')) { stav.filtrSchranky = el.dataset.filtrSchranky; zmeneno(); return true; }
   if (el.dataset.temaSchranky !== undefined && el.closest('#p-schranka')) { stav.temaSchranky = el.dataset.temaSchranky; zmeneno(); return true; }
+  // přehled vpravo: čísla a „u Clauda“ = filtr, „Čeká na tebe“ = skok na rozhodnutí / úkoly, termín = otevřít položku
+  if (el.dataset.sbFiltr) { stav.filtrSchranky = el.dataset.sbFiltr; zmeneno(); skocNa('#schranka-filtry'); return true; }
+  if (el.dataset.sbSkoc) {
+    stav.filtrSchranky = 'vse';
+    zmeneno();
+    skocNa(SKUPINY.filter((s) => s[0] === 'rozhodni' || s[0] === 'ukol').map((s) => '#sk-' + s[0]).concat('#schranka-filtry'));
+    return true;
+  }
+  if (el.dataset.sbPolozka) { ukazPolozku(el.dataset.sbPolozka); return true; }
   if (el.dataset.polozkaAkce) { upravPolozku(el.dataset.polozkaAkce, el.dataset.id); return true; }
   if (el.hasAttribute('data-hotovo-vse')) { stav.hotovoVse = true; zmeneno(); return true; }
   if (el.dataset.navrh) { pouzijNavrh(el.dataset.navrh); return true; }
@@ -449,18 +575,101 @@ async function upravPolozku(jak, id) {
       nahrad(await volej('polozka', { id, jak: 'termin', text: volba }));
       toast(volba ? 'Termín ' + terminDatum(volba) : 'Termín zrušen');
     } else if (jak === 'smazat') {
-      if (!(await potvrd('Smazat poznámku?', { ton: 'nebezpeci', ikona: IKONY.smazat, ano: 'Smazat',
-        text: 'Přesune se do koše na Disku Google – 30 dní ji tam jde obnovit.' }))) return;
-      await volej('polozka', { id, jak: 'smazat' });
-      ['nove', 'ceka', 'hotovo'].forEach((k) => { stav.schranka[k] = stav.schranka[k].filter((x) => x.id !== id); });
-      delete stav.otevrene[id];
-      zmeneno();
-      toastAkce('Smazáno', 'Vrátit', () => volej('polozka', { id, jak: 'obnovit' }).then(() => { toast('Vráceno'); nactiSchranku(); })
-        .catch((e) => toast(e.message, true)));
+      smazPolozku(id);
     }
   } catch (e) {
     toast(e.message, true);
   }
+}
+
+/** Po překreslení posunout stránku Schránka k prvnímu nalezenému prvku (selektor nebo pole selektorů). */
+function skocNa(kam) {
+  setTimeout(() => {
+    const cil = [].concat(kam).map((s) => document.querySelector('#p-schranka ' + s)).find(Boolean);
+    if (cil) cil.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, 30);
+}
+
+// ---------------------------------------------------------------- smazat (bez dotazu, s Vrátit), vyřídit, nabídka u položky
+
+/** Vyjme položku ze schránky v zařízení (hned zmizí) – vrací, kam ji případně vrátit. */
+function vyjmiPolozku(id) {
+  if (!stav.schranka) return null;
+  for (const k of ['nove', 'ceka', 'hotovo']) {
+    const i = stav.schranka[k].findIndex((x) => x.id === id);
+    if (i >= 0) {
+      const p = stav.schranka[k][i];
+      stav.schranka[k] = stav.schranka[k].filter((x) => x.id !== id);
+      delete stav.otevrene[id];
+      zmeneno();
+      return { k, i, p };
+    }
+  }
+  return null;
+}
+
+function vratPolozku(kde) {
+  if (!kde || !stav.schranka || najdi(kde.p.id)) return;
+  const seznam = stav.schranka[kde.k].slice();
+  seznam.splice(Math.min(kde.i, seznam.length), 0, kde.p);
+  stav.schranka[kde.k] = seznam;
+  zmeneno();
+}
+
+/** Smazat poznámku (Michal 9. 10.: „ať se mi tam zbytečně nezobrazuje, co je staré nebo vyřešené“): hned pryč, bez
+ *  dotazu – soubor jde do koše na Disku (30 dní) a v oznámení je Vrátit. */
+function smazPolozku(id) {
+  const kde = vyjmiPolozku(id);
+  if (!kde) return;
+  const smazani = (umiMotor('schrankaSmazat') ? volej('schrankaSmazat', { id }) : volej('polozka', { id, jak: 'smazat' }))
+    .then(() => { ulozMistne(); return true; })
+    .catch((e) => { vratPolozku(kde); toast('Nesmazáno – ' + e.message, true); return false; });
+  toastAkce('Smazáno', 'Vrátit', () => {
+    vratPolozku(kde);
+    smazani.then((smazano) => smazano && (umiMotor('schrankaObnovit') ? volej('schrankaObnovit', { id }) : volej('polozka', { id, jak: 'obnovit' }))
+      .then(() => { ulozMistne(); toast('Vráceno'); }))
+      .catch((e) => { toast('Nevráceno – ' + e.message, true); nactiSchranku(); });
+  });
+}
+
+/** Vyřídit z nabídky: tvůj úkol Hotovo, nápad Zahodit, rozhodnutí / poznámka u Clauda „už není potřeba“ → Vyřízené. */
+function vyriditPolozku(id) {
+  const p = najdi(id);
+  if (!p) return;
+  const sk = skupina(p);
+  const jak = sk === 'napad' ? 'zahodit' : 'hotovo';
+  const text = sk === 'rozhodni' || sk === 'nove' ? 'Vyřízeno – už není potřeba.' : '';
+  // hned mezi vyřízené (jako by to udělal motor), motor soubor přesune; při chybě se schránka načte znovu
+  const kde = vyjmiPolozku(id);
+  if (kde) {
+    const vyrizena = Object.assign({}, p, { slozka: 'HOTOVO', vlakno: p.vlakno.concat([{ kdo: 'Michal', kdy: '', text: text || (jak === 'zahodit' ? 'Zahodit – nedělat.' : 'Hotovo.') }]) });
+    stav.schranka.hotovo = [vyrizena].concat(stav.schranka.hotovo);
+    zmeneno();
+  }
+  volej('polozka', { id, jak, text })
+    .then(() => { toast(jak === 'zahodit' ? 'Zahozeno' : sk === 'ukol' ? 'Hotovo' : 'Vyřízeno'); return nactiSchranku(); })
+    .catch((e) => { toast(e.message, true); nactiSchranku(); });
+}
+
+/** Nabídka pro položku schránky, na kterou se kliklo (řádek v seznamu, na telefonu karta ve Vyžaduje pozornost), nebo null. */
+export function nabidkaPolozky(cil) {
+  const radek = cil && cil.closest && cil.closest('[data-polozka-id] > .radek, [data-ukaz-polozku]');
+  if (!radek) return null;
+  const naTelefonu = !!radek.dataset.ukazPolozku;
+  const id = naTelefonu ? radek.dataset.ukazPolozku : radek.parentNode.dataset.polozkaId;
+  const p = najdi(id);
+  if (!p) return null;
+  const sk = skupina(p);
+  const otevrena = !naTelefonu && !!stav.otevrene[id];
+  const polozky = [{ ikona: IKONY.sipka, text: otevrena ? 'Sbalit' : 'Otevřít', fn: () => {
+    if (naTelefonu) { ukazPolozku(id); return; }
+    if (otevrena) delete stav.otevrene[id]; else stav.otevrene[id] = true;
+    zmeneno();
+  } }];
+  if (sk !== 'hotovo') polozky.push({ ikona: IKONY.fajfka, text: sk === 'napad' ? 'Zahodit' : sk === 'ukol' ? 'Hotovo' : 'Vyřízeno', fn: () => vyriditPolozku(id) });
+  if (umiMotor('polozkaUpravy')) polozky.push({ ikona: IKONY.psat, text: sk === 'hotovo' ? 'Navázat' : 'Dopsat', fn: () => upravPolozku('dopsat', id) });
+  if (umiMotor('schrankaSmazat') || umiMotor('polozkaUpravy')) polozky.push({ ikona: IKONY.smazat, text: 'Smazat', nebezpeci: true, fn: () => smazPolozku(id) });
+  return { nadpis: prvniRadek(nadpis(p), 60), polozky };
 }
 
 // ---------------------------------------------------------------- návrh od Clauda (událost / e-mail z diktátu)

@@ -34,6 +34,7 @@ const OBNOVA_PO_ZMENE = 2e3;         // po změně z aplikace server obnoví zm�
 // kopie neovlivní a ostatním zařízením to hned řekne signál.
 const KOPIE_ZAPISU = {
   poznamka: ['schranka'], polozka: ['schranka'],
+  schrankaSmazat: ['schranka'], schrankaObnovit: ['schranka'], mojePridat: ['schranka'], mojeHotovo: ['schranka'], mojeSmazat: ['schranka'],
   vlakno: ['posta'], odeslat: ['posta'], oznacit: ['posta'], pripomenout: ['posta'], postaPresunout: ['posta'], postaPrectene: ['posta'],
   navrhZahodit: ['posta'], navrhyNastavit: ['posta', 'info'], nastavPostu: ['posta', 'info'], podpisyUlozit: ['info'],
   udalostUlozit: ['kalendar'], udalostSmazat: ['kalendar'], zapasyImport: ['kalendar'], fotbalKalendar: ['kalendar', 'info', 'fotbal'],

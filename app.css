@@ -881,6 +881,114 @@ li.aktivni > .radek { background: var(--sand); box-shadow: inset 3px 0 0 var(--a
 .odpoved { width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 9px 12px; resize: vertical; font-size: 14px; }
 .odpoved:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
 
+/* ---------- Schránka – celá stránka (Michal 9. 10.: „stránka schránka je taková prázdná … zkus ji nějak vyplnit“):
+   vlevo zápis, filtry a seznam, vpravo přehled (týden v číslech + Claude, Moje poznámky, termíny, nápady na později).
+   Od 1180 px dva sloupce, užší pod sebou: iPad na výšku karty po dvou, telefon jeden sloupec pod seznamem. */
+#p-schranka.pohled-uzky { max-width: 1480px; }
+.schranka-mrizka { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.schranka-hlavni { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.schranka-bok { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 16px; align-items: start; min-width: 0; }
+@media (min-width: 1180px) {
+    .schranka-mrizka { grid-template-columns: minmax(0, 1fr) 330px; gap: 20px; }
+    .schranka-bok { display: flex; flex-direction: column; align-items: stretch; }
+}
+@media (min-width: 1500px) { .schranka-mrizka { grid-template-columns: minmax(0, 1fr) 370px; } }
+/* prázdný seznam: kroužek s ikonou, nadpis a věta */
+.prazdne--velke { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 30px 20px 32px; text-align: center; }
+.prazdne--velke .kruh { width: 46px; height: 46px; margin-bottom: 6px; }
+.prazdne--velke .kruh svg { width: 21px; height: 21px; }
+.prazdne--velke b { font-size: 15px; font-weight: 650; color: var(--text); }
+.prazdne--velke span { max-width: 380px; font-size: 13px; }
+/* týden v číslech: tři čísla (vyřízeno a čeká s ↗), sloupce zadaných poznámek po dnech (dnes tmavě zelený, nejvíc
+   korálový), kdy Claude naposledy zpracoval schránku (korálově, když u něj něco čeká přes 3 h) */
+.sb-cisla { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 8px 12px 2px; }
+.sb-cislo { position: relative; display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 9px 10px 10px; border: 1px solid var(--line);
+    border-radius: 12px; background: var(--surface); color: inherit; text-align: left; font: inherit; }
+button.sb-cislo:hover { border-color: color-mix(in srgb, var(--o, var(--accent)) 45%, var(--line)); }
+.sb-cislo small { font-size: 10.5px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-cislo b { font-size: 26px; line-height: 1.12; font-weight: 700; letter-spacing: -.02em; }
+.sb-cislo span { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* šipka ↗ na řádku s číslem (nad ní je celý název) */
+.sb-cislo__sipka { position: absolute; top: 31px; right: 8px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; border: 1px solid var(--line); color: var(--text-soft); }
+.sb-cislo__sipka svg { width: 11px; height: 11px; }
+.sb-graf { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; height: 104px; padding: 14px 14px 0; }
+.sb-graf__den { display: flex; flex-direction: column; justify-content: flex-end; gap: 5px; min-width: 0; height: 100%; }
+.sb-graf__sloupec { flex: 0 1 auto; display: grid; place-items: start center; min-height: 6px; border-radius: 7px; background: var(--sand); }
+.sb-graf__sloupec.plny { background: var(--sand-2); }
+.sb-graf__sloupec.nejvic { background: var(--oranz); }
+.sb-graf__sloupec.dnes { background: var(--tmava); }
+.sb-graf__sloupec em { padding-top: 3px; font-style: normal; font-size: 10.5px; font-weight: 700; color: var(--text-soft); }
+.sb-graf__sloupec.nejvic em, .sb-graf__sloupec.dnes em { color: #fff; }
+.sb-graf__den small { flex: none; font-size: 10px; font-weight: 650; text-transform: uppercase; text-align: center; color: var(--dim); }
+.sb-graf__den:last-child small { color: var(--accent); }
+.sb-claude { display: flex; align-items: center; gap: 9px; margin: 12px 12px 12px; padding: 8px 11px; border-radius: 10px; background: var(--surface); font-size: 12.5px; color: var(--text-soft); }
+.sb-claude i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-tint); }
+.sb-claude .odkaz { font-size: inherit; }
+.sb-claude--pozde { background: var(--oranz-tint); color: var(--oranz); }
+.sb-claude--pozde i { background: var(--oranz); box-shadow: 0 0 0 3px color-mix(in srgb, var(--oranz) 22%, transparent); }
+/* termíny: kdy (po termínu korálově, dnes žlutě) a co – klepnutí otevře položku v seznamu */
+.sb-terminy { list-style: none; margin: 0; padding: 4px 8px 10px; display: flex; flex-direction: column; gap: 1px; }
+.sb-termin { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 10px; background: none; color: inherit; text-align: left; font: inherit; }
+.sb-termin:hover { background: var(--bg-soft); }
+.sb-termin__kdy { flex: none; width: 76px; font-size: 12px; font-weight: 650; color: var(--text-soft); }
+.sb-termin--dnes .sb-termin__kdy { color: var(--zluta); }
+.sb-termin--po .sb-termin__kdy { color: var(--oranz); }
+.sb-termin__co { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-termin__co small { margin-left: 6px; font-size: 11.5px; font-weight: 500; color: var(--dim); }
+.sb-prazdne { display: flex; align-items: flex-start; gap: 9px; margin: 0; padding: 6px 16px 16px; font-size: 13px; color: var(--muted); line-height: 1.45; }
+.sb-prazdne svg { flex: none; width: 17px; height: 17px; margin-top: 1px; color: var(--ok); }
+
+/* ---------- Moje poznámky (zkratka „Pro mě“, aplikace) – karta na Dnes a vpravo ve Schránce: pole jedním řádkem,
+   seznam s kroužkem Hotovo, textem (klepnutí = celý) a ⋯ (stejná nabídka jako pravé tlačítko) */
+.moje-pridat { display: flex; align-items: center; gap: 8px; margin: 6px 12px 4px; }
+.moje-pridat .field { flex: 1; min-width: 0; min-height: 38px; padding: 7px 14px; border-radius: 999px; }
+.moje-pridat .btn--ikona { flex: none; }
+.moje-seznam { padding: 2px 0 4px; }
+.moje-polozka { display: flex; align-items: flex-start; gap: 2px; padding: 1px 6px 1px 10px; }
+.moje-hotovo { flex: none; display: grid; place-items: center; width: 24px; height: 24px; margin: 9px 4px 0 0; padding: 0; border: 1.5px solid var(--sand-2);
+    border-radius: 50%; background: var(--surface); color: transparent; transition: border-color .12s, color .12s, background .12s; }
+.moje-hotovo svg { width: 13px; height: 13px; }
+.moje-hotovo:hover, .moje-hotovo:focus-visible { border-color: var(--ok); color: var(--ok); }
+.moje-hotovo:active { background: var(--ok); border-color: var(--ok); color: #fff; }
+.moje-obsah { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; padding: 9px 6px; border: 0; border-radius: 10px; background: none; color: inherit; text-align: left; font: inherit; }
+button.moje-obsah:hover { background: var(--bg-soft); }
+div.moje-obsah { flex-direction: column; align-items: stretch; gap: 3px; }
+.moje-text { flex: 1; min-width: 0; font-size: 13.5px; line-height: 1.42; overflow-wrap: anywhere; }
+.moje-text--cely { white-space: pre-wrap; }
+.moje-text--cely a { color: var(--accent); }
+.moje-kdy { flex: none; font-size: 11.5px; color: var(--dim); }
+button.moje-kdy { align-self: flex-start; padding: 0; border: 0; background: none; font: inherit; font-size: 11.5px; color: var(--muted); }
+button.moje-kdy:hover { color: var(--accent); }
+.moje-vic { flex: none; display: grid; place-items: center; width: 30px; height: 30px; margin-top: 5px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--dim); }
+.moje-vic:hover { background: var(--sand); color: var(--text); }
+.moje-vic svg { width: 16px; height: 16px; }
+@media (hover: hover) and (pointer: fine) {
+    .moje-vic { opacity: 0; }
+    .moje-polozka:hover .moje-vic, .moje-vic:focus-visible { opacity: 1; }
+}
+.moje-prazdne { margin: 0; padding: 4px 16px 14px; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.kruh--moje { background: #ffe7a3; color: #5f4300; }
+
+/* ---------- nabídka u kurzoru (pravé tlačítko, dlouhé podržení – js/nabidka.js) */
+.nabidka { position: fixed; z-index: 92; min-width: 196px; max-width: min(280px, calc(100vw - 16px)); padding: 6px; border: 1px solid var(--line); border-radius: 14px;
+    background: var(--surface); box-shadow: var(--shadow-pop); opacity: 0; transform: scale(.97); transform-origin: top left; transition: opacity .12s, transform .12s; }
+.nabidka.videt { opacity: 1; transform: none; }
+.nabidka__nadpis { margin-bottom: 4px; padding: 5px 10px 7px; border-bottom: 1px solid var(--line-soft); font-size: 11.5px; font-weight: 650; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nabidka__polozka { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0 10px; border: 0; border-radius: 9px; background: none;
+    color: var(--text); font-size: 13.5px; font-weight: 550; text-align: left; }
+.nabidka__polozka:hover, .nabidka__polozka:focus-visible { background: var(--sand); outline: none; }
+.nabidka__polozka svg { width: 16px; height: 16px; color: var(--muted); }
+.nabidka__polozka--nebezpeci, .nabidka__polozka--nebezpeci svg { color: var(--danger); }
+.nabidka__polozka--nebezpeci:hover, .nabidka__polozka--nebezpeci:focus-visible { background: var(--danger-tint); }
+@media (pointer: coarse) {
+    .nabidka__polozka { min-height: 44px; font-size: 15px; }
+    .moje-vic { width: 36px; height: 36px; margin-top: 2px; }
+    .moje-hotovo { width: 28px; height: 28px; margin-top: 7px; }
+    /* dlouhé podržení otevře nabídku – ne výběr textu ani bublinu iPhonu */
+    [data-polozka-id] > .radek, .pozor[data-ukaz-polozku], .moje-polozka { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+}
+
 /* ================================================================ Pošta */
 .posta-rozlozeni { display: block; }
 .posta-seznam { display: flex; flex-direction: column; gap: 12px; min-width: 0; }

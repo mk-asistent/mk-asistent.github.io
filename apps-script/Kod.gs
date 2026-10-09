@@ -10,7 +10,8 @@
  * zachází se s ním jako s heslem – nikdy do chatu, gitu ani na Disk. Nový klíč: funkce novyKlic.
  *
  * Data:
- *   Schránka  – Můj disk / CLAUDE_SCHRANKA / NOVE, CEKA, HOTOVO/RRRR-MM (soubory .md, skill asistent-schranka)
+ *   Schránka  – Můj disk / CLAUDE_SCHRANKA / NOVE, CEKA, HOTOVO/RRRR-MM (soubory .md, skill asistent-schranka);
+ *               MOJE (+ MOJE/HOTOVO) = Michalovy poznámky „pro mě“ (zkratka „Pro mě“, aplikace) – Claude je nečte
  *   Pošta     – Gmail: doručené za 30 dní (z 30–90 dní jen nevyřízené) bez Reklam/Sociálních sítí/Fór; čtení,
  *               odpověď, přeposlání, archiv, odložení („Připomenout“ – v den termínu se zpráva vrátí do Doručených);
  *               každá konverzace má stav (hoří, čeká na tebe, otázka, čekáš na ně, řeší se, informace) i s důvodem.
@@ -155,6 +156,12 @@ const AKCE = {
   schranka: function () { return nactiSchranku_(); },
   poznamka: function (d) { return pridejPoznamku_(d.text); },
   polozka: function (d) { return upravPolozku_(d.id, d.jak, d.text); },
+  // smazání poznámky schránky (pravé tlačítko v aplikaci) do koše na Disku a Vrátit; moje poznámky „pro mě“ (MOJE)
+  schrankaSmazat: function (d) { return doKose_(d.id, true); },
+  schrankaObnovit: function (d) { return doKose_(d.id, false); },
+  mojePridat: function (d) { return mojePridej_(d.text); },
+  mojeHotovo: function (d) { return mojeHotovo_(d.id, !!d.zpet); },
+  mojeSmazat: function (d) { return mojeSmaz_(d.id); },
   posta: function (d) { return nactiPostu_(d.znovu); },
   vlakno: function (d) { return nactiVlakno_(d.id, d.precist !== false); },
   odeslat: function (d) { return odeslat_(d); },
@@ -342,11 +349,16 @@ function nactiSchranku_() {
   // kdy Claude naposledy zpracoval schránku (obnovil PREHLED.md) – aplikace pozná, že úloha neběží (PC vypnuté)
   const prehled = koren.getFilesByName('PREHLED.md');
   const zpracovano = prehled.hasNext() ? prehled.next().getLastUpdated().getTime() : null;
-  return { nove: nove, ceka: ceka, hotovo: hotovo, zpracovano: zpracovano, ted: Date.now() };
+  return { nove: nove, ceka: ceka, hotovo: hotovo, moje: mojePoznamky_(koren), zpracovano: zpracovano, ted: Date.now() };
 }
 
 /** Poznámka napsaná nebo nadiktovaná přímo v aplikaci. */
 function pridejPoznamku_(text) {
+  return polozka_(novaPoznamka_('NOVE', text), 'NOVE');
+}
+
+/** Nový soubor poznámky ve složce schránky (NOVE, MOJE) – stejný tvar jako ze zkratky v iPhonu (hlavička kdy, odkud). */
+function novaPoznamka_(nazevSlozky, text) {
   text = String(text || '').trim();
   if (!text) throw new Error('Prázdná poznámka.');
   if (text.length > 20000) throw new Error('Poznámka je příliš dlouhá.');
@@ -357,8 +369,78 @@ function pridejPoznamku_(text) {
     'kdy: ' + Utilities.formatDate(ted, CASOVE_PASMO, "yyyy-MM-dd'T'HH:mm:ssXXX"),
     'odkud: aplikace',
     '---', '', text, ''].join('\n');
-  const soubor = podslozka_(koren_(), 'NOVE').createFile(nazev, obsah, MimeType.PLAIN_TEXT);
-  return polozka_(soubor, 'NOVE');
+  return podslozka_(koren_(), nazevSlozky).createFile(nazev, obsah, MimeType.PLAIN_TEXT);
+}
+
+// ---- Moje poznámky (Michal 9. 10.: „poznámku sám pro sebe na později … ať se zobrazí na hlavní stránce pro mě“).
+// CLAUDE_SCHRANKA/MOJE/*.md ve stejném tvaru jako NOVE (hlavička kdy, odkud) – píše je zkratka „Pro mě“ (Apps Script
+// schránky) i aplikace (mojePridat). Hotové → MOJE/HOTOVO, smazané → koš na Disku (30 dní, Vrátit = schrankaObnovit).
+// Claude je nezpracovává (jeho úloha čte jen NOVE). Rozebraný soubor se pamatuje jako ostatní poznámky (polozka_).
+const MAX_MOJICH = 50;
+const MAX_TEXTU_MOJE = 10000;
+
+/** Aktivní moje poznámky, nejnovější nahoře, nejvýš 50: [{ id, text, kdy, odkud }]. Složku MOJE nezakládá. */
+function mojePoznamky_(koren) {
+  const slozky = koren.getFoldersByName('MOJE');
+  if (!slozky.hasNext()) return [];
+  // názvy začínají časem zápisu (RRRR-MM-DD_HHMMSS) → nejnovější podle názvu, pak přesně podle hlavičky kdy
+  return soubory_(slozky.next()).reverse().slice(0, MAX_MOJICH).map(mojePoznamka_)
+    .sort(function (a, b) { return b.kdy - a.kdy; });
+}
+
+function mojePoznamka_(soubor) {
+  const p = polozka_(soubor, 'MOJE');
+  return { id: p.id, text: p.text.length > MAX_TEXTU_MOJE ? p.text.slice(0, MAX_TEXTU_MOJE - 1) + '…' : p.text, kdy: p.kdy, odkud: p.odkud };
+}
+
+/** Moje poznámka z aplikace → MOJE (vrátí ji ve tvaru jako v seznamu). */
+function mojePridej_(text) {
+  return mojePoznamka_(novaPoznamka_('MOJE', text));
+}
+
+/** Hotovo: MOJE → MOJE/HOTOVO; zpet = Vrátit (MOJE/HOTOVO → MOJE). Vrací poznámku. */
+function mojeHotovo_(id, zpet) {
+  return sePoznamkou_(id, function (soubor, misto, koren) {
+    if (misto !== (zpet ? 'MOJE/HOTOVO' : 'MOJE')) throw new Error(zpet ? 'Poznámka není mezi hotovými.' : 'Poznámka není mezi mými poznámkami.');
+    if (soubor.isTrashed()) throw new Error('Poznámka je v koši.');
+    const moje = podslozka_(koren, 'MOJE');
+    soubor.moveTo(zpet ? moje : podslozka_(moje, 'HOTOVO'));
+    return mojePoznamka_(soubor);
+  });
+}
+
+/** Moje poznámka (aktivní i hotová) → koš na Disku. */
+function mojeSmaz_(id) {
+  return sePoznamkou_(id, function (soubor, misto) {
+    if (misto !== 'MOJE' && misto !== 'MOJE/HOTOVO') throw new Error('Poznámka není mezi mými poznámkami.');
+    soubor.setTrashed(true);
+    return true;
+  });
+}
+
+/** Poznámka schránky (NOVE, CEKA, HOTOVO, MOJE) do koše na Disku (smazat) nebo zpět z koše (Vrátit v aplikaci). */
+function doKose_(id, smazat) {
+  return sePoznamkou_(id, function (soubor) {
+    soubor.setTrashed(!!smazat);
+    return true;
+  });
+}
+
+/** Najde poznámku podle id, ověří, že leží ve stromu schránky (jinak chyba – cizí soubor na Disku), a pod zámkem
+ *  zavolá fn(soubor, misto, koren). */
+function sePoznamkou_(id, fn) {
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(10000);
+  try {
+    let soubor;
+    try { soubor = DriveApp.getFileById(String(id || '')); } catch (chyba) { throw new Error('Poznámka nenalezena.'); }
+    const koren = koren_();
+    const misto = mistoPoznamky_(soubor, koren);
+    if (!misto) throw new Error('Soubor není ve schránce.');
+    return fn(soubor, misto, koren);
+  } finally {
+    zamek.releaseLock();
+  }
 }
 
 /**
@@ -522,19 +604,28 @@ function soubory_(slozka) {
 
 /** Leží soubor v NOVE, CEKA nebo HOTOVO(/RRRR-MM) schránky? */
 function jeVeSchrance_(soubor, koren) {
+  const misto = mistoPoznamky_(soubor, koren);
+  return misto === 'NOVE' || misto === 'CEKA' || misto === 'HOTOVO';
+}
+
+/** Kde leží poznámka (.md) ve stromu schránky: 'NOVE' | 'CEKA' | 'HOTOVO' (i HOTOVO/RRRR-MM) | 'MOJE' | 'MOJE/HOTOVO';
+ *  '' = jiný soubor (mimo schránku, jiná složka, ne .md). Rodiče se čtou i u souboru v koši (Vrátit). */
+function mistoPoznamky_(soubor, koren) {
+  if (!/\.md$/i.test(soubor.getName())) return '';
   const korenId = koren.getId();
   const cesta = [];
   let rodice = soubor.getParents();
   for (let hloubka = 0; hloubka < 3 && rodice.hasNext(); hloubka++) {
     const r = rodice.next();
     if (r.getId() === korenId) {
-      return (cesta.length === 1 && ['NOVE', 'CEKA', 'HOTOVO'].indexOf(cesta[0]) >= 0) ||
-        (cesta.length === 2 && cesta[1] === 'HOTOVO' && /^\d{4}-\d{2}$/.test(cesta[0]));
+      const c = cesta.reverse().join('/');
+      if (['NOVE', 'CEKA', 'HOTOVO', 'MOJE', 'MOJE/HOTOVO'].indexOf(c) >= 0) return c;
+      return /^HOTOVO\/\d{4}-\d{2}$/.test(c) ? 'HOTOVO' : '';
     }
     cesta.push(r.getName());
     rodice = r.getParents();
   }
-  return false;
+  return '';
 }
 
 function koren_() {

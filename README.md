@@ -39,7 +39,7 @@ okno **Co je nového** (hoří, nová pošta, odpovědi Clauda, nové výstrahy)
 ## Schránka
 Poznámky z iPhonu (zkratka „Pro Clauda“) i z aplikace; Claude je zpracovává každou půlhodinu (skill `asistent-schranka`).
 U položky: **Dopsat** (i k vyřízené – vrátí se ke zpracování), **Nadpis**, **Téma** (práce, osobní, fotbal, zdraví,
-domov, nákup – filtr nahoře), **Smazat** (koš na Disku, jde vrátit). Diktát typu „pozvi Petra na schůzku v úterý
+domov, nákup – filtr nahoře), **Smazat** (bez dotazu – koš na Disku, v oznámení Vrátit). Diktát typu „pozvi Petra na schůzku v úterý
 v deset“ nebo „napiš trenérovi, že…“ Claude převede na **návrh** – limetková karta **Založit událost** / **Napsat e-mail**
 otevře předvyplněný formulář; nic se neodešle, dokud ho Michal neuloží / neodešle.
 
@@ -54,6 +54,21 @@ V hlavičce je, kdy Claude schránku naposledy zpracoval (podle `PREHLED.md`); k
 schránka se mezitím nezpracovala, ukáže se upozornění (naplánovaná úloha běží jen na zapnutém PC). U tvého úkolu jde
 nastavit **Termín** (dnes, zítra, za 3 dny, příští pondělí, za týden, bez termínu). Claudovy odpovědi mají klikací
 odkazy, **tučné** písmo a odrážky. Vyřízené jsou ve „Vše“ sbalené na posledních 5.
+
+**Stránka** (Michal 9. 10.: „je taková prázdná“): vlevo pole pro Clauda, filtry a seznam, vpravo **Týden v číslech**
+(zadáno a vyřízeno za 7 dní, čeká na tebe – čísla s ↗ na filtr, sloupce zadaných poznámek po dnech, kdy Claude
+naposledy zpracoval schránku), **Moje poznámky**, **Termíny** (po termínu nahoře, klepnutí úkol otevře) a **Nápady na
+později** (ve „Vše“ jen tady, ve filtru Nápady v seznamu). Od 1180 px dva sloupce, iPad na výšku a telefon pod sebou.
+**Pravé tlačítko** (na dotyku dlouhé podržení) na položce – v seznamu i na Dnes (Odpověděl jsem, Vyžaduje pozornost):
+Otevřít, Hotovo / Vyřízeno / Zahodit, Dopsat / Navázat, **Smazat** (`js/nabidka.js`; motor `schrankaSmazat` /
+`schrankaObnovit` – jen poznámky ze stromu schránky).
+
+**Moje poznámky** (Michal 9. 10.: „poznámka sám pro sebe na později … na hlavní stránce pro mě“): zkratka „Pro mě“
+v iPhonu, „+“ → Moje poznámka, pole na kartě (Enter). Jen pro Michala, Claude je nečte: `CLAUDE_SCHRANKA/MOJE` (stejný
+tvar jako NOVE), hotové `MOJE/HOTOVO`, smazané do koše. Karta na Dnes (5 nejnovějších) a vpravo ve Schránce: kroužek =
+Hotovo (Vrátit), klepnutí na text = celý text s odkazy, ⋯ / pravé tlačítko = Hotovo, Předat Claudovi (poznámka do
+schránky), Kopírovat text, Smazat (Vrátit). Motor: `schranka` posílá i `moje` (nejvýš 50), akce `mojePridat`,
+`mojeHotovo` (`zpet` = vrátit z hotových), `mojeSmazat` (`js/moje.js`).
 
 ## Pošta jako případy
 Nápad převzatý z poštovního klienta [Mailer](https://www.fastmailer.one/) (pravidla jsou vlastní): každá konverzace

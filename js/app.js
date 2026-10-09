@@ -21,6 +21,7 @@ import * as reely from './reely.js';
 import * as plakaty from './plakaty.js';
 import * as auto from './auto.js';
 import * as moje from './moje.js';
+import * as nabidka from './nabidka.js';
 import { vstupAdresy, klavesaAdresy } from './adresy.js';
 import * as ucet from './ucet.js';
 
@@ -360,6 +361,7 @@ function otevriRychle() {
     id: 'rychle', trida: 'panel-okno panel-rychle', titul: 'Přidat',
     vykresli: () => '<div class="rychle">' +
       volba('poznamka', IKONY.claude, 'fialova', 'Poznámka pro Clauda', 'otázka, úkol, nápad') +
+      (moje.umiMoje() ? volba('moje', moje.IKONA, 'moje', 'Moje poznámka', 'jen pro mě, na později – Claude ji nečte') : '') +
       volba('email', IKONY.psat, 'zluta', 'Nový e-mail', 'z osobní nebo pracovní adresy') +
       volba('udalost', IKONY.kalendar, 'zelena', 'Událost', 'do kalendáře, i s pozvánkami') +
       volba('zapas', IKONY.zapas, 'limetka', 'Zápas', 'tým, soupeř, výkop, sraz') +
@@ -374,6 +376,7 @@ function otevriRychle() {
 
 function rychlaAkce(akce) {
   if (akce === 'poznamka') schranka.zamerZapis();
+  else if (akce === 'moje') moje.otevriPridani();
   else if (akce === 'email') posta.otevriPsani('novy');
   else if (akce === 'udalost') udalost.otevriFormular({ den: stav.pohled === 'kalendar' ? stav.kal.vybrany : undefined });
   else if (akce === 'zapas') udalost.otevriFormular({ typ: 'zapas', den: stav.pohled === 'kalendar' ? stav.kal.vybrany : undefined });
@@ -672,6 +675,7 @@ document.addEventListener('click', (e) => {
   }
   // e-mail otevřený z Dnes na širokém okně patří do pohledu Pošta (seznam + detail vedle sebe)
   if (el.dataset.vlakno && stav.pohled !== 'posta' && window.matchMedia('(min-width: 1000px)').matches) prejdi('posta');
+  if (moje.klikMoje(el)) return;
   if (schranka.klikSchranka(el)) return;
   if (posta.klikPosta(el)) return;
   if (zdravi.klikZdravi(el)) return;
@@ -692,9 +696,13 @@ document.addEventListener('input', (e) => {
   if (plakaty.vstupPlakaty(e)) return;
   if (hledat.vstupHledat(e)) return;
   if (udalost.vstupUdalost(e)) return;
+  if (moje.vstupMoje(e)) return;
   if (schranka.vstupSchranka(e)) return;
   posta.vstupPosta(e);
 });
+
+// pravé tlačítko / dlouhé podržení na položce schránky nebo mé poznámce: malá nabídka (Smazat, Hotovo… – js/nabidka.js)
+nabidka.pripoj((el) => schranka.nabidkaPolozky(el) || moje.nabidkaMoje(el));
 
 document.addEventListener('change', (e) => { if (!auto.zmenaAuto(e) && !reely.vstupReely(e) && !plakaty.vstupPlakaty(e) && !posta.zmenaPosta(e) && !udalost.zmenaUdalost(e) && !kal.zmenaKalendar(e)) nast.zmenaNastaveni(e); });
 
@@ -708,6 +716,7 @@ document.addEventListener('keydown', (e) => {
   if (klavesaAdresy(e)) return;
   if (zdravi.klavesaZdravi(e)) return; // Enter v poli váhy = Zapsat
   if (auto.klavesaAuto(e)) return; // Enter v okně tankování / výdaje = Zapsat
+  if (moje.klavesaMoje(e)) return; // Enter v poli Moje poznámky = Přidat
   // Ctrl/Cmd+K = hledání (všude)
   if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); hledat.otevriHledani(); return; }
   // Ctrl/Cmd+Enter uloží poznámku nebo odešle e-mail

@@ -1164,6 +1164,90 @@ test('schránka: nadpis a téma v hlavičce, dopsat i k vyřízené (zpět do NO
   assert.ok(!p.volej('schranka').data.nove.some((x) => x.id === stara.id));
 });
 
+test('schránka: smazat a vrátit (pravé tlačítko) jen poznámky ze stromu schránky; moje poznámky – výpis, přidat, hotovo a zpět, smazat', () => {
+  const p = prostredi();
+  const nove = p.schranka.createFolder('NOVE');
+  const mesic = p.schranka.createFolder('HOTOVO').createFolder('2026-10');
+  const zdravi = p.schranka.createFolder('ZDRAVI');
+  // bez složky MOJE: prázdný seznam a složka se při čtení nezakládá
+  let o = p.volej('schranka');
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.moje), []);
+  assert.ok(!p.schranka.deti.MOJE, 'čtení složku MOJE nezakládá');
+  // zkratka „Pro mě“ zapisuje stejný tvar jako do NOVE (BOM a CRLF z Windows nevadí)
+  const moje = p.schranka.createFolder('MOJE');
+  moje.createFile('2026-10-08_071500_aa11.md', '---\nkdy: 2026-10-08T07:15:00+02:00\nodkud: iPhone\n---\n\nKoupit žárovky do garáže.\n');
+  moje.createFile('2026-10-09_183000_bb22.md', '﻿---\r\nkdy: 2026-10-09T18:30:00+02:00\r\nodkud: iPhone\r\n---\r\n\r\nZavolat kvůli\r\npneumatikám.\r\n');
+  moje.createFile('poznamka.txt', 'jiný soubor');
+  o = p.volej('schranka');
+  assert.deepStrictEqual(json(o.data.moje).map((x) => [x.text, x.odkud]), [['Zavolat kvůli\npneumatikám.', 'iPhone'], ['Koupit žárovky do garáže.', 'iPhone']],
+    'nejnovější nahoře, jen .md');
+  assert.deepStrictEqual(Object.keys(o.data.moje[0]).sort(), ['id', 'kdy', 'odkud', 'text']);
+  assert.strictEqual(o.data.moje[0].kdy, Date.parse('2026-10-09T18:30:00+02:00'));
+  const pneu = o.data.moje[0].id;
+  assert.ok(!o.data.nove.length && !o.data.ceka.length, 'moje poznámky nejsou mezi poznámkami pro Clauda');
+  // přidat z aplikace: soubor v MOJE se stejnou hlavičkou jako poznámka pro Clauda, vrátí se ve tvaru seznamu
+  const pridana = p.volej('mojePridat', { text: '  Vrátit knihu do knihovny  ', rid: 'moje-pridat-1' });
+  assert.strictEqual(pridana.ok, true, pridana.chyba);
+  assert.deepStrictEqual([pridana.data.text, pridana.data.odkud], ['Vrátit knihu do knihovny', 'aplikace']);
+  assert.ok(/^---\nkdy: [^\n]+\nodkud: aplikace\n---\n\nVrátit knihu do knihovny\n$/.test(p.vsechnySoubory[pridana.data.id].getBlob().getDataAsString()));
+  assert.deepStrictEqual(p.volej('mojePridat', { text: '  Vrátit knihu do knihovny  ', rid: 'moje-pridat-1' }), pridana, 'opakovaný požadavek jen jednou');
+  assert.strictEqual(moje.soubory.filter((f) => /\.md$/.test(f.getName())).length, 3);
+  assert.ok(/Prázdná/.test(p.volej('mojePridat', { text: '   ' }).chyba));
+  assert.strictEqual(p.volej('schranka').data.moje[0].id, pridana.data.id);
+  // hotovo → MOJE/HOTOVO (ze seznamu pryč), zpět → zase mezi aktivními
+  const zarovky = o.data.moje[1].id;
+  o = p.volej('mojeHotovo', { id: zarovky });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.ok(moje.deti.HOTOVO.soubory.some((f) => f.getId() === zarovky), 'v MOJE/HOTOVO');
+  assert.ok(!p.volej('schranka').data.moje.some((x) => x.id === zarovky));
+  assert.ok(/není mezi mými/.test(p.volej('mojeHotovo', { id: zarovky }).chyba), 'hotová podruhé ne');
+  o = p.volej('mojeHotovo', { id: zarovky, zpet: true });
+  assert.deepStrictEqual([o.ok, o.data && o.data.text], [true, 'Koupit žárovky do garáže.']);
+  assert.ok(p.volej('schranka').data.moje.some((x) => x.id === zarovky), 'po Vrátit zase aktivní');
+  // smazat moji poznámku → koš (aktivní i hotovou), Vrátit = schrankaObnovit
+  assert.strictEqual(p.volej('mojeSmazat', { id: zarovky }).ok, true);
+  assert.strictEqual(p.vsechnySoubory[zarovky].vKosi, true);
+  assert.ok(!p.volej('schranka').data.moje.some((x) => x.id === zarovky));
+  assert.ok(/v koši/.test(p.volej('mojeHotovo', { id: zarovky }).chyba));
+  assert.strictEqual(p.volej('schrankaObnovit', { id: zarovky }).ok, true);
+  assert.strictEqual(p.vsechnySoubory[zarovky].vKosi, false);
+  assert.ok(p.volej('schranka').data.moje.some((x) => x.id === zarovky));
+  // poznámka pro Clauda (NOVE, HOTOVO/RRRR-MM): smazat a vrátit; mojeHotovo / mojeSmazat na ni nesmí
+  const proClauda = nove.createFile('2026-10-09_090000_cc33.md', '---\nkdy: 2026-10-09T09:00:00+02:00\nodkud: iPhone\n---\n\nZjisti, jak exportovat PDF.\n');
+  const vyrizena = mesic.createFile('2026-10-01_090000_dd44.md', '---\nkdy: 2026-10-01T09:00:00+02:00\n---\n\nStará otázka.\n');
+  assert.ok(/není mezi mými/.test(p.volej('mojeHotovo', { id: proClauda.getId() }).chyba));
+  assert.ok(/není mezi mými/.test(p.volej('mojeSmazat', { id: proClauda.getId() }).chyba));
+  assert.strictEqual(p.volej('schrankaSmazat', { id: proClauda.getId(), rid: 'smazat-nove-1' }).ok, true);
+  assert.strictEqual(proClauda.vKosi, true);
+  assert.ok(!p.volej('schranka').data.nove.some((x) => x.id === proClauda.getId()), 'smazaná ve výpisu není');
+  assert.strictEqual(p.volej('schrankaObnovit', { id: proClauda.getId() }).ok, true);
+  assert.ok(p.volej('schranka').data.nove.some((x) => x.id === proClauda.getId()), 'vrácená je zpět v NOVE');
+  assert.strictEqual(p.volej('schrankaSmazat', { id: vyrizena.getId() }).ok, true);
+  assert.strictEqual(vyrizena.vKosi, true);
+  assert.strictEqual(p.volej('schrankaSmazat', { id: pridana.data.id }).ok, true, 'smazat jde i moje poznámka');
+  // mimo schránku nic: soubor jinde ve schránce, jiný typ, kořen, neexistující id
+  const json1 = zdravi.createFile('VAHA.json', '{}');
+  const md = zdravi.createFile('poznamka.md', 'x');
+  const prehled = p.schranka.createFile('PREHLED.md', '# Přehled');
+  [json1, md, prehled].forEach((f) => {
+    const r = p.volej('schrankaSmazat', { id: f.getId() });
+    assert.deepStrictEqual([r.ok, /není ve schránce/.test(r.chyba), f.vKosi], [false, true, false], f.getName());
+  });
+  assert.ok(/není ve schránce/.test(p.volej('schrankaObnovit', { id: md.getId() }).chyba));
+  assert.ok(/nenalezena/.test(p.volej('schrankaSmazat', { id: 'neexistuje' }).chyba));
+  // úpravy položek (polozka) dál jen v NOVE / CEKA / HOTOVO – ne moje poznámky
+  assert.ok(/není ve schránce/.test(p.volej('polozka', { id: zarovky, jak: 'dopsat', text: 'x' }).chyba));
+  // seznam nejvýš 50 nejnovějších
+  for (let i = 0; i < 55; i++) moje.createFile('2026-09-' + String(1 + (i % 28)).padStart(2, '0') + '_0800' + String(i).padStart(2, '0') + '_x' + i + '.md', '---\nkdy: 2026-09-' + String(1 + (i % 28)).padStart(2, '0') + 'T08:00:00+02:00\n---\n\nStará ' + i + '\n');
+  o = p.volej('schranka');
+  assert.strictEqual(o.data.moje.length, 50);
+  assert.deepStrictEqual([o.data.moje[0].id, o.data.moje[1].id], [pneu, zarovky], 'nejnovější pořád nahoře');
+  assert.ok(o.data.moje.every((x, i, a) => !i || a[i - 1].kdy >= x.kdy), 'seřazené od nejnovější');
+  const akce = p.volej('info').data.akce;
+  assert.ok(['schrankaSmazat', 'schrankaObnovit', 'mojePridat', 'mojeHotovo', 'mojeSmazat'].every((a) => akce.indexOf(a) >= 0), 'info hlásí nové akce');
+});
+
 // ---------------------------------------------------------------- štítky Gmailu, kontakty, podpisy
 
 test('štítky: u konverzací v seznamu (z mezipaměti podruhé bez Gmailu), seznam štítků, konverzace štítku i archivované', () => {
