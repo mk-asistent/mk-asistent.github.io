@@ -2696,6 +2696,65 @@ function vychoziVikendTestu() {
   });
 
   // ---------- schránka: termín u tvého úkolu, Claudova odpověď s odkazem a formátem, upozornění na nezpracovanou schránku
+  // ---------- hlídání rychlosti (Michal 9. 10.: „co nejrychlejší práce na stránce“): bez zpomalení procesoru jde o řády, ne
+  // o milisekundy – limity jsou volné, ať test netrpí náhodou; pořadí snímek → aplikace a „bez motoru“ platí přesně.
+  // Podrobné měření (telefon CPU 4×, pomalé 4G, studený / teplý start): node testy/mereni_rychlosti.js
+  await test('rychlost: snímek dřív než moduly, Dnes do 3 s; Pošta se 150 konverzacemi se přepne pod 300 ms; druhé kolo stránek bez čtení z motoru', async () => {
+    postaNavic = { osobni: Array.from({ length: 150 }, (x, i) => ({ id: 'r' + i, ucet: 'osobni', stav: ['ceka', 'info', 'resi', 'otazka'][i % 4], od: 'Odesílatel ' + i,
+      predmet: 'Předmět ' + i, ukazka: 'Text zprávy ' + i + ' – posílám podklady k připomínkám, prosím o kontrolu do pátku.', kdy: ted - i * H / 2, neprectena: i < 8,
+      pocet: 1 + (i % 3), odkaz: '#' })) };
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-pozornost .seznam');
+      await page.waitForSelector('#dl-tyden .agenda__den');
+      await page.waitForTimeout(500);
+      if (await page.locator('.okno-pozadi').count()) { await page.keyboard.press('Escape'); await page.waitForSelector('.okno-pozadi', { state: 'detached' }); }
+      // přepnutí (klepnutí → další snímek obrazovky), jako v testy/mereni_rychlosti.js
+      const prepni = (cil) => page.evaluate(async (c) => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.dataset.cil = c; b.hidden = true;
+        document.body.appendChild(b);
+        const t = performance.now();
+        b.click();
+        b.remove();
+        await new Promise((ok) => requestAnimationFrame(() => setTimeout(ok, 0)));
+        return performance.now() - t;
+      }, cil);
+      const casy = [];
+      for (let i = 0; i < 3; i++) {
+        casy.push(await prepni('posta'));
+        await page.waitForSelector('#posta-seznam .seznam-posta [data-vlakno="r149"]', { state: 'attached' });
+        await prepni('dnes');
+        await page.waitForTimeout(150);
+      }
+      casy.sort((a, b) => a - b);
+      jistota(casy[1] < 300, 'přepnutí do Pošty (150 konverzací) trvá ' + casy.map(Math.round).join(' / ') + ' ms');
+      jistota(await page.evaluate(() => getComputedStyle(document.querySelector('#posta-seznam .seznam-posta > li:last-child')).contentVisibility === 'auto'),
+        'řádky pošty mimo obrazovku se mají přeskočit (content-visibility)');
+      // první kolo stránek dotáhne, co patří ke stránce (štítky, kontakty, docházka); druhé už jen z paměti
+      const kolo = async () => { for (const c of ['schranka', 'posta', 'kalendar', 'zdravi', 'dnes']) { await prepni(c); await page.waitForTimeout(120); } };
+      await kolo();
+      await page.waitForTimeout(800);
+      volano.length = 0;
+      await kolo();
+      const cteni = volano.map((d) => d.akce).filter((a) => ['postaDetaily', 'oznacit'].indexOf(a) < 0);
+      jistota(!cteni.length, 'druhé kolo přepínání stránek volalo motor: ' + cteni.join(', '));
+      // teplé otevření: snímek dřív než moduly aplikace, aplikace vykreslená do 3 s
+      await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+      await page.reload();
+      await page.waitForFunction(() => window.asistentBezi && performance.getEntriesByName('asistent-vykresleno').length);
+      const z = await page.evaluate(() => ['asistent-start-js', 'asistent-snimek', 'asistent-start', 'asistent-vykresleno']
+        .map((n) => { const e = performance.getEntriesByName(n)[0]; return e ? Math.round(e.startTime) : -1; }));
+      jistota(z[1] >= 0 && z[1] <= z[2], 'snímek se má ukázat dřív než aplikace: ' + z.join(' / '));
+      jistota(z[3] > 0 && z[3] < 3000, 'aplikace vykreslená za ' + z[3] + ' ms');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      postaNavic = {};
+      await ctx.close();
+    }
+  });
+
   // ---------- práce na stránce: překreslení kvůli novým datům nesmaže rozepsanou odpověď Claudovi (dřív každé načtení dat
   // – kopie ze serveru, zdraví – vyměnilo kartu i s polem) a nepřepisuje karty, které se nezměnily
   await test('Dnes: rozepsaná odpověď Claudovi přežije překreslení (i se změnou karty – text, fokus, kurzor); nezměněné karty se nepřepisují', async () => {

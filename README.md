@@ -446,6 +446,23 @@ Adresa: <https://mk-asistent.github.io> (organizace `mk-asistent`, vlastní adre
 kolečko u Obnovit jen po klepnutí. Knihovny Firebase stahuje index.html hned (`modulepreload`) a service worker je po prvním
 použití vydává ze zařízení; funkce Firebase (obnovHned) až při první obnově.
 
+**Rychlost práce na stránce** (Michal 9. 10.: „co nejrychlejší práce na stránce“; měření `testy/mereni_rychlosti.js`):
+- **Okamžitý snímek:** při odchodu z aplikace (do pozadí, zavření) a 4 s po posledním překreslení se uloží HTML viditelné
+  stránky a lišt (`asistent.data.snimek`, `ulozSnimek` v app.js). Při dalším otevření ho `js/start.js` ukáže hned po
+  načtení HTML – ještě než se stáhnou a spustí moduly; `start()` ho pak smaže a ve stejném kroku vykreslí aplikaci
+  (`zrusSnimek`). Jen ze stejného dne, pro stejnou stránku (Dnes, Schránka, Pošta, Kalendář, Zdraví) a stejné rozložení
+  (telefon / iPad / PC); klepnutí čekají na aplikaci; záchrana „Načíst znovu“ platí i pod snímkem. Maže se s uloženými
+  daty, při odpojení a u nové verze (`asistentBezSnimku`); vypnout jde `asistent.bezSnimku` v localStorage.
+- **Moduly naráz:** index.html přednačte všech 30 modulů, které app.js při startu importuje (`modulepreload`) – **nový modul
+  `js/*.js` = řádek do index.html i do `SOUBORY` v sw.js** (test „index.html: modulepreload“ to hlídá). Ukázková data
+  (`ukazka.js`) se načtou až v ukázkovém režimu.
+- **Překresluje se jen změna:** Dnes (karty), Pošta (lišty a seznam), Schránka, Kalendář, hlavička a lišty se přepíšou, jen
+  když se jejich HTML změnilo (`nastavHtml` v app.js) – načtení jiných dat nemaže rozepsanou odpověď Claudovi (text, fokus
+  i kurzor se vrátí, i když se karta vymění), otevřenou bublinu grafu ani posun časové osy. Nový kód, který mění DOM přímo
+  (třída, `hidden`, hodnota pole), musí počítat s tím, že ho překreslení nemusí vrátit zpět.
+- **Pošta:** řádky mimo obrazovku prohlížeč neskládá (`content-visibility: auto`), náhledy se čistí jednou (paměť
+  `cistaUkazka`), výška detailu vedle seznamu se měří (`--posta-detail-nahore`).
+
 **Hned na všech zařízeních** (Michal 9. 10.: „na mobilu jsem přidal vodu a na PC to není – má to být aktuální hned“):
 - Zápis ke zdraví nebo k autu → aplikace zapíše do účtu signál `data/_signal` (`{ zdravi: ms, auto: ms }` – jen čas, žádná
   zdravotní data; pravidla `firestore.rules` nic jiného nepustí). Ostatní zařízení ho dostanou živě a načtou si zdraví / auto
@@ -501,6 +518,7 @@ PORT_TESTU=8776 node test_aplikace.js  # jiný port, když na PC zrovna běží 
 node testy/test_plakat.mjs             # plakát: víkendy, plakát podle rozlosování, znaky soupeřů, souhrn pro Clauda
 node testy/sw_verze.js --zapsat        # po změně souborů aplikace: VERZE service workeru podle obsahu
 node firebase/functions/test.js        # server: obnova kopií z napodobeného motoru
+node testy/mereni_rychlosti.js         # rychlost: studený/teplý start, přepínání stránek, e-mail, psaní (telefon CPU 4×, pomalé 4G)
 ```
 Testy aplikace běží i s účtem – Firebase je v nich napodobený (knihovny přes `page.route`, data v testu), skutečný
 projekt se nevolá.

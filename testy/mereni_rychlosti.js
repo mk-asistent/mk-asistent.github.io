@@ -5,6 +5,8 @@
 //   STOPA=1 … (záznam výkonu do testy/vystup/stopa.json – Chrome DevTools → Performance → Load profile)
 //   ZNOVU=1 … (po měření ještě přenačtení ve stejném procesu – teplá mezipaměť písem a kódu, pro porovnání)
 //   KOREN=cesta … (jiná kopie aplikace – porovnání před a po; skripty měření zůstávají odsud)
+//   CSS_NAVIC='.kal-boc{display:none}' … (pokus: CSS přidané na konec app.css – co kolik stojí)
+//   STOPA=prepnuti_posta … (záznam výkonu jen při přepnutí na stránku; rozbor např. v Chrome DevTools)
 //
 // Pozor na Windows: první vykreslení v novém procesu prohlížeče je drahé kvůli písmům (Segoe UI Variable, emoji) – v čase
 // „Dnes s daty“ studeného procesu je ho velká část; na iPhonu (systémové písmo) je to jinak. Porovnávat před/po, ne absolutně.
@@ -152,6 +154,7 @@ function prepis(u, text) {
     return t.split(SDK_GSTATIC).join('/__fb/');
   }
   if (u === '/sw.js') return text.split(SDK_GSTATIC).join(WEB + '__fb/');
+  if (u === '/app.css' && process.env.CSS_NAVIC) return text + '\n' + process.env.CSS_NAVIC; // pokus: CSS navíc (měření)
   return text;
 }
 const TYPY = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json', '.svg': 'image/svg+xml' };
