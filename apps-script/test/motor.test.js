@@ -193,7 +193,7 @@ function prostredi() {
         getDateCreated: () => new Date(), getLastUpdated: () => new Date(upraveno), getParents: () => iterator([rodicSouboru]),
         setContent: (t) => { obsah = t; upraveno = Date.now() + (citacZmen++); return f; },
         moveTo: (cil) => { rodicSouboru.soubory = rodicSouboru.soubory.filter((x) => x !== f); cil.soubory.push(f); rodicSouboru = cil; return f; },
-        setTrashed: (k) => { f.vKosi = !!k; return f; },
+        setTrashed: (k) => { f.vKosi = !!k; return f; }, isTrashed: () => f.vKosi,
         setSharing: (pristup, pravo) => { f.sdileni = (f.sdileni || []).concat(pristup + ':' + pravo); return f; } };
       s.soubory.push(f); log.soubory = (log.soubory || []).concat({ slozka: nazev, n, obsah });
       vsechnySoubory[f.getId()] = f;
@@ -259,18 +259,30 @@ function prostredi() {
   };
   let bezPovoleniTabulek = false, ocrText = '', ocrDokumentu = 0;
   // Instagram API (graph.instagram.com): účet, kontejner, stav zpracování, zveřejnění, odkaz, obnova klíče
-  const ig = { volani: [], stavy: ['IN_PROGRESS', 'FINISHED'], chybaKontejneru: '' };
+  // kontejnery a příspěvky se číslují (reel + příběh, plakát + příběh); stav zpracování z fronty stavy (příběh: stavyPribehu)
+  const ig = { volani: [], stavy: ['IN_PROGRESS', 'FINISHED'], stavyPribehu: ['FINISHED'], chybaKontejneru: '', chybaPribehu: '', kontejneru: 0, medii: 0, pribehy: {} };
   const odpovedInstagram = (url, moznosti) => {
     const telo = moznosti.payload ? Object.fromEntries(new URLSearchParams(moznosti.payload)) : {};
     const cesta = url.replace(/^https:\/\/graph\.instagram\.com\/(v[\d.]+\/)?/, '').split('?')[0];
     ig.volani.push({ cesta, metoda: moznosti.method || 'get', telo });
     const json = (o, kod) => ({ getResponseCode: () => kod || 200, getContentText: () => JSON.stringify(o) });
+    const dalsi = (fronta) => (fronta.length > 1 ? fronta.shift() : fronta[0]);
     if (cesta === 'refresh_access_token') return json({ access_token: 'obnoveny-klic', token_type: 'bearer', expires_in: 5184000 });
     if (cesta === 'me') return json({ user_id: '17841400000', username: 'fkagrovnorovy' });
-    if (cesta === '17841400000/media') return ig.chybaKontejneru ? json({ error: { message: ig.chybaKontejneru } }, 400) : json({ id: 'kontejner-1' });
-    if (cesta === 'kontejner-1') { const s = ig.stavy.length > 1 ? ig.stavy.shift() : ig.stavy[0]; return json({ status_code: s, status: s === 'ERROR' ? 'Error: video se nepodařilo stáhnout' : s }); }
-    if (cesta === '17841400000/media_publish') { ig.zverejneno = (ig.zverejneno || 0) + 1; return json({ id: 'media-1' }); }
+    if (cesta === '17841400000/media') {
+      if (ig.chybaKontejneru) return json({ error: { message: ig.chybaKontejneru } }, 400);
+      if (telo.media_type === 'STORIES' && ig.chybaPribehu) return json({ error: { message: ig.chybaPribehu } }, 400);
+      const id = 'kontejner-' + (++ig.kontejneru);
+      if (telo.media_type === 'STORIES') ig.pribehy[id] = true;
+      return json({ id });
+    }
+    if (/^kontejner-\d+$/.test(cesta)) {
+      const s = dalsi(ig.pribehy[cesta] ? ig.stavyPribehu : ig.stavy);
+      return json({ status_code: s, status: s === 'ERROR' ? 'Error: video se nepodařilo stáhnout' : s });
+    }
+    if (cesta === '17841400000/media_publish') { ig.zverejneno = (ig.zverejneno || 0) + 1; return json({ id: 'media-' + (++ig.medii) }); }
     if (cesta === 'media-1') return json({ permalink: 'https://www.instagram.com/reel/TEST123/' });
+    if (/^media-\d+$/.test(cesta)) return json({ permalink: 'https://www.instagram.com/p/TEST' + cesta.slice(6) + '/' });
     return json({ error: { message: 'neznámé volání ' + cesta } }, 400);
   };
 
@@ -2141,6 +2153,163 @@ test('Instagram: video se zpracovává dlouho → příští běh; odmítnuté v
   assert.deepStrictEqual([plan2.stav, /OAuth/.test(plan2.chyba)], ['chyba', true]);
   assert.deepStrictEqual(video2.sdileni, ['ANYONE_WITH_LINK:VIEW', 'PRIVATE:NONE']);
   assert.ok(p2.log.ntfy.some((x) => x.title === 'Reel nevyšel na Instagramu' && x.priority === 4), JSON.stringify(p2.log.ntfy));
+});
+
+test('Instagram: reel rovnou i do příběhu – stejné video, dva kontejnery, nevyjde-li příběh, reel platí', () => {
+  const p = prostredi();
+  const video = reelyProInstagram(p);
+  p.vlastnosti.set('IG_TOKEN', 'testovaci-ig-klic');
+  p.vlastnosti.set('IG_TOKEN_OBNOVA', String(Date.now()));
+  let o = p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: Date.now(), pribeh: true });
+  assert.strictEqual(o.data.plan.reel_dorost_tesany.pribeh, true);
+  p.ig.stavy = ['FINISHED'];
+  p.ctx.instagramKazdych10Min();
+  const kontejnery = p.ig.volani.filter((v) => v.cesta === '17841400000/media');
+  assert.deepStrictEqual(kontejnery.map((k) => k.telo.media_type), ['REELS', 'STORIES']);
+  assert.strictEqual(kontejnery[1].telo.video_url, kontejnery[0].telo.video_url, 'stejné video');
+  assert.ok(!('caption' in kontejnery[1].telo), 'příběh bez popisku');
+  assert.strictEqual(p.ig.zverejneno, 2, 'reel i příběh');
+  let plan = JSON.parse(p.vlastnosti.get('REELY_PLAN')).reel_dorost_tesany;
+  assert.deepStrictEqual([plan.stav, plan.media, plan.mediaPribeh, plan.pribehChyba], ['hotovo', 'media-1', 'media-2', '']);
+  assert.deepStrictEqual(video.sdileni, ['ANYONE_WITH_LINK:VIEW', 'PRIVATE:NONE']);
+  // příběh Instagram odmítne (třeba delší video) → reel zveřejněný, důvod u příběhu
+  const p2 = prostredi();
+  reelyProInstagram(p2);
+  p2.vlastnosti.set('IG_TOKEN', 'testovaci-ig-klic');
+  p2.vlastnosti.set('IG_TOKEN_OBNOVA', String(Date.now()));
+  p2.ig.stavy = ['FINISHED'];
+  p2.ig.chybaPribehu = 'Video příběhu může mít nejvýš 60 s';
+  p2.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: Date.now(), pribeh: true });
+  p2.ctx.instagramKazdych10Min();
+  plan = JSON.parse(p2.vlastnosti.get('REELY_PLAN')).reel_dorost_tesany;
+  assert.deepStrictEqual([plan.stav, plan.media, plan.mediaPribeh], ['hotovo', 'media-1', '']);
+  assert.ok(/60 s/.test(plan.pribehChyba), plan.pribehChyba);
+  assert.strictEqual(p2.ig.zverejneno, 1);
+});
+
+// ---- plakáty: program víkendu (stránka Plakáty), popisek od Clauda, Instagram příspěvek + příběh
+function plakatyFotbal(p) {
+  p.schranka.createFile('FOTBAL.json', JSON.stringify({ verze: 2, tymy: [{ klic: 'A', nazev: 'A-tým' }, { klic: 'B', nazev: 'B-tým' }, { klic: 'dorost', nazev: 'Dorost' }],
+    zapasy: [
+      { id: 'z1', tym: 'A', zacatek: '2026-10-17T14:30:00+02:00', domaci: 'FK Agro Vnorovy', hoste: 'FK Milotice', doma: true, vysledek: '' },
+      { id: 'z2', tym: 'dorost', zacatek: '2026-10-17T10:00:00+02:00', domaci: 'FK Hodonín "B"', hoste: 'FK Agro Vnorovy', doma: false, vysledek: '' },
+      { id: 'z3', tym: 'B', zacatek: '2026-10-25T14:30:00+01:00', domaci: 'Vnorovy B', hoste: 'Kozojídky', doma: true, vysledek: '', puvodniTermin: '2026-10-24' },
+      { id: 'z4', tym: 'A', zacatek: '2026-10-31T14:00:00+01:00', domaci: 'SK Vojkovice', hoste: 'FK Agro Vnorovy', doma: false, vysledek: '' }
+    ] }));
+}
+const JPEG = 'data:image/jpeg;base64,' + Buffer.from('jpeg-obsah').toString('base64');
+
+test('plakáty: ruční úprava kola a zpět, nastavení, popisek od Clauda (poznámka skrytá v aplikaci), novější popisek vyhrává', () => {
+  const p = prostredi();
+  plakatyFotbal(p);
+  p.nastavCas(Date.parse('2026-10-12T09:00:00+02:00'));
+  let o = p.volej('plakaty');
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.kola), {});
+  o = p.volej('plakatUlozit', { tyden: '2026-10-17', stav: { nadpis: 'PROGRAM VÍKENDU', doma: [{ tym: 'A', souper: 'FK MILOTICE' }] } });
+  assert.deepStrictEqual(json(o.data.kola['2026-10-17'].stav.doma), [{ tym: 'A', souper: 'FK MILOTICE' }]);
+  assert.ok(/RRRR-MM-DD/.test(p.volej('plakatUlozit', { tyden: '17. 10.', stav: {} }).chyba));
+  o = p.volej('plakatNastaveni', { nastaveni: { tymy: { A: 'A-TÝM', B: 'BENFIKA', dorost: 'DOROST' }, misto: 'AGRO ARÉNA VNOROVY' } });
+  assert.strictEqual(o.data.nastaveni.tymy.B, 'BENFIKA');
+  assert.strictEqual(p.volej('plakaty').data.nastaveni.misto, 'AGRO ARÉNA VNOROVY');
+  o = p.volej('plakatUlozit', { tyden: '2026-10-17', smazat: true });
+  assert.deepStrictEqual(json(o.data.kola), {}, 'zpět podle rozlosování');
+  // požádat Clauda – poznámka v NOVE se stylem a zápasy z FOTBAL.json, aplikace ji neukazuje
+  o = p.volej('plakatPopisek', { tyden: '2026-10-17', styl: 'vtipně, ať přijde hodně lidí' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual([o.data.popisky['2026-10-17'].cekaNaClauda, o.data.popisky['2026-10-17'].styl], [true, 'vtipně, ať přijde hodně lidí']);
+  const pozn = p.schranka.deti.NOVE.soubory.find((f) => /_plak\.md$/.test(f.getName()));
+  const text = pozn.getBlob().getDataAsString();
+  assert.ok(/typ: plakat-popisek/.test(text) && /17\.–18\. 10\. 2026/.test(text) && /popisky_claude\.json → „2026-10-17“/.test(text), text);
+  assert.ok(/SO 17\. 10\. 14:30 · A-tým · doma · FK Agro Vnorovy – FK Milotice/.test(text) && /SO 17\. 10\. 10:00 · Dorost · venku/.test(text), text);
+  assert.ok(/Styl: vtipně/.test(text));
+  assert.strictEqual(p.volej('schranka').data.nove.length, 0, 'poznámka pro Clauda se v aplikaci neukazuje');
+  // Claude napíše popisek → aplikace ho dostane, už nečeká
+  const plakaty = p.schranka.deti.PLAKATY;
+  plakaty.createFile('popisky_claude.json', JSON.stringify({ '2026-10-17': { text: 'Áčko hostí Milotice! ⚽ #fkagrovnorovy', kdy: '2026-10-12T09:30:00+02:00', styl: 'vtipně' } }));
+  o = p.volej('plakaty').data.popisky['2026-10-17'];
+  assert.deepStrictEqual([o.text, o.zdroj, o.cekaNaClauda], ['Áčko hostí Milotice! ⚽ #fkagrovnorovy', 'claude', false]);
+  // Michal ho upraví → novější ruční; Claude napíše nový (novější) → zase Claudův
+  p.nastavCas(Date.parse('2026-10-12T10:00:00+02:00'));
+  o = p.volej('plakatPopisekUlozit', { tyden: '2026-10-17', text: 'Upraveno ručně' }).data.popisky['2026-10-17'];
+  assert.deepStrictEqual([o.text, o.zdroj], ['Upraveno ručně', 'rucne']);
+  plakaty.soubory.find((f) => f.getName() === 'popisky_claude.json').setContent(JSON.stringify({ '2026-10-17': { text: 'Nový od Clauda', kdy: '2026-10-12T11:00:00+02:00' } }));
+  assert.strictEqual(p.volej('plakaty').data.popisky['2026-10-17'].text, 'Nový od Clauda');
+  assert.ok(/2 200/.test(p.volej('plakatPopisekUlozit', { tyden: '2026-10-17', text: 'x'.repeat(2201) }).chyba));
+});
+
+test('plakáty: sám požádá o popisek k nejbližšímu víkendu s domácím zápasem (po–so, jednou), ne v neděli ani bez domácího', () => {
+  const p = prostredi();
+  plakatyFotbal(p);
+  const pozn = () => (p.schranka.deti.NOVE ? p.schranka.deti.NOVE.soubory.filter((f) => /_plak\.md$/.test(f.getName())) : []);
+  p.nastavCas(Date.parse('2026-10-10T09:00:00+02:00')); // sobota 10. 10. – víkend před 10. kolem (popisky až od 17. 10.)
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(pozn().length, 0, 'před 10. kolem ne');
+  p.nastavCas(Date.parse('2026-10-11T10:00:00+02:00')); // neděle
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(pozn().length, 0, 'v neděli ne');
+  p.nastavCas(Date.parse('2026-10-12T07:00:00+02:00')); // pondělí ráno – před 8. hodinou
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(pozn().length, 0, 'před 8:00 ne');
+  p.nastavCas(Date.parse('2026-10-12T08:10:00+02:00'));
+  p.ctx.instagramKazdych10Min();
+  p.nastavCas(Date.parse('2026-10-14T12:00:00+02:00'));
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(pozn().length, 1, 'jednou na víkend');
+  assert.ok(/2026-10-17/.test(pozn()[0].getBlob().getDataAsString()));
+  assert.strictEqual(p.volej('plakaty').data.popisky['2026-10-17'].cekaNaClauda, true);
+  // víkend 31. 10. – jen venku → nežádá
+  p.nastavCas(Date.parse('2026-10-26T09:00:00+01:00'));
+  p.ctx.instagramKazdych10Min();
+  assert.ok(!pozn().some((f) => /2026-10-31/.test(f.getBlob().getDataAsString())), 'jen venku – bez popisku');
+  // víkend 24.–25. 10. (B doma v neděli, přeložené) → v pondělí 19. 10. požádá
+  p.nastavCas(Date.parse('2026-10-19T09:00:00+02:00'));
+  p.ctx.instagramKazdych10Min();
+  const t = pozn().map((f) => f.getBlob().getDataAsString()).find((x) => /2026-10-24/.test(x));
+  assert.ok(t && /NE 25\. 10\. 14:30 · B-tým · doma · Vnorovy B – Kozojídky \(přeloženo\)/.test(t), t);
+});
+
+test('plakáty na Instagram: obrázky (JPEG), plán jen s popiskem a obrázky, spouštěč – příspěvek s popiskem + příběh, odkazy jen po dobu stahování', () => {
+  const p = prostredi();
+  plakatyFotbal(p);
+  p.nastavCas(Date.parse('2026-10-12T09:00:00+02:00'));
+  const za = Date.parse('2026-10-15T18:00:00+02:00');
+  assert.ok(/IG_TOKEN/.test(p.volej('plakatNaplanovat', { tyden: '2026-10-17', kdy: za, pribeh: true }).chyba));
+  p.vlastnosti.set('IG_TOKEN', 'testovaci-ig-klic');
+  p.vlastnosti.set('IG_TOKEN_OBNOVA', String(Date.now()));
+  assert.ok(/obrázek plakátu/.test(p.volej('plakatNaplanovat', { tyden: '2026-10-17', kdy: za, pribeh: true }).chyba));
+  assert.ok(/JPEG/.test(p.volej('plakatObrazky', { tyden: '2026-10-17', prispevek: 'data:image/png;base64,AAAA' }).chyba));
+  let o = p.volej('plakatObrazky', { tyden: '2026-10-17', prispevek: JPEG, pribeh: JPEG });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual([o.data.obrazky['2026-10-17'].prispevek, o.data.obrazky['2026-10-17'].pribeh], [true, true]);
+  o = p.volej('plakatObrazky', { tyden: '2026-10-17', prispevek: JPEG, pribeh: JPEG }); // znovu = staré do koše
+  assert.strictEqual(p.schranka.deti.PLAKATY.soubory.filter((f) => /_prispevek\.jpg$/.test(f.getName()) && !f.vKosi).length, 1);
+  assert.ok(/popisek/.test(p.volej('plakatNaplanovat', { tyden: '2026-10-17', kdy: za, pribeh: true }).chyba), 'bez popisku ne');
+  p.volej('plakatPopisekUlozit', { tyden: '2026-10-17', text: 'Áčko hostí Milotice! #fkagrovnorovy' });
+  o = p.volej('plakatNaplanovat', { tyden: '2026-10-17', kdy: za, pribeh: true });
+  assert.deepStrictEqual(json(o.data.plan['2026-10-17']), { kdy: za, stav: 'ceka', pribeh: true });
+  assert.strictEqual(p.volej('plakaty').data.plan['2026-10-17'].stav, 'ceka');
+  // před časem nic; v čase příspěvek + příběh
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(p.ig.zverejneno, undefined);
+  p.nastavCas(za + 60e3);
+  p.ig.stavy = ['FINISHED'];
+  p.ctx.instagramKazdych10Min();
+  const kontejnery = p.ig.volani.filter((v) => v.cesta === '17841400000/media');
+  assert.deepStrictEqual(kontejnery.map((k) => [k.telo.media_type || 'IMAGE', !!k.telo.image_url, k.telo.caption || '']),
+    [['IMAGE', true, 'Áčko hostí Milotice! #fkagrovnorovy'], ['STORIES', true, '']]);
+  assert.notStrictEqual(kontejnery[0].telo.image_url, kontejnery[1].telo.image_url, 'příběh má vlastní obrázek 9:16');
+  const plan = JSON.parse(p.vlastnosti.get('PLAKATY_PLAN'))['2026-10-17'];
+  assert.deepStrictEqual([plan.stav, plan.media, plan.mediaPribeh, !!plan.odkaz], ['hotovo', 'media-1', 'media-2', true]);
+  const soubory = p.schranka.deti.PLAKATY.soubory.filter((f) => /\.jpg$/.test(f.getName()) && !f.vKosi);
+  soubory.forEach((f) => assert.deepStrictEqual(f.sdileni, ['ANYONE_WITH_LINK:VIEW', 'PRIVATE:NONE'], f.getName()));
+  assert.ok(/už na Instagramu/.test(p.volej('plakatNaplanovat', { tyden: '2026-10-17', kdy: za + 120e3, pribeh: true }).chyba));
+  // zrušení plánu jiného víkendu
+  p.volej('plakatObrazky', { tyden: '2026-10-24', prispevek: JPEG });
+  p.volej('plakatPopisekUlozit', { tyden: '2026-10-24', text: 'Neděle doma' });
+  assert.ok(/příběh/.test(p.volej('plakatNaplanovat', { tyden: '2026-10-24', kdy: za + 864e5, pribeh: true }).chyba), 'příběh bez obrázku ne');
+  assert.strictEqual(p.volej('plakatNaplanovat', { tyden: '2026-10-24', kdy: za + 864e5, pribeh: false }).ok, true);
+  assert.deepStrictEqual(Object.keys(p.volej('plakatZrusitPlan', { tyden: '2026-10-24' }).data.plan), ['2026-10-17']);
 });
 
 // ---- auto: tabulka Google (vymyšlená čísla – repo je veřejné)

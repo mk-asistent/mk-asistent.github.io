@@ -8,9 +8,9 @@
 const crypto = require('crypto');
 
 // rychlá čtení v jedné dávce (motor víc souběžných dotazů řadí do fronty)
-const DAVKA = ['info', 'schranka', 'fotbal', 'reely', 'zmeny'];
+const DAVKA = ['info', 'schranka', 'fotbal', 'reely', 'zmeny', 'plakaty'];
 // co se přes den mění málo: obnoví se jen po svém intervalu (minuty); po změně z aplikace (obnovHned s vse) vždy
-const INTERVALY_MIN = { info: 60, fotbal: 60, reely: 30 };
+const INTERVALY_MIN = { info: 60, fotbal: 60, reely: 30, plakaty: 30 };
 
 /** Co se z dávky tentokrát přeskočí: pomalé věci, dokud je jejich kopie mladší než interval (vse = nic). */
 function coPreskocit(potvrzeno, ted, vse) {

@@ -51,8 +51,8 @@ function motor(odpovedi, zaznam) {
       return { ok: false, chyba: 'Neznámá akce.' };
     }, zaznam);
     const v = await obnov(P, { fetch: fetchFn, ted: Date.parse('2026-10-05T10:00:00+02:00') });
-    assert.deepStrictEqual(zaznam.sort(), ['davka:info,schranka,fotbal,reely,zmeny', 'davka:kalendar,kalendar', 'posta']);
-    assert.deepStrictEqual(Object.keys(v.data).sort(), ['fotbal', 'info', 'kalendar_2026-10', 'kalendar_2026-11', 'schranka', 'zmeny']);
+    assert.deepStrictEqual(zaznam.sort(), ['davka:info,schranka,fotbal,reely,zmeny,plakaty', 'davka:kalendar,kalendar', 'posta']);
+    assert.deepStrictEqual(Object.keys(v.data).sort(), ['fotbal', 'info', 'kalendar_2026-10', 'kalendar_2026-11', 'plakaty', 'schranka', 'zmeny']);
     assert.ok(!v.data.zdravi && !v.data.pocasi, 'zdraví a počasí na server nepatří');
     assert.deepStrictEqual(v.data['kalendar_2026-10'].parametry, { od: Date.parse('2026-09-28T00:00:00+02:00'), do: Date.parse('2026-11-09T00:00:00+01:00') });
     assert.ok(v.chyby.some((c) => /^reely:/.test(c)) && v.chyby.some((c) => /^posta: Service invoked/.test(c)), v.chyby.join(' | '));
@@ -70,7 +70,7 @@ function motor(odpovedi, zaznam) {
     const zaznam = [];
     const fetchFn = motor((d) => (d.akce === 'davka' ? { ok: true, data: d.polozky.map((p) => ({ ok: true, data: { co: p.akce } })) } : { ok: true, data: {} }), zaznam);
     const v = await obnov(P, { fetch: fetchFn, ted, preskocit: coPreskocit(potvrzeno, ted, false) });
-    assert.ok(zaznam.indexOf('davka:schranka,reely,zmeny') >= 0, zaznam.join(' | '));
+    assert.ok(zaznam.indexOf('davka:schranka,reely,zmeny,plakaty') >= 0, zaznam.join(' | '));
     assert.ok(!v.data.info && !v.data.fotbal && v.data.reely && v.data.zmeny, 'přeskočené nejsou v datech (kopie zůstanou)');
   });
 
@@ -91,7 +91,7 @@ function motor(odpovedi, zaznam) {
     zaznam = [];
     v = await obnov(P, { fetch: fetchFn(zaznam), ted, jen: ['posta'] });
     assert.deepStrictEqual(zaznam, ['posta']);
-    assert.deepStrictEqual(OBLASTI.slice().sort(), ['fotbal', 'info', 'kalendar', 'posta', 'reely', 'schranka', 'zmeny']);
+    assert.deepStrictEqual(OBLASTI.slice().sort(), ['fotbal', 'info', 'kalendar', 'plakaty', 'posta', 'reely', 'schranka', 'zmeny']);
   });
 
   await test('motor: špatný klíč a odpověď, která není JSON, dají srozumitelnou chybu', async () => {
