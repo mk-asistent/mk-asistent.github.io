@@ -925,13 +925,13 @@ export function kartaPitiHtml() {
       '<div class="piti__akce"><button type="button" class="btn btn--sm btn--ghost" data-jidlo-pridat>' + IKONY.plus + '<span>Jídlo</span></button></div></div>';
   if (s.jidla.length) {
     // ≈ = odhad aplikace (Claude ho upřesní), „Claude“ = upřesněno (v titulku jeho poznámka); u zápisu Přesunout na jiný den a Smazat
-    const stitek = (j) => (j.doplnek ? ' <small>doplněk</small>' : j.claude ? ' <small>z diktátu</small>' : j.odhad === 'claude' ? ' <small title="' + esc(j.poznamka || 'upřesnil Claude') + '">Claude</small>' : '');
+    const stitek = (j) => (j.doplnek ? ' <small>doplněk</small>' : j.claude ? ' <small>z diktátu</small>' : j.odhad === 'claude' ? ' <small' + bublina('Upřesnil Claude', j.poznamka || 'odhad bílkovin a kcal') + '>Claude</small>' : '');
     const akce = (j) => '<span class="piti__akce-zapisu' + (presun ? ' piti__akce-zapisu--dve' : '') + '">' + (!j.id ? '' :
       (presun ? '<button type="button" class="btn btn--ikona btn--sm" data-jidlo-presun="' + esc(j.id) + '" aria-label="Přesunout na jiný den: ' + esc(j.co) +
         '" title="Přesunout na jiný den">' + IKONY.kalendar + '</button>' : '') +
       '<button type="button" class="btn btn--ikona btn--sm" data-jidlo-smazat="' + esc(j.id) + '" aria-label="Smazat ' + esc(j.co) + '">' + IKONY.zavrit + '</button>') + '</span>';
     h += '<ul class="piti__jidla">' + s.jidla.map((j) => '<li><span class="orez-1">' + esc(j.co) + stitek(j) + '</span>' +
-      '<b class="cisla"' + (j.odhad === 'mistni' ? ' title="odhad aplikace – Claude ho upřesní"' : '') + '>' + (j.odhad === 'mistni' ? '≈ ' : '') + j.bilkoviny + ' g</b>' +
+      '<b class="cisla"' + (j.odhad === 'mistni' ? bublina('Odhad aplikace', 'Claude ho upřesní') : '') + '>' + (j.odhad === 'mistni' ? '≈ ' : '') + j.bilkoviny + ' g</b>' +
       akce(j) + '</li>').join('') + '</ul>';
   }
   h += hodnoceniHtml(d) + tydenPitiHtml(d, cilPiti, cilB) +

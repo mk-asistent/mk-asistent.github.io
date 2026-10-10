@@ -6,6 +6,7 @@ import { volej } from './api.js';
 import { esc, uloziste, dm, hhmm, DNY_KR, rozdilDni, kdyKratce, klub } from './pomocne.js';
 import { IKONY } from './ikony.js';
 import { toast, hlavickaKarty } from './ui.js';
+import { bublina } from './bubliny.js';
 
 const ULOZISTE = 'asistent.data.fotbal';
 
@@ -103,7 +104,9 @@ export function kartaDnesHtml() {
     '<ul class="fotbal-tymy">' + p.map((x) => {
       const v = x.posledni ? vrp(x.posledni) : '';
       return '<li><b class="fotbal-tym" style="--b:' + esc(x.tym.barva || 'var(--accent)') + '">' + esc(x.tym.nazev) + '</b>' +
-        (x.posledni ? '<span class="fotbal-vysledek fotbal-vysledek--' + v + '" title="' + esc(x.posledni.domaci + ' – ' + x.posledni.hoste) + '">' +
+        // bublina se zápasem (kdy, skóre, kdo s kým – dřív textový title)
+        (x.posledni ? '<span class="fotbal-vysledek fotbal-vysledek--' + v + '"' + bublina(x.tym.nazev + ' · ' + kdy(cas(x.posledni)),
+          x.posledni.vysledek + ({ V: ' výhra', R: ' remíza', P: ' prohra' }[v] || ''), x.posledni.domaci + ' – ' + x.posledni.hoste) + '>' +
           '<i>' + v + '</i>' + esc(x.posledni.vysledek) + ' ' + esc(souper(x.posledni)) + '</span>' : '<span class="fotbal-vysledek">–</span>') +
         (x.dalsi ? '<span class="fotbal-dalsi">' + esc(kdy(cas(x.dalsi))) + ' · ' + esc(souper(x.dalsi)) + ' <small>' + (x.dalsi.doma ? 'doma' : 'venku') + '</small></span>'
           : '<span class="fotbal-dalsi muted">podzim dohrán</span>') + '</li>';
@@ -120,7 +123,7 @@ export function tymyHtml() {
   const zapnute = (stav.fotbal && stav.fotbal.vKalendari) || [];
   return '<p class="karta-text">Zápasy našich týmů z fotbal.cz. Zapnutý tým má zápasy v kalendáři „⚽ tým“ – přeložení a výsledky se doplní samy.</p>' +
     '<div class="fotbal-volby">' + (d.tymy || []).map((t) => '<button type="button" class="chip" data-fotbal-tym="' + esc(t.klic) + '" aria-pressed="' +
-      (zapnute.indexOf(t.klic) >= 0) + '" title="' + esc(t.soutez || '') + '">' + IKONY.zapas + esc(t.nazev) + '</button>').join('') + '</div>' +
+      (zapnute.indexOf(t.klic) >= 0) + '"' + (t.soutez ? bublina(t.nazev, t.soutez) : '') + '>' + IKONY.zapas + esc(t.nazev) + '</button>').join('') + '</div>' +
     '<p class="napoveda">Aktualizováno ' + esc(kdyKratce(Date.parse(d.aktualizovano) || 0)) + ' · ' + d.zapasy.length + ' zápasů</p>';
 }
 

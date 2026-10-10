@@ -389,11 +389,11 @@ function zapisyHtml(d) {
       const smazat = posledni[z.list] === z && z.datum != null && z.castka != null && umiMotor('autoSmazat');
       const upravit = z.datum != null && z.castka != null && umiMotor('autoUpravit');
       const obsah = '<span class="kruh kruh--' + (tank ? 'auto' : 'oranz') + '">' +
-        (tank ? IKONY.palivo : IKONY.auto) + '</span><div class="auto-zapis__text"><b>' + esc(nazev) + (z.uctenka ? ' <i class="auto-zapis__foto" title="s fotkou účtenky">' +
+        (tank ? IKONY.palivo : IKONY.auto) + '</span><div class="auto-zapis__text"><b>' + esc(nazev) + (z.uctenka ? ' <i class="auto-zapis__foto"' + bublina('Účtenka', 'zápis má fotku účtenky') + '>' +
         IKONY.foto + '</i>' : '') + '</b><small>' +
         esc((z.datum != null ? dm(z.datum) + ' ' + new Date(z.datum).getFullYear() : z.datumText) + (pod ? ' · ' + pod : '')) + '</small></div>' +
         '<span class="auto-zapis__castka cisla">' + (z.castka != null ? kc(z.castka) : '—') + (z.kdo ? '<i class="auto-kdo auto-kdo--' + (z.kdo === 'K' ? 'k' : 'm') +
-        '" title="' + (z.kdo === 'K' ? 'Katka' : 'Michal') + '">' + esc(z.kdo) + '</i>' : '') + '</span>';
+        '"' + bublina('Platil(a)', z.kdo === 'K' ? 'Katka' : 'Michal') + '>' + esc(z.kdo) + '</i>' : '') + '</span>';
       return '<li class="auto-zapis' + (tank ? ' auto-zapis--palivo' : '') + '">' +
         (upravit ? '<button type="button" class="auto-zapis__hlavni" data-auto-upravit="' + esc(z.list + ':' + z.radek) + '" aria-label="Upravit zápis">' + obsah + '</button>' : obsah) +
         (smazat ? '<button type="button" class="btn btn--ikona" data-auto-smazat="' + esc(z.list + ':' + z.radek) + '" aria-label="Smazat zápis (překlep)">' +
@@ -502,7 +502,7 @@ const KOLA = '<div class="pece-kola"><div class="pece-kola__karta pece-kola--zim
   '<ul class="pece-rady"><li>Dezén: zimní vyměnit pod 4 mm (zákonné minimum), letní pod 3 mm (minimum je 1,6 mm).</li>' +
   '<li>Pneumatiky starší 6–8 let vyměnit, i když mají dezén – rok výroby je v kódu DOT na boku.</li>' +
   '<li>Při přezutí nech kola vyvážit a dotáhnout, tlak kontroluj 1× měsíčně.</li>' +
-  '<li>Asistent připomene přezutí na zimní od 10. 10. a na letní od 20. 3. (na stránce Auto, na Dnes a upozorněním do iPhonu).</li></ul>';
+  '<li>Asistent připomene přezutí na zimní od 10. 10. a na letní od 20. 3. (na stránce Auto, na Přehledu a upozorněním do iPhonu).</li></ul>';
 
 // termíny, které v tabulce nejsou – motor je drží v AUTO/terminy.json a připomene je v Co řešit (zapsat je může i Claude)
 const TERMINY = [['znamka', '🛣️', 'Dálniční známka platí do'], ['stk', '🔍', 'STK platí do'], ['pojisteni', '📄', 'Výročí pojištění']];

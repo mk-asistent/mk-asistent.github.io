@@ -14,6 +14,7 @@ import { chybaHtml, segment, hlavickaKarty, toast, prizpusobVysku } from './ui.j
 import { jmenaDne, oblibeniDne, bezDiakritiky, svatkyOblibenych, pripravOblibene } from './jmeniny.js';
 import { IKONY, ikonaPocasi } from './ikony.js';
 import { predpovedNa, teplota } from './pocasi.js';
+import { bublina } from './bubliny.js';
 import { otevriFormular, akceUdalostiHtml, zapasyHtml, zapisovatelneKalendare } from './udalost.js';
 import { tymyHtml as fotbalTymyHtml } from './fotbal.js';
 
@@ -140,12 +141,15 @@ export function nejblizsi(n, dni) {
     .slice(0, n);
 }
 
-/** Předpověď ČHMÚ ke dni: malá ikona a teploty (jen dny, pro které ji ČHMÚ dává – dnes až 3 dny dopředu). */
+/** Předpověď ČHMÚ ke dni: malá ikona a teploty (jen dny, pro které ji ČHMÚ dává – dnes až 3 dny dopředu); po najetí /
+ *  klepnutí bublina s rozpětím teplot a stavem (js/bubliny.js – dřív textový title). */
 function pocasiDneHtml(den) {
   const p = predpovedNa(den + 12 * 36e5);
   if (!p) return '';
   const t = p.tMax || p.tMin;
-  return '<i class="den-pocasi" title="' + esc(p.uvod + (t ? ', ' + teplota(p) : '')) + '">' + ikonaPocasi(p.ikona) + (t ? t[1] + '°' : '') + '</i>';
+  const d = new Date(den);
+  return '<i class="den-pocasi"' + bublina('Předpověď ČHMÚ · ' + DNY_KR[d.getDay()] + ' ' + d.getDate() + '. ' + (d.getMonth() + 1) + '.', t ? teplota(p) : p.uvod || '',
+    t ? p.uvod : '') + '>' + ikonaPocasi(p.ikona) + (t ? t[1] + '°' : '') + '</i>';
 }
 
 /** Zápas: z kalendáře zápasů, s míčem v názvu, nebo z importu rozpisu. */
@@ -179,10 +183,10 @@ export function agenda(dni, max) {
     const nazevDne = i === 0 ? 'Dnes' : i === 1 ? 'Zítra' : velkePrvni(DNY_KR[new Date(t).getDay()]);
     // den = tlačítko: otevře kalendář na tom dni (data-skoc-den obsluhuje app.js)
     h += '<li class="agenda__den' + (ukazat.length ? '' : ' agenda__den--volny') + (svatekObl.length ? ' agenda__den--oblibeny' : '') + '">' +
-      '<button type="button" class="agenda__den-btn" data-skoc-den="' + t + '" title="' + esc(velkePrvni(datumDlouhe(t))) + ' – otevřít v kalendáři">' +
+      '<button type="button" class="agenda__den-btn" data-skoc-den="' + t + '">' +
       '<b>' + nazevDne + '</b><small>' + new Date(t).getDate() + '. ' + (new Date(t).getMonth() + 1) + '.</small>' +
       // skryté události dne hned u data („+2 další“) – vpravo za jménem svátku se četly jako další jmeniny
-      (ud.length > ukazat.length ? '<em class="agenda__skryto cisla" title="Další události v kalendáři">+' + (ud.length - ukazat.length) + ' další</em>' : '') +
+      (ud.length > ukazat.length ? '<em class="agenda__skryto cisla">+' + (ud.length - ukazat.length) + ' další</em>' : '') +
       agendaSvatekHtml(t, svatekObl) +
       '</button></li>';
     ukazat.forEach((u) => {
@@ -200,11 +204,10 @@ export function agenda(dni, max) {
 /** Svátek v řádku dne na Dnes: oblíbení ★ výrazně (i se vztahem), jinak jméno z kalendáře šedě. */
 function agendaSvatekHtml(t, svatekObl) {
   if (svatekObl.length) {
-    return '<span class="agenda__svatek agenda__svatek--oblibeny" title="Svátek má ' + esc(svatekObl.map(popisOblibeneho).join(', ')) + '">★ ' +
-      esc(svatekObl.map(popisOblibeneho).join(', ')) + '</span>';
+    return '<span class="agenda__svatek agenda__svatek--oblibeny">★ ' + esc(svatekObl.map(popisOblibeneho).join(', ')) + '</span>';
   }
   const j = jmenaDne(t);
-  return j ? '<span class="agenda__svatek" title="Svátek">' + esc(j) + '</span>' : '';
+  return j ? '<span class="agenda__svatek"' + bublina('Svátek · ' + DNY_KR[new Date(t).getDay()] + ' ' + new Date(t).getDate() + '. ' + (new Date(t).getMonth() + 1) + '.', j) + '>' + esc(j) + '</span>' : '';
 }
 
 /** Pro hledání: všechny načtené události (bez duplicit). */
@@ -293,7 +296,7 @@ function svatekVNadpisu(den) {
 const maOblibeneho = (den) => svatekDne(den).obl.length > 0;
 
 /** Oblíbený jako celodenní čip sekce Svátky (měsíc, celý den v týdnu). */
-const cipSvatkuHtml = (o) => '<span class="cip-udalost cip-svatek" title="Svátek: ' + esc(popisOblibeneho(o)) + '">★ ' + esc(o.jmeno) + '</span>';
+const cipSvatkuHtml = (o) => '<span class="cip-udalost cip-svatek"' + bublina('Svátek', '★ ' + o.jmeno, o.kdo || 'Oblíbení lidé') + '>★ ' + esc(o.jmeno) + '</span>';
 
 /** Oblíbení jako první řádky seznamu dne (pod Měsícem, Seznam) – vypadají jako celodenní událost sekce Svátky. */
 function svatkyRadkyHtml(den) {
@@ -323,7 +326,7 @@ function brzyHtml(trida) {
     '<em class="brzy__za">' + zaDniText(x.zaDni) + '</em></button></li>';
   let telo;
   if (!vse.length) {
-    telo = '<p class="karta-text">Přidej lidi, na kterých ti záleží – jejich svátek se v kalendáři i v týdnu na Dnes zvýrazní ★.</p>' +
+    telo = '<p class="karta-text">Přidej lidi, na kterých ti záleží – jejich svátek se v kalendáři i v týdnu na Přehledu zvýrazní ★.</p>' +
       '<button type="button" class="dlazdice__pata" data-kal-zobrazeni>' + IKONY.plus + 'Přidat oblíbené</button>';
   } else if (!brzy.length) {
     telo = '<p class="karta-text">Příštích ' + BRZY_DNI + ' dní nikdo. Další:</p><ul class="brzy-seznam">' + radek(vse[0]) + '</ul>';
@@ -665,7 +668,7 @@ function zobrazeniHtml() {
   if (skryte.size) h += '<button type="button" class="btn btn--ghost btn--sm" data-kal-vse>Ukázat všechny</button>';
   h += '</section><section class="jmeniny-sekce"><h3>★ Oblíbení lidé' + (oblibeni().length ? ' <small class="cisla">' + oblibeni().length + '</small>' : '') + '</h3>';
   if (!umiMotor('jmeninyUlozit')) return h + '<p class="napoveda">Oblíbené lidi ukáže nová verze motoru.</p></section></div>';
-  h += '<p class="napoveda">Jejich svátek uvidíš výrazně ★ v kalendáři, v „Brzy má svátek“ i v týdnu na Dnes – bez upozornění.</p>';
+  h += '<p class="napoveda">Jejich svátek uvidíš výrazně ★ v kalendáři, v „Brzy má svátek“ i v týdnu na Přehledu – bez upozornění.</p>';
   // seznam podle nejbližšího svátku (odebrat jde podle pořadí v uloženém seznamu)
   const dnes = pulnoc(Date.now());
   const serazeni = oblibeni().map((o, i) => {

@@ -20,6 +20,7 @@ import { toast, toastAkce, kostra, chybaHtml, segment, prizpusobVysku, potvrd } 
 import { IKONY } from './ikony.js';
 import { nactiKontakty } from './adresy.js';
 import { pripoj as pripojNabidku } from './nabidka.js';
+import { bublina } from './bubliny.js';
 import * as wedos from './wedos.js'; // WEDOS: se zapnutou schránkou je účet Pracovní přímo z WEDOS (server), ne z Gmailu
 
 const DVA_SLOUPCE = window.matchMedia('(min-width: 1000px)');
@@ -358,18 +359,20 @@ export function zpravaRadekHtml(m, ukazUcet) {
   const tahnout = TAHNUTI.matches && vPoste && !m.zPc && m.zdroj !== 'wedos' && umiMotor('postaPresunout') ? ' draggable="true"' : '';
   const text = m.ukazka ? cistaUkazka(m.ukazka, m.predmet) : '';
   return '<li class="' + (m.neprectena ? 'neprect' : 'prect') + aktivni + vybrany + ' st-' + st + '"><button type="button" class="radek radek-posta" data-vlakno="' + esc(m.id) + '"' +
-    ' title="' + esc(popis) + '"' + tahnout + '>' +
+    tahnout + '>' +
+    // proužek stavu vlevo: najetí ukáže vyjetou bublinu se stavem a důvodem (Michal 10. 10.: žádné textové výpisy)
+    (st !== 'info' || m.vedomi ? '<span class="radek-pruh"' + bublina(m.vedomi ? 'Bereš na vědomí' : STAVY[st][0], m.vedomi ? popis : (m.duvod || STAVY[st][0])) + '></span>' : '') +
     '<span class="avatar" style="--h:' + odstin(m.od) + '" aria-hidden="true">' + esc(iniciala(m.od)) + '</span>' +
     '<span class="radek-obsah">' +
       '<span class="radek-hora">' + (m.neprectena ? '<span class="tecka" aria-label="nepřečtené"></span>' : '') +
         '<span class="radek-titul orez-1">' + esc(m.od) + '</span>' +
-        (m.vedomi ? '<span class="radek-vedomi" title="Bereš na vědomí" aria-label="bereš na vědomí">' + IK_VEDOMI + '</span>' : '') +
-        (m.navrh ? '<span class="radek-navrh" title="Claude připravil návrh odpovědi" aria-label="návrh odpovědi od Clauda">' + IKONY.claude + '</span>' : '') +
+        (m.vedomi ? '<span class="radek-vedomi"' + bublina('Bereš na vědomí', 'nehoří, zůstává v Doručené') + '>' + IK_VEDOMI + '</span>' : '') +
+        (m.navrh ? '<span class="radek-navrh"' + bublina('Návrh odpovědi', 'Claude připravil odpověď – je v detailu pod e-mailem') + '>' + IKONY.claude + '</span>' : '') +
         (ukazUcet ? '<span class="radek-ucet radek-ucet--' + (m.ucet === 'pracovni' ? 'pracovni' : 'osobni') + '">' + (m.ucet === 'pracovni' ? 'Pracovní' : 'Osobní') + '</span>' : '') +
         '<span class="radek-cas cisla">' + esc(kdyKratce(m.kdy)) + '</span></span>' +
       '<span class="radek-predmet orez-1">' + esc(m.predmet) + (m.pocet > 1 ? ' <span class="pocet">' + m.pocet + '</span>' : '') + '</span>' +
       (text ? '<span class="radek-text orez-2">' + esc(text) + '</span>' : '') +
-      '<span class="radek-stav">' + esc(m.vedomi ? 'Bereš na vědomí' : STAVY[st][0]) + '</span>' +
+      '<span class="radek-stav">' + esc(popis) + '</span>' +
     '</span></button>' + (vPoste && vyber.ids.size && !m.zPc ? vyberHtml(m) : '') + '</li>';
 }
 

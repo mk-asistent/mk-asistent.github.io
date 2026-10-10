@@ -328,7 +328,7 @@ function navodHtml() {
 export function nastaveniHtml() {
   let h = '<h3 id="nast-wedos">Pracovní schránka přímo (WEDOS)</h3><p class="napoveda">Server aplikace se k pracovní poště přihlásí sám – čte Doručené ' +
     'a Odeslané (IMAP) a odesílá z pracovní adresy (SMTP) – bez přeposílání do Gmailu. Zapnutá schránka je v Poště účet Pracovní ' +
-    '(seznam, odpovědi, Hotovo i počty na Dnes).</p>';
+    '(seznam, odpovědi, Hotovo i počty na Přehledu).</p>';
   if (!ucet.nastaveno() || jeDemo()) return '';
   if (!ucet.prihlasen()) return h + '<p class="nast-stav"><i></i>Potřebuje účet – přihlas ho v záložce Připojení.</p>';
   if (w.nastaveni === undefined && !w.chyba) {

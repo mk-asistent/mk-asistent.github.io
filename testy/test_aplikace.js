@@ -812,13 +812,13 @@ function vychoziVikendTestu() {
   for (const v of VELIKOSTI) {
     for (const motiv of v.nazev === 'telefon' || v.nazev === 'pc' ? ['light', 'dark'] : ['light']) {
       const jmeno = v.nazev + (motiv === 'dark' ? '-tmavy' : '');
-      await test(jmeno + ': Dnes, Schránka, Pošta, Kalendář bez chyb a bez přetékání', async () => {
+      await test(jmeno + ': Přehled, Schránka, Pošta, Kalendář bez chyb a bez přetékání', async () => {
         const { ctx, page, chybyStranky } = await novaStranka(prohlizec, v, motiv);
         await page.goto(WEB);
         await page.waitForFunction(() => document.querySelector('#dl-tyden .agenda__u') && document.querySelector('.vystraha') &&
           (window.innerWidth < 760 ? document.querySelector('.pozornost .pozor') : document.querySelector('#dl-pozornost .seznam')));
         const pretika = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-        jistota(await pretika() <= 0, 'Dnes přetéká do strany');
+        jistota(await pretika() <= 0, 'Přehled přetéká do strany');
         // navigace: telefon = spodní lišta, iPad = panel s ikonami, PC = panel s popisky; horní lišta s hledáním od iPadu
         // viditelné = má na stránce plochu (skrytý rodič se počítá)
         const vidim = (sel) => page.evaluate((s) => { const e = document.querySelector(s); return !!e && e.getClientRects().length > 0; }, sel);
@@ -968,11 +968,11 @@ function vychoziVikendTestu() {
     }
   }
 
-  // ---------- Dnes (Michal 9. 10.): malé dlaždice v horní liště místo řady velkých čísel – počasí, připravenost, nepřečtené,
+  // ---------- Přehled (dřív Dnes; Michal 9. 10.): malé dlaždice v horní liště místo řady velkých čísel – počasí, připravenost, nepřečtené,
   // denní kroužky (šířky 2 : 2 : 1 : 1 podle nákresu); nic nepřetéká ani se netlačí přes hledání; jinde lišta jako dřív
   const SIRKY_HORNI = [VELIKOSTI[3], { nazev: 'pc-siroke', sirka: 1650, vyska: 1000, dotyk: false }, VELIKOSTI[2], VELIKOSTI[1],
     { nazev: 'ipad-uzky', sirka: 768, vyska: 1024, dotyk: true }];
-  await test('Dnes: horní dlaždice – obsah, pořadí a šířky 2 : 2 : 1 : 1, nic nepřetéká ani nezakrývá hledání (PC, iPad)', async () => {
+  await test('Přehled: horní dlaždice – obsah, pořadí a šířky 2 : 2 : 1 : 1, nic nepřetéká ani nezakrývá hledání (PC, iPad)', async () => {
     for (const v of SIRKY_HORNI) {
       for (const motiv of v.nazev === 'pc' ? ['light', 'dark'] : ['light']) {
         const kde = v.nazev + (motiv === 'dark' ? '-tmavy' : '') + ': ';
@@ -1011,7 +1011,7 @@ function vychoziVikendTestu() {
         // čtvrtý kroužek Doplňky: dnes platí kreatin a hořčík (kofein jen v den zápasu) – 4 dráhy + hodnota jen u pohybu
         jistota(/Voda 0,0 \/ 2,5 l/.test(m.krouzky) && /Bílkoviny 0 \/ 130 g/.test(m.krouzky) && /Pohyb 4\s000 \/ 8\s000 kroků \(50 %\)/.test(m.krouzky) &&
           /Doplňky 0 z 2 \(0 %\)/.test(m.krouzky) && m.kruhy === 5, kde + 'kroužky: ' + m.krouzky + ' · kruhů ' + m.kruhy);
-        jistota(!m.velkaCisla, kde + 'na Dnes zůstala řada velkých čísel');
+        jistota(!m.velkaCisla, kde + 'na Přehledu zůstala řada velkých čísel');
         await page.locator('#horni').screenshot({ path: path.join(VYSTUP, v.nazev + (motiv === 'dark' ? '-tmavy' : '') + '_horni_dlazdice.png') });
         jistota(!chybyStranky.length, kde + 'chyby stránky: ' + chybyStranky.join(' | '));
         await ctx.close();
@@ -1019,7 +1019,7 @@ function vychoziVikendTestu() {
     }
   });
 
-  await test('Dnes: horní dlaždice – klepnutí: kroužky a připravenost do Zdraví, nepřečtené do Pošty; jinde lišta bez dlaždic', async () => {
+  await test('Přehled: horní dlaždice – klepnutí: kroužky a připravenost do Zdraví, nepřečtené do Pošty; jinde lišta bez dlaždic', async () => {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
     await page.goto(WEB);
     await page.waitForSelector('#dnes-kpi [data-krouzky]');
@@ -1039,9 +1039,284 @@ function vychoziVikendTestu() {
     await ctx.close();
   });
 
-  // ---------- Dnes: pošta zvlášť (Michal 9. 10.: „když je vyřízena pošta, tak se nemusí zobrazit – aby bylo jasno, že mám
+  // ---------- Přehled (Michal 10. 10.): u dlaždic v horní liště vyjede karta místo textového title – „když najedu na ty
+  // kroužky, chci aby se mi to hezky zobrazilo jakoby vyjeté“. Myš s prodlevou, do karty jde najet, klik vede dál,
+  // klávesnice (Tab, šipka dolů, Esc), nic nepřetéká, tmavý i světlý režim
+  const kartaBubliny = (page) => page.evaluate(() => {
+    const k = document.getElementById('bublina-karta');
+    if (!k || k.hidden || !k.classList.contains('videt')) return null;
+    const r = k.getBoundingClientRect(), a = document.querySelector('[data-karta][aria-expanded="true"]');
+    const ra = a ? a.getBoundingClientRect() : null;
+    return { druh: k.dataset.druh, text: k.textContent.replace(/\s+/g, ' '), l: r.left, r: r.right, t: r.top, b: r.bottom, sirka: document.documentElement.clientWidth,
+      vyska: innerHeight, kotva: ra && { b: ra.bottom, stred: ra.left + ra.width / 2 }, sipka: r.left + parseFloat(k.style.getPropertyValue('--sipka') || '0'),
+      dole: k.classList.contains('dole'), pozadi: getComputedStyle(k).backgroundColor, plocha: getComputedStyle(document.body).backgroundColor };
+  });
+  const cekejNaKartu = async (page, druh) => {
+    await page.waitForFunction((d) => { const k = document.getElementById('bublina-karta'); return k && !k.hidden && k.classList.contains('videt') && k.dataset.druh === d; }, druh);
+    await page.waitForTimeout(260); // vyjetí (posun a zmenšení) dojede – rozměry bez přechodu
+    return kartaBubliny(page);
+  };
+  const kartaNaObrazovce = (k, popis) => jistota(k && k.l >= 7.5 && k.r <= k.sirka - 7.5 && k.t >= 7.5 && k.b <= k.vyska - 7.5, popis + ': karta přetéká z obrazovky ' + JSON.stringify(k));
+  await test('Přehled: vyjeté karty u horních dlaždic – myš s prodlevou, karta pod dlaždicí (kroužky, počasí, připravenost, pošta), do karty jde najet, klik vede dál, klávesnice, bez title (PC světlý i tmavý)', async () => {
+    for (const motiv of ['light', 'dark']) {
+      const kde = motiv === 'dark' ? 'tmavý: ' : '';
+      const jmeno = 'pc' + (motiv === 'dark' ? '-tmavy' : '');
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3], motiv);
+      await page.goto(WEB);
+      await page.waitForFunction(() => document.querySelector('#dnes-kpi [data-krouzky]') && /°C/.test((document.querySelector('#dnes-kpi [data-pocasi]') || {}).textContent || '') &&
+        /72/.test((document.querySelector('#dnes-kpi [data-karta="zdravi"]') || {}).textContent || '') && document.querySelector('#dnes-kpi [data-karta="posta"][data-filtr-posty="neprectene"]'));
+      jistota(!(await page.locator('#dnes-kpi [title], #rail .rail__btn[title], #rail .rail__logo[title], #rail .rail__ja[title]').count()), kde + 'zůstal textový title');
+      // kroužky: najetí → po krátké prodlevě karta pod dlaždicí, šipka míří na dlaždici; 4 velké kroužky s čísly a cílem
+      await page.hover('#dnes-kpi [data-krouzky]');
+      jistota(!(await kartaBubliny(page)), kde + 'karta vyjela bez prodlevy');
+      let k = await cekejNaKartu(page, 'krouzky');
+      jistota(k.dole && k.t >= k.kotva.b && Math.abs(k.sipka - k.kotva.stred) < 2, kde + 'karta kroužků není pod dlaždicí: ' + JSON.stringify(k));
+      kartaNaObrazovce(k, kde + 'kroužky');
+      jistota(await page.locator('#bublina-karta .bk-krouzek').count() === 4 && /Voda/.test(k.text) && /0,0 \/ 2,5 l/.test(k.text) && /zbývá 2,5 l/.test(k.text) &&
+        /Bílkoviny/.test(k.text) && /0 \/ 130 g/.test(k.text) && /Kroky/.test(k.text) && /4\s000 \/ 8\s000/.test(k.text) && /zbývá 4\s000/.test(k.text) &&
+        /50\s*%/.test(k.text) && /Doplňky/.test(k.text) && /0 z 2/.test(k.text) && /zbývají 2/.test(k.text) && /0 ze 4/.test(k.text), kde + 'obsah karty kroužků: ' + k.text);
+      jistota(k.pozadi !== k.plocha && await page.getAttribute('#dnes-kpi [data-krouzky]', 'aria-expanded') === 'true', kde + 'karta splývá s plochou / dlaždice bez aria-expanded');
+      await page.screenshot({ path: path.join(VYSTUP, jmeno + '_karta_krouzky.png') });
+      // do karty jde najet – zůstane; tlačítko Zdraví vede do Zdraví a kartu zavře
+      await page.hover('#bublina-karta .bk-akce');
+      await page.waitForTimeout(350);
+      jistota((await kartaBubliny(page) || {}).druh === 'krouzky', kde + 'karta zmizela při najetí do ní');
+      await page.click('#bublina-karta .bk-akce');
+      await page.waitForSelector('#p-zdravi:not([hidden]) .zdravi-hero');
+      await page.waitForFunction(() => document.getElementById('bublina-karta').hidden);
+      await page.click('#rail [data-cil="dnes"]');
+      await page.waitForSelector('#dnes-kpi [data-pocasi]');
+      // počasí: teď / dnes, dny s rozpětím, výstraha ČHMÚ; tlačítko Celá předpověď
+      await page.hover('#dnes-kpi [data-pocasi]');
+      k = await cekejNaKartu(page, 'pocasi');
+      kartaNaObrazovce(k, kde + 'počasí');
+      jistota(/Veselí nad Moravou/.test(k.text) && /Silné bouřky/.test(k.text) && /Zítra/.test(k.text) && /Bouřky/.test(k.text) && /25°/.test(k.text) &&
+        await page.locator('#bublina-karta .bk-dny li').count() >= 3 && await page.locator('#bublina-karta .bk-vystraha--zluta').count() === 1 &&
+        await page.locator('#bublina-karta [data-pocasi]').count() === 1, kde + 'obsah karty počasí: ' + k.text);
+      await page.screenshot({ path: path.join(VYSTUP, jmeno + '_karta_pocasi.png') });
+      // přejetí na vedlejší dlaždici: karta se vymění hned (bez prodlevy) – připravenost: kroužek zóny, spánek, HRV, 7 dní
+      await page.hover('#dnes-kpi [data-karta="zdravi"]');
+      k = await kartaBubliny(page);
+      jistota(k && k.druh === 'zdravi', kde + 'přejetí na vedlejší dlaždici kartu hned nevyměnilo: ' + JSON.stringify(k && k.druh));
+      jistota(/Připravenost/.test(k.text) && /72/.test(k.text) && /Zelená/.test(k.text) && /\+17 proti včerejšku/.test(k.text) && /6:30/.test(k.text) &&
+        /HRV/.test(k.text) && /84/.test(k.text) && /Tep\s*49\s*bpm\s*v klidu/.test(k.text) && /96,4/.test(k.text) && /Hluboký/.test(k.text) &&
+        await page.locator('#bublina-karta .bk-tyden > span').count() === 7, kde + 'obsah karty připravenosti: ' + k.text);
+      kartaNaObrazovce(k, kde + 'připravenost');
+      await page.waitForTimeout(260);
+      await page.screenshot({ path: path.join(VYSTUP, jmeno + '_karta_pripravenost.png') });
+      // pošta: stavy, co čeká; řádek otevře e-mail v Poště
+      await page.hover('#dnes-kpi [data-karta="posta"]');
+      k = await cekejNaKartu(page, 'posta');
+      jistota(/1\s*nepřečtený/.test(k.text) && /1 čeká na tvou odpověď/.test(k.text) && /Otázky\s*1/.test(k.text) && /Nepřečtené\s*1/.test(k.text) && /Trenér/.test(k.text) &&
+        /Sraz v sobotu/.test(k.text) && !/Investor/.test(k.text), kde + 'obsah karty pošty: ' + k.text);
+      kartaNaObrazovce(k, kde + 'pošta');
+      await page.screenshot({ path: path.join(VYSTUP, jmeno + '_karta_posta.png') });
+      // myš odjede → karta zmizí
+      await page.mouse.move(700, 700);
+      await page.waitForFunction(() => document.getElementById('bublina-karta').hidden);
+      await page.hover('#dnes-kpi [data-karta="posta"]');
+      await cekejNaKartu(page, 'posta');
+      await page.click('#bublina-karta [data-vlakno="v1"]');
+      await page.waitForSelector('#p-posta:not([hidden]) #posta-seznam li.aktivni [data-vlakno="v1"]');
+      await page.waitForSelector('#posta-detail .detail-telo');
+      await page.waitForFunction(() => document.getElementById('bublina-karta').hidden);
+      // klávesnice: Tab z hledání na dlaždici počasí ukáže kartu, šipka dolů skočí do ní, Esc ji zavře a vrátí fokus
+      await page.click('#rail [data-cil="dnes"]');
+      await page.waitForSelector('#dnes-kpi [data-pocasi]');
+      await page.mouse.move(700, 700);
+      await page.focus('#horni [data-hledat]');
+      await page.keyboard.press('Tab');
+      await cekejNaKartu(page, 'pocasi');
+      await page.keyboard.press('ArrowDown');
+      jistota(await page.evaluate(() => !!document.activeElement.closest('#bublina-karta')), kde + 'šipka dolů nevede do karty');
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => document.getElementById('bublina-karta').hidden);
+      jistota(await page.evaluate(() => document.activeElement.matches('#dnes-kpi [data-pocasi]')), kde + 'Esc nevrátil fokus na dlaždici');
+      // Tab dál: karta jde s fokusem na další dlaždici
+      await page.keyboard.press('Tab');
+      await cekejNaKartu(page, 'zdravi');
+      // otevřená karta a Ctrl K: hledání ji zavře a Esc pak patří hledání (karta ho nespolkne)
+      await page.keyboard.press('Control+k');
+      await page.waitForSelector('[data-panel="hledat"].otevreny');
+      await page.waitForFunction(() => document.getElementById('bublina-karta').hidden);
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-panel="hledat"]', { state: 'detached' });
+      jistota(!chybyStranky.length, kde + 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    }
+  });
+
+  await test('Přehled: vyjeté karty na dotyku – klepnutí ukáže kartu a nikam nevede, druhé klepnutí / klepnutí jinam ji zavře, dál tlačítkem v kartě (iPad, telefon tmavý)', async () => {
+    let { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[1]);
+    await page.goto(WEB);
+    await page.waitForFunction(() => /°C/.test((document.querySelector('#dnes-kpi [data-pocasi]') || {}).textContent || '') && document.querySelector('#dnes-kpi [data-krouzky]'));
+    const druh = () => page.evaluate(() => { const k = document.getElementById('bublina-karta'); return k && !k.hidden && k.classList.contains('videt') ? k.dataset.druh : ''; });
+    const zavrena = () => page.waitForFunction(() => document.getElementById('bublina-karta').hidden);
+    await page.tap('#dnes-kpi [data-krouzky]');
+    await cekejNaKartu(page, 'krouzky');
+    jistota(await page.isVisible('#p-dnes') && !(await page.isVisible('#p-zdravi')), 'iPad: klepnutí na kroužky odvedlo pryč z Přehledu');
+    await page.tap('#dnes-kpi [data-krouzky]');
+    await zavrena();
+    // počasí: klepnutí = karta (ne rovnou detail); klepnutí jinam ji zavře; Celá předpověď otevře detail
+    await page.tap('#dnes-kpi [data-pocasi]');
+    let k = await cekejNaKartu(page, 'pocasi');
+    jistota(!(await page.locator('.okno-pozadi').count()), 'iPad: klepnutí na počasí otevřelo rovnou detail');
+    kartaNaObrazovce(k, 'iPad počasí');
+    await page.screenshot({ path: path.join(VYSTUP, 'ipad-vyska_karta_pocasi.png') });
+    await page.tap('#hlava h1');
+    await zavrena();
+    await page.tap('#dnes-kpi [data-pocasi]');
+    await cekejNaKartu(page, 'pocasi');
+    await page.tap('#bublina-karta [data-pocasi]');
+    await page.waitForSelector('.okno-pozadi.videt .pocasi-dny li');
+    await zavrena();
+    await page.click('.okno-pozadi [data-okno="ano"]');
+    await page.waitForSelector('.okno-pozadi', { state: 'detached' });
+    // z jedné dlaždice na druhou: klepnutí vymění kartu
+    await page.tap('#dnes-kpi [data-karta="posta"]');
+    await cekejNaKartu(page, 'posta');
+    await page.tap('#dnes-kpi [data-karta="zdravi"]');
+    await cekejNaKartu(page, 'zdravi');
+    jistota(await druh() === 'zdravi', 'iPad: karta se nevyměnila');
+    jistota(!chybyStranky.length, 'iPad: chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+    // telefon: malé kroužky → karta s velkými kroužky na obrazovce, tlačítkem do Zdraví
+    ({ ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0], 'dark'));
+    await page.goto(WEB);
+    await page.waitForSelector('.mini-kpi[data-krouzky] svg');
+    jistota(!(await page.locator('.mini-kpi[title]').count()), 'telefon: title u malých čísel');
+    await page.tap('.mini-kpi[data-krouzky]');
+    k = await cekejNaKartu(page, 'krouzky');
+    kartaNaObrazovce(k, 'telefon kroužky');
+    jistota(await page.locator('#bublina-karta .bk-krouzek').count() === 4 && await page.isVisible('#p-dnes'), 'telefon: karta kroužků / klepnutí odvedlo pryč');
+    await page.screenshot({ path: path.join(VYSTUP, 'telefon-tmavy_karta_krouzky.png') });
+    await page.tap('#bublina-karta .bk-akce');
+    await page.waitForSelector('#p-zdravi:not([hidden]) .zdravi-hero');
+    await zavrena();
+    jistota(!chybyStranky.length, 'telefon: chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  // ---------- „1 hoří“ (Michal 10. 10.: „když na to kliknu, chci aby se mi zobrazil ten mail, co hoří“): jeden hořící e-mail
+  // se z dlaždice, z karty i z hlavní karty na telefonu (a z okna Co je nového) rovnou otevře; víc → Pošta jen s hořícími
+  await test('hoří: jeden hořící e-mail se z dlaždice, karty, telefonu i okna Co je nového rovnou otevře; víc hořících → Pošta s filtrem Hoří', async () => {
+    const horici = (id, od, predmet, h) => ({ id, ucet: 'osobni', stav: 'hori', duvod: 'termín dnes', od, predmet, ukazka: 'Potřebuju odpověď do večera.', kdy: ted - h * H,
+      neprectena: true, pocet: 1, odkaz: '#' });
+    try {
+      postaNavic = { osobni: [vlaknoSouhrn.v1, horici('v6', 'Stavbyvedoucí', 'Havárie vody', 0.5)] };
+      let { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+      await page.goto(WEB);
+      await page.waitForSelector('#dnes-kpi [data-hori-vlakno="v6"]');
+      jistota(/1 hoří/.test(await page.textContent('#dnes-kpi [data-hori-vlakno="v6"]')), 'dlaždice: 1 hoří');
+      await page.click('#dnes-kpi [data-hori-vlakno="v6"]');
+      await page.waitForSelector('#p-posta:not([hidden]) #posta-filtry [data-filtr-posty="hori"][aria-pressed="true"]');
+      await page.waitForSelector('#posta-seznam li.aktivni [data-vlakno="v6"]');
+      await page.waitForSelector('#posta-detail .detail-telo');
+      jistota(await page.locator('#posta-seznam [data-vlakno]').count() === 1, 'Pošta: jen hořící');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_hori_jeden.png') });
+      // karta u dlaždice: „Hoří 1“ taky rovnou na e-mail
+      await page.click('#rail [data-cil="dnes"]');
+      await page.hover('#dnes-kpi [data-karta="posta"]');
+      await cekejNaKartu(page, 'posta');
+      jistota(await page.locator('#bublina-karta .bk-stav--hori[data-hori-vlakno="v6"]').count() === 1, 'karta: Hoří → e-mail');
+      await page.click('#bublina-karta .bk-stav--hori');
+      await page.waitForSelector('#p-posta:not([hidden]) #posta-seznam li.aktivni [data-vlakno="v6"]');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+      // telefon: „1 hoří v poště“ v hlavní kartě otevře e-mail (v panelu přes Přehled)
+      ({ ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]));
+      await page.goto(WEB);
+      await page.waitForSelector('.hero .hero__hori[data-hori-vlakno="v6"]');
+      jistota(/1 hoří v poště/.test(await page.textContent('.hero__hori')), 'telefon: odkaz v hlavní kartě');
+      await page.locator('#dnes-mobil .hero').screenshot({ path: path.join(VYSTUP, 'telefon_hori_hero.png') });
+      await page.click('.hero__hori');
+      await page.waitForSelector('[data-panel="vlakno"].otevreny');
+      jistota(!chybyStranky.length, 'telefon: chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+      // Co je nového s jedním hořícím: Ukázat ho rovnou otevře
+      ({ ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]));
+      await ctx.addInitScript(() => { if (!sessionStorage.getItem('test-videno')) { localStorage.setItem('asistent.videno', JSON.stringify(Date.now() - 3 * 3600e3)); sessionStorage.setItem('test-videno', '1'); } });
+      await page.goto(WEB);
+      await page.waitForSelector('.okno-pozadi.videt .okno__radky li');
+      jistota(/Hoří v poště/.test(await page.textContent('.okno__radky')), 'Co je nového: hoří');
+      await page.waitForTimeout(300);
+      await page.click('.okno-pozadi [data-okno="ano"]');
+      await page.waitForSelector('[data-panel="vlakno"].otevreny');
+      jistota(!chybyStranky.length, 'Co je nového: chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+      // dva hořící: dlaždice → Pošta s filtrem Hoří (oba, žádný otevřený)
+      postaNavic = { osobni: [vlaknoSouhrn.v1, horici('v6', 'Stavbyvedoucí', 'Havárie vody', 0.5), horici('v7', 'Úřad', 'Podpis smlouvy', 1.5)] };
+      ({ ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]));
+      await page.goto(WEB);
+      await page.waitForSelector('#dnes-kpi [data-karta="posta"][data-filtr-posty="hori"]');
+      jistota(/2 hoří/.test(await page.textContent('#dnes-kpi [data-karta="posta"]')), 'dlaždice: 2 hoří');
+      await page.click('#dnes-kpi [data-karta="posta"]');
+      await page.waitForSelector('#p-posta:not([hidden]) #posta-filtry [data-filtr-posty="hori"][aria-pressed="true"]');
+      await page.waitForFunction(() => document.querySelectorAll('#posta-seznam [data-vlakno]').length === 2 && document.querySelector('#posta-seznam [data-vlakno="v7"]'));
+      jistota(!(await page.locator('#posta-seznam li.aktivni').count()), 'dva hořící: žádný se neotevřel');
+      jistota(!chybyStranky.length, 'dva hořící: chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    } finally {
+      postaNavic = {};
+    }
+  });
+
+  // ---------- Přehled: nový název hlavní stránky (Michal 10. 10.: „hlavní stránku pojmenuj jinak než Dnes“) – klíč „dnes“ zůstal
+  await test('Přehled: hlavní stránka se jmenuje Přehled – pás, nadpis, titulek okna, hledání; telefon: spodní lišta, menu, pozdrav zůstal', async () => {
+    let { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.waitForSelector('#rail [data-cil="dnes"][aria-current="page"]');
+    jistota((await page.textContent('#rail .rail__btn[data-cil="dnes"]')).trim() === 'Přehled', 'pás: ' + await page.textContent('#rail .rail__btn[data-cil="dnes"]'));
+    jistota((await page.textContent('#hlava h1')).trim() === 'Přehled', 'nadpis: ' + await page.textContent('#hlava h1'));
+    jistota(await page.title() === 'Přehled · Asistent', 'titulek okna: ' + await page.title());
+    await page.click('#rail [data-cil="posta"]');
+    await page.waitForFunction(() => document.title === 'Pošta · Asistent');
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('[data-panel="hledat"] [data-hledat-pole]');
+    await page.fill('[data-panel="hledat"] [data-hledat-pole]', 'dnes');
+    await page.waitForFunction(() => /Přehled/.test(document.getElementById('hledat-vysledky').textContent));
+    await page.locator('#hledat-vysledky [data-h-prikaz]', { hasText: 'Přehled' }).click(); // „dnes“ najde i Přehled
+    await page.waitForSelector('#p-dnes:not([hidden]) #dl-pozornost');
+    jistota(await page.title() === 'Přehled · Asistent', 'hledání → Přehled');
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+    ({ ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]));
+    await page.goto(WEB);
+    await page.waitForSelector('#lista [data-cil="dnes"][aria-current="page"]');
+    jistota(/Přehled/.test(await page.textContent('#lista [data-cil="dnes"]')), 'spodní lišta');
+    jistota(/^(Dobrou noc|Dobré ráno|Dobrý den|Dobrý večer)/.test((await page.textContent('#hlava h1')).trim()), 'pozdrav na telefonu: ' + await page.textContent('#hlava h1'));
+    await page.click('.hlava-ja [data-menu]');
+    await page.waitForSelector('[data-panel="menu"].otevreny [data-menu-cil="dnes"]');
+    jistota(/Přehled/.test(await page.textContent('[data-panel="menu"] [data-menu-cil="dnes"]')), 'menu');
+    jistota(!chybyStranky.length, 'telefon: chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  // ---------- bubliny místo title i jinde: výsledky Fotbalu na Přehledu, předpověď u dne a svátek v kalendáři
+  await test('bubliny místo title: výsledek Fotbalu na Přehledu, předpověď ČHMÚ u dne v kalendáři', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.waitForSelector('#dl-fotbal .fotbal-vysledek--P');
+    jistota(!(await page.locator('#dl-fotbal .fotbal-vysledek[title]').count()), 'title u výsledku');
+    await page.locator('#dl-fotbal .fotbal-vysledek--P').first().hover();
+    await page.waitForFunction(() => !document.getElementById('graf-bublina').hidden);
+    const t = (await page.textContent('#graf-bublina')).replace(/\s+/g, ' ');
+    jistota(/A-tým/.test(t) && /1:3 prohra/.test(t) && /FK Agro Vnorovy – TJ Lysovice/.test(t), 'bublina výsledku: ' + t);
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_bublina_fotbal.png') });
+    await page.click('#rail [data-cil="kalendar"]');
+    await page.click('[data-kal-pohled="tyden"]');
+    await page.waitForSelector('#p-kalendar .den-pocasi');
+    jistota(!(await page.locator('#p-kalendar .den-pocasi[title]').count()), 'title u předpovědi');
+    await page.locator('#p-kalendar .den-pocasi').first().hover();
+    await page.waitForFunction(() => !document.getElementById('graf-bublina').hidden && /Předpověď ČHMÚ/.test(document.getElementById('graf-bublina').textContent));
+    jistota(/°C/.test(await page.textContent('#graf-bublina')), 'bublina předpovědi: ' + await page.textContent('#graf-bublina'));
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  // ---------- Přehled: pošta zvlášť (Michal 9. 10.: „když je vyřízena pošta, tak se nemusí zobrazit – aby bylo jasno, že mám
   // přečteno a vyřízeno, nebo ne“): karta jen s tím, co čeká, a nepřečtenými; Aktualizace jedním řádkem; telefon obdobně
-  await test('Dnes: pošta zvlášť – karta jen s čekající a nepřečtenou poštou, vyřízená = schovaná, Aktualizace jedním řádkem (PC i telefon)', async () => {
+  await test('Přehled: pošta zvlášť – karta jen s čekající a nepřečtenou poštou, vyřízená = schovaná, Aktualizace jedním řádkem (PC i telefon)', async () => {
     const vyrizena = Object.assign({}, vlaknoSouhrn.v1, { stav: 'resi', neprectena: false, navrh: false });
     try {
       let { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
@@ -1104,9 +1379,9 @@ function vychoziVikendTestu() {
     }
   });
 
-  // ---------- levý pás (Michal 9. 10.): mimo Dnes jen ikony s počty – víc místa na práci; po najetí myší nebo fokusu
+  // ---------- levý pás (Michal 9. 10.): mimo Přehled jen ikony s počty – víc místa na práci; po najetí myší nebo fokusu
   // klávesnicí se rozbalí přes obsah (stránka neposkočí), připnout = celý všude (pamatuje si zařízení)
-  await test('levý pás: mimo Dnes jen ikony s počty, najetí myší i klávesnice ho rozbalí přes obsah, připnout a odepnout', async () => {
+  await test('levý pás: mimo Přehled jen ikony s počty, najetí myší i klávesnice ho rozbalí přes obsah, připnout a odepnout', async () => {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
     await page.goto(WEB);
     await page.waitForSelector('#rail [data-cil="posta"] .pocet');
@@ -1121,7 +1396,7 @@ function vychoziVikendTestu() {
       throw new Error('Nedočkal jsem se: ' + popis + ' ' + JSON.stringify(await rozmery()));
     };
     let r = await rozmery();
-    jistota(!r.uzky && r.pas === 236 && r.popisky >= 9 && r.obsah === 236, 'na Dnes celý pás: ' + JSON.stringify(r));
+    jistota(!r.uzky && r.pas === 236 && r.popisky >= 9 && r.obsah === 236, 'na Přehledu celý pás: ' + JSON.stringify(r));
     await page.click('#rail [data-cil="posta"]');
     await page.waitForSelector('#posta-seznam [data-vlakno]');
     r = await pockej((x) => x.uzky && x.pas <= 76, 'úzký pás na Poště');
@@ -1151,7 +1426,7 @@ function vychoziVikendTestu() {
     jistota(await page.evaluate(() => !!document.activeElement.closest('#rail')), 'fokus v pásu');
     await page.keyboard.press('Escape');
     await pockej((x) => !x.rozbaleny, 'Escape sbalí');
-    // připnout: pás zůstane celý i mimo Dnes (i po obnovení), odepnout vrátí ikony
+    // připnout: pás zůstane celý i mimo Přehled (i po obnovení), odepnout vrátí ikony
     await page.hover('#rail [data-cil="schranka"]');
     await pockej((x) => x.rozbaleny, 'rozbalení před připnutím');
     await page.click('#rail [data-rail-pripnout]');
@@ -1166,21 +1441,21 @@ function vychoziVikendTestu() {
     await page.click('#rail [data-rail-pripnout]');
     await pockej((x) => x.uzky && x.pas <= 76 && !x.rozbaleny && x.obsah === 76, 'odepnutí');
     jistota(await page.evaluate(() => localStorage.getItem('asistent.rail')) === null, 'odepnutí v zařízení');
-    // zpátky na Dnes: celý pás
+    // zpátky na Přehled: celý pás
     await page.click('#rail [data-cil="dnes"]');
-    await pockej((x) => !x.uzky && x.pas === 236 && x.obsah === 236, 'na Dnes zase celý pás');
+    await pockej((x) => !x.uzky && x.pas === 236 && x.obsah === 236, 'na Přehledu zase celý pás');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
   });
 
-  await test('levý pás na iPadu: ikony všude (i na Dnes), najetí myší ho rozbalí přes obsah, bez připnutí', async () => {
+  await test('levý pás na iPadu: ikony všude (i na Přehledu), najetí myší ho rozbalí přes obsah, bez připnutí', async () => {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[1]);
     await page.goto(WEB);
     await page.waitForSelector('#rail [data-cil="posta"] .pocet');
     const pas = () => page.evaluate(() => ({ w: Math.round(document.getElementById('rail').getBoundingClientRect().width),
       obsah: Math.round(document.querySelector('.hlavni').getBoundingClientRect().left), rozbaleny: document.getElementById('rail').classList.contains('rozbaleny') }));
     let r = await pas();
-    jistota(r.w === 76 && r.obsah === 76 && !r.rozbaleny, 'iPad: úzký pás na Dnes: ' + JSON.stringify(r));
+    jistota(r.w === 76 && r.obsah === 76 && !r.rozbaleny, 'iPad: úzký pás na Přehledu: ' + JSON.stringify(r));
     await page.hover('#rail [data-cil="kalendar"]');
     await page.waitForFunction(() => document.getElementById('rail').classList.contains('rozbaleny') && document.getElementById('rail').getBoundingClientRect().width >= 236);
     r = await pas();
@@ -1190,6 +1465,37 @@ function vychoziVikendTestu() {
     await page.waitForFunction(() => !document.getElementById('rail').classList.contains('rozbaleny'));
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
+  });
+
+  // ---------- levý pás bez poskakování (Michal 10. 10.: „když si rozjedu ten pás, tak se jakoby posune drobně dolů … ať jsou
+  // ty ikony stejné“): logo, ikony sekcí, Nastavení a avatar mají ve všech podobách stejnou polohu (měřeno, ne od oka)
+  await test('levý pás: logo a ikony při rozbalení přesně na stejném místě – úzký, rozbalený i celý na Přehledu (PC, iPad na šířku), úzký a rozbalený (iPad)', async () => {
+    const polohy = (page) => page.evaluate(() => [...document.querySelectorAll('#rail .rail__logo .znak, #rail .rail__btn > svg, #rail .rail__ja .avatar')]
+      .map((x) => { const r = x.getBoundingClientRect(); return [Math.round(r.top * 4) / 4, Math.round((r.left + r.width / 2) * 4) / 4]; }));
+    const stejne = (a, b, popis) => jistota(a.length >= 12 && a.length === b.length && a.every((x, i) => Math.abs(x[0] - b[i][0]) <= 0.5 && Math.abs(x[1] - b[i][1]) <= 0.5),
+      popis + ': ' + JSON.stringify(a) + ' × ' + JSON.stringify(b));
+    for (const v of [VELIKOSTI[3], VELIKOSTI[2], VELIKOSTI[1]]) {
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, v);
+      await page.goto(WEB);
+      await page.waitForSelector('#rail [data-cil="posta"] .pocet');
+      const naPrehledu = await polohy(page); // PC: celý pás s popisky; iPad: úzký
+      await page.click('#rail [data-cil="posta"]');
+      await page.waitForSelector('#posta-seznam [data-vlakno]');
+      await page.mouse.move(v.sirka - 60, v.vyska - 60);
+      await page.waitForFunction(() => document.getElementById('rail').getBoundingClientRect().width <= 76);
+      const uzky = await polohy(page);
+      await page.hover('#rail [data-cil="kalendar"]');
+      await page.waitForFunction(() => document.getElementById('rail').classList.contains('rozbaleny') && document.getElementById('rail').getBoundingClientRect().width >= 236);
+      await page.waitForTimeout(300); // popisky dojedou
+      const rozbaleny = await polohy(page);
+      stejne(uzky, rozbaleny, v.nazev + ': úzký × rozbalený');
+      stejne(naPrehledu, uzky, v.nazev + ': Přehled × jiná stránka');
+      jistota(await page.isVisible('#rail .rail__btn[data-cil="dnes"] > span') && (await page.textContent('#rail .rail__btn[data-cil="dnes"] > span')) === 'Přehled' &&
+        !(await page.locator('#rail .rail__sekce').count()), v.nazev + ': popisky v rozbaleném pásu / nadpisy sekcí');
+      await page.screenshot({ path: path.join(VYSTUP, v.nazev + '_pas_rozbaleny_polohy.png'), clip: { x: 0, y: 0, width: 300, height: v.vyska } });
+      jistota(!chybyStranky.length, v.nazev + ': chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    }
   });
 
   // ---------- kalendář: nový zápas (i s novým kalendářem Zápasy), úprava, smazání, iCloud jen čtení, rozpis, klepnutí do týdne
