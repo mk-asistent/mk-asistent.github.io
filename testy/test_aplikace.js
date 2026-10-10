@@ -1093,6 +1093,12 @@ function vychoziVikendTestu() {
       // Tab dál: karta jde s fokusem na další dlaždici
       await page.keyboard.press('Tab');
       await cekejNaKartu(page, 'zdravi');
+      // otevřená karta a Ctrl K: hledání ji zavře a Esc pak patří hledání (karta ho nespolkne)
+      await page.keyboard.press('Control+k');
+      await page.waitForSelector('[data-panel="hledat"].otevreny');
+      await page.waitForFunction(() => document.getElementById('bublina-karta').hidden);
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-panel="hledat"]', { state: 'detached' });
       jistota(!chybyStranky.length, kde + 'chyby stránky: ' + chybyStranky.join(' | '));
       await ctx.close();
     }

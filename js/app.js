@@ -4,7 +4,7 @@
 
 import { stav, priZmene, zmeneno, prejdi, umiMotor, staryMotor } from './stav.js';
 import { jePripojeno, jeDemo, volej } from './api.js';
-import { esc, pulnoc, pridejDny, datumDlouhe, iniciala, odstin, tvar, velkePrvni, rozdilDni, uloziste, terminDatum, dm, hhmm, isoDatum, DNY_KR, kdyKratce,
+import { esc, pulnoc, pridejDny, datumDlouhe, iniciala, odstin, tvar, velkePrvni, rozdilDni, uloziste, terminDatum, dm, isoDatum, DNY_KR, kdyKratce,
   prvniRadek } from './pomocne.js';
 import { kostra, chybaHtml, hlavickaKarty, okno, toastAkce } from './ui.js';
 import { IKONY, ikonaPocasi } from './ikony.js';

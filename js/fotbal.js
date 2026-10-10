@@ -123,7 +123,7 @@ export function tymyHtml() {
   const zapnute = (stav.fotbal && stav.fotbal.vKalendari) || [];
   return '<p class="karta-text">Zápasy našich týmů z fotbal.cz. Zapnutý tým má zápasy v kalendáři „⚽ tým“ – přeložení a výsledky se doplní samy.</p>' +
     '<div class="fotbal-volby">' + (d.tymy || []).map((t) => '<button type="button" class="chip" data-fotbal-tym="' + esc(t.klic) + '" aria-pressed="' +
-      (zapnute.indexOf(t.klic) >= 0) + '" title="' + esc(t.soutez || '') + '">' + IKONY.zapas + esc(t.nazev) + '</button>').join('') + '</div>' +
+      (zapnute.indexOf(t.klic) >= 0) + '"' + (t.soutez ? bublina(t.nazev, t.soutez) : '') + '>' + IKONY.zapas + esc(t.nazev) + '</button>').join('') + '</div>' +
     '<p class="napoveda">Aktualizováno ' + esc(kdyKratce(Date.parse(d.aktualizovano) || 0)) + ' · ' + d.zapasy.length + ' zápasů</p>';
 }
 

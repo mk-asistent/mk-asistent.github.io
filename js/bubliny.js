@@ -323,10 +323,11 @@ function naslouchej() {
   document.addEventListener('focusin', (e) => {
     const t = e.target;
     if (!t || !t.matches) return;
-    // vyjetá karta: fokus z klávesnice na prvku ji ukáže; fokus jinam (mimo prvek a kartu) ji zavře
+    // vyjetá karta: fokus z klávesnice na prvku ji ukáže; fokus jinam (mimo prvek a kartu) ji zavře – do otevřeného
+    // panelu nebo okna (hledání Ctrl K, detail počasí…) vždycky, i když ji ukázala myš
     if (vKarte(t)) clearTimeout(casovacSkrytiKarty);
     else if (t.matches('[data-karta]') && jeKlavesnice(t) && !potlacFokus) { if (ukazKartu(t)) kartaKlavesnice = true; }
-    else if (kartaKotva && t !== kartaKotva && kartaKlavesnice) skryjKartu();
+    else if (kartaKotva && t !== kartaKotva && (kartaKlavesnice || (t.closest && t.closest('.panel, .okno-pozadi')))) skryjKartu();
     // bublina s hodnotou
     if (!jeKlavesnice(t)) return;
     if (t.matches('[data-bublina]')) { ukazBublinu(t, true); return; }
@@ -348,6 +349,8 @@ function naslouchej() {
   document.addEventListener('keydown', (e) => {
     if (!kartaVidet() || !kartaKotva) return;
     const a = document.activeElement;
+    // nad kartou je otevřený panel nebo okno: Esc patří jim (karta jen zmizí)
+    if (e.key === 'Escape' && document.querySelector('.panel.otevreny, .okno-pozadi')) { skryjKartu(); return; }
     if (e.key === 'Escape') {
       const zpet = vKarte(a) ? kartaKotva : null;
       e.stopPropagation();
