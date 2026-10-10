@@ -1231,10 +1231,81 @@ li.aktivni > .radek-posta { box-shadow: none; } /* vybraný řádek = písková 
 .radek-posta .radek-predmet { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* předmět na jeden řádek */
 .neprect .radek-posta .radek-predmet { color: var(--text); font-weight: 600; }
 @media (pointer: coarse) {
-    /* dlouhé podržení řádku = Přesunout do… (bez výběru textu a systémové nabídky) */
-    #posta-seznam .radek-posta { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+    /* dlouhé podržení e-mailu = nabídka (Pošta, karta Pošta na Dnes, telefon) – bez výběru textu a systémové nabídky */
+    #posta-seznam .radek-posta, #dl-posta .radek-posta, .pozornost--posta .pozor[data-vlakno] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 }
 #posta-seznam .radek-posta[draggable="true"] { cursor: pointer; }
+/* Beru na vědomí (Michal 10. 10.): oko u odesílatele a štítek v detailu – nehoří, nečeká, dokud nepřijde nová zpráva */
+.radek-vedomi { flex: none; display: inline-grid; place-items: center; color: var(--muted); }
+.radek-vedomi svg { width: 14px; height: 14px; }
+.tag--vedomi { gap: 4px; }
+.tag--vedomi svg { width: 13px; height: 13px; }
+.btn--ikona[data-oznacit][aria-pressed="true"] { background: var(--accent-tint); border-color: transparent; color: var(--accent); } /* oko v detailu: bereš na vědomí */
+/* řádek s rychlými akcemi a zaškrtávátkem výběru (obojí se přidá až při najetí myší – js/posta.js pridejAkceRadku) */
+.seznam-posta > li, #dl-posta .seznam > li { position: relative; }
+.radek-rychle { position: absolute; right: 10px; top: 7px; z-index: 2; display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--surface); box-shadow: 0 6px 16px -8px rgba(31, 41, 35, .35); opacity: 0; pointer-events: none; transition: opacity .12s; }
+.seznam > li:hover > .radek-rychle, .radek-rychle:focus-within { opacity: 1; pointer-events: auto; }
+.radek-rychle__btn { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--text-soft); }
+.radek-rychle__btn:hover, .radek-rychle__btn:focus-visible { background: var(--sand); color: var(--text); outline: none; }
+.radek-rychle__btn svg { width: 17px; height: 17px; }
+@media (hover: none) { .radek-rychle { display: none; } } /* dotyk: dlouhé podržení = nabídka */
+/* výběr víc e-mailů: zaškrtávátko místo avataru (najetím, ve výběru u všech), vybraný řádek zeleně */
+.radek-vyber { position: absolute; left: 16px; top: 11px; z-index: 1; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0;
+    border-radius: 50%; background: none; opacity: 0; pointer-events: none; }
+.radek-vyber::before { content: ''; width: 18px; height: 18px; border: 1.8px solid var(--muted); border-radius: 6px; background: var(--surface); }
+.radek-vyber[aria-pressed="true"]::before { border-color: var(--accent-btn); background: var(--accent-btn); }
+.radek-vyber[aria-pressed="true"]::after, .posta-vyber__vse[aria-pressed="true"]::after { content: ''; position: absolute; width: 9px; height: 5px;
+    border: solid var(--na-akcentu); border-width: 0 0 2px 2px; transform: translateY(-1px) rotate(-45deg); }
+.seznam-posta.vybira .radek-vyber { opacity: 1; pointer-events: auto; }
+.seznam-posta.vybira .radek-posta .avatar { visibility: hidden; }
+@media (hover: hover) and (pointer: fine) {
+    .seznam-posta > li:hover > .radek-vyber, .radek-vyber:focus-visible { opacity: 1; pointer-events: auto; }
+    .seznam-posta > li:hover:has(> .radek-vyber) .radek-posta .avatar { visibility: hidden; }
+}
+li.vybrany > .radek-posta, li.vybrany > .radek-posta:hover { background: var(--accent-tint); }
+/* lišta výběru nad seznamem: tmavě zelená, lepí se nahoře; hlavní akce limetková. Kde je seznam úzký (telefon, PC se
+   seznamem vedle detailu), jsou akce na druhém řádku – v jednom by se nevešly */
+.posta-vyber { position: sticky; top: calc(8px + env(safe-area-inset-top)); z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 48px;
+    padding: 6px 6px 6px 8px; border-radius: 14px; background: var(--tmava); color: var(--tmava-text); box-shadow: var(--shadow-pop); }
+.posta-vyber__vse { position: relative; flex: none; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px;
+    background: none; color: inherit; }
+.posta-vyber__vse::before { content: ''; width: 18px; height: 18px; border: 1.8px solid currentColor; border-radius: 6px; opacity: .85; }
+.posta-vyber__vse[aria-pressed="true"]::before { border-color: var(--limetka); background: var(--limetka); opacity: 1; }
+.posta-vyber__vse[aria-pressed="true"]::after { border-color: var(--na-limetce); }
+.posta-vyber__vse[aria-pressed="mixed"]::after { content: ''; position: absolute; width: 9px; height: 2px; border-radius: 1px; background: currentColor; }
+.posta-vyber__pocet { flex: none; font-size: 13.5px; font-weight: 650; white-space: nowrap; }
+.posta-vyber__akce { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+@media (max-width: 759px), (min-width: 1000px) {
+    .posta-vyber__zrusit { margin-left: auto; }
+    .posta-vyber__akce { order: 3; flex-basis: 100%; margin-left: 0; }
+}
+.posta-vyber .btn { flex: none; }
+.posta-vyber .btn--ghost, .posta-vyber .btn--ikona { background: transparent; border-color: rgba(255, 255, 255, .22); color: inherit; }
+.posta-vyber .btn--ghost:hover, .posta-vyber .btn--ikona:hover { background: rgba(255, 255, 255, .12); color: inherit; }
+.posta-vyber .btn--ikona { width: 36px; height: 36px; min-height: 36px; }
+.posta-vyber .btn--primary { background: var(--limetka); color: var(--na-limetce); }
+.posta-vyber .btn--primary:hover { filter: brightness(1.05); }
+/* PC: vpravo místo e-mailu přehled vybraných a akce s popisky */
+.posta-vyber-detail { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 100%; padding: 32px 24px;
+    text-align: center; overflow-y: auto; }
+.posta-vyber-detail__kruh { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: var(--limetka); color: var(--na-limetce); }
+.posta-vyber-detail__kruh svg { width: 28px; height: 28px; }
+.posta-vyber-detail h2 { margin: 0; font-size: 20px; letter-spacing: -.01em; }
+.posta-vyber-detail__seznam { list-style: none; margin: 0; padding: 0; width: min(440px, 100%); display: grid; gap: 6px; text-align: left; }
+.posta-vyber-detail__seznam li { display: grid; grid-template-columns: minmax(0, 38%) minmax(0, 1fr); gap: 10px; padding: 8px 12px; border-left: 3px solid transparent;
+    border-radius: 10px; background: var(--bg-soft); font-size: 13px; }
+.posta-vyber-detail__seznam li.st-hori { border-left-color: var(--oranz); }
+.posta-vyber-detail__seznam li.st-ceka { border-left-color: var(--ok); }
+.posta-vyber-detail__seznam li.st-otazka { border-left-color: var(--zluta); }
+.posta-vyber-detail__seznam span { color: var(--text-soft); }
+.posta-vyber-detail__dalsi { margin: 0; font-size: 12.5px; color: var(--muted); }
+.posta-vyber-detail__akce { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 4px; }
+.posta-vyber-detail .napoveda { margin: 0; }
+/* Další krok: hlavní akce černá, Hotovo a Beru na vědomí vedle obrysově (Michal 10. 10.: „označit za hotové / beru na vědomí“) */
+.dalsi-krok__akce { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.dalsi-krok .dalsi-krok__akce .btn--ghost { background: transparent; border-color: rgba(23, 32, 15, .25); color: var(--na-limetce); }
+.dalsi-krok .dalsi-krok__akce .btn--ghost:hover, .dalsi-krok.navrh-odpovedi .navrh-odpovedi__akce .btn--ghost:hover { background: rgba(23, 32, 15, .07); }
 /* skupiny (štítky Gmailu) – druhá lišta pod záložkami: čipy s barevnou tečkou a počtem nepřečtených; podštítek „/ PATRIOT“ */
 .posta-stitky { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 12px; padding: 2px; border-radius: 14px;
     transition: background .15s, box-shadow .15s; }

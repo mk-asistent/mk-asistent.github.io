@@ -1,28 +1,31 @@
 // Malá nabídka u kurzoru: pravé tlačítko myši, na dotyku dlouhé podržení (Michal 9. 10.: „když kliknu pravým, tak můžu
 // třeba smazat tu poznámku, aby se mi to tam zbytečně nezobrazovalo, co už je staré nebo jednoduše vyřešené“).
 // Co v ní je, skládají moduly podle prvku, na který se kliklo (schranka.js – položky schránky, moje.js – moje
-// poznámky); app.js je připojí přes pripoj(). Zavře se klepnutím vedle, Esc, posunem stránky nebo výběrem položky.
-// Kde žádný modul nabídku nemá (pole, odkazy, text odpovědi), zůstane běžná nabídka prohlížeče.
+// poznámky, posta.js – e-maily); app.js a moduly je připojí přes pripoj(). Zavře se klepnutím vedle, Esc, posunem
+// stránky nebo výběrem položky. Kde žádný modul nabídku nemá (pole, odkazy, text odpovědi), zůstane běžná nabídka prohlížeče.
 
 import { esc } from './pomocne.js';
 
 const DRZET_MS = 480;     // dlouhé podržení prstu (iPhone pravé tlačítko nemá a contextmenu neposílá)
 const POSUN_PX = 10;      // prst se pohnul = posouvání stránky, ne podržení
-let zdroj = null;         // fn(prvek) → { nadpis, polozky: [{ ikona, text, fn, nebezpeci }] } | null
+const zdroje = [];        // fn(prvek) → { nadpis, polozky: [{ ikona, text, fn, nebezpeci }] } | null – první, kdo nabídku má
 let otevrena = null;      // { el, puvod, kdy }
 let drzeni = null;        // { casovac, x, y }
 let potlacitKlik = 0;     // po dlouhém podržení pošle prohlížeč ještě klepnutí – to se zahodí (jinak by položku rozbalilo)
 
-/** Kdo skládá nabídku: fn(prvek) → nabídka, nebo null (pak běžná nabídka prohlížeče). */
-export function pripoj(fn) { zdroj = fn; }
+/** Kdo skládá nabídku: fn(prvek) → nabídka, nebo null (zeptá se dalšího, nakonec běžná nabídka prohlížeče). */
+export function pripoj(fn) { if (zdroje.indexOf(fn) < 0) zdroje.push(fn); }
 export function jeOtevrena() { return !!otevrena; }
 
 function nabidkaPro(cil) {
-  if (!zdroj || !cil || !cil.closest) return null;
+  if (!zdroje.length || !cil || !cil.closest) return null;
   // v polích, v odkazech a v rozbaleném textu poznámky nechat nabídku prohlížeče (kopírovat, vložit, otevřít odkaz)
   if (cil.closest('input, textarea, select, [contenteditable="true"], a[href], .detail, .nabidka')) return null;
-  const n = zdroj(cil);
-  return n && n.polozky && n.polozky.length ? n : null;
+  for (let i = 0; i < zdroje.length; i++) {
+    const n = zdroje[i](cil);
+    if (n && n.polozky && n.polozky.length) return n;
+  }
+  return null;
 }
 
 /** Otevře nabídku v bodě x, y (px v okně); puvod = prvek, na který se kliklo (po Esc na něj vrátí fokus);

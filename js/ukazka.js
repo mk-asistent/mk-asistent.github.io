@@ -167,6 +167,20 @@ const kategorieUkazka = {
 };
 const vsechnyKategorie = () => [].concat(...Object.values(kategorieUkazka));
 const presunuteOdkud = new Map(); // id → seznam, odkud ji přesun do skupiny vyřadil (Vrátit ji tam vrátí)
+// Beru na vědomí jako motor (POSTA_VEDOMI): id → čas poslední zprávy; s ním je konverzace informace „bereš na vědomí“
+const vedomiUkazka = {};
+const sVedomim = (seznam) => seznam.map((m) => (vedomiUkazka[m.id] === m.kdy
+  ? Object.assign({}, m, { vedomi: true, puvodniStav: m.stav, puvodniDuvod: m.duvod || '', stav: 'info', duvod: 'bereš na vědomí', termin: null }) : m));
+/** Hotovo / spam / koš v ukázce: pryč z Doručené (a ze záložek), Vrátit ji vrátí tam, kde byla. */
+function vyradUkazka(m) {
+  [posta.osobni, posta.pracovni].concat(Object.values(kategorieUkazka)).forEach((s) => { const j = s.indexOf(m); if (j >= 0) { s.splice(j, 1); presunuteOdkud.set(m.id, s); } });
+}
+function vratUkazka(m) {
+  const kam = presunuteOdkud.get(m.id);
+  if (kam && kam.indexOf(m) < 0) kam.unshift(m);
+  const j = archivovane.indexOf(m);
+  if (j >= 0 && kam) archivovane.splice(j, 1);
+}
 /** Detail konverzace v ukázce (nic neoznačí jako přečtené): napsané zprávy, jinak jedna zpráva z náhledu souhrnu. */
 function detailUkazky(id) {
   const souhrn = vsechnyKategorie().concat(posta.osobni, posta.pracovni, archivovane).find((m) => m.id === id);
@@ -472,7 +486,7 @@ const akce = {
     if (!schranka.moje.some((x) => x.id === d.id) && !mojeHotove.some((x) => x.id === d.id)) throw new Error('Poznámka není mezi mými poznámkami.');
     return akce.schrankaSmazat(d);
   },
-  posta: () => kopie(Object.assign({}, posta, { ted: Date.now() })),
+  posta: () => kopie(Object.assign({}, posta, { osobni: sVedomim(posta.osobni), pracovni: sVedomim(posta.pracovni), ted: Date.now() })),
   vlakno: (d) => {
     const detail = detailUkazky(d.id);
     if (!detail) throw new Error('Zpráva nenalezena.');
@@ -501,15 +515,23 @@ const akce = {
     }
     return true;
   },
-  oznacit: (d) => {
-    [posta.osobni, posta.pracovni].forEach((s, i) => {
-      const m = s.find((x) => x.id === d.id);
+  oznacit: (d) => akce.postaOznacit({ ids: [d.id], jak: d.jak }) && true,
+  // víc konverzací naráz (výběr, pravé tlačítko) a Beru na vědomí – jako motor oznacitVic_
+  postaOznacit: (d) => {
+    const vse = posta.osobni.concat(posta.pracovni, archivovane, vsechnyKategorie());
+    const ids = [];
+    (d.ids || []).map((x) => (typeof x === 'string' ? { id: x } : x)).forEach((x) => {
+      const m = vse.find((y) => y.id === x.id);
       if (!m) return;
-      if (d.jak === 'neprectene') m.neprectena = true;
-      if (d.jak === 'prectene') m.neprectena = false;
-      if (d.jak === 'archivovat' || d.jak === 'spam') s.splice(s.indexOf(m), 1);
+      ids.push(m.id);
+      if (d.jak === 'vedomi') { vedomiUkazka[m.id] = m.kdy; m.neprectena = false; }
+      else if (d.jak === 'vedomiZrusit') { delete vedomiUkazka[m.id]; if (x.neprectena) m.neprectena = true; }
+      else if (d.jak === 'prectene' || d.jak === 'neprectene') m.neprectena = d.jak === 'neprectene';
+      else if (d.jak === 'archivovat' || d.jak === 'spam' || d.jak === 'smazat') { vyradUkazka(m); if (archivovane.indexOf(m) < 0) archivovane.push(m); }
+      else if (d.jak === 'vratit') vratUkazka(m);
+      else throw new Error('Neznámá akce.');
     });
-    return true;
+    return { jak: d.jak, ids, chyby: {} };
   },
   kalendar: (d) => ({ udalosti: udalostiVRozsahu(Number(d.od), Number(d.do)), chyby: [], od: d.od, do: d.do, ted: Date.now() }),
   hledat: (d) => {
@@ -603,6 +625,14 @@ const akce = {
     return { kategorie: d.kategorie, vlakna: kopie(kategorieUkazka[d.kategorie]), ted: Date.now() };
   },
   postaPresunout: (d) => {
+    // víc konverzací jedním dotazem (výběr) – jako motor presunVic_
+    if (Array.isArray(d.ids)) {
+      const ids = [], chyby = {};
+      d.ids.forEach((id, i) => {
+        try { akce.postaPresunout(Object.assign({}, d, { ids: undefined, id, novy: d.novy && i === 0 })); ids.push(id); } catch (e) { chyby[id] = e.message; }
+      });
+      return { stitek: d.stitek, ids, chyby, archivovano: !!(d.pridat !== false && d.archivovat) };
+    }
     if (!stitkyGmailu[d.stitek] && d.novy && d.pridat !== false) stitkyGmailu[d.stitek] = [];
     const ids = stitkyGmailu[d.stitek];
     if (!ids) throw new Error('Štítek „' + d.stitek + '“ v Gmailu není.');

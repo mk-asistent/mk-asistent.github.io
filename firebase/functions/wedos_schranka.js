@@ -192,7 +192,10 @@ async function synchronizuj(o) {
     else chybi.push(posl);
   });
   await nactiTexty(klient, o.rozeber, slozky, chybi, texty);
-  const souhrny = konverzace.map((k) => W.souhrnKonverzace(k, ja, texty, znami, ted));
+  const puvodni = konverzace.map((k) => W.souhrnKonverzace(k, ja, texty, znami, ted));
+  // Beru na vědomí: platí, dokud nepřijde nová zpráva (záznamy konverzací s novou zprávou pryč)
+  const vedomi = W.vedomiPoSynchronizaci(pred.vedomi, puvodni, ted);
+  const souhrny = puvodni.map((s) => W.pouzijVedomi(s, vedomi));
 
   const mapa = {};
   konverzace.forEach((k) => { mapa[k.id] = W.mapaKonverzace(k); });
@@ -223,6 +226,7 @@ async function synchronizuj(o) {
     pracovni: souhrny,
     pocty: { neprectene: souhrny.filter((s) => s.neprectena).length, konverzaci: souhrny.length, celkem: vse.length },
     slozky: { dorucene: slozky.d, odeslane: slozky.o, archiv: slozky.archiv, kos: slozky.kos },
+    umi: W.UMI, // aplikace podle toho ukáže Beru na vědomí a hromadné akce (starší server je neuměl)
     chyba: null
   };
   const stav = {
@@ -238,6 +242,7 @@ async function synchronizuj(o) {
     znami: Array.from(znami).slice(-ZNAMI_MAX),
     znamiKdy,
     detaily: otiskyDetailu,
+    vedomi,
     posledniPresun: pred.posledniPresun || null,
     prihlaseni,
     chyba: null
@@ -394,18 +399,46 @@ async function odesli(o) {
 
 // ---------------------------------------------------------------- úprava kopie bez nové synchronizace (rychlá odezva po akci)
 
-/** Kopie pro aplikaci po akci: přečteno / nepřečteno nebo pryč ze seznamu (archiv, koš); počty se přepočítají. */
-function upravKopii(data, id, jak) {
+/**
+ * Kopie pro aplikaci po akci: přečteno / nepřečteno, pryč ze seznamu (archiv, koš), vedomi (Beru na vědomí – kdy = čas
+ * poslední zprávy, s jiným se nic nemění; přečtená) a vedomiZrusit (původní stav do nového složení); počty se přepočítají.
+ */
+function upravKopii(data, id, jak, kdy) {
   const d = Object.assign({}, data);
   let seznam = (d.pracovni || []).slice();
   if (jak === 'pryc') seznam = seznam.filter((m) => m.id !== id);
+  else if (jak === 'vedomi') seznam = seznam.map((m) => (m.id === id && (kdy == null || m.kdy === kdy) ? Object.assign(W.naVedomi(m), { neprectena: false }) : m));
+  else if (jak === 'vedomiZrusit') seznam = seznam.map((m) => (m.id === id ? W.zrusVedomi(m) : m));
   else seznam = seznam.map((m) => (m.id === id ? Object.assign({}, m, { neprectena: jak === 'neprectene' }) : m));
   d.pracovni = seznam;
   d.pocty = Object.assign({}, d.pocty, { neprectene: seznam.filter((m) => m.neprectena).length, konverzaci: seznam.length });
   return d;
 }
 
+/**
+ * „Beru na vědomí“ z aplikace (p = W.pozadavekVedomi) → nový záznam ve stavu serveru a které konverzace přečíst (Beru
+ * na vědomí) nebo zase označit nepřečtené (Vrátit – byly nepřečtené). Konverzace bez času poslední zprávy se přeskočí.
+ */
+function vedomiPoAkci(predchozi, p, ted) {
+  const v = Object.assign({}, predchozi && predchozi.vedomi);
+  const precist = [];
+  let neprecist = [];
+  if (p.zrusit) {
+    p.ids.forEach((id) => { delete v[id]; });
+    neprecist = p.neprectene.slice();
+  } else {
+    p.ids.forEach((id) => { if (p.kdy[id]) { v[id] = p.kdy[id]; if (p.precist) precist.push(id); } });
+  }
+  return { vedomi: W.omezVedomi(v, ted), ids: p.zrusit ? p.ids.slice() : p.ids.filter((id) => p.kdy[id]), precist, neprecist };
+}
+
+/** Položky víc konverzací (hromadné akce) dohromady – jeden příkaz IMAP na celý výběr. */
+function polozkyKonverzaci(stav, ids) {
+  return [].concat(...(ids || []).map((id) => polozkyKonverzace(stav, id)));
+}
+
 module.exports = {
-  VERZE_STAVU, rozsah, rozeberPolozku, polozkyKonverzace, chybaAkce,
-  najdiSlozky, zajistiSlozku, otiskSlozek, synchronizuj, nactiDetail, oznacPrecteno, presunKonverzaci, vratitPresun, najdiZpravu, odesli, upravKopii
+  VERZE_STAVU, rozsah, rozeberPolozku, polozkyKonverzace, polozkyKonverzaci, chybaAkce,
+  najdiSlozky, zajistiSlozku, otiskSlozek, synchronizuj, nactiDetail, oznacPrecteno, presunKonverzaci, vratitPresun, najdiZpravu, odesli, upravKopii,
+  vedomiPoAkci
 };

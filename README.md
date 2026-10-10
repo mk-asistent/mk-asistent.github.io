@@ -107,10 +107,32 @@ v zobrazení „Oba účty“. Náhled je bez hlaviček přeposlání a citací 
 **Skupiny (štítky Gmailu)** jsou druhá lišta pod záložkami: čip s počtem nepřečtených, podštítek hned za rodičem
 („/ PATRIOT“), klepnutí = konverzace skupiny i archivované, znovu klepnutí = zpět; na telefonu se lišta posouvá do strany.
 **Přetažení e-mailu myší na skupinu** = „Přesunout do“ (štítek + pryč z Doručené, ve výběru jiné skupiny i ta odebrána),
-oznámení „Přesunuto do X · Vrátit“; na iPadu a telefonu **dlouhé podržení řádku** (nebo tlačítko v detailu) otevře
-Přesunout do…. **Podpis** (osobní / pracovní) se vloží do psaní; v poli Komu i u hostů události **našeptává** lidi,
-kterým jsi psal. Hledání v celé poště rozumí českým filtrům (`od:`, `předmět:`, `má:přílohu`, `po:1.10.2026`…).
-Klávesy na PC: `j`/`k`, `e` hotovo, `h` připomenout, `v` přesunout, `r` odpovědět, `a` všem, `f` přeposlat, `c` nový, `/` hledat, `1`–`6` sekce.
+oznámení „Přesunuto do X · Vrátit“; vybrané e-maily jdou přetáhnout všechny naráz. **Podpis** (osobní / pracovní) se
+vloží do psaní; v poli Komu i u hostů události **našeptává** lidi, kterým jsi psal. Hledání v celé poště rozumí českým
+filtrům (`od:`, `předmět:`, `má:přílohu`, `po:1.10.2026`…).
+Klávesy na PC: `j`/`k`, `e` hotovo, `b` beru na vědomí, `h` připomenout, `v` přesunout, `u` nepřečtené, `x` vybrat,
+`r` odpovědět, `a` všem, `f` přeposlat, `c` nový, `/` hledat, `1`–`6` sekce; s výběrem `e` / `b` / `u` / `i` (přečteno) /
+`v` / Delete pro celý výběr a Esc výběr zruší.
+
+**Ať e-maily „nevisí“** (Michal 10. 10.):
+- **Pravé tlačítko na e-mailu** (na iPadu a telefonu dlouhé podržení – v Poště, v kartě Pošta na Dnes i na telefonu na
+  Dnes; `js/nabidka.js`): Otevřít, Označit jako přečtené / nepřečtené, Hotovo, Beru na vědomí, Přesunout do skupiny…,
+  Připomenout…, Odpovědět, Vybrat, Spam, Smazat (koš). Bez potvrzování – Hotovo, Spam, Smazat a Beru na vědomí mají
+  v oznámení **Vrátit**. U pracovní pošty WEDOS nejsou skupiny, Připomenout ani Spam.
+- **Beru na vědomí** = konverzace přestane hořet a čekat na tebe (stav informace, důvod „bereš na vědomí“, v řádku oko,
+  v detailu „předtím: Hoří – …“), přečte se a zůstane v Doručené; **nová zpráva** ji vrátí do normálního stavu. Pamatuje
+  si to motor (vlastnost `POSTA_VEDOMI` = { id: čas poslední zprávy }, nejvýš 240 za 100 dní) a server WEDOS – platí na
+  všech zařízeních, v počtech na Dnes (nepřečtené, hoří, čeká), v ntfy „Hoří“ i v podkladech pro návrhy od Clauda.
+  Tlačítko je i v detailu (oko) a v kartě **Další krok** – tam vždy i **Hotovo** (Michal: „abych si to označil za hotové“).
+- **Výběr víc e-mailů:** na PC zaškrtávátko místo avataru (při najetí), **Ctrl/⌘+klik** přidá, **Shift+klik** vybere
+  rozsah, obyčejné klepnutí e-mail otevře a výběr zruší; na dotyku nabídka → Vybrat, pak klepnutí vybírá. Nad seznamem
+  tmavě zelená lišta (Hotovo, Beru na vědomí, Přečteno, Nepřečteno, Přesunout do…), na PC vpravo přehled vybraných
+  s popisky; pravé tlačítko na vybraném řádku = akce pro celý výběr. Gmail jedním dotazem (`postaOznacit`, u přesunu
+  `postaPresunout` s `ids`), WEDOS jedním voláním serveru.
+- **Rychlé akce na řádku** (najetí myší, v Poště i v kartě Pošta na Dnes): Beru na vědomí a Hotovo – řádek zmizí,
+  oznámení s Vrátit.
+- Změny se v seznamech projeví hned; data z motoru, která vznikla souběžně se zápisem, je na chvíli nevrátí (aplikace
+  je do potvrzení – nejvýš 3 minuty – použije znovu).
 
 **Rychlé otevření** (Michal 9. 10.: „vždy posledních 10 mít načtených“): když je aplikace v klidu, jde jedním dotazem
 `postaDetaily` až 10 konverzací, které Michal nejspíš otevře (v Poště seznam, jinde Vyžaduje pozornost), a jen ty, jejichž
@@ -433,6 +455,7 @@ Vlastnosti skriptu (⚙ → Vlastnosti skriptu) – všechny nepovinné kromě k
 | `NTFY_TEMA`, `UPOZORNENI_WHOOP` | upozornění do iPhonu (zapíná aplikace v Nastavení → Upozornění), poslední hodina stažení WHOOP pro upozornění |
 | `TYDEN_ZDRAVI_POZADANO`, `TYDEN_ZDRAVI_ODESLANO` | týdenní shrnutí zdraví: poznámka pro Clauda už je (týden a čas úpravy jeho souborů), e-mail za týden odešel (spravuje motor) |
 | `NAVRHY_ODPOVEDI` | návrhy odpovědí: obe / osobni / vypnuto (nastavuje aplikace) |
+| `POSTA_VEDOMI` | Beru na vědomí: { id vlákna: čas poslední zprávy } – nejvýš 240 za 100 dní (zapisuje akce `postaOznacit`) |
 | `DOCHAZKA_URL`, `DOCHAZKA_WEB` | odkud číst docházku dorostu (výchozí: odvodí se z webu dorostu) |
 | `POCASI_MISTA`, `POCASI_POLOHA` | místa podle polohy a poslední poloha pro upozornění (spravuje motor) |
 | `REELY_STAV` | které reely už jsou na Instagramu (nastavuje aplikace) |
@@ -535,7 +558,11 @@ zprávou v Doručené (Hotovo = archiv ji schová, i když tvoje odpověď zůst
   synchronizace, chyba (špatné heslo, server), Synchronizovat teď, Vypnout. **Heslo se do aplikace nezadává** – uloží ho
   Michal příkazem z `firebase/NASAZENI.md` do Secret Manageru.
 - Data: kopie `data/wedos` (souhrny), detaily `wedosDetaily/{id}` (10 nejnovějších předem, ostatní při otevření), akce
-  `wedos` = `obnov | detail | precteno (id / ids) | archivovat | smazat | vratit | odeslat | vypnout`; po akci se kopie upraví hned.
+  `wedos` = `obnov | detail | precteno | archivovat | smazat | vratit (id / ids – výběr víc e-mailů jedním příkazem IMAP,
+  Vrátit vrátí celý výběr) | vedomi (Beru na vědomí: ids, kdy = { id: čas poslední zprávy }, zrusit, neprectene) | odeslat |
+  vypnout`; po akci se kopie upraví hned. Beru na vědomí si server pamatuje ve svém stavu (`wedosInterni/stav.vedomi`,
+  nejvýš 500 za 100 dní) a použije při každém složení seznamu, dokud nepřijde nová zpráva. Kopie nese `umi:
+  ['vedomi', 'hromadne']` – aplikace podle toho ukáže Beru na vědomí a hromadné akce (se starším serverem je nenabídne).
   Odeslání: odpověď s In-Reply-To / References a citací, odpověď všem, přeposlání s přílohami, nový e-mail; kopie do
   Odeslaných (APPEND), u odpovědi příznak \Answered; `idOdeslani` – opakovaný pokus e-mail nezdvojí.
 - Šetrně: každých 10 min jen STATUS složek; texty a detaily jen u nových zpráv; po špatném hesle pauza 15 min → 8 h.
@@ -543,7 +570,8 @@ zprávou v Doručené (Hotovo = archiv ji schová, i když tvoje odpověď zůst
   WEDOS místo Gmailu (Gmailová pracovní pošta a souhrny z PC se pak neukazují) – seznam, počty na Dnes, detail z účtu
   (`wedosDetaily`, bez čekání na schránku; jinak ze serveru), otevřením přečteno, Označit jako nepřečtené, **Hotovo**
   (archiv) s **Vrátit**, Odpovědět / Všem / Přeposlat / Nový e-mail z účtu Pracovní (odesílá server přes SMTP WEDOS, Od =
-  pracovní adresa, citaci připojí server), v Aktualizacích „Označit vše jako přečtené“ i pro rozesílky WEDOS. Připomenout,
+  pracovní adresa, citaci připojí server), v Aktualizacích „Označit vše jako přečtené“ i pro rozesílky WEDOS, pravé
+  tlačítko, Beru na vědomí, výběr víc e-mailů a Smazat (koš) s Vrátit. Připomenout,
   skupiny (štítky Gmailu) a Spam u pracovní pošty nejsou. Obnova: při otevření a návratu do aplikace (kopie starší 4 min),
   tlačítkem Obnovit a živě s kopiemi; chyba schránky (špatné heslo) je pruhem nad seznamem, prázdná Pracovní řekne proč.
   Nastavení → Pošta pak neukazuje návod na přeposílání ani „Odesílat poštu jako“; pracovní podpis je k adrese WEDOS.

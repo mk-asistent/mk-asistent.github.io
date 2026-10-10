@@ -609,6 +609,70 @@ function souhrnKonverzace(k, ja, texty, znami, ted) {
   return polozka;
 }
 
+// ---------------------------------------------------------------- Beru na vědomí (jako motor: naVedomi_, POSTA_VEDOMI)
+// Michal 10. 10.: konverzace přestane hořet / čekat na tebe (stav informace, důvod „bereš na vědomí“) a zůstane v Doručené;
+// jakmile přijde nová zpráva, platí zase normální stav. Server si pamatuje { id konverzace: čas poslední zprávy } ve svém
+// stavu (wedosInterni/stav.vedomi) a použije ho při každém složení seznamu – platí na všech zařízeních a v počtech na Dnes.
+
+const MAX_VEDOMI = 500;
+const DNI_VEDOMI = 100;
+// co nový server umí (kopie data/wedos → aplikace podle toho ukáže Beru na vědomí a hromadné akce u pracovní pošty)
+const UMI = ['vedomi', 'hromadne'];
+
+/** Souhrn konverzace, kterou bereš na vědomí: informace, původní stav vedle, bez termínu. Nový objekt. */
+function naVedomi(souhrn) {
+  if (!souhrn || souhrn.vedomi) return souhrn;
+  return Object.assign({}, souhrn, { vedomi: true, puvodniStav: souhrn.stav, puvodniDuvod: souhrn.duvod, stav: 'info', duvod: 'bereš na vědomí',
+    termin: null, terminVeta: '', poTerminu: false });
+}
+
+/** Zrušené Beru na vědomí v kopii (do nového složení seznamu): původní stav a důvod zpět. */
+function zrusVedomi(souhrn) {
+  if (!souhrn || !souhrn.vedomi) return souhrn;
+  const s = Object.assign({}, souhrn, { stav: souhrn.puvodniStav || 'ceka', duvod: souhrn.puvodniDuvod || '' });
+  delete s.vedomi;
+  delete s.puvodniStav;
+  delete s.puvodniDuvod;
+  return s;
+}
+
+/** Beru na vědomí platí, dokud je poslední zpráva stejná (čas jako v souhrnu). */
+function pouzijVedomi(souhrn, vedomi) {
+  return souhrn && vedomi && vedomi[souhrn.id] === souhrn.kdy ? naVedomi(souhrn) : souhrn;
+}
+
+/** Jen platné záznamy: id konverzace, čas za posledních 100 dní, nejvýš 500 nejnovějších. */
+function omezVedomi(vedomi, ted) {
+  const hranice = (ted || Date.now()) - DNI_VEDOMI * 864e5;
+  const v = vedomi && typeof vedomi === 'object' ? vedomi : {};
+  const klice = Object.keys(v).filter((id) => JE_ID.test(id) && Number(v[id]) > hranice).sort((a, b) => v[b] - v[a]).slice(0, MAX_VEDOMI);
+  const o = {};
+  klice.forEach((id) => { o[id] = Number(v[id]); });
+  return o;
+}
+
+/** Po synchronizaci: konverzace s novou zprávou (jiný čas poslední) pryč, ostatní zůstanou (i mimo seznam – může se vrátit). */
+function vedomiPoSynchronizaci(vedomi, souhrny, ted) {
+  const kdy = new Map((souhrny || []).map((s) => [s.id, s.kdy]));
+  const v = Object.assign({}, vedomi);
+  Object.keys(v).forEach((id) => { if (kdy.has(id) && kdy.get(id) !== Number(v[id])) delete v[id]; });
+  return omezVedomi(v, ted);
+}
+
+/**
+ * Požadavek „Beru na vědomí“ z aplikace: id | ids, kdy = { id: čas poslední zprávy ze souhrnu } (bez času se konverzace
+ * přeskočí), zrusit (Vrátit), neprectene = ids, které byly předtím nepřečtené (Vrátit je zase označí), precist (výchozí ano).
+ */
+function pozadavekVedomi(d) {
+  const ids = idyKonverzaci(d);
+  if (!ids.length) throw chybaVstupu('Neplatné id konverzace.');
+  const zdroj = d && d.kdy && typeof d.kdy === 'object' && !Array.isArray(d.kdy) ? d.kdy : {};
+  const kdy = {};
+  ids.forEach((id) => { const k = Number(zdroj[id]); if (k > 0 && isFinite(k)) kdy[id] = k; });
+  const neprectene = (d && Array.isArray(d.neprectene) ? d.neprectene : []).map(String).filter((id, i, a) => ids.indexOf(id) >= 0 && a.indexOf(id) === i);
+  return { ids, kdy, zrusit: !!(d && d.zrusit), precist: !(d && d.precist === false), neprectene };
+}
+
 // ---------------------------------------------------------------- detail konverzace
 
 /** Přílohy ze stavby zprávy (BODYSTRUCTURE) bez obsahu: [{ nazev, velikost }]; vložené obrázky ne (jako motor). */
@@ -834,6 +898,7 @@ module.exports = {
   sestavKonverzace, korenKonverzace, idZ, idZpravy, idyKonverzaci, klicTextu, otiskDetailu, mapaKonverzace, bezPredpony,
   cistyText, vlastniText, prvniRadek, htmlNaText, textZpravy, textyZpravy, nahled, zkrat, zkratHtml,
   terminZTextu, stavADuvod, oznameniZpravy, souhrnKonverzace, otiskAdresy, jeZnamy,
+  UMI, MAX_VEDOMI, naVedomi, zrusVedomi, pouzijVedomi, omezVedomi, vedomiPoSynchronizaci, pozadavekVedomi,
   seznamPriloh, detailKonverzace, vejdeSe,
   chybaProUzivatele, chybaVstupu, pauzaPoChybe, smiPrihlasit, prihlaseniPoPokusu, PAUZA_RUCNE,
   pozadavekOdeslani, adresatiOdpovedi, odkazyOdpovedi, citace, hlavickaPreposlani, textNaHtml, escHtml, noveMessageId

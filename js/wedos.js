@@ -4,6 +4,7 @@
 // Fáze 1: nastavení v Nastavení → Pošta („Pracovní schránka přímo (WEDOS)“).
 // Fáze 2: Pošta (posta.js) bere účet „Pracovní“ odsud místo z Gmailu – seznam (zpravy), detail, přečteno, Hotovo
 // (archiv), Vrátit, odpověď a nový e-mail (odeslat), počty na Dnes; malé háčky v posta.js označené „WEDOS“.
+// 10. 10.: Beru na vědomí a víc konverzací naráz (oznacitVic) – nový server to hlásí polem umi v kopii.
 // Obnova: při otevření aplikace a návratu do ní (kopie starší 4 min), tlačítkem Obnovit a živě s kopiemi ze serveru.
 // Bez účtu Firebase (a v ukázce) je vypnuto – motor pracovní poštu přímo nečte.
 
@@ -200,11 +201,21 @@ export async function detail(id, volby) {
   return d;
 }
 
-/** Akce nad konverzací: precteno { id | ids, precteno }, archivovat { id }, smazat { id }, vratit { id }. */
+/**
+ * Akce nad konverzací: precteno { id | ids, precteno }, archivovat / smazat / vratit { id | ids }, vedomi (Beru na vědomí)
+ * { ids, kdy: { id: čas poslední zprávy }, zrusit, neprectene }. ids (víc konverzací jedním voláním) a vedomi umí až
+ * server s umi ['vedomi', 'hromadne'] v kopii (viz umi).
+ */
 export function akce(nazev, data) {
-  if (['precteno', 'archivovat', 'smazat', 'vratit'].indexOf(nazev) < 0) return Promise.reject(new Error('Neznámá akce.'));
-  if (nazev !== 'precteno') delete w.detaily[data && data.id];
+  if (['precteno', 'archivovat', 'smazat', 'vratit', 'vedomi'].indexOf(nazev) < 0) return Promise.reject(new Error('Neznámá akce.'));
+  if (nazev !== 'precteno' && nazev !== 'vedomi') ((data && data.ids) || [data && data.id]).forEach((id) => { delete w.detaily[id]; });
   return zavolej(Object.assign({}, data, { akce: nazev }));
+}
+
+/** Co umí server (pole umi v kopii data/wedos): 'vedomi' = Beru na vědomí, 'hromadne' = archiv, koš a Vrátit víc konverzací. */
+export function umi(co) {
+  const k = kopie();
+  return !!(k && k.data && Array.isArray(k.data.umi) && k.data.umi.indexOf(co) >= 0);
 }
 
 /**
@@ -219,6 +230,31 @@ export function oznacit(id, jak) {
   }
   if (jak === 'vratit') return Promise.resolve(w.bezi[id]).then(() => akce('vratit', { id }));
   if (jak === 'prectene' || jak === 'neprectene') return akce('precteno', { id, precteno: jak === 'prectene' });
+  return Promise.reject(new Error('U pracovní pošty WEDOS tohle z aplikace nejde.'));
+}
+
+/**
+ * Víc konverzací naráz (výběr, pravé tlačítko, rychlé akce na Dnes): archivovat | smazat | prectene | neprectene | vratit |
+ * vedomi | vedomiZrusit; volby.kdy = { id: čas poslední zprávy } (Beru na vědomí), volby.neprectene = ids, které byly
+ * nepřečtené (Vrátit po Beru na vědomí). Jedna konverzace jako dřív (oznacit); víc jedním voláním serveru – starší
+ * server (bez umi 'hromadne') archiv a koš po jedné (Vrátit pak jen poslední, posta.js ho u víc konverzací nenabídne).
+ */
+export function oznacitVic(ids, jak, volby) {
+  const o = volby || {};
+  if (!ids.length) return Promise.resolve(null);
+  if (jak === 'vedomi' || jak === 'vedomiZrusit') {
+    if (!umi('vedomi')) return Promise.reject(new Error('Beru na vědomí u pracovní pošty WEDOS umí až nová verze serveru.'));
+    return akce('vedomi', jak === 'vedomi' ? { ids, kdy: o.kdy || {} } : { ids, zrusit: true, neprectene: o.neprectene || [] });
+  }
+  if (ids.length === 1) return oznacit(ids[0], jak);
+  if (jak === 'prectene' || jak === 'neprectene') return akce('precteno', { ids, precteno: jak === 'prectene' });
+  if (jak === 'archivovat' || jak === 'smazat') {
+    const p = umi('hromadne') ? akce(jak, { ids }) : ids.reduce((pred, id) => pred.then(() => akce(jak, { id })), Promise.resolve(null));
+    const hotovo = p.catch(() => null);
+    ids.forEach((id) => { w.bezi[id] = hotovo; });
+    return p;
+  }
+  if (jak === 'vratit') return Promise.all(ids.map((id) => w.bezi[id])).then(() => akce('vratit', { ids }));
   return Promise.reject(new Error('U pracovní pošty WEDOS tohle z aplikace nejde.'));
 }
 

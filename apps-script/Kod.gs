@@ -14,7 +14,9 @@
  *               MOJE (+ MOJE/HOTOVO) = Michalovy poznámky „pro mě“ (zkratka „Pro mě“, aplikace) – Claude je nečte
  *   Pošta     – Gmail: doručené za 30 dní (z 30–90 dní jen nevyřízené) bez Reklam/Sociálních sítí/Fór; čtení,
  *               odpověď, přeposlání, archiv, odložení („Připomenout“ – v den termínu se zpráva vrátí do Doručených);
- *               každá konverzace má stav (hoří, čeká na tebe, otázka, čekáš na ně, řeší se, informace) i s důvodem.
+ *               každá konverzace má stav (hoří, čeká na tebe, otázka, čekáš na ně, řeší se, informace) i s důvodem;
+ *               „Beru na vědomí“ (vlastnost POSTA_VEDOMI) = informace, dokud nepřijde nová zpráva; víc konverzací naráz
+ *               (postaOznacit: přečteno, archiv, spam, koš, vrátit, beru na vědomí – jedním dotazem).
  *               Dva účty: osobní (Gmail) a pracovní (vlastnost PRACOVNI_ADRESA). Pracovní pošta se do Gmailu
  *               dostane přeposíláním kopií od poskytovatele; odpovídá se z ní přes „Odesílat poštu jako“ v Gmailu.
  *               Náhradní zdroj bez přeposílání: CLAUDE_SCHRANKA/POSTA_FIREMNI.json (souhrny, zapisuje skript na PC).
@@ -37,7 +39,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-10.2';
+const VERZE = '2026-10-10.3';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -184,8 +186,15 @@ const AKCE = {
   stitky: function (d) { return stitkyGmailu_(!!d.znovu); },
   postaStitek: function (d) { return postaStitku_(d.nazev); },
   postaKategorie: function (d) { return postaKategorie_(d.kategorie, !!d.znovu); },
-  postaPresunout: function (d) { return presunDoStitku_(d.id, d.stitek, d.pridat !== false, !!d.archivovat, !!d.novy, d.odebrat, !!d.doDorucenych); },
+  // ids = víc konverzací jedním dotazem (výběr v aplikaci, přetažení vybraných na skupinu)
+  postaPresunout: function (d) {
+    return Array.isArray(d.ids) ? presunVic_(d.ids, d.stitek, d.pridat !== false, !!d.archivovat, !!d.novy, d.odebrat, !!d.doDorucenych)
+      : presunDoStitku_(d.id, d.stitek, d.pridat !== false, !!d.archivovat, !!d.novy, d.odebrat, !!d.doDorucenych);
+  },
   postaPrectene: function (d) { return prectiKategorii_(d.kategorie); },
+  // víc konverzací naráz (výběr, pravé tlačítko, rychlé akce na Dnes): přečteno, nepřečteno, Hotovo, spam, koš, vrátit,
+  // Beru na vědomí a jeho zrušení – ids: [id | { id, kdy (čas poslední zprávy ze souhrnu), neprectena }]
+  postaOznacit: function (d) { return oznacitVic_(d.ids, d.jak); },
   // přednačtení detailů (nejvýš 10) – kliknutí na konverzaci v aplikaci pak nečeká na motor
   postaDetaily: function (d) { return postaDetaily_(d.ids); },
   kontakty: function () { return kontakty_(); },
@@ -718,9 +727,10 @@ function nactiPostu_(znovu) {
   let navrhy = {};
   try { navrhy = nactiNavrhy_(); } catch (chyba) { navrhy = {}; }
   const idy = function (h) { return h.vlakna.map(function (v) { return v.getId(); }); };
+  // i „Beru na vědomí“ (mění stav konverzace bez změny v Gmailu)
   const otisk = md5_(JSON.stringify([prac, dotazy.pracovni ? dotazy.pracovni.map(idy) : null, dotazy.osobni.map(idy),
     GmailApp.search('in:inbox is:unread newer_than:' + DNI_STARSI_POSTY + 'd', 0, 200).map(function (v) { return v.getId(); }).sort(),
-    Object.keys(navrhy).sort().map(function (k) { return k + ':' + navrhy[k].zpravaId; })]));
+    Object.keys(navrhy).sort().map(function (k) { return k + ':' + navrhy[k].zpravaId; }), vedomi_()]));
   const doplnPostu = function (v) {
     v.firemni = nactiFiremni_(); // souhrny z PC (náhradní zdroj, když se pracovní pošta nepřeposílá)
     v.pocty = null;              // nepřečtené v Promoakcích, Sociálních sítích a Fórech (čísla u záložek)
@@ -870,6 +880,7 @@ function seznamVlaken_(dotaz, ja, prac, ucet, max, predem, sPodklady) {
     znami = Object.assign({}, znami);
     znami['@' + prac.split('@')[1]] = true;
   }
+  const vedomi = vedomi_();
   return vlakna.map(function (vlakno, i) {
     // koncepty a zprávy v koši do přehledu nepatří (náhled by ukázal neodeslaný text)
     const platne = zpravy[i].filter(function (m) { return !m.isDraft() && !m.isInTrash(); });
@@ -884,6 +895,8 @@ function seznamVlaken_(dotaz, ja, prac, ucet, max, predem, sPodklady) {
     const odeMne = function (m) { return [ja, prac].indexOf(adresa_(m.getFrom())) >= 0; };
     const odeMe = odeMne(posledni);
     const s = stavADuvod_(posledni, odeMe, vlakno, !!oznameni[vlakno.getId()], ted, seznam.some(odeMne), znami);
+    // „Beru na vědomí“: informace, dokud je poslední zpráva stejná (nová zpráva = zase normální stav) – i pro ntfy a Clauda
+    if (vedomi[vlakno.getId()] === posledni.getDate().getTime()) naVedomi_(s);
     const cekas = s.stav === 'cekas';
     // náhled = vlastní text zprávy: bez hlaviček přeposlání, citací a podpisu (Michal 9. 10.)
     const ukazka = nahledZpravy_(posledni.getPlainBody());
@@ -917,6 +930,7 @@ function seznamVlaken_(dotaz, ja, prac, ucet, max, predem, sPodklady) {
     if (oznameni[vlakno.getId()]) polozka.aktualizace = true; // kategorie Aktualizace – v aplikaci vlastní záložka
     // upozornění Googlu na chyby Apps Scriptu: v seznamu zůstane, ale nikde se nehlásí (Dnes, počty, ntfy)
     if (s.tiche) polozka.tiche = true;
+    if (s.vedomi) Object.assign(polozka, { vedomi: true, puvodniStav: s.puvodniStav, puvodniDuvod: s.puvodniDuvod });
     if (kOdpovedi) polozka._odpoved = { zpravaId: odesilatel.getId(), text: vlastniText_(odesilatel) };
     return polozka;
   });
@@ -1849,6 +1863,209 @@ function oznacitVlakno_(id, jak) {
   }
   smazCache_('posta');
   return true;
+}
+
+// ---------------------------------------------------------------- Pošta – Beru na vědomí, víc konverzací naráz
+// Michal 10. 10.: „hoří to tam furt je zobrazeno a já bych chtěl si to označit, že beru na vědomí“ a „vybrat více věcí,
+// co vidím, že jsou již hotovy … a označit to více najednou“. Beru na vědomí = konverzace přestane hořet / čekat na tebe
+// (stav informace, důvod „bereš na vědomí“), přečte se a zůstane v Doručené; jakmile přijde nová zpráva, platí zase
+// normální stav. Pamatuje se ve vlastnosti POSTA_VEDOMI = { id vlákna: čas poslední zprávy (ms) } a seznamVlaken_ ho
+// použije všude: pošta (i kopie na serveru → všechna zařízení a počty na Dnes), ntfy „hoří“, podklady pro Clauda.
+
+const MAX_VEDOMI = 240;          // záznamů ve vlastnosti (limit 9 kB, ~35 znaků na záznam) – nejstarší vypadnou
+const DNI_VEDOMI = 100;          // poslední zpráva starší (mimo okno pošty 90 dní) = zapomenout
+const MAX_HROMADNE = 100;        // konverzací v jednom požadavku (GmailApp.*Threads bere nejvýš 100)
+const JAKY_HROMADNE = ['prectene', 'neprectene', 'archivovat', 'spam', 'smazat', 'vratit', 'vedomi', 'vedomiZrusit'];
+let VEDOMI_ = null;              // { id: ms } – jednou za běh skriptu
+
+/** „Beru na vědomí“: { id vlákna: čas poslední zprávy (ms) }. */
+function vedomi_() {
+  if (VEDOMI_ === null) {
+    let m = null;
+    try { m = JSON.parse(vlastnosti_().getProperty('POSTA_VEDOMI') || '{}'); } catch (chyba) { m = null; }
+    VEDOMI_ = m && typeof m === 'object' && !Array.isArray(m) ? m : {};
+  }
+  return VEDOMI_;
+}
+
+/** Uloží „Beru na vědomí“: jen čísla, bez starších než 100 dní, nejnovějších 240 a do 8 500 znaků (limit vlastnosti). */
+function ulozVedomi_(mapa) {
+  const hranice = Date.now() - DNI_VEDOMI * 864e5;
+  const klice = Object.keys(mapa).filter(function (k) { return Number(mapa[k]) > hranice; })
+    .sort(function (a, b) { return Number(mapa[b]) - Number(mapa[a]); }).slice(0, MAX_VEDOMI);
+  const vyber = function () { const o = {}; klice.forEach(function (k) { o[k] = Number(mapa[k]); }); return o; };
+  let cista = vyber();
+  while (klice.length && JSON.stringify(cista).length > 8500) { klice.pop(); cista = vyber(); }
+  const p = vlastnosti_();
+  if (klice.length) p.setProperty('POSTA_VEDOMI', JSON.stringify(cista)); else p.deleteProperty('POSTA_VEDOMI');
+  VEDOMI_ = cista;
+  return cista;
+}
+
+/** Stav konverzace, kterou Michal bere na vědomí (s = výsledek stavADuvod_, mění se na místě; původní stav zůstane vedle). */
+function naVedomi_(s) {
+  s.puvodniStav = s.stav;
+  s.puvodniDuvod = s.duvod;
+  s.stav = 'info';
+  s.duvod = 'bereš na vědomí';
+  s.termin = null;
+  s.vedomi = true;
+  return s;
+}
+
+/** Platná id konverzací z aplikace (id nebo { id, … }), bez opakování; prázdné nebo víc než 100 = chyba. */
+function polozkyHromadne_(seznam) {
+  const videno = {};
+  const polozky = (Array.isArray(seznam) ? seznam : []).map(function (x) { return typeof x === 'string' ? { id: x } : x || {}; })
+    .filter(function (x) {
+      const id = String(x.id == null ? '' : x.id);
+      if (!/^[0-9a-zA-Z_-]{1,40}$/.test(id) || videno[id]) return false;
+      videno[id] = true;
+      x.id = id;
+      return true;
+    });
+  if (!polozky.length) throw new Error('Chybí konverzace.');
+  if (polozky.length > MAX_HROMADNE) throw new Error('Najednou jde nejvýš ' + MAX_HROMADNE + ' konverzací.');
+  return polozky;
+}
+
+/**
+ * Víc konverzací naráz: seznam = [id | { id, kdy, neprectena }], jak = prectene | neprectene | archivovat (Hotovo) | spam |
+ * smazat (koš) | vratit (zpět do Doručené – Vrátit po Hotovo, spamu i koši) | vedomi | vedomiZrusit. Gmail hromadně
+ * (*Threads, jedno volání na celý výběr), vlákna po jednom (getThreadById). Beru na vědomí s časem poslední zprávy ze
+ * souhrnu (kdy) a přečtené konverzace Gmail nevolá vůbec. Vrací { jak, ids (provedené), chyby: { id: text } }.
+ */
+function oznacitVic_(seznam, jak) {
+  if (JAKY_HROMADNE.indexOf(jak) < 0) throw new Error('Neznámá akce.');
+  const polozky = polozkyHromadne_(seznam);
+  const ids = [], chyby = {};
+  const vlaknoNeboChyba = function (x) {
+    try {
+      const v = GmailApp.getThreadById(x.id);
+      if (v) return v;
+      chyby[x.id] = 'Zpráva nenalezena.';
+    } catch (chyba) {
+      chyby[x.id] = String((chyba && chyba.message) || chyba);
+    }
+    return null;
+  };
+  if (jak === 'vedomi' || jak === 'vedomiZrusit') {
+    const mapa = Object.assign({}, vedomi_());
+    const kPrecteni = [], kNeprecteni = [];
+    polozky.forEach(function (x) {
+      if (jak === 'vedomiZrusit') {
+        delete mapa[x.id];
+        // Vrátit po Beru na vědomí: byla-li předtím nepřečtená, zase nepřečtená
+        if (x.neprectena === true) { const v = vlaknoNeboChyba(x); if (!v) return; kNeprecteni.push(v); }
+        ids.push(x.id);
+        return;
+      }
+      let kdy = Number(x.kdy);
+      let v = null;
+      // vlákno z Gmailu jen bez času ze souhrnu, nebo když je co přečíst
+      if (!(kdy > 0) || x.neprectena !== false) {
+        v = vlaknoNeboChyba(x);
+        if (!v) return;
+      }
+      if (!(kdy > 0)) {
+        const zpravy = v.getMessages().filter(function (m) { return !m.isDraft() && !m.isInTrash(); });
+        if (!zpravy.length) { chyby[x.id] = 'Ve vlákně není žádná zpráva.'; return; }
+        kdy = zpravy[zpravy.length - 1].getDate().getTime();
+      }
+      mapa[x.id] = kdy;
+      if (v) kPrecteni.push(v);
+      ids.push(x.id);
+    });
+    if (kPrecteni.length) GmailApp.markThreadsRead(kPrecteni);
+    if (kNeprecteni.length) GmailApp.markThreadsUnread(kNeprecteni);
+    ulozVedomi_(mapa);
+  } else {
+    const vlakna = [];
+    polozky.forEach(function (x) { const v = vlaknoNeboChyba(x); if (v) { vlakna.push(v); ids.push(x.id); } });
+    if (vlakna.length) {
+      if (jak === 'prectene') GmailApp.markThreadsRead(vlakna);
+      else if (jak === 'neprectene') GmailApp.markThreadsUnread(vlakna);
+      else {
+        // odložení (Připomenout) už neplatí – u Hotovo jen konverzací, které jsou teď v Doručené (jako oznacitVlakno_)
+        zrusOdlozeniVic_(vlakna, jak === 'archivovat');
+        if (jak === 'archivovat') GmailApp.moveThreadsToArchive(vlakna);
+        else if (jak === 'spam') GmailApp.moveThreadsToSpam(vlakna);
+        else if (jak === 'smazat') GmailApp.moveThreadsToTrash(vlakna);
+        else GmailApp.moveThreadsToInbox(vlakna); // vratit – z archivu, spamu i koše
+      }
+    }
+  }
+  smazCache_('posta');
+  return { jak: jak, ids: ids, chyby: chyby };
+}
+
+/** zrusOdlozeni_ pro víc vláken: vlastnost ODLOZENE se přečte a zapíše jen jednou. */
+function zrusOdlozeniVic_(vlakna, jenZDorucenych) {
+  const odlozene = odlozene_();
+  if (!odlozene.length) return; // běžný případ: jedno čtení vlastnosti
+  const pryc = {};
+  let zmena = false;
+  vlakna.forEach(function (v) {
+    const id = v.getId();
+    if (!odlozene.some(function (o) { return o.id === id; }) || (jenZDorucenych && !v.isInInbox())) return;
+    pryc[id] = true;
+    zmena = true;
+  });
+  if (!zmena) return;
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(10000);
+  try {
+    ulozOdlozene_(odlozene_().filter(function (o) { return !pryc[o.id]; }));
+  } finally {
+    zamek.releaseLock();
+  }
+}
+
+/**
+ * Přesun víc konverzací do skupiny (štítku) jedním dotazem – jako presunDoStitku_ (pridat, archivovat, novy, odebrat,
+ * doDorucenych), štítky a archiv hromadně (addToThreads, moveThreadsToArchive). Vrací { stitek, ids, chyby, archivovano }.
+ */
+function presunVic_(seznam, nazev, pridat, archivovat, novy, odebrat, doDorucenych) {
+  const polozky = polozkyHromadne_(seznam);
+  nazev = String(nazev || '').replace(/\s+/g, ' ').trim();
+  let stitek = nazev ? GmailApp.getUserLabelByName(nazev) : null;
+  if (!stitek && novy && pridat) {
+    if (nazev.length > 40 || /^\/|\/$|\/\/|[\\"<>]/.test(nazev)) throw new Error('Název skupiny: nejvýš 40 znaků, bez \\ " < > a lomítek na krajích.');
+    stitek = GmailApp.createLabel(nazev);
+  }
+  if (!stitek) throw new Error('Štítek „' + nazev + '“ v Gmailu není.');
+  const vlakna = [], ids = [], chyby = {};
+  polozky.forEach(function (x) {
+    try {
+      const v = GmailApp.getThreadById(x.id);
+      if (!v) throw new Error('Zpráva nenalezena.');
+      vlakna.push(v);
+      ids.push(x.id);
+    } catch (chyba) {
+      chyby[x.id] = String((chyba && chyba.message) || chyba);
+    }
+  });
+  if (vlakna.length) {
+    if (pridat) {
+      stitek.addToThreads(vlakna);
+      if (archivovat) {
+        zrusOdlozeniVic_(vlakna, true); // před archivem – rozhoduje, jestli jsou teď v Doručených
+        GmailApp.moveThreadsToArchive(vlakna);
+      }
+    } else {
+      stitek.removeFromThreads(vlakna);
+    }
+    (Array.isArray(odebrat) ? odebrat : odebrat ? [odebrat] : []).slice(0, 5).forEach(function (n) {
+      n = String(n || '').replace(/\s+/g, ' ').trim();
+      const jiny = n && n !== nazev ? GmailApp.getUserLabelByName(n) : null;
+      if (jiny) jiny.removeFromThreads(vlakna);
+    });
+    if (doDorucenych && !(pridat && archivovat)) GmailApp.moveThreadsToInbox(vlakna);
+    try { CacheService.getScriptCache().removeAll(ids.map(function (id) { return 'stitky:' + id; })); } catch (chyba) { /* štítky vláken se dočtou do 6 h */ }
+  }
+  smazCache_('posta');
+  smazCache_('stitky');
+  return { stitek: nazev, ids: ids, chyby: chyby, archivovano: !!(pridat && archivovat) };
 }
 
 function vlakno_(id) {
