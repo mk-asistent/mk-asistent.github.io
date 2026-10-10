@@ -5,12 +5,12 @@
 // po měsících a kategoriích, servis podle listu Péče o auto) a nové zápisy, i z vyfocené účtenky, posílá do ní.
 // Čísla jsou jen v tabulce a v zařízení (ukázka má vymyšlená).
 
-import { stav, zmeneno, umiMotor } from './stav.js';
-import { volej } from './api.js';
+import { stav, zmeneno, umiMotor, prejdi } from './stav.js';
+import { volej, jePripojeno } from './api.js';
 import { esc, uloziste, dm, isoDatum, kdyKratce, MESICE_1 } from './pomocne.js';
-import { kostra, chybaHtml, toast, toastAkce, potvrd, segment, hlavickaKarty } from './ui.js';
+import { kostra, chybaHtml, toast, potvrd, segment, hlavickaKarty } from './ui.js';
 import { IKONY } from './ikony.js';
-import { otevriPanel, zavriPanel, obnovPanel, elementPanelu } from './panely.js';
+import { otevriPanel, zavriPanel, obnovPanel, elementPanelu, horniPanel } from './panely.js';
 import { bublina, grafAtr } from './grafy.js';
 
 const ULOZISTE = 'asistent.data.auto';
@@ -240,10 +240,9 @@ function akceHtml() {
   return '<div class="auto-akce">' +
     '<button type="button" class="btn btn--primary" data-auto-zapis="tankovani">' + IKONY.palivo + '<span>Tankování</span></button>' +
     '<button type="button" class="btn btn--ghost" data-auto-zapis="naklad">' + IKONY.plus + '<span>Výdaj</span></button>' +
-    // popisek s polem pro fotku: klepnutí otevře nabídku iPhonu – Fotky, Vyfotit, Soubory (programové kliknutí iPhone neotevře;
-    // bez capture, ať jde vybrat i starší fotka účtenky z Fotek)
-    (umiMotor('autoUctenka') ? '<label class="btn btn--ghost auto-foto">' + IKONY.foto + '<span>Účtenky z fotek</span>' +
-      '<input type="file" accept="image/*" multiple data-auto-foto hidden></label>' : '') +
+    // popisek ke stálému poli pro fotku (VSTUP_FOTO – mimo stránku, překreslení ho nesmaže): klepnutí otevře nabídku
+    // iPhonu – Fotky, Vyfotit, Soubory (programové kliknutí iPhone neotevře; bez capture, ať jde vybrat i starší fotka)
+    (umiMotor('autoUctenka') ? popisekFotky('btn btn--ghost auto-foto', IKONY.foto + '<span>Účtenky z fotek</span>') : '') +
     '<button type="button" class="btn btn--ghost" data-auto-pece>' + IKONY.auto + '<span>Péče o auto</span></button></div>';
 }
 
@@ -604,7 +603,8 @@ export function otevriZapis(druh, navrh) {
     kdo: n.kdo === 'K' ? 'K' : 'M', kategorie: n.kategorie || '', polozka: n.polozka || '', poznamka: n.poznamka != null ? n.poznamka : (n.obchod || ''),
     uctenka: n.uctenka || '', nahled: n.nahled || '', velka: n.velka || '', foto: '', fotoNacitam: false,
     fotoVedle: !!(n.velka || n.nahled) && SIROKE.matches, fotoZoom: false,
-    chybaTextu: n.chybaTextu || '', zUctenky: !!n.uctenka && !n.uprava, uprava: n.uprava || null, ukladam: false
+    chybaTextu: n.chybaTextu || '', zUctenky: !!n.uctenka && !n.uprava, uprava: n.uprava || null, ukladam: false,
+    rychla: n.rychla || '' // rychlá volba výdaje (Mytí…) – zvýrazněná pilulka
   };
   const moje = f;
   otevriPanel({
@@ -616,6 +616,8 @@ export function otevriZapis(druh, navrh) {
       (f && f.ukladam ? 'Zapisuji…' : f && f.uprava ? 'Uložit změny' : 'Zapsat do tabulky') + '</span></button></div>',
     poOtevreni: (el) => {
       el.classList.toggle('auto-s-fotkou', !!(f && f.fotoVedle));
+      // rychlý výdaj s částkou jako minule (Mytí): bez klávesnice – stačí Zapsat (na iPhonu číselná klávesnice nemá Enter)
+      if (f.rychla && f.castka) { el.focus({ preventScroll: true }); return; }
       const pole = el.querySelector(f.castka ? '[data-az="km"]' : '[data-az="castka"]');
       if (pole) pole.focus();
     },
@@ -629,6 +631,41 @@ export function otevriZapis(druh, navrh) {
 function litryText() {
   const c = cislo(f.castka), l = cislo(f.cenaLitr);
   return c && l ? '= ' + JEDNO.format(c / l) + ' l' : '';
+}
+
+// kategorie výdajů, které tabulka zná (rozbalovací seznam, použité, Přehled – motor AUTO_.kategorie); bez dat jako motor
+const KATEGORIE_ZAKLAD = ['Servis', 'Servis - PNEU', 'STK', 'Pojištění', 'Dálniční známka', 'Parkování', 'Myčka', 'Nákup doplňků', 'Doplňková výbava'];
+const kategorieVydaju = (d) => (d && d.kategorie && d.kategorie.length ? d.kategorie : KATEGORIE_ZAKLAD);
+
+/**
+ * Rychlé výdaje do okna Výdaj (Michal 10. 10.: „100 Kč za umytí dvěma klepnutími“): Mytí vždy první – kategorie myčky
+ * z tabulky (Myčka), částka a položka jako u posledního mytí –, za ním nejvýš dvě kategorie, které byly za poslední rok
+ * aspoň dvakrát. [{ nazev, kategorie, castka (null = neznámá), polozka }]
+ */
+export function rychleVydaje(d) {
+  const naklady = ((d && d.naklady) || []).filter((z) => z.datum != null && z.castka && z.kategorie && !jeKoupe(z));
+  const myti = kategorieVydaju(d).find((k) => /my[čc]k|myt[ií]/i.test(k)) || 'Myčka';
+  const volba = (nazev, k) => {
+    const z = naklady.filter((x) => x.kategorie === k).sort((a, b) => b.datum - a.datum || b.radek - a.radek)[0];
+    return { nazev, kategorie: k, castka: z ? z.castka : null, polozka: z ? z.polozka || '' : '' };
+  };
+  const rok = Date.now() - 365 * 864e5, pocty = {};
+  naklady.forEach((z) => { if (z.datum >= rok && z.kategorie !== myti) pocty[z.kategorie] = (pocty[z.kategorie] || 0) + 1; });
+  const caste = Object.keys(pocty).filter((k) => pocty[k] >= 2).sort((a, b) => pocty[b] - pocty[a]).slice(0, 2);
+  return [volba('Mytí', myti)].concat(caste.map((k) => volba(k, k)));
+}
+
+function rychleVydajeHtml(d) {
+  return '<div class="auto-rychle" role="group" aria-label="Rychlá volba výdaje"><span class="label">Rychle</span><div class="auto-rychle__volby">' +
+    rychleVydaje(d).map((r, i) => '<button type="button" class="chip auto-rychle__volba" data-az-rychle="' + i + '" aria-pressed="' + (f.rychla === r.nazev) + '">' +
+      (i === 0 ? '<span aria-hidden="true">🧽</span> ' : '') + esc(r.nazev) + (r.castka ? ' <small class="cisla">' + kc(r.castka) + '</small>' : '') + '</button>').join('') +
+    '</div></div>';
+}
+
+/** Rychlý výdaj z „+“ (Mytí auta): okno Výdaj rovnou s kategorií a částkou jako minule – stačí Zapsat. */
+export function otevriRychlyVydaj(i) {
+  const r = rychleVydaje(stav.auto)[i || 0];
+  otevriZapis('naklad', { kategorie: r.kategorie, polozka: r.polozka, castka: r.castka, rychla: r.nazev });
 }
 
 function zapisHtml() {
@@ -653,6 +690,7 @@ function zapisHtml() {
       '<button type="button" class="btn btn--ghost btn--sm" data-az-foto' + (f.fotoNacitam ? ' disabled' : '') + '>' + (f.fotoNacitam ? 'Načítám…' : 'Zobrazit') + '</button></div>';
   }
   h += f.uprava ? '' : segment([['tankovani', 'Tankování'], ['naklad', 'Výdaj']], f.druh, 'data-az-druh', 'Druh zápisu');
+  if (f.druh === 'naklad' && !f.uprava && !f.zUctenky) h += rychleVydajeHtml(d);
   h += '<div class="fmr fmr--2">' + pole('datum', 'Datum', 'type="date"', f.datum) +
     pole('castka', 'Částka (Kč)', 'inputmode="decimal" placeholder="např. 1 520"', f.castka) + '</div>';
   if (f.druh === 'tankovani') {
@@ -666,7 +704,7 @@ function zapisHtml() {
     h += '<label><span class="label">Kde (poznámka)</span><input class="field" data-az="poznamka" list="auto-stanice" value="' + esc(f.poznamka) + '" ' +
       'autocomplete="off" placeholder="čerpací stanice"></label><datalist id="auto-stanice">' + nejcastejsi.map((s) => '<option value="' + esc(s) + '">').join('') + '</datalist>';
   } else {
-    const kategorie = (d.kategorie && d.kategorie.length ? d.kategorie : ['Servis', 'Servis - PNEU', 'STK', 'Pojištění', 'Dálniční známka', 'Parkování', 'Myčka', 'Nákup doplňků', 'Doplňková výbava']);
+    const kategorie = kategorieVydaju(d);
     if (!f.kategorie) f.kategorie = kategorie[0];
     h += '<div class="fmr fmr--2"><label><span class="label">Kategorie</span><select class="field" data-az="kategorie">' +
       (kategorie.indexOf(f.kategorie) < 0 ? '<option selected>' + esc(f.kategorie) + '</option>' : '') +
@@ -724,30 +762,226 @@ async function ulozZapis() {
   }
 }
 
-// ---------------------------------------------------------------- účtenka (fotka z telefonu)
+/// ---------------------------------------------------------------- účtenky z fotek: stálé pole, fronta v zařízení, stav
+//
+// Michal 10. 10.: „nahrával jsem v iPhonu účtenku a nevidím ji nahranou“ – na Disk nic nedorazilo. Pole pro fotku bylo
+// uvnitř stránky Auto, kterou každé překreslení (data ze serveru, návrat z fotoaparátu → obnovVse) přepíše novým HTML:
+// výběr z iPhonu pak dostalo odpojené pole a obsluha na document se o něm nedozvěděla – beze slova (test „účtenka přežije
+// překreslení“). Stránku mohla během focení přenačíst i nová verze aplikace (js/start.js) a chyba sítě se hlásila jako
+// „ještě se zpracovává“, i když fotka motor nikdy neviděla. Teď:
+//  - jedno stálé pole v <body> mimo překreslované části; popisky (stránka Auto, „+“, kartička) na něj ukazují přes for;
+//  - vybraná fotka se hned zmenší a uloží do fronty v zařízení (IndexedDB) – přežije zavření aplikace i výpadek sítě;
+//  - kartička dole ukazuje průběh („Nahrávám účtenku… · Čtu text účtenky · 12 s“), výsledek s částkou a stanicí (Upravit),
+//    bez sítě „čeká v telefonu“ (pošle se sama, až bude síť), chyba motoru → Zkusit znovu / Zahodit;
+//  - během výběru a nahrávání se aplikace nepřenačte (window.asistentPrace → js/start.js);
+//  - když se aplikace během výběru zavřela (iPhone ji při focení občas ukončí), řekne to při dalším otevření.
 
+export const VSTUP_FOTO = 'auto-foto-vstup';
+const VYBER = 'asistent.auto.vyber';                 // { kdy } – výběr fotky začal a ještě nedoběhl (přežije zavření aplikace)
+const VYBER_PLATI = 20 * 60e3;
+const DB = { nazev: 'asistent-auto', tabulka: 'uctenky' };
+const SIT_ODKLAD = [20e3, 60e3, 180e3, 600e3];       // další pokus po výpadku sítě (a hned po návratu sítě)
+
+let vstup = null, stavEl = null, stavHtml = '';
+let vyberOd = 0;                                     // kdy se otevřel výběr fotky (0 = není otevřený)
+let pripravuji = 0;                                  // kolik vybraných fotek se právě zmenšuje
+let fronta = [];                                     // { id, otisk, obrazek, nahled, kdy, stav: ceka|odesila|chyba, chyba, sit, pokusu, od }
+let davka = { celkem: 0, hotovo: 0 };                // průběh „2 z 3“
+let hotove = [], chybyFotek = [];                    // výsledky dávky – souhrn, až je fronta prázdná
+let vysledek = null;                                 // { ton: ok|chyba, nadpis, text, upravit, ukazat, doplnit, vybrat }
+let bezi = null, casovacSite = 0, casovacStavu = 0, casovacVysledku = 0;
+
+/** Popisek ke stálému poli pro fotku – kdekoli v aplikaci (stránka Auto, „+“); klepnutí otevře výběr fotky. */
+export function popisekFotky(trida, obsah) {
+  return '<label for="' + VSTUP_FOTO + '" class="' + trida + '">' + obsah + '</label>';
+}
+
+function pripravVstup() {
+  if (vstup) return vstup;
+  vstup = document.createElement('input');
+  vstup.type = 'file';
+  vstup.accept = 'image/*';
+  vstup.multiple = true;
+  vstup.id = VSTUP_FOTO;
+  vstup.className = 'auto-foto-vstup';
+  vstup.tabIndex = -1;
+  vstup.setAttribute('aria-hidden', 'true');
+  vstup.addEventListener('change', poVyberuFotek);
+  vstup.addEventListener('cancel', konecVyberu);
+  document.body.appendChild(vstup);
+  return vstup;
+}
+
+// ---------- fronta v zařízení (IndexedDB; když nejde, jede jen v paměti)
+
+let dbSlib = null;
+function otevriDb() {
+  if (!dbSlib) {
+    dbSlib = new Promise((hotovo, chyba) => {
+      if (!window.indexedDB) { chyba(new Error('bez IndexedDB')); return; }
+      const r = indexedDB.open(DB.nazev, 1);
+      r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains(DB.tabulka)) r.result.createObjectStore(DB.tabulka, { keyPath: 'id' }); };
+      r.onsuccess = () => hotovo(r.result);
+      r.onerror = () => chyba(r.error || new Error('IndexedDB'));
+      setTimeout(() => chyba(new Error('IndexedDB neodpovídá')), 4000); // starší Safari otevření občas „zapomene“
+    });
+    dbSlib.catch(() => { /* fronta jen v paměti */ });
+  }
+  return dbSlib;
+}
+function dbAkce(zapis, fn) {
+  return otevriDb().then((db) => new Promise((hotovo, chyba) => {
+    const t = db.transaction(DB.tabulka, zapis ? 'readwrite' : 'readonly');
+    const r = fn(t.objectStore(DB.tabulka));
+    t.oncomplete = () => hotovo(r ? r.result : undefined);
+    t.onerror = () => chyba(t.error);
+    t.onabort = () => chyba(t.error || new Error('IndexedDB'));
+  }));
+}
+const ulozVZarizeni = (x) => dbAkce(true, (s) => s.put(Object.assign({}, x))).catch(() => false);
+const smazVZarizeni = (id) => dbAkce(true, (s) => s.delete(id)).catch(() => false);
+function odeberZFronty(x) {
+  fronta = fronta.filter((u) => u !== x);
+  smazVZarizeni(x.id);
+}
+
+/** Rozdělaná práce s účtenkou (otevřený výběr fotky, zmenšování, odesílání) – js/start.js kvůli ní nepřenačte novou verzi. */
+function pracuje() {
+  return (vyberOd > 0 && Date.now() - vyberOd < 10 * 60e3) || pripravuji > 0 || fronta.some((u) => u.stav === 'odesila');
+}
+
+function startUctenek() {
+  if (!document.body) return;
+  pripravVstup();
+  stavEl = document.createElement('div');
+  stavEl.id = 'auto-uctenky';
+  stavEl.className = 'auto-uctenky';
+  stavEl.setAttribute('role', 'status');
+  stavEl.hidden = true;
+  stavEl.addEventListener('click', klikStav);
+  document.body.appendChild(stavEl);
+  document.addEventListener('click', klikPopisek, true);
+  window.addEventListener('online', opakujSit);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') opakujSit(true); });
+  (window.asistentPrace = window.asistentPrace || []).push(pracuje);
+  // výběr fotky začal, ale aplikace se zavřela dřív, než fotku dostala (iPhone ji při focení občas ukončí) → říct to
+  const v = uloziste.cti(VYBER);
+  uloziste.smaz(VYBER);
+  if (v && v.kdy && Date.now() - v.kdy < VYBER_PLATI && jePripojeno()) {
+    vysledek = { ton: 'chyba', vybrat: true, nadpis: 'Fotka účtenky se nenahrála',
+      text: 'Výběr fotky se nedokončil – aplikace se mezitím zavřela. Jestli jsi účtenku chtěl nahrát, vyber ji znovu (nejjistější: vyfotit ' +
+        'Fotoaparátem a pak vybrat z Fotek).' };
+  }
+  if (!jePripojeno()) { dbAkce(true, (s) => s.clear()).catch(() => false); return; } // odpojené zařízení: fotky účtenek pryč
+  dbAkce(false, (s) => s.getAll()).then((ulozene) => {
+    (ulozene || []).forEach((x) => {
+      if (x && x.id && x.obrazek && !fronta.some((u) => u.id === x.id)) fronta.push(Object.assign(x, { stav: 'ceka', sit: false }));
+    });
+    fronta.sort((a, b) => a.kdy - b.kdy);
+    vykresliStav();
+    setTimeout(() => spustPoStartu(0), 800); // z minula: poslat, až aplikace ví, co motor umí
+  }).catch(() => vykresliStav());
+  vykresliStav();
+}
+
+function spustPoStartu(pokus) {
+  if (!fronta.some((u) => u.stav === 'ceka')) return;
+  if (!umiMotor('autoUctenka') && pokus < 20) { setTimeout(() => spustPoStartu(pokus + 1), 1500); return; }
+  zpracujFrontu();
+}
+
+// ---------- výběr fotek
+
+/** Klepnutí na popisek (zachytávání – před překreslením čehokoli): výběr se otevírá. */
+function klikPopisek(e) {
+  const l = e.target && e.target.closest ? e.target.closest('label[for="' + VSTUP_FOTO + '"]') : null;
+  if (!l) return;
+  // na iPadu se nabídka Fotky / Vyfotit ukáže u pole – posunout ho pod klepnutý popisek
+  const r = l.getBoundingClientRect();
+  Object.assign(pripravVstup().style, { left: Math.round(r.left) + 'px', top: Math.round(r.top) + 'px', width: Math.round(r.width) + 'px', height: Math.round(r.height) + 'px' });
+  vyberOd = Date.now();
+  uloziste.pis(VYBER, { kdy: vyberOd });
+}
+
+function konecVyberu() {
+  vyberOd = 0;
+  uloziste.smaz(VYBER);
+}
+
+function poVyberuFotek() {
+  const soubory = Array.from(vstup.files || []);
+  vyberOd = 0;
+  const h = horniPanel();
+  if (h && h.id === 'rychle') zavriPanel(); // z „+“ na telefonu – průběh je vidět v kartičce dole
+  if (!soubory.length) { konecVyberu(); return; }
+  pridejUctenky(soubory);
+}
+
+/** Vybrané fotky: zmenšit, uložit do fronty v zařízení a posílat (první se posílá, zatímco se další zmenšují). */
+async function pridejUctenky(soubory) {
+  clearTimeout(casovacVysledku);
+  vysledek = null;
+  pripravuji += soubory.length;
+  davka.celkem += soubory.length;
+  vykresliStav();
+  for (const s of soubory) {
+    try {
+      const x = await pripravUctenku(s);
+      if (fronta.some((u) => u.id === x.id)) davka.celkem--; // stejná fotka vybraná dvakrát
+      else { fronta.push(x); await ulozVZarizeni(x); }
+    } catch (e) {
+      davka.celkem--;
+      chybyFotek.push(e.message);
+    }
+    pripravuji--;
+    zpracujFrontu();
+  }
+  if (vstup) vstup.value = ''; // stejnou fotku jde vybrat znovu
+  uloziste.smaz(VYBER);        // fotky jsou ve frontě v zařízení – přežijí i zavření aplikace
+  dokonciDavku();
+  vykresliStav();
+}
+
+async function pripravUctenku(soubor) {
+  const img = await nactiObrazek(soubor);
+  const obrazek = zmensi(img, 1600, 0.82);
+  const nahled = zmensi(img, 320, 0.7);
+  if (img.close) img.close(); // ImageBitmap – paměť hned pryč
+  const otisk = await otiskFotky(obrazek);
+  return { id: otisk || 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8), otisk, obrazek, nahled, kdy: Date.now(),
+    stav: 'ceka', chyba: '', sit: false, pokusu: 0, od: 0 };
+}
+
+/** Fotka → obrázek: FileReader + Image (CSP nepouští blob:), jinak createImageBitmap; HEIC ze Souborů neumí každý prohlížeč. */
 function nactiObrazek(soubor) {
+  const chybaFotky = () => new Error(/hei[cf]/i.test((soubor.type || '') + ' ' + (soubor.name || ''))
+    ? 'Fotka je ve formátu HEIC, který tu nejde přečíst – vyber ji přes Fotky (ne Soubory), nebo ji vyfoť znovu.'
+    : 'Fotku se nepodařilo načíst – zkus ji vybrat nebo vyfotit znovu.');
   return new Promise((hotovo, chyba) => {
     const r = new FileReader();
     r.onload = () => {
       const img = new Image();
       img.onload = () => hotovo(img);
-      img.onerror = () => chyba(new Error('Fotku se nepodařilo načíst – zkus ji vyfotit znovu.'));
+      img.onerror = () => chyba(chybaFotky());
       img.src = r.result;
     };
-    r.onerror = () => chyba(new Error('Fotku se nepodařilo načíst.'));
+    r.onerror = () => chyba(chybaFotky());
     r.readAsDataURL(soubor);
-  });
+  }).catch((e) => (window.createImageBitmap ? createImageBitmap(soubor).catch(() => { throw e; }) : Promise.reject(e)));
 }
 
 /** Zmenšená kopie jako JPEG (data URL) – účtenka se čte dobře i na 1 600 px a posílá se rychle. */
 function zmensi(img, max, kvalita) {
-  const k = Math.min(1, max / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+  const w = img.naturalWidth || img.width || 1, h = img.naturalHeight || img.height || 1;
+  const k = Math.min(1, max / Math.max(w, h));
   const c = document.createElement('canvas');
-  c.width = Math.max(1, Math.round(img.naturalWidth * k));
-  c.height = Math.max(1, Math.round(img.naturalHeight * k));
+  c.width = Math.max(1, Math.round(w * k));
+  c.height = Math.max(1, Math.round(h * k));
   c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-  return c.toDataURL('image/jpeg', kvalita);
+  const url = c.toDataURL('image/jpeg', kvalita);
+  c.width = c.height = 0; // iPhone má na plátna málo paměti – uvolnit hned
+  if (!/^data:image\/jpeg;base64,./.test(url)) throw new Error('Fotku se nepodařilo zmenšit (málo paměti?) – zkus ji vybrat znovu.');
+  return url;
 }
 
 /** Otisk fotky (stejná fotka = stejný otisk) – motor podle něj nic nezapíše dvakrát, když se účtenka pošle znovu. */
@@ -760,8 +994,221 @@ async function otiskFotky(dataUrl) {
   }
 }
 
-const popisZapisu = (z) => (z ? (z.list === 'tankovani' ? 'tankování' : (z.kategorie || 'výdaj').toLowerCase()) + ' ' + kc(z.castka) +
-  (z.datum != null ? ' · ' + dm(z.datum) : '') : '');
+// ---------- odesílání (jedna po druhé; stejnou fotku jde poslat znovu – motor ji pozná podle otisku a nic nezdvojí)
+
+function zpracujFrontu() {
+  if (bezi) return bezi;
+  if (!fronta.some((u) => u.stav === 'ceka')) { dokonciDavku(); return Promise.resolve(); }
+  if (!davka.celkem) davka = { celkem: fronta.filter((u) => u.stav === 'ceka').length + pripravuji, hotovo: 0 };
+  bezi = (async () => {
+    for (let x = fronta.find((u) => u.stav === 'ceka'); x; x = fronta.find((u) => u.stav === 'ceka')) {
+      await odesliUctenku(x);
+      if (x.stav === 'chyba' && x.sit) {
+        // bez sítě nemá cenu zkoušet další – počkají ve frontě a pošlou se s ní
+        fronta.forEach((u) => { if (u.stav === 'ceka') Object.assign(u, { stav: 'chyba', sit: true, chyba: x.chyba }); });
+        break;
+      }
+    }
+  })().catch((e) => {
+    // nečekaná chyba mimo odeslání – nic nesmí zůstat „odesílá se“ (kartička by visela a nová verze se nenačetla)
+    fronta.forEach((u) => { if (u.stav === 'odesila') Object.assign(u, { stav: 'chyba', sit: false, chyba: (e && e.message) || 'Nepodařilo se.' }); });
+  }).then(() => {
+    bezi = null;
+    if (fronta.some((u) => u.stav === 'ceka')) zpracujFrontu(); else dokonciDavku();
+  });
+  vykresliStav();
+  return bezi;
+}
+
+async function odesliUctenku(x) {
+  Object.assign(x, { stav: 'odesila', od: Date.now(), pokusu: (x.pokusu || 0) + 1, chyba: '', sit: false });
+  ulozVZarizeni(x);
+  vykresliStav();
+  try {
+    const v = await volej('autoUctenka', { obrazek: x.obrazek, otisk: x.otisk, zapsat: true });
+    odeberZFronty(x);
+    davka.hotovo++;
+    // spojení zase jde → účtenky, které čekaly na síť, hned za ní (ne až po časovači)
+    fronta.forEach((u) => { if (u.stav === 'chyba' && u.sit) { u.stav = 'ceka'; davka.celkem++; } });
+    clearTimeout(casovacSite);
+    if (v && v.zapsano && v.data) {
+      uloz(v.data);
+      hotove.push({ zapsano: v.zapsano, z: najdiZapis(v.zapsano.list, v.zapsano.radek), foto: { nahled: x.nahled, velka: x.obrazek } });
+    } else {
+      hotove.push({ navrh: Object.assign({}, (v && v.navrh) || {}, { uctenka: v && v.uctenka, nahled: x.nahled, velka: x.obrazek, chybaTextu: v && v.chybaTextu }) });
+    }
+    zmeneno();
+  } catch (e) {
+    // síť / Google odpověď ztratil / motor dlouho neodpovídá → účtenka počká v zařízení a pošle se znovu sama
+    const sit = e.kod === 'sit' || e.kod === 'ztracena' || navigator.onLine === false;
+    Object.assign(x, { stav: 'chyba', sit, chyba: (e && e.message) || 'Nepodařilo se.' });
+    ulozVZarizeni(x);
+    if (sit) naplanujOpakovani(x.pokusu);
+  }
+  vykresliStav();
+}
+
+function naplanujOpakovani(pokusu) {
+  clearTimeout(casovacSite);
+  casovacSite = setTimeout(opakujSit, SIT_ODKLAD[Math.min(Math.max(0, pokusu - 1), SIT_ODKLAD.length - 1)]);
+}
+
+/** Účtenky čekající na síť znovu (po časovači, návratu sítě, návratu do aplikace – ten ne hned po pokusu). */
+function opakujSit(zNavratu) {
+  const cekaji = fronta.filter((u) => u.stav === 'chyba' && u.sit);
+  if (!cekaji.length || bezi) return;
+  if (zNavratu === true && cekaji.some((u) => Date.now() - (u.od || 0) < 15000)) return;
+  clearTimeout(casovacSite);
+  cekaji.forEach((u) => { u.stav = 'ceka'; });
+  davka = { celkem: 0, hotovo: 0 };
+  zpracujFrontu();
+}
+
+const popisUctenky = (z) => (z ? [(z.list === 'tankovani' ? 'tankování' : (z.kategorie || 'výdaj').toLowerCase()) + ' ' + kc(z.castka),
+  z.list === 'tankovani' ? z.poznamka : z.polozka !== z.kategorie ? z.polozka : '', z.datum != null ? dm(z.datum) : ''].filter(Boolean).join(' · ') : 'zápis je v tabulce');
+
+/** Fronta doběhla: souhrn v kartičce (částka, stanice, Upravit), nejasné účtenky k doplnění v okně. */
+function dokonciDavku() {
+  if (pripravuji > 0 || bezi) return;
+  const zapsane = hotove.filter((r) => r.zapsano), kDoplneni = hotove.filter((r) => r.navrh).map((r) => r.navrh), chybyFoto = chybyFotek;
+  hotove = [];
+  chybyFotek = [];
+  davka = { celkem: 0, hotovo: 0 };
+  if (!zapsane.length && !kDoplneni.length && !chybyFoto.length) { vykresliStav(); return; }
+  const castka = zapsane.reduce((s, r) => s + ((r.z && r.z.castka) || 0), 0);
+  const navic = [kDoplneni.length ? 'k doplnění ' + kDoplneni.length : '', chybyFoto.length === 1 ? chybyFoto[0] : chybyFoto.length ? 'fotky, které nešly načíst: ' + chybyFoto.length : '']
+    .filter(Boolean).join(' · ');
+  if (zapsane.length === 1) {
+    vysledek = { ton: 'ok', nadpis: 'Zapsáno z účtenky', text: popisUctenky(zapsane[0].z) + (navic ? ' · ' + navic : ''), upravit: zapsane[0] };
+  } else if (zapsane.length) {
+    vysledek = { ton: 'ok', nadpis: 'Účtenky: zapsáno ' + zapsane.length + (castka ? ' (' + kc(castka) + ')' : ''), text: navic || 'všechny jsou v tabulce', ukazat: stav.pohled !== 'auto' };
+  } else if (!kDoplneni.length) {
+    vysledek = { ton: 'chyba', nadpis: chybyFoto.length > 1 ? 'Fotky se nepodařilo načíst' : 'Fotku se nepodařilo načíst', text: navic, vybrat: true };
+  } else {
+    vysledek = null; // okno k doplnění samo řekne, že je fotka na Disku
+  }
+  if (kDoplneni.length) {
+    frontaUctenek = frontaUctenek.concat(kDoplneni);
+    // nejasná účtenka → okno s předvyplněnými údaji; když je otevřené jiné okno, jen nabídnout (nepřekřikovat rozdělanou práci)
+    if (horniPanel()) vysledek = Object.assign(vysledek || { ton: 'ok', nadpis: 'Účtenka je na Disku', text: 'Z fotky není jasné všechno – doplň údaje.' }, { doplnit: true });
+    else dalsiUctenka();
+  }
+  if (vysledek && vysledek.ton === 'ok' && !vysledek.doplnit) casovacVysledku = setTimeout(() => { vysledek = null; vykresliStav(); }, 20000);
+  vykresliStav();
+}
+
+// ---------- kartička se stavem (dole nad lištou, na PC vpravo dole)
+
+function krokNahravani(x) {
+  if (!x || x.stav !== 'odesila') return 'Zmenšuji fotku';
+  const s = (Date.now() - x.od) / 1000;
+  return s < 4 ? 'Posílám fotku' : s < 75 ? 'Čtu text účtenky' : 'Čtu text účtenky – Google je pomalý, vydrž';
+}
+
+function prubeh() {
+  const x = fronta.find((u) => u.stav === 'odesila');
+  const cast = x ? Math.min(0.92, 0.12 + (Date.now() - x.od) / 50000 * 0.8) : 0.05;
+  return Math.max(4, Math.min(100, Math.round((davka.hotovo + cast) / Math.max(1, davka.celkem) * 100)));
+}
+
+function radekStavu(nahled, ikona, nadpis, text) {
+  return '<div class="auto-uctenky__radek">' + (nahled ? '<img src="' + esc(nahled) + '" alt="">' : '<span class="kruh kruh--auto" aria-hidden="true">' + ikona + '</span>') +
+    '<div class="auto-uctenky__text"><b>' + esc(nadpis) + '</b><small>' + text + '</small></div></div>';
+}
+const tlacitkoStavu = (atribut, popisek, hlavni) => '<button type="button" class="btn ' + (hlavni ? 'btn--primary' : 'btn--ghost') + ' btn--sm" ' + atribut + '>' + popisek + '</button>';
+
+function vykresliStav() {
+  if (!stavEl) return;
+  const odesila = fronta.find((u) => u.stav === 'odesila');
+  const ceka = fronta.filter((u) => u.stav === 'ceka'), chybne = fronta.filter((u) => u.stav === 'chyba');
+  let h = '', ton = '';
+  if (pripravuji || odesila || (bezi && ceka.length)) {
+    ton = 'prace';
+    const celkem = Math.max(1, davka.celkem), x = odesila || ceka[0];
+    h = radekStavu(x && x.nahled, IKONY.foto, celkem > 1 ? 'Nahrávám účtenky · ' + Math.min(celkem, davka.hotovo + 1) + ' z ' + celkem : 'Nahrávám účtenku…',
+      '<span data-au-krok>' + esc(krokNahravani(odesila)) + '</span> <span class="cisla" data-au-cas aria-hidden="true"></span>') +
+      '<div class="auto-uctenky__prubeh" aria-hidden="true"><i data-au-prubeh></i></div>';
+  } else if (chybne.length) {
+    const sit = chybne.every((u) => u.sit), n = chybne.length;
+    ton = sit ? 'ceka' : 'chyba';
+    h = radekStavu(chybne[0].nahled, IKONY.pozor, sit ? (n > 1 ? 'Účtenky čekají v telefonu (' + n + ')' : 'Účtenka čeká v telefonu') : (n > 1 ? 'Účtenky se nenahrály (' + n + ')' : 'Účtenka se nenahrála'),
+      esc(!sit ? chybne[0].chyba : navigator.onLine === false ? 'Jsi bez sítě – pošlu ji sama, až bude síť.' :
+        'Spojení s motorem se nepovedlo – zkusím to znovu sám. (' + chybne[0].chyba + ')') +
+      // co se mezitím povedlo (jiné účtenky z dávky), ať to chyba nepřekryje
+      (vysledek && vysledek.ton === 'ok' ? '<span class="auto-uctenky__povedlo">✓ ' + esc(vysledek.nadpis + (vysledek.text ? ': ' + vysledek.text : '')) + '</span>' : '')) +
+      '<div class="auto-uctenky__akce">' + tlacitkoStavu('data-au-zahodit', 'Zahodit') + tlacitkoStavu('data-au-znovu', sit ? 'Zkusit hned' : 'Zkusit znovu', true) + '</div>';
+  } else if (ceka.length) {
+    ton = 'ceka';
+    h = radekStavu(ceka[0].nahled, IKONY.foto, ceka.length > 1 ? 'Účtenky čekají na odeslání (' + ceka.length + ')' : 'Účtenka čeká na odeslání',
+      'Pošle se, jakmile se aplikace spojí s motorem.') + '<div class="auto-uctenky__akce">' + tlacitkoStavu('data-au-znovu', 'Odeslat', true) + '</div>';
+  } else if (vysledek) {
+    ton = vysledek.ton;
+    const v = vysledek;
+    h = '<button type="button" class="btn btn--ikona auto-uctenky__zavrit" data-au-zavrit aria-label="Zavřít">' + IKONY.zavrit + '</button>' +
+      radekStavu(v.upravit && v.upravit.foto ? v.upravit.foto.nahled : '', v.ton === 'ok' ? IKONY.fajfka : IKONY.pozor, v.nadpis, esc(v.text)) +
+      (v.vybrat || v.upravit || v.ukazat || v.doplnit ? '<div class="auto-uctenky__akce">' +
+        (v.vybrat ? popisekFotky('btn btn--primary btn--sm auto-foto', IKONY.foto + '<span>Vybrat fotku</span>') : '') +
+        (v.ukazat ? tlacitkoStavu('data-au-ukazat', 'Ukázat') : '') + (v.doplnit ? tlacitkoStavu('data-au-doplnit', 'Doplnit', true) : '') +
+        (v.upravit ? tlacitkoStavu('data-au-upravit', 'Upravit', true) : '') + '</div>' : '');
+  }
+  if (h !== stavHtml) { stavEl.innerHTML = h; stavHtml = h; }
+  stavEl.hidden = !h;
+  stavEl.className = 'auto-uctenky' + (ton ? ' auto-uctenky--' + ton : '');
+  if (ton === 'prace') {
+    tikStavu();
+    if (!casovacStavu) casovacStavu = setInterval(tikStavu, 1000);
+  } else if (casovacStavu) {
+    clearInterval(casovacStavu);
+    casovacStavu = 0;
+  }
+}
+
+/** Každou vteřinu při nahrávání: krok, čas a průběh (jen text a šířka – kartička se nepřekresluje). */
+function tikStavu() {
+  if (!stavEl) return;
+  const x = fronta.find((u) => u.stav === 'odesila');
+  const krok = stavEl.querySelector('[data-au-krok]'), cas = stavEl.querySelector('[data-au-cas]'), pruh = stavEl.querySelector('[data-au-prubeh]');
+  if (krok && krok.textContent !== krokNahravani(x)) krok.textContent = krokNahravani(x);
+  if (cas) cas.textContent = x ? '· ' + Math.max(0, Math.round((Date.now() - x.od) / 1000)) + ' s' : '';
+  if (pruh) pruh.style.width = prubeh() + '%';
+}
+
+function klikStav(e) {
+  const el = e.target.closest('button');
+  if (!el) return; // popisek „Vybrat fotku“ obslouží prohlížeč (for) a klikPopisek
+  e.stopPropagation();
+  if (el.hasAttribute('data-au-znovu')) {
+    fronta.forEach((u) => { if (u.stav === 'chyba') u.stav = 'ceka'; });
+    clearTimeout(casovacSite);
+    davka = { celkem: 0, hotovo: 0 };
+    zpracujFrontu();
+  } else if (el.hasAttribute('data-au-zahodit')) {
+    const x = fronta.find((u) => u.stav === 'chyba');
+    if (x) {
+      potvrd('Zahodit účtenku?', { text: 'Fotka se z tohohle zařízení smaže. Jestli ji motor nestihl přečíst, v tabulce nebude.', ton: 'nebezpeci', ano: 'Zahodit' })
+        .then((ano) => { if (ano) { odeberZFronty(x); vykresliStav(); } });
+    }
+  } else if (el.hasAttribute('data-au-upravit') && vysledek && vysledek.upravit) {
+    const r = vysledek.upravit;
+    zavriVysledek();
+    otevriUpravu(najdiZapis(r.zapsano.list, r.zapsano.radek) || r.z, r.foto);
+  } else if (el.hasAttribute('data-au-doplnit')) {
+    zavriVysledek();
+    dalsiUctenka();
+  } else if (el.hasAttribute('data-au-ukazat')) {
+    zavriVysledek();
+    prejdi('auto');
+    zmeneno();
+  } else if (el.hasAttribute('data-au-zavrit')) {
+    zavriVysledek();
+  }
+}
+
+function zavriVysledek() {
+  clearTimeout(casovacVysledku);
+  vysledek = null;
+  vykresliStav();
+}
 
 function najdiZapis(list, radek) {
   return ((stav.auto || {})[list] || []).find((x) => x.radek === Number(radek)) || null;
@@ -777,31 +1224,6 @@ function otevriUpravu(z, foto) {
   }, foto || {}));
 }
 
-/**
- * Jedna fotka účtenky (vyfocená, nebo z Fotek) → motor ji uloží na Disk, přečte a rovnou zapíše do tabulky (Michal 5. 10.).
- * Vrací { z, zapsano, foto } (zapsáno), { navrh } (z účtenky není jasné co – doplní se v okně), nebo { chyba, sit }.
- */
-async function prectiUctenku(soubor) {
-  let img, velka;
-  try {
-    img = await nactiObrazek(soubor);
-    velka = zmensi(img, 1600, 0.82);
-  } catch (e) {
-    return { chyba: e.message };
-  }
-  const nahled = zmensi(img, 320, 0.7);
-  try {
-    const v = await volej('autoUctenka', { obrazek: velka, otisk: await otiskFotky(velka), zapsat: true });
-    if (v.zapsano && v.data) {
-      uloz(v.data);
-      return { z: najdiZapis(v.zapsano.list, v.zapsano.radek), zapsano: v.zapsano, foto: { nahled, velka } };
-    }
-    return { navrh: Object.assign({}, v.navrh || {}, { uctenka: v.uctenka, nahled, velka, chybaTextu: v.chybaTextu }) };
-  } catch (e) {
-    return { chyba: e.message, sit: e.kod === 'sit' };
-  }
-}
-
 const otevriNavrh = (n) => otevriZapis(n.druh === 'tankovani' ? 'tankovani' : 'naklad', n);
 
 function dalsiUctenka() {
@@ -809,45 +1231,7 @@ function dalsiUctenka() {
   if (n) otevriNavrh(n);
 }
 
-/** Jedna účtenka: zapsáno → oznámení s Upravit; nejasná → okno; výpadek → za chvíli obnovit (poslat znovu nevadí). */
-async function zpracujUctenku(soubor) {
-  toast('Čtu účtenku… (chvíli to trvá)');
-  const r = await prectiUctenku(soubor);
-  zmeneno();
-  if (r.zapsano) {
-    toastAkce('Zapsáno z účtenky: ' + popisZapisu(r.z), 'Upravit', () => otevriUpravu(najdiZapis(r.zapsano.list, r.zapsano.radek), r.foto));
-  } else if (r.navrh) {
-    otevriNavrh(r.navrh);
-  } else if (r.sit) {
-    // motor mohl účtenku dočíst a zapsat – za chvíli obnovit; stejnou fotku jde poslat znovu, nic se nezdvojí
-    toast('Účtenka se ještě zpracovává – za chvíli ji uvidíš v zápisech (poslat ji znovu nevadí).', true);
-    setTimeout(() => nactiAuto(true), 40000);
-  } else {
-    toast(r.chyba, true);
-  }
-}
-
-/** Víc účtenek najednou (Michal 5. 10.): jedna po druhé, jasné se rovnou zapíšou, nejasné se pak otevřou k doplnění. */
-async function zpracujUctenky(soubory) {
-  if (soubory.length === 1) { zpracujUctenku(soubory[0]); return; }
-  const zapsane = [], kDoplneni = [];
-  let chyb = 0, sit = false;
-  for (let i = 0; i < soubory.length; i++) {
-    toast('Čtu účtenky… ' + (i + 1) + ' z ' + soubory.length);
-    const r = await prectiUctenku(soubory[i]);
-    if (r.zapsano) zapsane.push(r.z);
-    else if (r.navrh) kDoplneni.push(r.navrh);
-    else { chyb++; sit = sit || !!r.sit; }
-    zmeneno();
-  }
-  const castka = zapsane.reduce((s, z) => s + ((z && z.castka) || 0), 0);
-  toast('Účtenky: ' + [zapsane.length ? 'zapsáno ' + zapsane.length + (castka ? ' (' + kc(castka) + ')' : '') : '',
-    kDoplneni.length ? 'k doplnění ' + kDoplneni.length : '', chyb ? (sit ? 'ještě se zpracovává ' : 'nepovedlo se ') + chyb : ''].filter(Boolean).join(' · '),
-    !zapsane.length && !kDoplneni.length);
-  if (sit) setTimeout(() => nactiAuto(true), 40000);
-  frontaUctenek = kDoplneni;
-  dalsiUctenka();
-}
+startUctenek();
 
 /** Fotka účtenky na celou obrazovku (nad oknem zápisu). */
 function ukazFotku(src) {
@@ -880,6 +1264,16 @@ export function klikAuto(el) {
   if (el.hasAttribute('data-auto-ulozit')) { if (f && !f.ukladam) ulozZapis(); return true; }
   if (el.dataset.azDruh && f) { f.druh = el.dataset.azDruh; obnovPanel('auto-zapis'); return true; }
   if (el.dataset.azKdo && f) { f.kdo = el.dataset.azKdo; obnovPanel('auto-zapis'); return true; }
+  if (el.dataset.azRychle != null && f) {
+    // rychlá volba výdaje (Mytí…): kategorie, položka a částka jako minule – pak stačí Zapsat; bez známé částky kurzor do Částky
+    const r = rychleVydaje(stav.auto)[Number(el.dataset.azRychle)];
+    if (!r) return true;
+    Object.assign(f, { druh: 'naklad', kategorie: r.kategorie, polozka: r.polozka, rychla: r.nazev }, r.castka ? { castka: cisloPole(r.castka) } : {});
+    obnovPanel('auto-zapis');
+    const pole = !r.castka && elementPanelu('auto-zapis') && elementPanelu('auto-zapis').querySelector('[data-az="castka"]');
+    if (pole) pole.focus();
+    return true;
+  }
   if (el.hasAttribute('data-auto-propojit')) {
     const koren = el.closest('.auto-nastavit');
     const odkaz = koren.querySelector('[data-auto-odkaz]').value.trim();
@@ -920,7 +1314,16 @@ export function vstupAuto(e) {
 
 export function zmenaAuto(e) {
   const t = e.target;
-  if (t.matches && t.matches('[data-az]') && f) { f[t.dataset.az] = t.value; return true; }
+  if (t.matches && t.matches('[data-az]') && f) {
+    f[t.dataset.az] = t.value;
+    // jiná kategorie ručně = rychlá volba (Mytí…) už neplatí
+    if (t.dataset.az === 'kategorie' && f.rychla) {
+      f.rychla = '';
+      const panel = t.closest('[data-panel]');
+      if (panel) panel.querySelectorAll('[data-az-rychle]').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+    }
+    return true;
+  }
   if (t.matches && t.matches('[data-auto-termin]')) {
     // datum se ukládá chvíli po poslední změně (při psaní roku přijde change po každé číslici)
     const id = t.dataset.autoTermin, datum = t.value;
@@ -928,12 +1331,7 @@ export function zmenaAuto(e) {
     if (!datum || /^20\d\d-\d\d-\d\d$/.test(datum)) terminCasovace[id] = setTimeout(() => ulozTermin(id, datum), 700);
     return true;
   }
-  if (!t.matches || !t.matches('[data-auto-foto]')) return false;
-  const soubory = Array.from(t.files || []);
-  t.value = '';
-  if (t.closest('[data-panel="rychle"]')) zavriPanel(); // z „+“ na telefonu
-  if (soubory.length) zpracujUctenky(soubory);
-  return true;
+  return false; // fotky účtenek: stálé pole má vlastní posluchač (poVyberuFotek) – na document by výběr po překreslení nedošel
 }
 
 /** Enter v okně zápisu = Zapsat (kromě výběru kategorie). */

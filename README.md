@@ -344,12 +344,23 @@ Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**
 - **Tankování z auta**: MyŠkoda historii tankování nemá – skript na PC ho pozná z rozdílu dvou čtení
   (dotankováno = změna nádrže + spotřeba jízd mezi čteními), den a stav km odhadne podle jízd (bez míst). Když v tabulce
   kolem toho dne tankování chybí, ukáže stránka Auto kartu **Auto hlásí tankování** s tlačítkem Zapsat (předvyplní den a km).
-- **Účtenky**: vyfotit nebo vybrat z Fotek, i víc najednou (iPhone nabídne Fotky / Vyfotit / Soubory) → fotka do
+- **Účtenky**: vyfotit nebo vybrat z Fotek, i víc najednou (iPhone nabídne Fotky / Vyfotit / Soubory; tlačítko na stránce
+  Auto i v „+“) → fotka se v telefonu zmenší a uloží do **fronty v zařízení** (IndexedDB `asistent-auto`) → do
   `CLAUDE_SCHRANKA/AUTO/uctenky`, text přes OCR Disku → **rovnou zápis do tabulky** (Michal 5. 10.), když je z účtenky
   jasné co (datum a částka; u tankování cena za litr, u výdaje kategorie; stav km z auta, když ho MyŠkoda ten den zná);
   jinak se otevře okno s předvyplněnými údaji (u víc účtenek jedna po druhé). V tabulce je u poznámky odkaz „účtenka“
-  na fotku. Stejná fotka podruhé (otisk z aplikace – opakování po výpadku) nic nezdvojí; text z OCR se drží v popisu
-  souboru. Čtení účtenky smí trvat až 150 s.
+  na fotku. Stejná fotka podruhé (otisk z aplikace – opakování po výpadku) nic nezdvojí – ani když první běh ještě
+  čte text (soubor i zápis se hledají znovu pod zámkem); text z OCR se drží v popisu souboru. Čtení smí trvat až 150 s.
+  **Kartička dole** (nad lištou, na PC vpravo dole): průběh („Nahrávám účtenku · Čtu text účtenky · 12 s“), výsledek
+  s částkou a stanicí (Upravit = zápis i s fotkou), bez sítě „čeká v telefonu“ (pošle se sama po návratu sítě, při návratu
+  do aplikace i při dalším otevření), chyba motoru → Zkusit znovu / Zahodit. Pole pro fotku je jedno stálé
+  `#auto-foto-vstup` v `<body>` (popisky na něj ukazují přes `for`) – **10. 10. se účtenka ztratila**, protože pole bylo
+  ve stránce Auto a každé překreslení (data ze serveru, návrat z fotoaparátu) ho vyměnilo: výběr z iPhonu pak dostalo
+  odpojené pole a nic se nestalo. Během výběru a nahrávání se nová verze aplikace nenačte (`window.asistentPrace` →
+  `js/start.js`); když se aplikace během výběru zavřela (iPhone ji při focení občas ukončí), řekne to při dalším otevření.
+- **Rychlý výdaj Mytí**: v okně Výdaj pilulky **Rychle** – Mytí (kategorie myčky z tabulky, částka a položka jako
+  u posledního mytí) a nejvýš dvě kategorie, které byly za rok aspoň dvakrát; v „+“ **Mytí auta** = okno rovnou
+  předvyplněné, stačí Zapsat.
 - **Úprava zápisu**: klepnutí na zápis v Zápisech (nebo Upravit v oznámení po účtence) → okno s údaji a fotkou účtenky
   (z Disku přes `autoUctenkaFoto`, jen složka účtenek) → `autoUpravit` přepíše řádek v tabulce, jen když v něm pořád
   sedí původní datum a částka.
