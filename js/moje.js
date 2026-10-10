@@ -161,7 +161,7 @@ async function pridej(text) {
 
 /** „+“ → Moje poznámka: okno s polem (víc řádků, Ctrl+Enter uloží). */
 export async function otevriPridani() {
-  const text = await okno({ ikona: IKONA, nadpis: 'Moje poznámka', text: 'Jen pro tebe, na později – Claude ji nečte. Uvidíš ji na Dnes.',
+  const text = await okno({ ikona: IKONA, nadpis: 'Moje poznámka', text: 'Jen pro tebe, na později – Claude ji nečte. Uvidíš ji na Přehledu.',
     pole: { popisek: 'Poznámka', radku: 3, placeholder: 'Co si chceš zapamatovat…' + (MYS.matches ? ' (Ctrl+Enter uloží)' : '') }, ano: 'Uložit' });
   // neuložená (bez sítě) se neztratí – zůstane rozepsaná v poli karty
   if (text && !(await pridej(text)) && !rozepsano.trim()) { rozepsano = text.replace(/\s+/g, ' '); zmeneno(); }

@@ -25,22 +25,30 @@ jen u akcí (odeslat, archivovat…) a u zdraví a počasí. Vzhled: styl „Fix
 (skill `osobni-vzhled`).
 
 ## Navigace
-Na PC a iPadu postranní panel se všemi sekcemi. Na telefonu spodní lišta (Dnes, Schránka, +, Pošta, Kalendář) a **menu
+Na PC a iPadu postranní panel se všemi sekcemi. Na telefonu spodní lišta (Přehled, Schránka, +, Pošta, Kalendář) a **menu
 zleva** po klepnutí na jméno nahoře – všechny sekce včetně Zdraví, Fotbalu, Reelů a Plakátů, dole Nastavení.
 
-**Levý pás** (Michal 9. 10.: „víc pracovního místa“): na PC je celý s popisky jen na **Dnes**, na ostatních stránkách jen
+**Levý pás** (Michal 9. 10.: „víc pracovního místa“): na PC je celý s popisky jen na **Přehledu**, na ostatních stránkách jen
 ikony s počty v odznacích. Po **najetí myší** (nebo Tabem z klávesnice) se rozbalí **přes obsah** – stránka neposkočí;
 výběr sekce ho zase sbalí, Escape taky. Tlačítko **Připnout** (špendlík nahoře v rozbaleném pásu) ho nechá celý na všech
-stránkách – pamatuje si to zařízení (`asistent.rail`). iPad (760–1179 px) má jen ikony vždy (i na Dnes), rozbalí se stejně.
+stránkách – pamatuje si to zařízení (`asistent.rail`). iPad (760–1179 px) má jen ikony vždy (i na Přehledu), rozbalí se stejně.
+Logo a ikony mají ve všech podobách (úzký, rozbalený, celý) **přesně stejné místo** (Michal 10. 10.: „rozjedu pás a posune se
+drobně dolů“): pevné výšky řádků (logo 54 px, sekce 40 px, účet 45 px), žádné nadpisy sekcí, bez textových title – při
+rozbalení přibudou jen popisky (test „levý pás: logo a ikony … na stejném místě“ měří polohy).
 
-## Dnes
+## Přehled (hlavní stránka, dřív Dnes)
+Od 10. 10. se jmenuje **Přehled** (Michal: „hlavní stránku pojmenuj jinak než Dnes“) – v pásu, menu, spodní liště, nadpisu,
+titulku okna („Přehled · Asistent“, ostatní stránky obdobně) i v hledání (najde ho i „dnes“); ikona dlaždic, slunce zůstalo
+znakem aplikace. Na telefonu je nadpisem dál pozdrav. **Interní klíč zůstal `dnes`** (`data-cil`, `asistent.pohled`, snímek,
+id `#p-dnes`, `#dnes-kpi`).
+
 Každá věc jen jednou: nahoře **výstrahy ČHMÚ** (jen když nějaká platí). Přehledová čísla jsou na PC a iPadu **malé
 dlaždice v horní liště** mezi hledáním a tlačítky (Michal 9. 10., šířky 2 : 2 : 1 : 1): **Počasí** (ikona, teplota, místo
 zkráceně – klepnutí = detail), **Připravenost** (WHOOP % v barvě zóny, spánek, HRV → Zdraví), **Nepřečtené** (počet, hoří /
 čeká na odpověď; nic = fajfka „vše přečteno“ → Pošta, filtr Nepřečtené) a **Denní kroužky** (`js/krouzky.js`: voda,
 bílkoviny a pohyb za dnešek proti cílům z `ZDRAVI_REZIM.json` – `pitiCil` ml, `bilkovinyCil` g, `krokyCil` kroků; bez cíle
 2,5 l, 130 g a 8 000 kroků; kroky z Apple Watch nebo WHOOP, větší číslo; čtvrtý kroužek **Doplňky** – vzato z hlavních doplňků,
-které dnes platí, stejné číslo jako karta Doplňky dnes (`doplnkyDnes().plneni`); čísla v bublině → Zdraví). Na užší liště se hledání
+které dnes platí, stejné číslo jako karta Doplňky dnes (`doplnkyDnes().plneni`) → Zdraví). Na užší liště se hledání
 zmenší na „Hledat“, „+ Poznámka“ na „+“ a popisky ubývají, čísla zůstanou. **Další zápas** v číslech není (je v kartě Fotbal
 a v týdnu). Pod tím **Vyžaduje pozornost** (úkoly, rozhodnutí, návrhy od Clauda a připomínky auta podle naléhavosti),
 **Moje poznámky**, **Pošta** jako vlastní karta (hoří, čeká na tebe, otázka a nepřečtené z Primární; nepřečtené Aktualizace
@@ -51,6 +59,23 @@ zápasu, kofein do 14:00; den v pásku týdne jde otevřít a odškrtat zpětně
 **Telefon:** zelená karta Čeká na tebe, malá čísla Počasí · Připravenost · Kroužky (s hodnotami), pod nimi Vyžaduje
 pozornost a Pošta jako vlastní seznam (jen když něco čeká). Po návratu do aplikace
 okno **Co je nového** (hoří, nová pošta, odpovědi Clauda, nové výstrahy).
+
+**Vyjeté karty místo textových title** (Michal 10. 10.: „když najedu na ty kroužky, chci aby se mi to hezky zobrazilo jakoby
+vyjeté … ne jen škaredý výpis“; `js/bubliny.js`): u dlaždic v horní liště vyjede pod dlaždicí karta ve stylu aplikace –
+**Počasí** (teď s větrem, příštích 12 hodin po dvou, 3 dny s pruhem rozpětí teplot, výstrahy ČHMÚ barvou úrovně → Celá
+předpověď), **Připravenost** (kroužek v barvě zóny, spánek, HRV, klidový tep, SpO₂, fáze spánku, 7 dní ve sloupcích → Zdraví),
+**Nepřečtené** (stavy jako dlaždičky – Hoří, Čeká na tebe, Otázky, Nepřečtené → Pošta s filtrem; co čeká a nepřečtené –
+klepnutí otevře e-mail) a **Kroužky** (velký kroužek pro vodu, bílkoviny, kroky a doplňky s procenty, hodnotou z cíle a kolik
+zbývá → Zdraví). Myš: po 0,26 s, do karty jde najet, klik na dlaždici vede, kam vedl; klávesnice: Tab ji ukáže, šipka dolů
+skočí dovnitř, Esc zavře; dotyk (iPad, kroužky na telefonu): klepnutí kartu ukáže a nikam nevede, druhé klepnutí nebo
+klepnutí jinam ji zavře, dál tlačítkem v kartě. Stejný vzhled má **bublina s hodnotou** u grafů a drobných údajů (výsledek
+týmu v kartě Fotbal, předpověď u dne a svátek v kalendáři) – jedna komponenta, karta s okrajem, stínem a šipkou; nepřetéká
+z obrazovky, v tmavém režimu o stupeň světlejší plocha. Obsah karet skládá `app.js` (`kartaPocasiHtml`, `kartaZdraviHtml`,
+`kartaNeprectenychHtml`) a `krouzky.js` (`kartaKrouzkuHtml`) přes `bubliny.registruj`; prvek dostane `bubliny.karta('druh')`.
+
+**„1 hoří“ → ten e-mail** (Michal 10. 10.): dlaždice Nepřečtené, „Hoří“ v kartě, „n hoří v poště“ v zelené kartě na telefonu
+i Ukázat v okně Co je nového – hoří-li jeden e-mail, klepnutí ho rovnou otevře (na PC v Poště s filtrem Hoří a e-mailem vedle,
+na užším displeji v panelu), hoří-li víc, otevře Poštu jen s hořícími (`horiAtr`, `otevriHorici` v app.js).
 
 ## Schránka
 Poznámky z iPhonu (zkratka „Pro Clauda“) i z aplikace; Claude je zpracovává každou půlhodinu (skill `asistent-schranka`).
@@ -273,7 +298,8 @@ přibližná poloha mimo domov má „≈“ a v detailu radu (iPhone: Polohové
   prázdný týden nic. Claudův text je pak týden v kartě **Týden · Claude** ve Zdraví (`zdravi.tydenni`).
 - **Rozvržení a grafy:** karty Zdraví jsou ve sloupcích podle své výšky (od 900 px dva, od 1700 px tři, telefon jeden) –
   žádná se nenatahuje na výšku sousední. U všech grafů (14 dní, váha, pruh spánku, tepové zóny, týden pití a doplňků, Auto)
-  je **bublina s hodnotou** (`js/grafy.js`, jedna pro celou aplikaci): myš najetím, dotyk klepnutím (zmizí klepnutím jinam),
+  je **bublina s hodnotou** (`js/bubliny.js` – vydává ji i `js/grafy.js`; jedna pro celou aplikaci, stejný vzhled jako vyjeté
+  karty na Přehledu): myš najetím, dotyk klepnutím (zmizí klepnutím jinam),
   klávesnice – graf je jedno místo pro Tab, šipky ← → mezi body, Esc; drží se 8 px od okrajů obrazovky.
 - **Upozornění do iPhonu** (ntfy, nepovinné): zapínají se v aplikaci **Nastavení → Upozornění** (motor vyrobí téma
   `NTFY_TEMA`, aplikace ho ukáže s návodem pro aplikaci ntfy a umí poslat zkušební). Kontroly běží **každých 10 minut**

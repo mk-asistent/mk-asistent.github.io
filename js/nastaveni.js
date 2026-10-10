@@ -438,7 +438,7 @@ function sekcePocasi() {
     '<p>Teď: <b>' + esc(pocasi.nazevMista() || misto || (jeDemo() ? 'Veselí nad Moravou (ukázka)' : '—')) + '</b>' +
       (stav.pocasi && stav.pocasi.domov ? ' <span class="tag">domov</span>' : stav.pocasi && stav.pocasi.podlePolohy ? ' <span class="tag">podle polohy</span>' : '') + '</p>' +
     (umiMotor('pocasiDomov') ? domovHtml(misto) : '') +
-    '<p class="napoveda">Na Dnes je jen to důležité: výstrahy ČHMÚ pro tvoje místo (bouřky, vedro, mráz, povodně, smog), povodňový stupeň ' +
+    '<p class="napoveda">Na Přehledu je jen to důležité: výstrahy ČHMÚ pro tvoje místo (bouřky, vedro, mráz, povodně, smog), povodňový stupeň ' +
     'na řece a krátká předpověď kraje na dnes až tři dny. Klepnutím na kartu Počasí se otevře celý přehled.</p>' +
     '<p class="napoveda">Data: Český hydrometeorologický ústav (otevřená data, CC BY 4.0). Motor je stahuje šetrně – ' +
     'jen když se změní, přehled drží 15 minut.</p>';

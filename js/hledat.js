@@ -17,7 +17,7 @@ const MAX_SKUPINA = 5;
 
 /** Příkazy a sekce (ukážou se hned, filtrují se textem). */
 const PRIKAZY = [
-  ['Dnes', 'přehled', 'dnes', () => prejdi('dnes')],
+  ['Přehled', 'hlavní stránka (dřív Dnes)', 'prehled', () => prejdi('dnes')],
   ['Schránka', 'poznámky a úkoly pro Clauda', 'schranka', () => prejdi('schranka')],
   ['Pošta', 'oba účty', 'posta', () => prejdi('posta')],
   ['Kalendář', 'měsíc, týden, seznam', 'kalendar', () => prejdi('kalendar')],
