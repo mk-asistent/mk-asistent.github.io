@@ -699,7 +699,8 @@ button.legenda-radek { width: 100%; background: none; border: 0; text-align: lef
 .graf14__popis, .graf-vahy__popis, .auto-cara text { pointer-events: none; }
 [data-graf]:focus { outline: none; }
 [data-graf]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
-.piti__tyden li.graf-aktivni > span { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.piti__tyden .graf-aktivni .piti__sloupce { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.piti__tyden li.vybrany .graf-aktivni .piti__sloupce { box-shadow: 0 0 0 2px var(--accent); }
 .pruh-spanku i.graf-aktivni, .zony i.graf-aktivni { filter: brightness(1.12) saturate(1.1); }
 .doplnky-tyden li > .graf-aktivni { box-shadow: inset 0 0 0 1.5px var(--accent); }
 
@@ -889,6 +890,10 @@ a.reel__nahled:hover .reel__play { background: var(--limetka); }
 .doplnek--vedlejsi b { font-weight: 550; color: var(--text-soft); }
 .doplnek--vedlejsi .zaskrt { opacity: .7; }
 .doplnek--vedlejsi[aria-pressed="true"] .zaskrt { background: var(--sand-2); border-color: var(--sand-2); color: var(--text-soft); }
+/* ten den podle režimu neplatí (k zápasu, k tréninku) – na svém místě ztlumeně, ať se řádky při výběru dne nepřehazují */
+.doplnek--neplati > span, .doplnek--neplati .doplnek__tyden { opacity: .5; }
+.doplnek--neplati .zaskrt { border-style: dashed; opacity: .6; }
+.doplnek--neplati:hover > span, .doplnek--neplati:hover .zaskrt { opacity: .85; }
 /* Pití a jídlo: voda tlačítky, bílkoviny z jídel a doplňků, týden pití */
 .piti { display: flex; flex-direction: column; gap: 10px; padding: 4px 16px 14px; }
 .piti__radek { display: flex; align-items: center; gap: 10px; }
@@ -905,14 +910,37 @@ a.reel__nahled:hover .reel__play { background: var(--limetka); }
 .piti__jidla li > span { flex: 1; min-width: 0; }
 .piti__jidla small { color: var(--muted); font-size: 11px; }
 .piti__jidla b { flex: none; font-size: 12.5px; }
-.piti__misto { width: 32px; flex: none; }
+/* u zápisu jídla Přesunout na jiný den a Smazat; řádek doplňku bez nich drží stejné místo */
+.piti__akce-zapisu { flex: none; display: flex; justify-content: flex-end; gap: 4px; min-width: 38px; }
+.piti__akce-zapisu--dve { min-width: 80px; }
+@media (pointer: coarse) { .piti__akce-zapisu { min-width: 42px; } .piti__akce-zapisu--dve { min-width: 88px; } }
+/* týden po dnech: voda a bílkoviny jako podíl cíle, čárkovaná čára = cíl (3/4 výšky), klepnutí na den ho otevře */
+.piti-tyden { display: flex; flex-direction: column; gap: 6px; }
+.piti-tyden__hlava { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; font-size: 12px; color: var(--muted); }
+.piti-tyden__hlava > span:first-child { font-weight: 600; margin-right: 2px; }
+.piti-tyden__legenda { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
+.piti-tyden__legenda i { display: inline-block; width: 8px; height: 8px; margin-left: 6px; border-radius: 2px; }
+.piti-tyden__legenda i.piti-tyden__cil { width: 12px; height: 0; border-radius: 0; border-top: 1.5px dashed var(--muted); }
 .piti__tyden { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
-.piti__tyden li { display: flex; flex-direction: column; align-items: center; gap: 3px; }
-.piti__tyden li > span { width: 100%; max-width: 26px; height: 34px; display: flex; align-items: flex-end; border-radius: 7px; background: var(--bg-soft); overflow: hidden; }
-.piti__tyden i { display: block; width: 100%; background: #3b9ae1; }
+.piti__tyden li { min-width: 0; }
+.piti__tyden li > button, .piti__tyden li > span { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 2px 0;
+    border: 0; border-radius: 9px; background: none; color: inherit; font: inherit; }
+.piti__tyden li > button { cursor: pointer; }
+.piti__tyden li > button:focus { outline: none; }
+.piti__tyden li > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.piti__sloupce { position: relative; width: 100%; max-width: 30px; height: 44px; display: flex; align-items: flex-end; justify-content: center; gap: 3px;
+    padding: 0 3px; border-radius: 7px; background: var(--bg-soft); overflow: hidden; }
+.piti__sloupce::after { content: ""; position: absolute; left: 0; right: 0; bottom: 75%; border-top: 1.5px dashed color-mix(in srgb, var(--text) 32%, transparent);
+    pointer-events: none; }
+.piti__sl { flex: 1; display: block; min-width: 0; border-radius: 3px 3px 1px 1px; }
+.piti__sl--voda { background: #3b9ae1; }
+.piti__sl--b { background: var(--oranz); }
 .piti__tyden small { font-size: 10.5px; color: var(--muted); font-weight: 650; }
 .piti__tyden li.dnes small { color: var(--accent); }
-.piti__tyden li.budouci > span { opacity: .45; }
+.piti__tyden li.budouci .piti__sloupce { opacity: .45; }
+.piti__tyden li.vybrany .piti__sloupce { box-shadow: 0 0 0 2px var(--accent); }
+.piti__tyden li > button:hover .piti__sloupce { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.piti__tyden li.vybrany > button:hover .piti__sloupce { box-shadow: 0 0 0 2px var(--accent); }
 .jidlo-form { display: flex; flex-direction: column; gap: 12px; }
 .jidlo-form textarea { resize: vertical; min-height: 64px; font-size: 16px; }
 .jidlo-cisla { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-top: 8px; }
@@ -928,10 +956,25 @@ a.reel__nahled:hover .reel__play { background: var(--limetka); }
 .jidlo-odhad__doplnky { display: flex; align-items: center; gap: 6px; margin-top: 6px !important; color: var(--ok, #2f9e5a); }
 .jidlo-odhad__doplnky svg { width: 16px; height: 16px; flex: none; }
 .jidlo-presne summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+/* na který den se jídlo zapíše (den z textu: včera, v pátek…) a volba dne */
+.jidlo-den { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; }
+.jidlo-den__text { margin: 0; font-size: 13.5px; color: var(--text-soft); }
+.jidlo-den__text b { color: var(--text); font-weight: 650; }
+.jidlo-den__text small { color: var(--muted); font-size: 12px; }
+.jidlo-den__volby { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.jidlo-den__volby .chip { padding: 5px 12px; }
+.jidlo-den__volby select.field--sm { min-height: 31px; border-radius: 999px; padding-left: 12px; }
+.jidlo-den__volby select.vybrany { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); color: var(--text); font-weight: 600; }
+@media (pointer: coarse) { /* iPhone jinak přibližuje (pole pod 16 px); čipy stejně vysoké jako výběr */
+    .jidlo-den__volby select.field--sm { font-size: 16px; min-height: 36px; }
+    .jidlo-den__volby .chip { min-height: 36px; font-size: 14px; }
+}
 /* hodnocení dne od Clauda v kartě Pití a jídlo */
 .piti__hodnoceni { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 14px; background: var(--bg-soft); font-size: 13px; }
 .piti__hodnoceni p { margin: 0; }
 .piti__hodnoceni b { display: block; font-size: 12px; color: var(--muted); font-weight: 650; margin-bottom: 2px; }
+.piti__hodnoceni small { display: block; margin-top: 4px; font-size: 12px; color: var(--zluta-text); }
+.piti__hodnoceni--stare .znamka { opacity: .5; }
 .znamka { flex: none; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-weight: 750; font-size: 15px; background: var(--sand); color: var(--text); }
 .znamka--A { background: #2f9e5a; color: #fff; }
 .znamka--B { background: #8cc63f; color: #1d2b0e; }

@@ -1,6 +1,7 @@
 // Test odhadu jídla z textu (bílkoviny, kcal, doplňky z režimu) – node testy/test_jidlo_odhad.mjs
 import assert from 'node:assert';
-const { odhadniJidlo, _test } = await import('../js/jidlo_odhad.js');
+process.env.TZ = 'Europe/Prague';
+const { odhadniJidlo, denJidla, _test } = await import('../js/jidlo_odhad.js');
 
 // doplňky z režimu (ZDRAVI_REZIM.json) – jen id a názvy
 const DOPLNKY = [{ id: 'champion', nazev: 'MADMONQ Champion' }, { id: 'kreatin', nazev: 'Kreatin' }, { id: 'smoothie', nazev: 'Breakfast Smoothie' },
@@ -322,6 +323,44 @@ test('tabulka: aspoň 150 jídel, výchozí přílohy existují, hodnoty v rozum
     assert.ok(z.porce > 0 && z.b >= 0 && z.b <= 90 && z.kcal >= 0 && z.kcal <= 900, z.id);
     if (z.pr) assert.ok(_test.PODLE_ID[z.pr[0]] && _test.PODLE_ID[z.pr[0]].typ === 'p', 'příloha ' + z.id);
   });
+});
+
+// ---- den jídla z textu (Michal 10. 10.: „nadiktoval sem jídlo co jsem jedl včera … zapsalo se mi to do dneška“)
+const SOBOTA = new Date(2026, 9, 10, 8, 4).getTime(); // so 10. 10. 2026 8:04 – skutečný zápis „v pátek ráno sem měl 3 rohlíky…“
+const den = (d, m = 10, r = 2026) => new Date(r, m - 1, d).getTime();
+
+test('den jídla: „v pátek ráno sem měl 3 rohlíky…“ v sobotu = pátek 9. 10.; včera, předevčírem, dnes ráno, bez dne', () => {
+  assert.strictEqual(denJidla('v pátek ráno sem měl 3 rohlíky, na oběd kuře s rýží a na večeři 3 vejce', SOBOTA), den(9));
+  assert.strictEqual(denJidla('včera večer pizza', SOBOTA), den(9));
+  assert.strictEqual(denJidla('Včerejší oběd: guláš', SOBOTA), den(9));
+  assert.strictEqual(denJidla('předevčírem jsem měl svíčkovou', SOBOTA), den(8));
+  assert.strictEqual(denJidla('dnes ráno 2 vejce', SOBOTA), den(10));
+  assert.strictEqual(denJidla('3 vejce a chleba', SOBOTA), null);
+  // „večeře“ není „včera“, „sobotní“ není den
+  assert.strictEqual(denJidla('k večeři tvaroh', SOBOTA), null);
+});
+
+test('den jídla: den v týdnu = poslední uplynulý (řečeno týž den = před týdnem), datum letos, budoucnost a víc než 14 dní ne', () => {
+  assert.strictEqual(denJidla('v pondělí kuře', SOBOTA), den(5));
+  assert.strictEqual(denJidla('ve středu na obědě svíčková', SOBOTA), den(7));
+  assert.strictEqual(denJidla('minulou neděli řízek', SOBOTA), den(4));
+  assert.strictEqual(denJidla('v sobotu pivo', SOBOTA), den(3), 'v sobotu řečeno v sobotu = minulá sobota');
+  assert.strictEqual(denJidla('8. 10. tvaroh', SOBOTA), den(8));
+  assert.strictEqual(denJidla('1. října jsem měl dort', SOBOTA), den(1));
+  assert.strictEqual(denJidla('zítra si dám řízek', SOBOTA), null, 'zítřek se přeskočí');
+  assert.strictEqual(denJidla('20. 10. oslava', SOBOTA), null, 'v budoucnu ne (loni je víc než 14 dní)');
+  assert.strictEqual(denJidla('25. 9. svatba', SOBOTA), null, '15 dní zpátky ne');
+  assert.strictEqual(denJidla('26. 9. svatba', SOBOTA), den(26, 9), '14 dní zpátky ano');
+  // přelom roku: 30. 12. řečeno 2. 1. = loni
+  assert.strictEqual(denJidla('30. 12. chlebíčky', new Date(2027, 0, 2, 9).getTime()), den(30, 12, 2026));
+});
+
+test('den v textu jídla se nepočítá jako jídlo: „pátek: rohlík“, „8. října, tvaroh“, „předevčírem, guláš“', () => {
+  assert.deepStrictEqual(nazvy(o('v pátek ráno sem měl 3 rohlíky')), ['Rohlík']);
+  assert.deepStrictEqual(nazvy(o('pátek, rohlík')), ['Rohlík']);
+  assert.deepStrictEqual(nazvy(o('8. října, tvaroh')), ['Tvaroh polotučný']);
+  assert.deepStrictEqual([nazvy(o('předevčírem, guláš')), o('předevčírem, guláš').jisty], [['Guláš s knedlíkem'], true]);
+  assert.strictEqual(o('v pátek ráno sem měl 3 rohlíky').polozky[0].g, 129);
 });
 
 test('rychlost: 2000 odhadů (psaní po písmenech) pod 1 s', () => {

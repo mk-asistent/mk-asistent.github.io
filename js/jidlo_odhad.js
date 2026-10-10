@@ -1,9 +1,30 @@
 // Odhad jídla z textu (psaného i diktovaného česky): „3 vejce a chleba s máslem“ → bílkoviny a kcal hned při psaní.
 // Doplňky z režimu („elektrolyty“, „kreatin a omega“) se poznají zvlášť – odškrtnou se, do jídla se nepočítají.
-// Jen odhad (Claude ho později upřesní). Čisté funkce bez DOM a závislostí; tabulka se předzpracuje jednou při načtení.
+// Den z textu („včera“, „v pátek ráno“, „8. 10.“) – denJidla(), rozbor dne z js/rozbor.js (Michal 10. 10.: jídlo ze včerejška
+// se zapsalo do dneška). Jen odhad (Claude ho později upřesní). Čisté funkce bez DOM; tabulka se předzpracuje jednou při načtení.
 // Porovnává se na slovech bez diakritiky a velkých písmen, skloňování pokrývají kmeny (začátky slov), ne seznam tvarů.
 
+import { denZpet } from './rozbor.js';
+
 const bez = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+// ---------------------------------------------------------------- den jídla
+
+export const JIDLO_ZPET_DNI = 14; // jako motor (pitiJidlo): zpátky nejvýš 14 dní, do budoucna nic
+
+/**
+ * Na který den jídlo z textu patří – ms půlnoci, nebo null (den v textu není, je v budoucnu nebo víc než 14 dní zpátky).
+ * „včera“, „předevčírem“, „v pátek“ = poslední uplynulý pátek (řečeno v pátek = před týdnem), „8. 10.“, „dnes ráno“ = dnes.
+ */
+export function denJidla(text, ted) {
+  const t = ted || Date.now();
+  const d = denZpet(text, t);
+  const dnes = new Date(t);
+  dnes.setHours(0, 0, 0, 0);
+  const nejdal = new Date(dnes.getTime());
+  nejdal.setDate(nejdal.getDate() - JIDLO_ZPET_DNI);
+  return d != null && d <= dnes.getTime() && d >= nejdal.getTime() ? d : null;
+}
 
 // ---------------------------------------------------------------- množství, jednotky, slova bez významu
 
@@ -66,7 +87,11 @@ const NIC = new Set(('dal dala dali dat jsem sem si jsi jsme je jsou byl byla by
   'jeste nakonec tomu to ten ta tu tim tech toho nejaky nejaka nejake nejakou nejakeho nejakych neco trochu trosku moc hodne malo cca asi ' +
   'zhruba priblizne kolem skoro aspon jen jenom pouze celkem cely cela cele celou celeho domaci cerstvy cerstva cerstve vlastni dobry ' +
   'dobra dobre super fakt mnam treninku treninkem zapase zapasu praci prace skole doma venku hodin hodiny hodinu hod minut kc korun ' +
-  'mi me muj moje moji syrovy syrova syrove syrovou natvrdo namekko').split(' '));
+  'mi me muj moje moji syrovy syrova syrove syrovou natvrdo namekko ' +
+  // den jídla („v pátek ráno“, „předevčírem“, „8. října“) – určí denJidla(), do jídla se nepočítá
+  'predevcirem predvcirem vcerejsek vcerejsi vcerejsiho dnesek dnesni dnesniho pondeli utery streda stredu ctvrtek patek sobota sobotu ' +
+  'nedele nedeli minuly minulou minule minuleho minulem tyden tydne den dne dni ledna unora brezna dubna kvetna cervna cervence srpna ' +
+  'zari rijna listopadu prosince').split(' '));
 // doplňky a léky – nikdy jídlo (když nejsou v režimu, jen se přeskočí)
 const NEJIDLO = ['elektrolyt', 'kreatin', 'creatin', 'omeg', 'horcik', 'magnes', 'magnez', 'vitamin', 'zinek', 'zinku', 'selen', 'kolagen',
   'probiotik', 'ashwagand', 'melatonin', 'kofein', 'doplnk', 'doplnek', 'pilul', 'prasek', 'madmonq', 'champion', 'kloubn', 'jodid', 'ibalgin', 'paralen'];

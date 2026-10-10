@@ -310,10 +310,18 @@ let upozorneniUkazka = { zapnuto: false, tema: '' };
 let vahaUkazka = [[-33, 81.3], [-26, 81.0], [-19, 80.7], [-12, 80.9], [-6, 80.5], [-1, 80.2]].map((x) => ({ kdy: den(x[0], 6, 40 + x[0] % 7), kg: x[1] }));
 // odškrtnuté doplňky (v aplikaci ZDRAVI/DOPLNKY.json na Disku): včera všechno kromě hořčíku
 const doplnkyUkazka = { [iso(den(-1))]: { multivitamin: true, kreatin: true, omega3: true } };
-// pití a jídlo (v aplikaci ZDRAVI/PITI_JIDLO.json; diktované zapisuje Claude)
+// pití a jídlo (v aplikaci ZDRAVI/PITI_JIDLO.json; diktované zapisuje Claude) – posledních pár dní, ať jsou ve sloupcích týdne
+// voda i bílkoviny (vymyšlená jídla); včerejšek zhodnotil Claude
 const pitiUkazka = { [iso(den(0))]: { piti: [{ id: 'p1', kdy: den(0, 8), ml: 250 }, { id: 'c-1', kdy: den(0, 10), ml: 500, claude: true }],
   jidlo: [{ id: 'c-2', kdy: den(0, 7.5), co: 'Tvaroh s ovocem', bilkoviny: 28, kcal: 300, claude: true }] },
-  [iso(den(-1))]: { piti: [{ id: 'p0', kdy: den(-1, 9), ml: 1750 }], jidlo: [] } };
+  [iso(den(-1))]: { piti: [{ id: 'p0', kdy: den(-1, 9), ml: 1750 }], jidlo: [{ id: 'j-u1', kdy: den(-1, 12.5), co: 'Kuřecí prsa s rýží', bilkoviny: 52, kcal: 640 },
+    { id: 'j-u2', kdy: den(-1, 19), co: '3 vejce a chleba', bilkoviny: 27, kcal: 480 }],
+    hodnoceni: { znamka: 'B', text: 'Bílkovin 79 g ze 130 – oběd dobrý, k večeři přidej tvaroh nebo kuře. Vody 1,75 l, zkus aspoň 2,5 l.', kdy: den(-1, 21.75) } },
+  [iso(den(-2))]: { piti: [{ id: 'p-u2', kdy: den(-2, 10), ml: 2250 }], jidlo: [{ id: 'j-u5', kdy: den(-2, 8), co: 'Vločky s mlékem', bilkoviny: 15, kcal: 380 },
+    { id: 'j-u3', kdy: den(-2, 13), co: 'Guláš s knedlíkem', bilkoviny: 46, kcal: 920 }, { id: 'j-u4', kdy: den(-2, 20), co: 'Skyr a banán', bilkoviny: 16, kcal: 190 }] },
+  [iso(den(-3))]: { piti: [{ id: 'p-u3', kdy: den(-3, 10), ml: 2750 }], jidlo: [{ id: 'j-u8', kdy: den(-3, 8), co: 'Míchaná vejce a rohlík', bilkoviny: 22, kcal: 420 },
+    { id: 'j-u6', kdy: den(-3, 13), co: 'Losos s bramborem', bilkoviny: 38, kcal: 560 }, { id: 'j-u9', kdy: den(-3, 16), co: 'Proteinová tyčinka', bilkoviny: 20, kcal: 200 },
+    { id: 'j-u7', kdy: den(-3, 19), co: 'Tvaroh s ořechy', bilkoviny: 35, kcal: 420 }] } };
 
 /** Auto v ukázce: vymyšlené auto, tankování zhruba každé dva týdny s kolísající cenou nafty, pár výdajů (nic skutečného). */
 const autoUkazka = (() => {
@@ -701,11 +709,26 @@ const akce = {
   },
   zdravi: () => zdraviUkazka(),
   zmeny: () => ({ auto: 0, zdravi: 0 }),
+  // jako motor: den nejvýš 14 dní zpátky a ne do budoucna, přesun zápisu (najde se podle id v kterémkoli dni), smazání i v jiném dni
   pitiJidlo: (d) => {
-    const z = (pitiUkazka[d.den] = pitiUkazka[d.den] || { piti: [], jidlo: [] });
-    if (d.jak === 'piti') z.piti.push({ id: 'p' + Date.now(), kdy: Date.now(), ml: Number(d.ml) });
-    else if (d.jak === 'jidlo') z.jidlo.push({ id: 'j' + Date.now(), kdy: Date.now(), co: d.co, bilkoviny: Number(d.bilkoviny) || 0, kcal: Number(d.kcal) || 0, odhad: d.odhad ? 'mistni' : undefined });
-    else if (d.jak === 'smazat') { z.piti = z.piti.filter((x) => x.id !== d.id); z.jidlo = z.jidlo.filter((x) => x.id !== d.id); }
+    if (d.jak !== 'smazat' && (d.den > iso(den(0)) || d.den < iso(den(-14)))) throw new Error(d.den > iso(den(0)) ? 'Do budoucna zapsat nejde.' : 'Zpětně jde zapsat nejvýš 14 dní.');
+    const zDne = (x) => (pitiUkazka[x] = pitiUkazka[x] || { piti: [], jidlo: [] });
+    const najdi = (id) => {
+      for (const k of Object.keys(pitiUkazka)) {
+        for (const druh of ['jidlo', 'piti']) { const i = (pitiUkazka[k][druh] || []).findIndex((x) => x.id === id); if (i >= 0) return { k, druh, i }; }
+      }
+      return null;
+    };
+    if (d.jak === 'piti') zDne(d.den).piti.push({ id: 'p' + Date.now(), kdy: Date.now(), ml: Number(d.ml) });
+    else if (d.jak === 'jidlo') zDne(d.den).jidlo.push({ id: 'j' + Date.now(), kdy: Date.now(), co: d.co, bilkoviny: Number(d.bilkoviny) || 0, kcal: Number(d.kcal) || 0, odhad: d.odhad ? 'mistni' : undefined });
+    else if (d.jak === 'smazat' || d.jak === 'presun') {
+      const n = najdi(d.id);
+      if (!n) { if (d.jak === 'presun') throw new Error('Zápis už není – obnov stránku.'); }
+      else {
+        const zapis = pitiUkazka[n.k][n.druh].splice(n.i, 1)[0];
+        if (d.jak === 'presun') { zDne(d.den)[n.druh].push(zapis); zDne(d.den)[n.druh].sort((a, b) => a.kdy - b.kdy); }
+      }
+    } else throw new Error('Neznámá akce.');
     return { dny: kopie(pitiUkazka) };
   },
   doplnky: (d) => {

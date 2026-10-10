@@ -4,12 +4,12 @@
 
 import { stav, zmeneno, umiMotor, staryMotor, hooky } from './stav.js';
 import { volej } from './api.js';
-import { esc, uloziste, pulnoc, pridejDny, zacatekTydne, isoDatum, DNY_KR, dm, hhmm, kdyKratce, trvani, rozdilDni, tvar } from './pomocne.js';
+import { esc, uloziste, pulnoc, pridejDny, zacatekTydne, isoDatum, DNY, DNY_KR, dm, hhmm, kdyKratce, trvani, rozdilDni, tvar } from './pomocne.js';
 import { IKONY } from './ikony.js';
-import { kostra, chybaHtml, hlavickaKarty, toast, okno, potvrd } from './ui.js';
+import { kostra, chybaHtml, hlavickaKarty, toast, toastAkce, okno, potvrd } from './ui.js';
 import { otevriPanel, zavriPanel, elementPanelu } from './panely.js';
 import { udalostiVRozsahu, jeZapas } from './kalendar.js';
-import { odhadniJidlo } from './jidlo_odhad.js';
+import { odhadniJidlo, denJidla } from './jidlo_odhad.js';
 import { bublina, grafAtr } from './grafy.js';
 
 const ULOZISTE = 'asistent.data.zdravi';
@@ -584,9 +584,17 @@ export function zapisVahuOknem() { otevriVahu(); return Promise.resolve(true); }
 export function vstupZdravi(e) {
   if (!e.target.matches) return false;
   if (e.target.matches('[data-jidlo-co]')) {
-    // odhad bílkovin se přepočítá při psaní (jen box pod polem – pole i klávesnice zůstanou)
+    // odhad bílkovin a den („včera“, „v pátek“) se přepočítají při psaní (jen boxy pod polem – pole i klávesnice zůstanou)
     const box = e.target.closest('.jidlo-form').querySelector('[data-jidlo-odhad]');
     if (box) box.innerHTML = odhadJidlaHtml(e.target.value);
+    if (!jidloDenRucne) prekresliDenJidla();
+    return true;
+  }
+  if (e.target.matches('[data-jidlo-na-vyber]')) {
+    // výběr dne v okně jídla (Jiný den…) – ruční volba přebije den z textu
+    const v = e.target.value;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) jidloDenRucne = pulnoc(Date.parse(v + 'T12:00:00'));
+    prekresliDenJidla(); // „Jiný den…“ bez dne = výběr zůstane, jak byl
     return true;
   }
   if (!e.target.matches('[data-vaha-pole]')) return false;
@@ -617,6 +625,7 @@ export function klavesaZdravi(e) {
 // ---------------------------------------------------------------- Doplňky dnes (režim z ZDRAVI_REZIM.json na Disku)
 
 const KDY = [['rano', 'Ráno'], ['svacina', 'Svačina'], ['obed', 'K obědu'], ['pred', 'Před tréninkem'], ['zapas', 'Zápas'], ['po', 'Po zátěži'], ['vecer', 'Večer']];
+const JEN_DNY = { zapas: 'jen v den zápasu', trenink: 'jen v tréninkový den', zatez: 'jen při tréninku nebo zápasu' }; // režim → jen
 const VZATO = 'asistent.doplnky.';                 // starší motor: odškrtnutí jen v zařízení (den → { id: true })
 const CEKAJICI = 'asistent.doplnkyCekajici';       // změny, které motor ještě nepotvrdil { den: { id: true | false } }
 const DNY_TYDNE = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
@@ -698,7 +707,10 @@ function tydenDoplnku(rezim, denMs) {
 
 /**
  * Co brát v den (půlnoc v ms; bez něj dnes): položky režimu podle dne (trénink, zápas), odškrtnutí a týden.
- * polozky[].hlavni = počítá se do plnění; plneni = { vzato, celkem } jen z hlavních, které ten den platí (kroužky, karta).
+ * polozky = vždy všechny položky režimu ve stejném pořadí (Michal 10. 10.: „když v doplňkách kliknu na pátek, tak se mi to
+ * drobně přeháže … to by mělo být furt všude stejné“): plati = ten den podle režimu platí (jinak se ukáže ztlumeně na svém místě),
+ * navic = neplatí, a přesto vzato (elektrolyty mimo zápas – napsané do jídla); hlavni = počítá se do plnění.
+ * plneni = { vzato, celkem } jen z hlavních, které ten den platí (kroužky, karta).
  */
 export function doplnkyDnes(denMs) {
   const rezim = stav.zdravi && stav.zdravi.rezim;
@@ -706,11 +718,12 @@ export function doplnkyDnes(denMs) {
   const d = pulnoc(denMs || Date.now());
   const den = denRezimu(rezim, d);
   const vzato = vzatoVDen(isoDatum(d));
-  // i doplněk, který ten den podle režimu neplatí, ale byl vzat (elektrolyty mimo zápas – napsané do jídla) → „navíc“
-  const polozky = rezim.polozky.filter((p) => den.plati(p) || vzato[p.id])
-    .map((p) => Object.assign({ vzato: !!vzato[p.id], navic: !den.plati(p), hlavni: jeHlavni(rezim, p) }, p))
-    .sort((a, b) => KDY.findIndex((k) => k[0] === a.kdy) - KDY.findIndex((k) => k[0] === b.kdy));
-  const pocitane = polozky.filter((p) => p.hlavni && !p.navic);
+  // řazení podle času dne je stabilní (stejný čas = pořadí v režimu) → každý den stejné řádky ve stejném pořadí
+  const polozky = rezim.polozky.map((p) => {
+    const plati = !!den.plati(p);
+    return Object.assign({ vzato: !!vzato[p.id], plati, navic: !plati && !!vzato[p.id], hlavni: jeHlavni(rezim, p) }, p);
+  }).sort((a, b) => KDY.findIndex((k) => k[0] === a.kdy) - KDY.findIndex((k) => k[0] === b.kdy));
+  const pocitane = polozky.filter((p) => p.hlavni && p.plati);
   return { d, dnes: d === pulnoc(Date.now()), polozky, vykop: den.vykop, trenink: den.trenink, kofeinDo: rezim.kofeinDo || '', chyba: rezim.chyba || '',
     plneni: { vzato: pocitane.filter((p) => p.vzato).length, celkem: pocitane.length }, tyden: tydenDoplnku(rezim, d) };
 }
@@ -726,7 +739,10 @@ export function kartaDoplnkuHtml() {
   if (!d) return '';
   const zbyva = d.plneni.celkem - d.plneni.vzato;
   const nazevKdy = (k) => (KDY.find((x) => x[0] === k) || [k, k])[1];
-  const den = d.vykop ? 'den zápasu · výkop ' + hhmm(d.vykop) : d.trenink ? 'tréninkový den' : '';
+  // druh dne vždy, když režim má položky jen k zápasu / tréninku – vysvětlí ztlumené řádky a karta má každý den stejnou výšku
+  // (karty pod ní na Dnes a ve Zdraví při výběru dne neposkočí)
+  const sDruhemDne = d.polozky.some((p) => p.jen);
+  const den = d.vykop ? 'den zápasu · výkop ' + hhmm(d.vykop) : d.trenink ? 'tréninkový den' : sDruhemDne ? 'bez zápasu a tréninku' : '';
   const kofein = d.dnes && !d.vykop && d.kofeinDo && new Date().getHours() < 18 ? 'Kofein naposledy ve ' + d.kofeinDo + '.' : '';
   const t = d.tyden;
   // týden: klepnutím na den ho karta ukáže (oprava zpětně), šipky o týden; nejdál DOPLNKY_ZPET dní
@@ -750,11 +766,14 @@ export function kartaDoplnkuHtml() {
     }).join('') + '</ol></div>' : '';
   const nadpis = d.dnes ? 'Doplňky dnes' : 'Doplňky · ' + DNY_KR[new Date(d.d).getDay()] + ' ' + dm(d.d);
   const stavDne = !d.plneni.celkem ? '' : !zbyva ? 'vše ✓' : d.dnes ? 'zbývá ' + zbyva : 'vzato ' + d.plneni.vzato + ' z ' + d.plneni.celkem;
+  // co ten den podle režimu neplatí, zůstane na svém místě ztlumené (každý den stejné řádky) – odškrtnout jde dál („navíc“)
   const radek = (p) => {
     const s = t.polozky[p.id];
-    return '<li><button type="button" class="doplnek' + (p.hlavni ? '' : ' doplnek--vedlejsi') + '" data-doplnek="' + esc(p.id) + '" data-doplnek-den="' + isoDatum(d.d) +
-      '" aria-pressed="' + p.vzato + '">' +
-      '<i class="zaskrt" aria-hidden="true">' + IKONY.fajfka + '</i><span><b>' + esc(p.nazev) + '</b><small>' + (p.navic ? 'navíc · ' : '') + esc(nazevKdy(p.kdy)) + (p.davka ? ' · ' + esc(p.davka) : '') + '</small></span>' +
+    const neplati = !p.plati && !p.vzato;
+    return '<li><button type="button" class="doplnek' + (p.hlavni ? '' : ' doplnek--vedlejsi') + (neplati ? ' doplnek--neplati' : '') + '" data-doplnek="' + esc(p.id) +
+      '" data-doplnek-den="' + isoDatum(d.d) + '" aria-pressed="' + p.vzato + '">' +
+      '<i class="zaskrt" aria-hidden="true">' + IKONY.fajfka + '</i><span><b>' + esc(p.nazev) + '</b><small>' + (p.navic ? 'navíc · ' : neplati ? esc(JEN_DNY[p.jen] || 'ten den neplatí') + ' · ' : '') +
+      esc(nazevKdy(p.kdy)) + (p.davka ? ' · ' + esc(p.davka) : '') + '</small></span>' +
       (s && s.dni > 1 ? '<em class="doplnek__tyden cisla" title="za týden">' + s.vzato + '/' + s.dni + '</em>' : '') + '</button></li>';
   };
   // hlavní nahoře, ostatní šedě pod čarou – ukazují se a jdou odškrtnout, ale do plnění se nepočítají
@@ -798,6 +817,25 @@ function odesliDoplnky() {
 const CIL_PITI = 2500, CIL_BILKOVIN = 130; // výchozí cíle – v ZDRAVI_REZIM.json jdou změnit (pitiCil v ml, bilkovinyCil v g)
 const litry = (ml) => (Math.round(ml / 50) / 20).toLocaleString('cs-CZ', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + ' l';
 const pitiDne = (den) => (stav.zdravi && stav.zdravi.pitiJidlo && stav.zdravi.pitiJidlo[den]) || { piti: [], jidlo: [] };
+// Den v kartě (Michal 10. 10.: „nadiktoval jsem jídlo, co jsem jedl včera … zapsalo se mi to do dneška“): klepnutí na den v týdnu
+// ho ukáže (nadpis „Pití a jídlo · pá 9. 10.“, tlačítko Dnes) – voda, jídlo a přesun pak jdou k němu; bez klepnutí se karta po
+// čtvrthodině vrátí na dnešek. Nejdál 13 dní zpátky (motor posílá 14 dní), týden zpátky šipkou.
+const PITI_ZPET = 13;
+const PITI_VYBER_MIN = 15;
+const JIDLO_DNI = 7;          // okno jídla a „Přesunout na…“: dnes a 6 dní zpátky (motor bere až 14 – den z textu i starší)
+const CIL_VE_SLOUPCI = 75;    // cíl = čárkovaná čára ve 3/4 výšky sloupce – nad ní je vidět, o kolik se cíl překonal
+let denPiti = 0, denPitiKdy = 0;              // vybraný minulý den (půlnoc v ms; 0 = dnes) a kdy se naposledy klepalo
+let jidloDenRucne = 0, jidloDenVychozi = 0;   // okno jídla: den vybraný ručně (0 = podle textu) a výchozí den (den karty)
+
+/** Den karty Pití a jídlo: vybraný minulý den (nejvýš PITI_ZPET dní zpátky, klepnuto před méně než čtvrthodinou), jinak dnes. */
+function denKartyPiti() {
+  const dnes = pulnoc(Date.now());
+  const plati = denPiti && denPiti < dnes && denPiti >= pridejDny(dnes, -PITI_ZPET) && Date.now() - denPitiKdy < PITI_VYBER_MIN * 60000;
+  return plati ? denPiti : dnes;
+}
+
+/** „pátek 9. 10.“ */
+const denDlouze = (t) => DNY[new Date(t).getDay()] + ' ' + dm(t);
 
 /** Součty dne: ml pití, bílkoviny z jídel a z odškrtnutých doplňků (položky režimu s „bilkoviny“ – whey, smoothie). */
 function souctyDne(den) {
@@ -810,26 +848,73 @@ function souctyDne(den) {
     odhad: z.jidlo.some((x) => x.odhad === 'mistni'), z, jidla };
 }
 
-/** Hodnocení stravy od Clauda (večer za den): dnešní, ráno ještě včerejší. */
-function hodnoceniHtml(dnes) {
-  const dnesni = pitiDne(isoDatum(dnes)).hodnoceni, vcerejsi = pitiDne(isoDatum(pridejDny(dnes, -1))).hodnoceni;
-  const h = dnesni || (new Date().getHours() < 14 ? vcerejsi : null);
+/**
+ * Hodnocení stravy od Clauda (večer za den): u dneška dnešní, ráno ještě včerejší; u minulého dne v kartě jeho. „stare“ = k hodnocenému
+ * dni se pak zpětně zapsalo nebo přesunulo jídlo či pití – motor už Clauda požádal o nové (prehodnotDny_).
+ */
+function hodnoceniHtml(d) {
+  const dnes = pulnoc(Date.now());
+  let h = pitiDne(isoDatum(d)).hodnoceni;
+  let kdo = d === dnes ? 'Dnešek' : rozdilDni(d) === -1 ? 'Včerejšek' : velkym(denDlouze(d));
+  if (!h && d === dnes && new Date().getHours() < 14) { h = pitiDne(isoDatum(pridejDny(dnes, -1))).hodnoceni; kdo = 'Včerejšek'; }
   if (!h) return '';
-  return '<div class="piti__hodnoceni">' + (h.znamka ? '<span class="znamka znamka--' + esc(String(h.znamka).charAt(0).toUpperCase()) + '">' + esc(h.znamka) + '</span>' : '') +
-    '<p><b>' + (dnesni ? 'Dnešek' : 'Včerejšek') + ' podle Clauda</b>' + esc(h.text) + '</p></div>';
+  return '<div class="piti__hodnoceni' + (h.stare ? ' piti__hodnoceni--stare' : '') + '">' +
+    (h.znamka ? '<span class="znamka znamka--' + esc(String(h.znamka).charAt(0).toUpperCase()) + '">' + esc(h.znamka) + '</span>' : '') +
+    '<p><b>' + esc(kdo) + ' podle Clauda</b>' + esc(h.text) +
+    (h.stare ? '<small>Od hodnocení se k tomu dni zapsalo nebo přesunulo jídlo – Claude den přehodnotí.</small>' : '') + '</p></div>';
+}
+
+/**
+ * Týden po dnech (Michal 10. 10.: „ty sloupce můžeš dát i bílkoviny za ten den“): u každého dne dva sloupky – voda a bílkoviny
+ * jako podíl cíle, čárkovaná čára = cíl (CIL_VE_SLOUPCI % výšky; vyšší sloupek = cíl překonaný); bublina s litry, gramy a kcal
+ * (js/grafy.js). Klepnutí na den ho otevře v kartě (zpětný zápis, přesun jídla), šipky o týden zpátky a zpět.
+ */
+function tydenPitiHtml(d, cilPiti, cilB) {
+  const dnes = pulnoc(Date.now());
+  const nejdal = pridejDny(dnes, -PITI_ZPET);
+  const po = zacatekTydne(d);
+  const tento = po === zacatekTydne(dnes);
+  const vyska = (x, cil) => Math.min(100, Math.round(x / cil * CIL_VE_SLOUPCI));
+  const procent = (x, cil) => Math.round(x / cil * 100);
+  const dny = [0, 1, 2, 3, 4, 5, 6].map((i) => pridejDny(po, i));
+  const sipka = (cil, smi, ikona, popis) => '<button type="button" class="doplnky-tyden__sipka" data-piti-ukaz="' + isoDatum(cil) + '" aria-label="' + popis + '"' +
+    (smi ? '' : ' disabled') + '>' + ikona + '</button>';
+  // zpátky jen o celý týden, který motor ještě posílá (14 dní) – předchozí týden je vždy celý
+  const zpet = pridejDny(po, -7) >= nejdal;
+  return '<div class="piti-tyden"><div class="piti-tyden__hlava"><span>' + (tento ? 'Tento týden' : dm(po) + '–' + dm(pridejDny(po, 6))) + '</span>' +
+      sipka(pridejDny(d, -7), zpet, IKONY.vlevo, 'Předchozí týden') + sipka(Math.min(pridejDny(d, 7), dnes), !tento, IKONY.vpravo, 'Další týden') +
+      '<span class="piti-tyden__legenda" aria-hidden="true"><i class="piti__sl--voda"></i>voda<i class="piti__sl--b"></i>bílkoviny<i class="piti-tyden__cil"></i>cíl</span></div>' +
+    '<ol class="piti__tyden"' + grafAtr('Voda a bílkoviny po dnech', false) + ' data-graf-i="' + Math.max(0, dny.indexOf(d)) + '">' +
+    dny.map((t, i) => {
+      const budouci = t > dnes, klik = !budouci && t >= nejdal;
+      const x = budouci ? null : souctyDne(isoDatum(t));
+      // orámovaný jen vybraný minulý den (dnešek má zvýrazněný popisek – karta ho ukazuje sama od sebe)
+      const trida = [budouci ? 'budouci' : '', t === dnes ? 'dnes' : '', t === d && t !== dnes ? 'vybrany' : ''].filter(Boolean).join(' ');
+      const atr = bublina((t === dnes ? 'dnes · ' : '') + DNY_TYDNE[i] + ' ' + dm(t),
+        x ? litry(x.ml) + ' · ' + (x.odhad ? '≈ ' : '') + x.b + ' g' : 'ještě nebyl',
+        x ? 'voda ' + procent(x.ml, cilPiti) + ' % a bílkoviny ' + procent(x.b, cilB) + ' % cíle' +
+          (x.kcal ? ' · ' + (x.odhad ? '≈ ' : '') + x.kcal.toLocaleString('cs-CZ') + ' kcal' : '') + (klik && t !== d ? ' · klepnutím den otevřeš' : '') : '');
+      const sloupce = '<span class="piti__sloupce">' + (x ? '<i class="piti__sl piti__sl--voda" style="height:' + vyska(x.ml, cilPiti) + '%"></i>' +
+        '<i class="piti__sl piti__sl--b" style="height:' + vyska(x.b, cilB) + '%"></i>' : '') + '</span>';
+      return '<li' + (trida ? ' class="' + trida + '"' : '') + '>' +
+        (klik ? '<button type="button" data-piti-ukaz="' + isoDatum(t) + '"' + atr + (t === d ? ' aria-current="date"' : '') + '>' : '<span' + atr + '>') +
+        sloupce + '<small>' + DNY_TYDNE[i] + '</small>' + (klik ? '</button>' : '</span>') + '</li>';
+    }).join('') + '</ol></div>';
 }
 
 export function kartaPitiHtml() {
   if (!umiMotor('pitiJidlo') || !stav.zdravi) return '';
   const rezim = stav.zdravi.rezim || {};
   const cilPiti = Number(rezim.pitiCil) || CIL_PITI, cilB = Number(rezim.bilkovinyCil) || CIL_BILKOVIN;
-  const dnes = pulnoc(Date.now());
-  const s = souctyDne(isoDatum(dnes));
+  const d = denKartyPiti(), jeDnes = d === pulnoc(Date.now());
+  const s = souctyDne(isoDatum(d));
   const pct = (x, cil) => Math.min(100, Math.round((x / cil) * 100));
-  const po = pridejDny(dnes, -((new Date(dnes).getDay() + 6) % 7));
-  const tyden = [0, 1, 2, 3, 4, 5, 6].map((i) => { const d = pridejDny(po, i); return { d, ml: souctyDne(isoDatum(d)).ml }; });
   const posledni = s.z.piti.filter((x) => !x.claude && x.id).slice(-1)[0];
-  let h = hlavickaKarty(IKONY.kapka, 'Pití a jídlo', '<span class="muted small">dnes</span>') + '<div class="piti">' +
+  const presun = umiMotor('pitiJidloPresun');
+  // data-piti-den: ke kterému dni jdou voda, jídlo, zpět a smazání z karty (ukázaný den – i po čtvrthodině bez překreslení)
+  let h = hlavickaKarty(IKONY.kapka, 'Pití a jídlo' + (jeDnes ? '' : ' · ' + DNY_KR[new Date(d).getDay()] + ' ' + dm(d)),
+    jeDnes ? '<span class="muted small">dnes</span>' : '<button type="button" class="odkaz small" data-piti-ukaz="dnes">Dnes</button>') +
+    '<div class="piti" data-piti-den="' + isoDatum(d) + '">' +
     '<div class="piti__radek"><span class="piti__ikona" aria-hidden="true">💧</span><div class="piti__text"><b class="cisla">' + litry(s.ml) + '</b>' +
       '<small> z ' + litry(cilPiti) + '</small><div class="piti__pruh"><i style="width:' + pct(s.ml, cilPiti) + '%"></i></div></div>' +
       '<div class="piti__akce"><button type="button" class="btn btn--sm" data-piti="250">+0,25 l</button><button type="button" class="btn btn--sm" data-piti="500">+0,5 l</button>' +
@@ -839,24 +924,38 @@ export function kartaPitiHtml() {
       '<div class="piti__pruh piti__pruh--b"><i style="width:' + pct(s.b, cilB) + '%"></i></div></div>' +
       '<div class="piti__akce"><button type="button" class="btn btn--sm btn--ghost" data-jidlo-pridat>' + IKONY.plus + '<span>Jídlo</span></button></div></div>';
   if (s.jidla.length) {
-    // ≈ = odhad aplikace (Claude ho upřesní), „Claude“ = upřesněno (v titulku jeho poznámka)
+    // ≈ = odhad aplikace (Claude ho upřesní), „Claude“ = upřesněno (v titulku jeho poznámka); u zápisu Přesunout na jiný den a Smazat
     const stitek = (j) => (j.doplnek ? ' <small>doplněk</small>' : j.claude ? ' <small>z diktátu</small>' : j.odhad === 'claude' ? ' <small title="' + esc(j.poznamka || 'upřesnil Claude') + '">Claude</small>' : '');
+    const akce = (j) => '<span class="piti__akce-zapisu' + (presun ? ' piti__akce-zapisu--dve' : '') + '">' + (!j.id ? '' :
+      (presun ? '<button type="button" class="btn btn--ikona btn--sm" data-jidlo-presun="' + esc(j.id) + '" aria-label="Přesunout na jiný den: ' + esc(j.co) +
+        '" title="Přesunout na jiný den">' + IKONY.kalendar + '</button>' : '') +
+      '<button type="button" class="btn btn--ikona btn--sm" data-jidlo-smazat="' + esc(j.id) + '" aria-label="Smazat ' + esc(j.co) + '">' + IKONY.zavrit + '</button>') + '</span>';
     h += '<ul class="piti__jidla">' + s.jidla.map((j) => '<li><span class="orez-1">' + esc(j.co) + stitek(j) + '</span>' +
       '<b class="cisla"' + (j.odhad === 'mistni' ? ' title="odhad aplikace – Claude ho upřesní"' : '') + '>' + (j.odhad === 'mistni' ? '≈ ' : '') + j.bilkoviny + ' g</b>' +
-      (j.id ? '<button type="button" class="btn btn--ikona btn--sm" data-jidlo-smazat="' + esc(j.id) + '" aria-label="Smazat ' + esc(j.co) + '">' +
-      IKONY.zavrit + '</button>' : '<span class="piti__misto"></span>') + '</li>').join('') + '</ul>';
+      akce(j) + '</li>').join('') + '</ul>';
   }
-  h += hodnoceniHtml(dnes);
-  // týden pití: sloupek = podíl cíle; bublina (najetí, klepnutí, šipky) s litry a procentem cíle
-  h += '<ol class="piti__tyden"' + grafAtr('Pití tento týden') + ' data-graf-i="' + tyden.findIndex((t) => t.d === dnes) + '">' +
-    tyden.map((t, i) => '<li class="' + (t.d > dnes ? 'budouci' : t.d === dnes ? 'dnes' : '') + '"' +
-    bublina((t.d === dnes ? 'dnes · ' : '') + DNY_TYDNE[i] + ' ' + dm(t.d), t.d > dnes ? 'ještě nebyl' : litry(t.ml), t.d > dnes ? '' : 'z ' + litry(cilPiti) + ' · ' +
-      Math.round(t.ml / cilPiti * 100) + ' % cíle') + '><span><i style="height:' + pct(t.ml, cilPiti) + '%"></i></span><small>' + DNY_TYDNE[i] + '</small></li>').join('') + '</ol>' +
-    '<p class="napoveda">Jídlo stačí napsat („3 vejce a chleba“) – bílkoviny odhadnu hned, Claude je upřesní a večer zhodnotí den. Jde to i diktátem pro Clauda.</p></div>';
+  h += hodnoceniHtml(d) + tydenPitiHtml(d, cilPiti, cilB) +
+    '<p class="napoveda">Jídlo stačí napsat („3 vejce a chleba“, „včera večer pizza“) – bílkoviny odhadnu hned a den poznám z textu, Claude je upřesní ' +
+    'a večer zhodnotí den. Jde to i diktátem pro Clauda.</p></div>';
   return h;
 }
 
-/** Přidat / smazat zápis: hned v kartě, pak motor (při chybě zpět). */
+/** Ke kterému dni patří tlačítko v kartě (data-piti-den); u minulého dne se vybraný den karty prodlouží o další čtvrthodinu. */
+function denTlacitkaPiti(el) {
+  const k = el.closest('[data-piti-den]');
+  const den = k ? k.dataset.pitiDen : isoDatum(Date.now());
+  if (den !== isoDatum(Date.now())) denPitiKdy = Date.now();
+  return den;
+}
+
+/** Ukázat den v kartě (klepnutí na den v týdnu, šipky, Dnes, „Ukázat“ v oznámení). */
+function ukazDenPiti(den) {
+  denPiti = /^\d{4}-\d{2}-\d{2}$/.test(den || '') ? pulnoc(Date.parse(den + 'T12:00:00')) : 0;
+  denPitiKdy = Date.now();
+  zmeneno();
+}
+
+/** Přidat / smazat / přesunout zápis: hned v kartě, pak motor (při chybě zpět). zprava = text oznámení, nebo funkce, která ho ukáže sama. */
 function zapisPiti(data, zprava) {
   const den = data.den;
   const puvodni = stav.zdravi && stav.zdravi.pitiJidlo;
@@ -866,15 +965,56 @@ function zapisPiti(data, zprava) {
     else z.jidlo.push({ co: data.co, bilkoviny: data.bilkoviny, kcal: data.kcal, kdy: Date.now(), odhad: data.odhad ? 'mistni' : undefined });
     stav.zdravi.pitiJidlo = Object.assign({}, puvodni, { [den]: z });
     zmeneno();
+  } else if (data.jak === 'presun') {
+    // zápis najít v kterémkoli dni a dát do nového (seřazený podle času zápisu jako v motoru)
+    const dny = JSON.parse(JSON.stringify(puvodni || {}));
+    let nalez = null;
+    Object.keys(dny).forEach((k) => ['jidlo', 'piti'].forEach((druh) => {
+      const i = nalez ? -1 : (dny[k][druh] || []).findIndex((x) => x.id === data.id);
+      if (i >= 0) nalez = { druh, zapis: dny[k][druh].splice(i, 1)[0] };
+    }));
+    if (nalez) {
+      const cil = (dny[den] = dny[den] || { piti: [], jidlo: [] });
+      (cil[nalez.druh] = cil[nalez.druh] || []).push(nalez.zapis);
+      cil[nalez.druh].sort((a, b) => (a.kdy || 0) - (b.kdy || 0));
+      stav.zdravi.pitiJidlo = dny;
+      zmeneno();
+    }
   }
   return volej('pitiJidlo', data)
     .then((r) => {
       stav.zdravi.pitiJidlo = r.dny || {};
+      if (r.doplnky) stav.zdravi.doplnky = r.doplnky; // přesun jídla vzal s sebou i doplňky z jeho textu
       uloziste.pis(ULOZISTE, { data: stav.zdravi, kdy: Date.now() });
-      if (zprava) toast(zprava);
+      if (typeof zprava === 'function') zprava(); else if (zprava) toast(zprava);
       zmeneno();
     })
     .catch((e) => { stav.zdravi.pitiJidlo = puvodni; zmeneno(); toast(e.message, true); throw e; });
+}
+
+/** Oznámení o zápisu k jinému dni, než karta ukazuje – s „Ukázat“ (karta ten den otevře). */
+function oznamDen(text, den) {
+  if (den === isoDatum(denKartyPiti())) { toast(text); return; }
+  toastAkce(text.replace(/\s*✓$/, ''), 'Ukázat', () => ukazDenPiti(den === isoDatum(Date.now()) ? '' : den));
+}
+
+/** „Přesunout na jiný den“ u jídla: okno s dny (dnes a 6 dní zpátky) – klepnutí na den zápis přesune. */
+function presunJidla(id, den) {
+  const j = souctyDne(den).jidla.find((x) => x.id === id);
+  if (!j) return;
+  const dnes = pulnoc(Date.now());
+  const volby = [];
+  for (let i = 0; i < JIDLO_DNI; i++) {
+    const t = pridejDny(dnes, -i);
+    volby.push([isoDatum(t), i === 0 ? 'Dnes' : i === 1 ? 'Včera' : DNY_KR[new Date(t).getDay()] + ' ' + dm(t)]);
+  }
+  okno({ ikona: IKONY.kalendar, nadpis: 'Přesunout na jiný den', text: j.co + ' · ' + (j.odhad === 'mistni' ? '≈ ' : '') + j.bilkoviny + ' g bílkovin',
+    volby, vybrana: den, ano: 'Zrušit', ne: null }).then((na) => {
+    if (typeof na !== 'string' || na === den) return;
+    const t = pulnoc(Date.parse(na + 'T12:00:00'));
+    zapisPiti({ den: na, jak: 'presun', id }, () => oznamDen('Přesunuto na ' + denDlouze(t) + (rozdilDni(t) === 0 ? ' (dnes)' : rozdilDni(t) === -1 ? ' (včera)' : ''), na))
+      .catch(() => {});
+  });
 }
 
 // ---- Jídlo napsané slovy (Michal 9. 10.: „napíšu, co jsem měl, bez bílkovin – pošle se to Claudovi a zapíše“):
@@ -899,12 +1039,49 @@ function odhadJidlaHtml(text) {
   return h || '<p class="jidlo-odhad__prazdne">Tohle neznám – Claude to odhadne.</p>';
 }
 
-/** Okno „Co jsi jedl?“ (Pití a jídlo → Jídlo, „+“ → Jídlo). */
-export function otevriJidlo() {
+/**
+ * Na který den se jídlo zapíše (Michal 10. 10.: „v pátek ráno sem měl 3 rohlíky…“ napsané v sobotu spadlo do soboty):
+ * ruční výběr v okně > den z textu („včera“, „v pátek“, „8. 10.“ – js/jidlo_odhad.js denJidla) > den karty (dnes). → { d, jak }
+ */
+function denZapisuJidla(text) {
+  if (jidloDenRucne) return { d: jidloDenRucne, jak: 'rucne' };
+  const z = denJidla(text);
+  if (z != null) return { d: z, jak: 'text' };
+  return { d: jidloDenVychozi || pulnoc(Date.now()), jak: 'karta' };
+}
+
+/** Řádek „Zapíšu na pátek 9. 10.“ s volbou dne: Dnes, Včera a výběr dalších dnů (za posledních 7 dní; starší den z textu navíc). */
+function denJidlaHtml(text) {
+  const z = denZapisuJidla(text);
+  const dnes = pulnoc(Date.now()), vybrany = isoDatum(z.d), r = rozdilDni(z.d);
+  const chip = (t, popis) => '<button type="button" class="chip" data-jidlo-na="' + isoDatum(t) + '" aria-pressed="' + (isoDatum(t) === vybrany) + '">' + popis + '</button>';
+  const dalsi = [];
+  for (let i = 2; i < JIDLO_DNI; i++) dalsi.push(pridejDny(dnes, -i));
+  if (r < -(JIDLO_DNI - 1)) dalsi.push(z.d); // den z textu starší než týden (motor bere až 14 dní)
+  return '<p class="jidlo-den__text">Zapíšu na <b>' + esc(denDlouze(z.d)) + '</b>' + (r === 0 ? ' · dnes' : r === -1 ? ' · včera' : r === -2 ? ' · předevčírem' : '') +
+      (z.jak === 'text' ? ' <small>– podle textu</small>' : '') + '</p>' +
+    '<div class="jidlo-den__volby" role="group" aria-label="Na který den">' + chip(dnes, 'Dnes') + chip(pridejDny(dnes, -1), 'Včera') +
+      '<select class="field field--sm' + (r < -1 ? ' vybrany' : '') + '" data-jidlo-na-vyber aria-label="Jiný den"><option value="">Jiný den…</option>' +
+      dalsi.map((t) => '<option value="' + isoDatum(t) + '"' + (isoDatum(t) === vybrany ? ' selected' : '') + '>' + DNY_KR[new Date(t).getDay()] + ' ' + dm(t) + '</option>').join('') +
+    '</select></div>';
+}
+
+/** Překreslí řádek s dnem v otevřeném okně jídla (psaní textu, ruční výběr). */
+function prekresliDenJidla() {
+  const el = elementPanelu('jidlo');
+  const box = el && el.querySelector('[data-jidlo-den]');
+  if (box) box.innerHTML = denJidlaHtml(el.querySelector('[data-jidlo-co]').value);
+}
+
+/** Okno „Co jsi jedl?“ (Pití a jídlo → Jídlo, „+“ → Jídlo); denMs = den karty, ze které se otevřelo (bez něj dnes / vybraný den karty). */
+export function otevriJidlo(denMs) {
+  jidloDenRucne = 0;
+  jidloDenVychozi = denMs || denKartyPiti();
   otevriPanel({
     id: 'jidlo', trida: 'panel-okno panel-jidlo', titul: 'Co jsi jedl?',
-    vykresli: () => '<div class="jidlo-form"><label><span class="label">Jídlo, pití, doplňky</span><textarea class="field" data-jidlo-co rows="2" maxlength="200" enterkeyhint="done" ' +
-        'placeholder="např. 3 vejce a chleba · k obědu kuře s rýží · elektrolyty"></textarea></label>' +
+    vykresli: () => '<div class="jidlo-form"><label><span class="label">Jídlo, pití, doplňky</span><textarea class="field" data-jidlo-co rows="2" maxlength="300" enterkeyhint="done" ' +
+        'placeholder="např. 3 vejce a chleba · k obědu kuře s rýží · včera večer pizza"></textarea></label>' +
+      '<div class="jidlo-den" data-jidlo-den>' + denJidlaHtml('') + '</div>' +
       '<div class="jidlo-odhad" data-jidlo-odhad aria-live="polite">' + odhadJidlaHtml('') + '</div>' +
       '<details class="jidlo-presne"><summary>Bílkoviny vím přesně</summary><div class="jidlo-cisla"><label><span class="label">Bílkoviny (g)</span>' +
         '<input class="field" data-jidlo-b inputmode="numeric"></label><label><span class="label">kcal</span><input class="field" data-jidlo-kcal inputmode="numeric"></label></div></details>' +
@@ -922,15 +1099,19 @@ function ulozJidlo(tlacitko) {
   if (!text) { toast('Napiš, co jsi jedl.', true); return; }
   const rucneB = String(el.querySelector('[data-jidlo-b]').value).trim(), rucneK = String(el.querySelector('[data-jidlo-kcal]').value).trim();
   const o = odhadniJidlo(text, doplnkyRezimu());
-  const den = isoDatum(Date.now());
+  const kdy = denZapisuJidla(text).d;
+  const den = isoDatum(kdy);
+  const naDen = den === isoDatum(Date.now()) ? '' : ' na ' + DNY_KR[new Date(kdy).getDay()] + ' ' + dm(kdy);
   const doplnky = o.doplnky.map(nazevDoplnku).join(', ');
   if (o.doplnky.length && umiMotor('doplnky')) { nastavDoplnky(den, o.doplnky, true); zmeneno(); }
-  if (!o.text) { toast('Zapsáno: ' + doplnky + ' ✓'); zavriPanel(); return; }
+  if (!o.text) { oznamDen('Zapsáno' + naDen + ': ' + doplnky + ' ✓', den); zavriPanel(); return; }
   const rucne = rucneB !== '';
   const cislo = (t) => Math.round(Number(String(t).replace(',', '.')) || 0);
   const data = { den, jak: 'jidlo', co: o.text, bilkoviny: rucne ? cislo(rucneB) : o.bilkoviny, kcal: rucneK ? cislo(rucneK) : o.kcal, odhad: !rucne };
+  if (o.doplnky.length) data.doplnky = o.doplnky; // přesun jídla na jiný den vezme i jeho doplňky (motor 2026-10-10)
+  const co = data.co.length > 60 ? data.co.slice(0, 58).replace(/\s+\S*$/, '') + '…' : data.co;
   tlacitko.disabled = true;
-  zapisPiti(data, 'Zapsáno: ' + data.co + ' · ' + (rucne ? '' : '≈ ') + data.bilkoviny + ' g bílkovin' + (doplnky ? ' + ' + doplnky + ' ✓' : ''))
+  zapisPiti(data, () => oznamDen('Zapsáno' + naDen + ': ' + co + ' · ' + (rucne ? '' : '≈ ') + data.bilkoviny + ' g bílkovin' + (doplnky ? ' + ' + doplnky + ' ✓' : ''), den))
     .then(() => zavriPanel())
     .catch(() => { tlacitko.disabled = false; });
 }
@@ -956,13 +1137,23 @@ function velkym(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 // ---------------------------------------------------------------- ovládání
 
 export function klikZdravi(el) {
-  if (el.dataset.piti) { zapisPiti({ den: isoDatum(Date.now()), jak: 'piti', ml: Number(el.dataset.piti) }).catch(() => {}); return true; }
-  if (el.dataset.pitiZpet) { zapisPiti({ den: isoDatum(Date.now()), jak: 'smazat', id: el.dataset.pitiZpet }, 'Odebráno').catch(() => {}); return true; }
-  if (el.hasAttribute('data-jidlo-pridat')) { otevriJidlo(); return true; }
+  // voda, zpět, jídlo a smazání v kartě Pití a jídlo jdou ke dni, který karta ukazuje (data-piti-den)
+  if (el.dataset.piti) {
+    const den = denTlacitkaPiti(el), ml = Number(el.dataset.piti);
+    const t = Date.parse(den + 'T12:00:00');
+    zapisPiti({ den, jak: 'piti', ml }, den === isoDatum(Date.now()) ? '' : '+' + litry(ml) + ' · ' + DNY_KR[new Date(t).getDay()] + ' ' + dm(t)).catch(() => {});
+    return true;
+  }
+  if (el.dataset.pitiZpet) { zapisPiti({ den: denTlacitkaPiti(el), jak: 'smazat', id: el.dataset.pitiZpet }, 'Odebráno').catch(() => {}); return true; }
+  if (el.dataset.pitiUkaz !== undefined) { ukazDenPiti(el.dataset.pitiUkaz); return true; }
+  if (el.hasAttribute('data-jidlo-pridat')) { otevriJidlo(pulnoc(Date.parse(denTlacitkaPiti(el) + 'T12:00:00'))); return true; }
   if (el.hasAttribute('data-jidlo-ulozit')) { ulozJidlo(el); return true; }
+  if (el.dataset.jidloNa) { jidloDenRucne = pulnoc(Date.parse(el.dataset.jidloNa + 'T12:00:00')); prekresliDenJidla(); return true; }
+  if (el.dataset.jidloPresun) { presunJidla(el.dataset.jidloPresun, denTlacitkaPiti(el)); return true; }
   if (el.dataset.jidloSmazat) {
+    const den = denTlacitkaPiti(el);
     potvrd('Smazat jídlo?', { ikona: IKONY.smazat, ton: 'nebezpeci', ano: 'Smazat' }).then((ano) => {
-      if (ano) zapisPiti({ den: isoDatum(Date.now()), jak: 'smazat', id: el.dataset.jidloSmazat }, 'Smazáno').catch(() => {});
+      if (ano) zapisPiti({ den, jak: 'smazat', id: el.dataset.jidloSmazat }, 'Smazáno').catch(() => {});
     });
     return true;
   }
