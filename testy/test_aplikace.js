@@ -2353,7 +2353,7 @@ function vychoziVikendTestu() {
     for (let i = 0; i < 7; i++) {
       const obl = jm.oblibeniDne(den(i), jmeninyOblibeni);
       if (obl.length) oblibenychDnu++;
-      const cekam = obl.length ? '★ ' + obl.map((o) => o.jmeno + ' (' + o.kdo + ')').join(', ') : jm.hlavniJmeno(den(i));
+      const cekam = obl.length ? '★ ' + obl.map((o) => o.jmeno + ' (' + o.kdo + ')').join(', ') : jm.jmenaDne(den(i)); // až dvě jména dne
       jistota(svatky[i] === cekam, 'den ' + i + ': „' + svatky[i] + '“ místo „' + cekam + '“');
     }
     jistota(svatky[za].indexOf('★ ' + jmeno + ' (kamarádka)') === 0, 'oblíbený v týdnu: ' + svatky[za]);

@@ -102,6 +102,10 @@ export function jmeninyDne(t) { return JMENINY[klicDne(t)] || ''; }
 /** Jméno, které se ukazuje: první podoba („Eliška“), u dvojic celé („Adam a Eva“). */
 export function hlavniJmeno(t) { return jmeninyDne(t).split(',')[0].trim(); }
 
+/** Jména dne do kalendáře a přehledu – nejvýš dvě (Michal 10. 10.: „někdy mají svátek 2 jména, ne jen jedno“ – 9. 10.
+ *  Štefan i Sára); delší seznamy podob jen první dvě. */
+export function jmenaDne(t, max = 2) { return jmenaZaznamu(jmeninyDne(t)).slice(0, max).join(', '); }
+
 /** Oblíbení lidé ({ jmeno, kdo }), kteří mají v den t svátek. */
 export function oblibeniDne(t, oblibeni) {
   const dnes = jmenaZaznamu(jmeninyDne(t)).map(bezDiakritiky);

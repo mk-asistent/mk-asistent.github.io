@@ -11,7 +11,7 @@ import {
 } from './pomocne.js';
 import { otevriPanel, obnovPanel, elementPanelu } from './panely.js';
 import { chybaHtml, segment, hlavickaKarty, toast, prizpusobVysku } from './ui.js';
-import { hlavniJmeno, oblibeniDne, bezDiakritiky, svatkyOblibenych, pripravOblibene } from './jmeniny.js';
+import { jmenaDne, oblibeniDne, bezDiakritiky, svatkyOblibenych, pripravOblibene } from './jmeniny.js';
 import { IKONY, ikonaPocasi } from './ikony.js';
 import { predpovedNa, teplota } from './pocasi.js';
 import { otevriFormular, akceUdalostiHtml, zapasyHtml, zapisovatelneKalendare } from './udalost.js';
@@ -203,7 +203,7 @@ function agendaSvatekHtml(t, svatekObl) {
     return '<span class="agenda__svatek agenda__svatek--oblibeny" title="Svátek má ' + esc(svatekObl.map(popisOblibeneho).join(', ')) + '">★ ' +
       esc(svatekObl.map(popisOblibeneho).join(', ')) + '</span>';
   }
-  const j = hlavniJmeno(t);
+  const j = jmenaDne(t);
   return j ? '<span class="agenda__svatek" title="Svátek">' + esc(j) + '</span>' : '';
 }
 
@@ -281,7 +281,7 @@ const popisOblibeneho = (o) => o.jmeno + (o.kdo ? ' (' + o.kdo + ')' : '');
 /** Co ukázat u dne v Kalendáři: { jmeno: běžné jméno ('' když je tu oblíbený nebo jsou jmeniny skryté), obl: oblíbení }. */
 function svatekDne(den) {
   const obl = ukazOblibene() ? oblibeniDne(den, oblibeni()) : [];
-  return { obl, jmeno: !obl.length && ukazJmeniny() ? hlavniJmeno(den) : '' };
+  return { obl, jmeno: !obl.length && ukazJmeniny() ? jmenaDne(den) : '' };
 }
 
 /** Do nadpisu dne: „svátek Eliška“ (oblíbení mají vlastní řádek v seznamu dne). */
