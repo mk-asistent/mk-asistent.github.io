@@ -97,7 +97,10 @@ const W = require('./wedos');
 const S = require('./wedos_schranka');
 
 const WEDOS_HESLO = 'WEDOS_HESLO';
-const hesloWedos = () => String(process.env[WEDOS_HESLO] || '');
+// konec řádku na začátku/konci (vložené heslo i s Enterem) v hesle nikdy není – pryč; mezery zůstávají (mohou být součástí hesla)
+const hesloWedos = () => String(process.env[WEDOS_HESLO] || '').replace(/^[
+]+|[
+]+$/g, '');
 const NASTAVENI_WEDOS = { region: 'europe-west1', memory: '512MiB', timeoutSeconds: 120, maxInstances: 3, secrets: [WEDOS_HESLO] };
 
 // knihovny pošty se načtou až při použití (test.js běží i bez npm install)
