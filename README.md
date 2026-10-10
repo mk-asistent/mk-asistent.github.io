@@ -240,15 +240,31 @@ přibližná poloha mimo domov má „≈“ a v detailu radu (iPhone: Polohové
   částečný den, procento) a u položky „vzato/dní“ za týden. **Zpětně:** klepnutí na den v pásku ukáže ten den (nadpis
   „Doplňky · út 6. 10.“, tlačítko Dnes zpět) a odškrtnutí se zapíše k němu; šipky ‹ › o týden, nejdál 8 týdnů zpátky,
   bez klepnutí se karta po 15 minutách vrátí na dnešek. Skutečný režim je jen na Disku (zdravotní údaje do repa
-  nepatří).
+  nepatří). **Každý den stejné řádky** (Michal 10. 10.: „když kliknu na pátek, tak se mi to drobně přeháže“): karta ukazuje
+  vždy všechny položky režimu ve stejném pořadí; co ten den podle režimu neplatí (`jen`: zápas, trénink, zátěž), je ztlumené
+  na svém místě s důvodem („jen v den zápasu“) a jde odškrtnout jako „navíc“ (`doplnkyDnes().polozky[].plati` / `navic`).
   - **Hlavní doplňky** (Michal 9. 10.: „podstatné jsou … dál se to nemusí započítávat“): `ZDRAVI_REZIM.json` → `hlavni`
     (seznam id). Do plnění – „zbývá“, „vše ✓“, „x z y“, procenta a plné dny v týdnu, týdenní e-mail a Claudovo hodnocení
     dne – se počítají jen hlavní, a to jen ve dny, kdy podle režimu platí (`jen: zapas` → jen v den zápasu). Ostatní se
     ukazují šedě pod čarou „Ostatní · nepočítají se“ a jdou odškrtnout dál. Bez `hlavni` se počítá vše (starší režim).
     Aplikace: `doplnkyDnes().plneni` / `plneniDoplnku()` v `js/zdravi.js`.
 - **Pití a jídlo** (karta na Dnes i ve Zdraví): voda tlačítky +0,25 / +0,5 l (zpět = poslední vlastní), bílkoviny
-  a kcal z jídel a z odškrtnutých doplňků s `bilkoviny` v režimu, týden pití Po–Ne. Cíle v `ZDRAVI_REZIM.json`
+  a kcal z jídel a z odškrtnutých doplňků s `bilkoviny` v režimu. Cíle v `ZDRAVI_REZIM.json`
   (`pitiCil` ml, `bilkovinyCil` g; výchozí 2,5 l a 130 g). Data `ZDRAVI/PITI_JIDLO.json` (akce `pitiJidlo`).
+  - **Týden po dnech** (Michal 10. 10.: „ty sloupce můžeš dát i bílkoviny za ten den“): u dne dva sloupky – voda a bílkoviny
+    jako podíl cíle, čárkovaná čára = cíl (3/4 výšky, nad ní je cíl překonaný), bublina s litry, gramy a kcal. Klepnutí na
+    den ho v kartě ukáže („Pití a jídlo · pá 9. 10.“, tlačítko Dnes, po 15 minutách bez klepnutí zpět na dnešek) – voda,
+    jídlo, zpět, smazání i přesun pak jdou k němu (`data-piti-den`); šipkou o týden zpátky (motor posílá 14 dní).
+  - **Den z textu** (Michal 10. 10.: „v pátek ráno sem měl 3 rohlíky…“ napsané v sobotu spadlo do soboty): okno jídla
+    pozná den – `denJidla()` v `js/jidlo_odhad.js` nad `denZpet()` z `js/rozbor.js` (včera, předevčírem, „v pátek“ =
+    poslední uplynulý, řečeno v pátek = před týdnem, „8. 10.“; nejvýš 14 dní zpátky) – a ukáže „Zapíšu na pátek 9. 10. ·
+    včera – podle textu“ s volbou Dnes / Včera / Jiný den… (7 dní); ruční volba přebije text. Po uložení k jinému dni
+    oznámení s **Ukázat**. Motor bere den nejvýš 14 dní zpátky a ne do budoucna.
+  - **Přesunout na jiný den** (ikona kalendáře u jídla; motor `pitiJidlo { jak: 'presun', id, den }`, schopnost
+    `pitiJidloPresun`): vlastní zápis se v PITI_JIDLO.json přesune, Claudův z diktátu dostane `presunute[id] = den` (jeho
+    soubor motor nemění); Claudův odhad jde s ním (`odhady[id]` je podle id) a doplňky z textu jídla (`doplnky` u zápisu)
+    taky. Zápis, smazání nebo přesun u uplynulého dne → `zmeneno[den]` a poznámka `…_hodn.md` „zhodnoť znovu“ (jedna,
+    další dny se připíšou); hodnocení starší než změna má `stare: true` (karta: „Claude den přehodnotí“).
   - **Jídlo slovy** (Michal 9. 10.: „napíšu, co jsem měl, bez bílkovin“): okno „Co jsi jedl?“ (karta i „+“ → Jídlo) –
     při psaní hned odhad bílkovin a kcal z místní tabulky (`js/jidlo_odhad.js`, test `testy/test_jidlo_odhad.mjs`);
     doplňky v textu („elektrolyty“, „kreatin“) se jen odškrtnou (i mimo režim dne → „navíc“). Uloží se s `odhad: true`

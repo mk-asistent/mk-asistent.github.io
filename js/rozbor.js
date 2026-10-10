@@ -21,31 +21,42 @@ const bez = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-�
 function pulnoc(t) { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); }
 function pridejDny(t, n) { const d = new Date(t); d.setDate(d.getDate() + n); return d.getTime(); }
 
-/** Den z textu (ms půlnoci) nebo null. Rozumí: dnes, zítra, pozítří, za týden, za 3 dny, (příští) pondělí…neděle, 8. 10., 8. října (2026). */
-function den(text, ted) {
+/**
+ * Den z textu (ms půlnoci) nebo null. Rozumí: dnes, zítra, pozítří, za týden, za 3 dny, (příští) pondělí…neděle, 8. 10., 8. října (2026).
+ * zpet = do minulosti (jídlo a pití – „co jsem měl“): včera, předevčírem, (minulý) pátek = poslední uplynulý („v pátek“ řečeno
+ * v pátek = před týdnem), datum bez roku letos (loni, kdyby bylo v budoucnu); budoucí slova (zítra, za týden…) se přeskočí.
+ */
+function den(text, ted, zpet) {
   const t = bez(text);
   const dnes = pulnoc(ted);
-  if (/\bpozitri\b/.test(t)) return pridejDny(dnes, 2);
-  if (/\bzitra\b/.test(t)) return pridejDny(dnes, 1);
-  if (/\bza\s+tyden\b/.test(t)) return pridejDny(dnes, 7);
-  let m = /\bza\s+(\d{1,2}|dva|tri|ctyri|pet|sest)\s+(dny|dni)\b/.exec(t);
-  if (m) return pridejDny(dnes, /^\d/.test(m[1]) ? +m[1] : { dva: 2, tri: 3, ctyri: 4, pet: 5, sest: 6 }[m[1]]);
+  let m;
+  if (zpet) {
+    if (/\bprede?vcirem\b/.test(t)) return pridejDny(dnes, -2);
+    if (/\bvcer(a|ejs[a-z]*)\b/.test(t)) return pridejDny(dnes, -1);
+  } else {
+    if (/\bpozitri\b/.test(t)) return pridejDny(dnes, 2);
+    if (/\bzitra\b/.test(t)) return pridejDny(dnes, 1);
+    if (/\bza\s+tyden\b/.test(t)) return pridejDny(dnes, 7);
+    m = /\bza\s+(\d{1,2}|dva|tri|ctyri|pet|sest)\s+(dny|dni)\b/.exec(t);
+    if (m) return pridejDny(dnes, /^\d/.test(m[1]) ? +m[1] : { dva: 2, tri: 3, ctyri: 4, pet: 5, sest: 6 }[m[1]]);
+  }
+  // datum bez roku: události letos, nebo příští rok, když už bylo; jídlo letos, nebo loni, když by bylo v budoucnu
+  const bezRoku = (mesic, d) => {
+    const x = new Date(new Date(ted).getFullYear(), mesic, d).getTime();
+    if (zpet) return x > dnes ? new Date(new Date(x).getFullYear() - 1, mesic, d).getTime() : x;
+    return x < dnes ? new Date(new Date(x).getFullYear() + 1, mesic, d).getTime() : x;
+  };
   m = /\b(\d{1,2})\.\s*(\d{1,2})\.(?:\s*(\d{4}))?/.exec(t);
   if (m && (+m[1] < 1 || +m[1] > 31 || +m[2] < 1 || +m[2] > 12)) m = null;
-  if (m) {
-    const d = new Date(+(m[3] || new Date(ted).getFullYear()), +m[2] - 1, +m[1]).getTime();
-    return !m[3] && d < dnes ? new Date(new Date(d).getFullYear() + 1, +m[2] - 1, +m[1]).getTime() : d;
-  }
+  if (m) return m[3] ? new Date(+m[3], +m[2] - 1, +m[1]).getTime() : bezRoku(+m[2] - 1, +m[1]);
   m = /\b(\d{1,2})\.\s*([a-z]+)/.exec(t);
   if (m) {
     const i = MESICE.findIndex((x) => m[2].indexOf(x) === 0);
-    if (i >= 0) {
-      const d = new Date(new Date(ted).getFullYear(), i, +m[1]).getTime();
-      return d < dnes ? new Date(new Date(d).getFullYear() + 1, i, +m[1]).getTime() : d;
-    }
+    if (i >= 0) return bezRoku(i, +m[1]);
   }
   m = /\b(nedele|nedeli|pondeli|utery|streda|stredu|ctvrtek|patek|sobota|sobotu)\b/.exec(t);
   if (m) {
+    if (zpet) return pridejDny(dnes, -((new Date(dnes).getDay() - DNY[m[1]] + 7) % 7 || 7));
     let o = (DNY[m[1]] - new Date(dnes).getDay() + 7) % 7;
     if (o === 0) o = 7; // „v pátek“ řečeno v pátek = za týden (dnešek se říká „dnes“)
     return pridejDny(dnes, o);
@@ -53,6 +64,12 @@ function den(text, ted) {
   if (/\bdnes\b|\bdneska\b/.test(t)) return dnes;
   return null;
 }
+
+/**
+ * Den v minulosti z textu – jídlo a pití („včera jsem měl…“, „v pátek ráno 3 rohlíky“, „předevčírem“, „8. 10.“): ms půlnoci
+ * nebo null. Stejný rozbor jako u událostí, jen do minulosti (js/jidlo_odhad.js → denJidla).
+ */
+export function denZpet(text, ted) { return den(text, ted || Date.now(), true); }
 
 /** Čas z textu → [hodiny, minuty, konec?] nebo null: v 10, v 10:30, v 10.30, ve dvě, v půl deváté, od 10 do 11, 10–11 h, ráno, večer. */
 function cas(text) {

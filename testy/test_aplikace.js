@@ -41,7 +41,7 @@ const KALENDARE = [{ id: 'g1', nazev: 'Osobní', barva: '#2f6bff', zdroj: 'googl
 const zapasFotbal = (tym, dni, h, domaci, hoste, vysledek) => ({ id: tym + dni, tym, zacatek: new Date(den(dni, h)).toISOString(), domaci, hoste,
   doma: /Vnorovy/.test(domaci), misto: '', vysledek, stav: vysledek ? 'odehrano' : 'naplanovano', url: '#' });
 const motor = {
-  info: () => ({ verze: 'test', akce: Object.keys(motor).concat(['polozkaUpravy', 'polozkaTermin']), ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false, podpisy: { osobni: 'Michal', pracovni: '' } },
+  info: () => ({ verze: 'test', akce: Object.keys(motor).concat(['polozkaUpravy', 'polozkaTermin', 'pitiJidloPresun']), ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false, podpisy: { osobni: 'Michal', pracovni: '' } },
     kalendare: KALENDARE, skupinyHostu: [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@x.test', 'rodic2@x.test'] }], jmeniny: jmeninyOblibeni.slice(),
     pocasi: { misto: pocasiDomov ? pocasiDomov.misto : 'Veselí nad Moravou', domov: !!pocasiDomov } }),
   pocasiDomov: (d) => {
@@ -133,12 +133,19 @@ const motor = {
       { id: 'kofein', nazev: 'Kofein', davka: 'před výkopem', kdy: 'zapas', jen: 'zapas' }, { id: 'horcik', nazev: 'Hořčík', davka: 'večer', kdy: 'vecer' }] } }),
   zdraviKlic: () => ({ klic: 'testovaci-klic-zdravi' }),
   zmeny: () => ({ auto: 0, zdravi: 0 }),
+  // jako motor 2026-10-10: den nejvýš 14 dní zpátky a ne do budoucna; přesun i smazání najdou zápis podle id v kterémkoli dni
   pitiJidlo: (d) => {
-    pitiVolani.push({ den: d.den, jak: d.jak, ml: d.ml, co: d.co, bilkoviny: d.bilkoviny, id: d.id });
-    const z = (pitiDny[d.den] = pitiDny[d.den] || { piti: [], jidlo: [] });
-    if (d.jak === 'piti') z.piti.push({ id: 'p' + pitiVolani.length, kdy: Date.now(), ml: d.ml });
-    if (d.jak === 'jidlo') z.jidlo.push({ id: 'j' + pitiVolani.length, kdy: Date.now(), co: d.co, bilkoviny: d.bilkoviny, kcal: d.kcal, odhad: d.odhad ? 'mistni' : undefined });
-    if (d.jak === 'smazat') { z.piti = z.piti.filter((x) => x.id !== d.id); z.jidlo = z.jidlo.filter((x) => x.id !== d.id); }
+    pitiVolani.push({ den: d.den, jak: d.jak, ml: d.ml, co: d.co, bilkoviny: d.bilkoviny, id: d.id, doplnky: d.doplnky });
+    if (d.jak !== 'smazat' && (d.den > iso(Date.now()) || d.den < iso(den(-14)))) throw new Error('Den mimo 14 dní zpátky.');
+    const zDne = (x) => (pitiDny[x] = pitiDny[x] || { piti: [], jidlo: [] });
+    const najdi = () => { for (const k of Object.keys(pitiDny)) for (const druh of ['jidlo', 'piti']) { const i = (pitiDny[k][druh] || []).findIndex((x) => x.id === d.id); if (i >= 0) return { k, druh, i }; } return null; };
+    if (d.jak === 'piti') zDne(d.den).piti.push({ id: 'p' + pitiVolani.length, kdy: Date.now(), ml: d.ml });
+    if (d.jak === 'jidlo') zDne(d.den).jidlo.push({ id: 'j' + pitiVolani.length, kdy: Date.now(), co: d.co, bilkoviny: d.bilkoviny, kcal: d.kcal, odhad: d.odhad ? 'mistni' : undefined });
+    if (d.jak === 'smazat' || d.jak === 'presun') {
+      const n = najdi();
+      if (!n && d.jak === 'presun') throw new Error('Zápis už není – obnov stránku.');
+      if (n) { const x = pitiDny[n.k][n.druh].splice(n.i, 1)[0]; if (d.jak === 'presun') zDne(d.den)[n.druh].push(x); }
+    }
     return { dny: JSON.parse(JSON.stringify(pitiDny)) };
   },
   doplnky: (d) => {
@@ -474,7 +481,11 @@ async function pripravMotor(page) {
     if (data.rid && odpovediRid.has(data.rid)) telo = odpovediRid.get(data.rid);
     else if (data.klic !== KLIC) telo = { ok: false, chyba: 'klic' };
     else if (!motor[data.akce]) telo = { ok: false, chyba: 'Neznámá akce.' };
-    else { volano.push(data); telo = { ok: true, data: motor[data.akce](data) }; }
+    else {
+      volano.push(data);
+      // chyba v akci → { ok: false, chyba } jako skutečný motor (jinak by požadavek zůstal viset)
+      try { telo = { ok: true, data: motor[data.akce](data) }; } catch (e) { telo = { ok: false, chyba: e.message }; }
+    }
     if (data.rid && telo.ok) odpovediRid.set(data.rid, telo);
     if (zpozdeniMotoru[data.akce]) await new Promise((r) => setTimeout(r, zpozdeniMotoru[data.akce])); // pomalý Apps Script
     // jako Google: motor akci provedl, ale odpověď se ztratila a prohlížeč skončil na úvodu motoru (doGet)
@@ -2075,6 +2086,20 @@ function vychoziVikendTestu() {
       await page.waitForSelector('#p-zdravi .zd-tyden .tyden-claude li');
       jistota(await page.locator('#p-zdravi .zd-doplnky .doplnky__oddel').count() === 1 &&
         await page.locator('#p-zdravi .zd-doplnky .doplnek--vedlejsi').count() >= 1, 'ostatní doplňky pod čarou');
+      // všech 7 položek režimu každý den ve stejném pořadí (co neplatí, ztlumeně) – i po klepnutí na jiný den
+      const radky = () => page.$$eval('#p-zdravi .zd-doplnky [data-doplnek]', (b) => b.map((x) => x.dataset.doplnek).join());
+      const dnes = await radky();
+      jistota(dnes.split(',').length === 7, 'všechny položky: ' + dnes);
+      const jiny = page.locator('#p-zdravi .zd-doplnky .doplnky-tyden ol button[data-doplnky-ukaz]:not([aria-current])').first();
+      if (await jiny.count()) {
+        const kam = await jiny.getAttribute('data-doplnky-ukaz');
+        await jiny.click();
+        await page.waitForSelector('#p-zdravi .zd-doplnky [data-doplnek-den="' + kam + '"]');
+        jistota(await radky() === dnes, 'jiný den stejné řádky: ' + await radky());
+      }
+      // pití a jídlo: bílkoviny ve sloupcích týdne (vymyšlená jídla posledních dní)
+      const b = await page.$$eval('#p-zdravi .zd-piti .piti__sl--b', (s) => s.filter((x) => parseFloat(x.style.height) > 0).length);
+      jistota(b >= 1, 'sloupky bílkovin v ukázce: ' + b);
       await page.locator('#p-zdravi .graf14 .graf14__den').nth(10).hover();
       jistota(/připravenost \d+ %/.test(await page.textContent('#graf-bublina')), 'bublina v ukázce');
       await page.screenshot({ path: path.join(VYSTUP, 'ukazka_zdravi.png'), fullPage: true });
@@ -2143,13 +2168,15 @@ function vychoziVikendTestu() {
     });
   }
 
-  // ---------- Doplňky dnes: z režimu motoru, zápasové jen v den zápasu, odškrtnutí vydrží obnovení stránky
-  await test('Doplňky dnes na Dnes: dnešní položky, zápasové jen v den zápasu, odškrtnutí zůstane', async () => {
+  // ---------- Doplňky dnes: z režimu motoru, zápasové mimo den zápasu ztlumeně na svém místě, odškrtnutí vydrží obnovení stránky
+  await test('Doplňky dnes na Dnes: všechny položky režimu, zápasové mimo den zápasu ztlumeně (nepočítají se), odškrtnutí zůstane', async () => {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
     await page.goto(WEB);
     await page.waitForSelector('#dl-doplnky:not([hidden]) [data-doplnek="kreatin"]');
-    jistota(!(await page.locator('#dl-doplnky [data-doplnek="kofein"]').count()), 'kofein jen v den zápasu');
-    jistota(await page.locator('#dl-doplnky [data-doplnek]').count() === 2, 'dvě položky na dnešek');
+    // Michal 10. 10.: „když v doplňkách kliknu na pátek tak se mi to drobně přeháže“ → řádky jsou každý den stejné
+    jistota(await page.locator('#dl-doplnky [data-doplnek="kofein"].doplnek--neplati').count() === 1, 'kofein mimo den zápasu ztlumeně na svém místě');
+    jistota(/jen v den zápasu/.test(await page.textContent('#dl-doplnky [data-doplnek="kofein"]')), 'proč dnes neplatí');
+    jistota(await page.locator('#dl-doplnky [data-doplnek]').count() === 3, 'všechny tři položky režimu');
     await page.click('#dl-doplnky [data-doplnek="kreatin"]');
     await page.waitForSelector('#dl-doplnky [data-doplnek="kreatin"][aria-pressed="true"]');
     jistota(/zbývá 1/.test(await page.textContent('#dl-doplnky')), 'počet zbývajících');
@@ -2206,7 +2233,7 @@ function vychoziVikendTestu() {
       await page.goto(WEB);
       await page.waitForSelector('#dl-doplnky:not([hidden]) .doplnky__oddel');
       const poradi = await page.$$eval('#dl-doplnky [data-doplnek]', (b) => b.map((x) => x.dataset.doplnek + (x.classList.contains('doplnek--vedlejsi') ? '(ostatní)' : '')).join());
-      jistota(poradi === 'kreatin,horcik(ostatní)', 'hlavní nahoře, ostatní pod čarou: ' + poradi);
+      jistota(poradi === 'kreatin,kofein(ostatní),horcik(ostatní)', 'hlavní nahoře, ostatní pod čarou (kofein mimo zápas ztlumeně): ' + poradi);
       jistota(/vše ✓/.test(await page.textContent('#dl-doplnky .card-hlava')), 'hořčík nevzatý, a přesto vše ✓ (nepočítá se)');
       jistota(await page.locator('#dl-doplnky .doplnky-tyden li.dnes.plny').count() === 1, 'dnešek v týdnu plný');
       // denní kroužky berou totéž plnění (doplnkyDnes().plneni): Doplňky 1 z 1 hlavních = ✓ v legendě
@@ -2231,6 +2258,66 @@ function vychoziVikendTestu() {
       if (drive) doplnkyDny[dnesIso] = drive; else delete doplnkyDny[dnesIso];
     }
   });
+
+  // ---------- Doplňky: výběr jiného dne nic nepřehází (Michal 10. 10.: „když kliknu na pátek, tak se mi to drobně přeháže … to by
+  // mělo být furt všude stejné“) – stejné řádky ve stejném pořadí a na stejném místě, co ten den neplatí, je ztlumené
+  for (const v of [VELIKOSTI[3], VELIKOSTI[0]]) {
+    await test(v.nazev + ': Doplňky – jiný den (i den zápasu) = stejné řádky ve stejném pořadí a na stejném místě', async () => {
+      const zaloha = JSON.parse(JSON.stringify(doplnkyDny));
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, v, v.dotyk ? 'dark' : 'light');
+      try {
+        await page.goto(WEB);
+        await page.waitForSelector('#dl-doplnky:not([hidden]) .doplnky-tyden');
+        const radky = () => page.$$eval('#dl-doplnky [data-doplnek]', (b) => {
+          const karta = document.getElementById('dl-doplnky').getBoundingClientRect().top;
+          return b.map((x) => x.dataset.doplnek + (x.classList.contains('doplnek--neplati') ? '~' : '') + '@' + Math.round(x.getBoundingClientRect().top - karta)).join();
+        });
+        const dnes = await radky();
+        jistota(/^kreatin@\d+,kofein~@\d+,horcik@\d+$/.test(dnes), 'dnes (kofein ztlumený): ' + dnes);
+        jistota(/Bez zápasu a tréninku/.test(await page.textContent('#dl-doplnky .doplnky-pozn')), 'druh dne: ' + await page.textContent('#dl-doplnky .doplnky-pozn'));
+        // na telefonu karta mimo obrazovku nemá skutečnou výšku (content-visibility) – nejdřív k ní posunout
+        const vyska = () => page.$eval('#dl-doplnky', async (k) => {
+          k.scrollIntoView({ block: 'center' });
+          await new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)));
+          return Math.round(k.getBoundingClientRect().height);
+        });
+        const vyskaDnes = await vyska();
+        await page.locator('#dl-doplnky').screenshot({ path: path.join(VYSTUP, v.nazev + '_doplnky_stejne_radky.png') });
+        // den zápasu áčka (před 6 dny): kofein platí – řádky stejné a na stejném místě
+        const zapas = iso(den(-6));
+        if (!(await page.locator('#dl-doplnky [data-doplnky-ukaz="' + zapas + '"]').count())) await page.click('#dl-doplnky .doplnky-tyden__sipka[aria-label="Předchozí týden"]');
+        await page.click('#dl-doplnky [data-doplnky-ukaz="' + zapas + '"]');
+        await page.waitForSelector('#dl-doplnky [data-doplnek="kofein"][data-doplnek-den="' + zapas + '"]');
+        const vZapas = await radky();
+        jistota(vZapas === dnes.replace('kofein~', 'kofein'), 'den zápasu: ' + vZapas + ' × dnes ' + dnes);
+        jistota(/den zápasu/i.test(await page.textContent('#dl-doplnky')), 'poznámka o zápasu');
+        jistota(await vyska() === vyskaDnes, 'karta stejně vysoká (karty pod ní neposkočí): ' + await vyska() + ' × ' + vyskaDnes);
+        await page.locator('#dl-doplnky').screenshot({ path: path.join(VYSTUP, v.nazev + '_doplnky_den_zapasu.png') });
+        // další den (bez zápasu) – zase kofein ztlumený, nic se nepohnulo
+        const dalsi = iso(den(-5));
+        if (await page.locator('#dl-doplnky [data-doplnky-ukaz="' + dalsi + '"]').count()) {
+          await page.click('#dl-doplnky [data-doplnky-ukaz="' + dalsi + '"]');
+          await page.waitForSelector('#dl-doplnky [data-doplnek="kofein"][data-doplnek-den="' + dalsi + '"]');
+          jistota(await radky() === dnes, 'všední den: ' + await radky());
+        }
+        // ztlumený doplněk jde odškrtnout (vzal ho i tak) → „navíc“, do plnění se nepočítá
+        await page.click('#dl-doplnky [data-doplnky-ukaz="dnes"]');
+        await page.waitForSelector('#dl-doplnky [data-doplnek="kofein"][data-doplnek-den="' + iso(ted) + '"]');
+        const pred = await page.textContent('#dl-doplnky .card-hlava');
+        await page.click('#dl-doplnky [data-doplnek="kofein"]');
+        await page.waitForSelector('#dl-doplnky [data-doplnek="kofein"][aria-pressed="true"]:not(.doplnek--neplati)');
+        jistota(/navíc/.test(await page.textContent('#dl-doplnky [data-doplnek="kofein"]')), 'navíc');
+        jistota(await page.textContent('#dl-doplnky .card-hlava') === pred, 'plnění beze změny: ' + await page.textContent('#dl-doplnky .card-hlava'));
+        await page.click('#dl-doplnky [data-doplnek="kofein"]');
+        await page.waitForSelector('#dl-doplnky [data-doplnek="kofein"].doplnek--neplati');
+        jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      } finally {
+        await ctx.close();
+        Object.keys(doplnkyDny).forEach((k) => delete doplnkyDny[k]);
+        Object.assign(doplnkyDny, zaloha);
+      }
+    });
+  }
 
   // ---------- kalendář: co ukazovat (zaškrtnutí, jen tento – jen v Kalendáři) a sekce Svátky: hromadné přidání oblíbených
   // (vymyšlená jména: domácký tvar, výběr u nejednoznačného, jméno bez svátku, duplicita, doplnění vztahu) jedním uložením
@@ -2572,6 +2659,138 @@ function vychoziVikendTestu() {
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
     delete pitiDny[dnes];
+  });
+
+  // ---------- jídlo na správný den (Michal 10. 10.: „nadiktoval sem jídlo co jsem jedl včera … zapsalo se mi to do dneška“ –
+  // skutečný zápis zněl „v pátek ráno sem měl 3 rohlíky…“): den z textu, volba dne v okně, Ukázat, Přesunout na jiný den
+  for (const v of [VELIKOSTI[3], VELIKOSTI[0]]) {
+    await test(v.nazev + ': jídlo zpětně – den z textu („v pátek“, „včera“), volba dne v okně, Ukázat den, Přesunout na jiný den, voda k vybranému dni', async () => {
+      const zaloha = JSON.parse(JSON.stringify(pitiDny));
+      const dnesIso = iso(ted), vceraIso = iso(den(-1)), predIso = iso(den(-3));
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, v, v.dotyk ? 'dark' : 'light');
+      const O = '[data-panel="jidlo"] ';
+      const posledni = (jak) => pitiVolani.filter((x) => x.jak === jak).slice(-1)[0] || {};
+      try {
+        await page.goto(WEB);
+        await page.waitForSelector('#dl-piti:not([hidden]) [data-jidlo-pridat]');
+        await page.click('#dl-piti [data-jidlo-pridat]');
+        await page.waitForSelector(O + '[data-jidlo-den]');
+        jistota(/Zapíšu na .* · dnes/.test(await page.textContent(O + '[data-jidlo-den]')), 'bez dne v textu: dnes – ' + await page.textContent(O + '[data-jidlo-den]'));
+        // „v pátek …“ = poslední uplynulý pátek (v pátek samotný = před týdnem)
+        const zpet = (new Date(ted).getDay() - 5 + 7) % 7 || 7;
+        const patek = new Date(den(-zpet));
+        await page.fill(O + '[data-jidlo-co]', 'v pátek ráno sem měl 3 rohlíky, na oběd kuře s rýží');
+        await page.waitForFunction((o) => /Zapíšu na pátek .*podle textu/.test(document.querySelector(o + '[data-jidlo-den]').textContent), O);
+        jistota(new RegExp('pátek ' + patek.getDate() + '\\. ' + (patek.getMonth() + 1) + '\\.').test(await page.textContent(O + '[data-jidlo-den]')), 'datum pátku');
+        await page.locator('[data-panel="jidlo"]').screenshot({ path: path.join(VYSTUP, v.nazev + '_jidlo_den.png') });
+        let pocet = pitiVolani.length;
+        await page.click(O + '[data-jidlo-ulozit]');
+        await cekej(() => pitiVolani.length > pocet, 5000, 'jídlo do motoru');
+        jistota(posledni('jidlo').den === iso(patek.getTime()), 'jídlo na pátek: ' + JSON.stringify(posledni('jidlo')));
+        // oznámení s „Ukázat“ → karta ukáže pátek (nadpis s datem, tlačítko Dnes, jídlo v seznamu)
+        await page.waitForSelector('#toast.videt .toast__akce');
+        jistota(/Zapsáno na pá/.test(await page.textContent('#toast')), 'oznámení: ' + await page.textContent('#toast'));
+        await page.click('#toast .toast__akce');
+        await page.waitForFunction((d) => document.querySelector('#dl-piti [data-piti-den]').dataset.pitiDen === d, iso(patek.getTime()));
+        const hlava = await page.textContent('#dl-piti .card-hlava');
+        jistota(new RegExp('pá ' + patek.getDate() + '\\. ').test(hlava) && /Dnes/.test(hlava), 'nadpis s pátkem: ' + hlava);
+        jistota(/3 rohlíky/.test(await page.textContent('#dl-piti .piti__jidla')), 'jídlo v pátku');
+        jistota(await page.locator('#dl-piti .piti__tyden li.vybrany [aria-current="date"]').count() === 1, 'vybraný den ve sloupcích');
+        // voda z karty jde k vybranému dni
+        pocet = pitiVolani.length;
+        await page.click('#dl-piti [data-piti="250"]');
+        await cekej(() => pitiVolani.length > pocet, 5000, 'voda do motoru');
+        jistota(posledni('piti').den === iso(patek.getTime()), 'voda k pátku: ' + JSON.stringify(posledni('piti')));
+        // Přesunout na jiný den: okno s dny → Dnes
+        const id = (posledni('jidlo') && Object.values(pitiDny).flatMap((x) => x.jidlo).find((x) => /3 rohlíky/.test(x.co)) || {}).id;
+        await page.click('#dl-piti [data-jidlo-presun="' + id + '"]');
+        await page.waitForSelector('.okno [data-okno-volba="' + dnesIso + '"]');
+        jistota(await page.locator('.okno [data-okno-volba]').count() === 7, 'sedm dní na výběr');
+        jistota(await page.locator('.okno [data-okno-volba="' + iso(patek.getTime()) + '"][aria-pressed="true"]').count() === 1, 'teď je v pátku');
+        await page.waitForTimeout(350); // okno se ukazuje plynule
+        await page.screenshot({ path: path.join(VYSTUP, v.nazev + '_jidlo_presun.png') });
+        await page.click('.okno [data-okno-volba="' + dnesIso + '"]');
+        await cekej(() => posledni('presun').id === id, 5000, 'přesun do motoru');
+        jistota(posledni('presun').den === dnesIso, 'přesun na dnešek: ' + JSON.stringify(posledni('presun')));
+        await page.waitForFunction(() => !/3 rohlíky/.test((document.querySelector('#dl-piti .piti__jidla') || {}).textContent || ''));
+        // zpět na dnešek tlačítkem Dnes – jídlo je tam
+        await page.click('#dl-piti [data-piti-ukaz="dnes"]');
+        await page.waitForFunction((d) => document.querySelector('#dl-piti [data-piti-den]').dataset.pitiDen === d, dnesIso);
+        jistota(/3 rohlíky/.test(await page.textContent('#dl-piti .piti__jidla')), 'jídlo dnes');
+        // „včera večer …“ → včerejšek; ruční volba (Včera, Jiný den…) přebije text
+        await page.click('#dl-piti [data-jidlo-pridat]');
+        await page.waitForSelector(O + '[data-jidlo-den]');
+        await page.fill(O + '[data-jidlo-co]', 'včera večer 2 vejce');
+        await page.waitForFunction((o) => / · včera.*podle textu/.test(document.querySelector(o + '[data-jidlo-den]').textContent), O);
+        jistota(await page.locator(O + '[data-jidlo-na="' + vceraIso + '"][aria-pressed="true"]').count() === 1, 'Včera zvýrazněné');
+        await page.selectOption(O + '[data-jidlo-na-vyber]', predIso);
+        await page.waitForFunction((o) => !/podle textu/.test(document.querySelector(o + '[data-jidlo-den]').textContent), O);
+        await page.fill(O + '[data-jidlo-co]', 'dnes ráno 2 vejce');
+        await page.waitForTimeout(100);
+        jistota(await page.inputValue(O + '[data-jidlo-na-vyber]') === predIso, 'ruční volba zůstane i po přepsání textu');
+        pocet = pitiVolani.length;
+        await page.click(O + '[data-jidlo-ulozit]');
+        await cekej(() => pitiVolani.length > pocet, 5000, 'jídlo do motoru');
+        jistota(posledni('jidlo').den === predIso, 'ručně vybraný den: ' + JSON.stringify(posledni('jidlo')));
+        jistota(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, 'přetéká');
+        jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      } finally {
+        await ctx.close();
+        Object.keys(pitiDny).forEach((k) => delete pitiDny[k]);
+        Object.assign(pitiDny, zaloha);
+      }
+    });
+  }
+
+  // ---------- týden v kartě Pití a jídlo (Michal 10. 10.: „ty sloupce můžeš dát i bílkoviny za ten den“): voda a bílkoviny jako
+  // podíl cíle, čárkovaná čára = cíl, bublina s gramy, klepnutí na den ho otevře, šipka o týden zpátky
+  await test('Pití a jídlo: bílkoviny ve sloupcích týdne (cíl čarou), bublina, klepnutí na den, šipky o týden; hodnocení zpětně změněného dne', async () => {
+    const zaloha = JSON.parse(JSON.stringify(pitiDny));
+    const v = iso(den(-1)), pv = iso(den(-2));
+    pitiDny[v] = { piti: [{ id: 'pv1', kdy: den(-1, 9), ml: 2000 }], jidlo: [{ id: 'jv1', kdy: den(-1, 12), co: 'Kuře s rýží', bilkoviny: 90, kcal: 700 },
+      { id: 'jv2', kdy: den(-1, 19), co: 'Tvaroh', bilkoviny: 50, kcal: 400 }],
+      hodnoceni: { znamka: 'C', text: 'Bílkoviny 90 g – chyběla večeře.', kdy: den(-1, 21.5), stare: true } };
+    pitiDny[pv] = { piti: [{ id: 'pv2', kdy: den(-2, 9), ml: 1000 }], jidlo: [{ id: 'jv3', kdy: den(-2, 12), co: 'Guláš', bilkoviny: 65, kcal: 900 }] };
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="zdravi"]');
+      const K = '#p-zdravi .zd-piti ';
+      await page.waitForSelector(K + '.piti__tyden');
+      jistota(/Tento týden/.test(await page.textContent(K + '.piti-tyden__hlava')) && /bílkoviny/.test(await page.textContent(K + '.piti-tyden__legenda')), 'hlavička týdne s legendou');
+      if (!(await page.locator(K + '[data-piti-ukaz="' + v + '"]').count())) await page.click(K + '.doplnky-tyden__sipka[aria-label="Předchozí týden"]');
+      const sloupec = K + '[data-piti-ukaz="' + v + '"]';
+      await page.waitForSelector(sloupec);
+      // 140 g ze 130 → nad čárou cíle (75 % výšky → 81 %), 2 l z 2,5 → 60 %
+      const vysky = await page.$eval(sloupec, (b) => [b.querySelector('.piti__sl--voda').style.height, b.querySelector('.piti__sl--b').style.height]);
+      jistota(vysky.join() === '60%,81%', 'výšky sloupků: ' + vysky);
+      await page.hover(sloupec);
+      const b = await page.textContent('#graf-bublina');
+      jistota(/2,0 l · 140 g/.test(b) && /bílkoviny 108 % cíle/.test(b) && /1\s100\skcal/.test(b) && /klepnutím den otevřeš/.test(b), 'bublina: ' + b);
+      await page.locator(K + '.piti-tyden').screenshot({ path: path.join(VYSTUP, 'pc_piti_tyden.png') });
+      // klepnutí na včerejšek → karta ukáže ten den, hodnocení se značkou „přehodnotí“
+      await page.click(sloupec);
+      await page.waitForSelector(K + '[data-piti-den="' + v + '"]');
+      jistota(/140 g/.test(await page.textContent(K + '.piti__radek:nth-child(2)')), 'bílkoviny včerejška: ' + await page.textContent(K + '.piti__radek:nth-child(2)'));
+      jistota(/Včerejšek podle Clauda/.test(await page.textContent(K + '.piti__hodnoceni')) && /přehodnotí/.test(await page.textContent(K + '.piti__hodnoceni')), 'staré hodnocení');
+      await page.locator('#p-zdravi .zd-piti').screenshot({ path: path.join(VYSTUP, 'pc_piti_vcera.png') });
+      // šipky: předchozí týden a zpět (dál než 14 dní zpátky to nejde – motor posílá 14 dní)
+      const zpetSipka = K + '.doplnky-tyden__sipka[aria-label="Předchozí týden"]';
+      if (!(await page.locator(zpetSipka + '[disabled]').count())) {
+        await page.click(zpetSipka);
+        await page.waitForFunction((k) => !/Tento týden/.test(document.querySelector(k + '.piti-tyden__hlava').textContent), K);
+      }
+      jistota(await page.locator(zpetSipka + '[disabled]').count() === 1, 'dál zpátky ne');
+      await page.click(K + '.doplnky-tyden__sipka[aria-label="Další týden"]');
+      await page.waitForFunction((k) => /Tento týden/.test(document.querySelector(k + '.piti-tyden__hlava').textContent), K);
+      if (await page.locator(K + '[data-piti-ukaz="dnes"]').count()) await page.click(K + '[data-piti-ukaz="dnes"]');
+      await page.waitForSelector(K + '[data-piti-den="' + iso(ted) + '"]');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      await ctx.close();
+      Object.keys(pitiDny).forEach((k) => delete pitiDny[k]);
+      Object.assign(pitiDny, zaloha);
+    }
   });
 
   // ---------- cíl váhy jen ve Zdraví (Michal 9. 10.: váha teď není hlavní) – pruh, zbývá, tempo; na Dnes jen zápis
