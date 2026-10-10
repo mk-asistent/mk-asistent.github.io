@@ -2706,7 +2706,8 @@ function vychoziVikendTestu() {
         await page.click('#dl-piti [data-jidlo-presun="' + id + '"]');
         await page.waitForSelector('.okno [data-okno-volba="' + dnesIso + '"]');
         jistota(await page.locator('.okno [data-okno-volba]').count() === 7, 'sedm dní na výběr');
-        jistota(await page.locator('.okno [data-okno-volba="' + iso(patek.getTime()) + '"][aria-pressed="true"]').count() === 1, 'teď je v pátku');
+        // v pátek je „v pátek“ před týdnem – mimo sedm dní okna, žádný den tedy není vybraný
+        jistota(await page.locator('.okno [data-okno-volba="' + iso(patek.getTime()) + '"][aria-pressed="true"]').count() === (zpet < 7 ? 1 : 0), 'teď je v pátku');
         await page.waitForTimeout(350); // okno se ukazuje plynule
         await page.screenshot({ path: path.join(VYSTUP, v.nazev + '_jidlo_presun.png') });
         await page.click('.okno [data-okno-volba="' + dnesIso + '"]');
