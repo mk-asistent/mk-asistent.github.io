@@ -37,7 +37,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-09.5';
+const VERZE = '2026-10-10.1';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -3388,12 +3388,17 @@ function autoZapsat_(d) {
   return autoData_(ss);
 }
 
-/** Nový zápis (zkontrolovaný novyZapis) do prvního volného řádku listu → { list, radek }. */
-function autoZapis_(ss, z) {
+/**
+ * Nový zápis (zkontrolovaný novyZapis) do prvního volného řádku listu → { list, radek }. uctenkaId: zápis z fotky účtenky –
+ * pod zámkem se ještě jednou hledá, jestli ji mezitím nezapsal souběžný běh (aplikace posílá účtenku z fronty v telefonu
+ * znovu po výpadku, i když první běh ještě čte text) → vrátí jeho řádek, nic dvakrát.
+ */
+function autoZapis_(ss, z, uctenkaId) {
   const odkazUctenky = odkazUctenky_(z.uctenka);
   const zamek = LockService.getScriptLock();
   zamek.waitLock(20000);
   try {
+    if (uctenkaId) { const uz = najdiZapisUctenky_(ss, uctenkaId); if (uz) return uz; }
     const list = autoList_(ss, z.druh);
     const hodnoty = list.getDataRange().getValues();
     const s = AUTO_.sloupce(hodnoty[0] || []);
@@ -3681,10 +3686,17 @@ function autoUctenka_(d) {
   const otisk = /^[0-9a-f]{16,64}$/.test(String(d.otisk || '')) ? String(d.otisk) : '';
   const slozka = podslozka_(podslozka_(koren_(), 'AUTO'), 'uctenky');
   let soubor = null;
-  if (otisk) { const it = slozka.getFilesByName('uctenka_' + otisk + '.jpg'); if (it.hasNext()) soubor = it.next(); }
-  if (!soubor) {
-    const nazev = otisk ? 'uctenka_' + otisk + '.jpg' : Utilities.formatDate(new Date(), CASOVE_PASMO, 'yyyy-MM-dd_HHmmss') + '_uctenka.jpg';
-    soubor = slozka.createFile(Utilities.newBlob(bajty, 'image/jpeg', nazev));
+  // hledání a založení souboru pod zámkem – stejná fotka poslaná znovu, zatímco první běh ještě běží, nezaloží druhý soubor
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(20000);
+  try {
+    if (otisk) { const it = slozka.getFilesByName('uctenka_' + otisk + '.jpg'); if (it.hasNext()) soubor = it.next(); }
+    if (!soubor) {
+      const nazev = otisk ? 'uctenka_' + otisk + '.jpg' : Utilities.formatDate(new Date(), CASOVE_PASMO, 'yyyy-MM-dd_HHmmss') + '_uctenka.jpg';
+      soubor = slozka.createFile(Utilities.newBlob(bajty, 'image/jpeg', nazev));
+    }
+  } finally {
+    zamek.releaseLock();
   }
   let text = '', chybaTextu = '';
   try {
@@ -3702,7 +3714,7 @@ function autoUctenka_(d) {
   if (!zapsano) {
     const zapis = AUTO_.zapisZUctenky(navrh, soubor.getId(), kmKeDni_(navrh.datum));
     if (!zapis) return vysledek;
-    zapsano = autoZapis_(ss, AUTO_.novyZapis(zapis));
+    zapsano = autoZapis_(ss, AUTO_.novyZapis(zapis), soubor.getId());
   }
   return Object.assign(vysledek, { zapsano: zapsano, data: autoData_(ss) });
 }

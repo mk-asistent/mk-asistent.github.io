@@ -60,16 +60,24 @@
       for (var i = 0; i < pole.length; i++) if (pole[i].value && pole[i].getClientRects().length) return true;
       return false;
     };
+    // rozdělaná práce, kterou přenačtení nesmí přerušit – moduly přidávají funkce do window.asistentPrace (js/auto.js: otevřený
+    // výběr fotky účtenky a nahrávání; iPhone pod fotoaparátem stránku „skryje“ a čekající nová verze by se načetla i s
+    // rozdělaným výběrem – fotka by se ztratila, 10. 10.)
+    var prace = function () {
+      var p = window.asistentPrace || [];
+      for (var i = 0; i < p.length; i++) { try { if (p[i]()) return true; } catch (e) { /* další */ } }
+      return false;
+    };
     // nový service worker má celou novou verzi → načíst ji: hned jen když aplikaci nikdo nevidí, nebo pár vteřin po
     // otevření (nic rozdělaného); jinak až půjde do pozadí – ne uprostřed Nastavení nebo psaní (Michal 5. 10.)
     navigator.serviceWorker.addEventListener('controllerchange', function () {
       if (!mel || znovu) return;
-      if (document.visibilityState === 'hidden' || (Date.now() - otevreno < 8000 && !pise() && !panel())) { nacti(); return; }
+      if (!prace() && (document.visibilityState === 'hidden' || (Date.now() - otevreno < 8000 && !pise() && !panel()))) { nacti(); return; }
       cekaNaVerzi = true;
       if (window.asistentNovaVerze) window.asistentNovaVerze();
     });
     document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'hidden' && cekaNaVerzi && !pise()) nacti();
+      if (document.visibilityState === 'hidden' && cekaNaVerzi && !pise() && !prace()) nacti();
       if (document.visibilityState === 'visible') otevreno = Date.now(); // návrat z pozadí = jako nové otevření
     });
     window.addEventListener('load', function () {

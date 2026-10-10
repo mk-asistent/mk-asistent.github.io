@@ -2883,6 +2883,32 @@ test('auto: účtenka rovnou do tabulky (stejná fotka nic dvakrát), oprava zá
   assert.ok(/není mezi účtenkami/.test(p.volej('autoUctenkaFoto', { id: jiny.getId() }).chyba));
 });
 
+test('auto: účtenka poslaná znovu, než první běh doběhl (fronta v telefonu) – pod zámkem nic dvakrát (soubor ani řádek)', () => {
+  const p = prostredi();
+  const tab = tabulkaAuta(p);
+  p.vlastnosti.set('AUTO_TABULKA', TAB_AUTO);
+  p.nastavCas(Date.parse('2026-08-07T15:00:00+02:00'));
+  p.nastavOcr(UCTENKA_NAFTA);
+  const fotka = 'data:image/jpeg;base64,' + Buffer.from('jpeg-soubezne').toString('base64');
+  const otisk = 'abcdefabcdef012345678901';
+  let o = p.volej('autoUctenka', { obrazek: fotka, otisk, zapsat: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.zapsano), { list: 'tankovani', radek: 6 });
+  // druhý běh: před zámkem zápis ještě nevidí (první běh ho zapisuje právě teď) – pod zámkem ho najde a vrátí
+  const t = tab.listy['Tankování'];
+  const odkaz = t.odkazy['6:9'];
+  delete t.odkazy['6:9'];
+  let zamku = 0;
+  p.ctx.LockService.getScriptLock = () => ({ waitLock() { zamku++; if (zamku === 2) t.odkazy['6:9'] = odkaz; }, releaseLock() {} });
+  o = p.volej('autoUctenka', { obrazek: fotka, otisk, zapsat: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.zapsano), { list: 'tankovani', radek: 6 }, 'řádek prvního běhu');
+  assert.strictEqual(zamku, 2, 'soubor i zápis pod zámkem');
+  assert.ok(t.bunky.length <= 6 || t.bunky.slice(6).every((r) => r.every((x) => x === '' || x == null)), 'žádný druhý řádek');
+  assert.strictEqual(o.data.data.tankovani.filter((x) => x.uctenka).length, 1);
+  assert.strictEqual(p.schranka.deti.AUTO.deti.uctenky.soubory.length, 1, 'jeden soubor fotky');
+});
+
 test('auto: péče o auto jako text do vlastního listu za Péče o auto – jiné listy nemění, obsah nepřepíše', () => {
   const p = prostredi();
   tabulkaAuta(p);

@@ -239,6 +239,7 @@ const motor = {
   autoUctenka: (d) => {
     if (!/^data:image\/jpeg;base64,/.test(d.obrazek)) throw new Error('Fotka účtenky nepřišla (čekám JPEG).');
     autoUctenky.push({ zapsat: d.zapsat, otisk: d.otisk });
+    if (autoUctenkaChyba) throw new Error(autoUctenkaChyba); // test: chyba motoru (účtenka zůstane v zařízení)
     const vysledek = { uctenka: 'uctenka-test-123', odkaz: '#', text: '', chybaTextu: '',
       navrh: { druh: 'tankovani', datum: iso(ted), castka: 1859.63, litry: 42.75, cenaLitr: 43.5, kategorie: null, obchod: 'Pumpa Test' } };
     if (!d.zapsat) return vysledek;
@@ -294,6 +295,8 @@ function vycistiSchranku() {
   mojePoznamkyTest.splice(0, mojePoznamkyTest.length, ...MOJE_VYCHOZI.map((p) => Object.assign({}, p)));
 }
 const autoZapisy = [], autoSmazano = [], autoUctenky = [], autoUpravy = [], autoFotky = [], autoTerminy = [];
+let autoUctenkaChyba = '';          // chyba motoru při čtení účtenky (test fronty v zařízení)
+let motorBezSite = false;           // motor nedostupný (bez sítě) – spolu s ctx.setOffline
 let postaNavic = {};              // test záložek: aktualizace v Doručené, čísla záložek a přehled od Clauda
 const doplnkyDny = {}, doplnkyVolani = []; // odškrtnuté doplňky (motor: ZDRAVI/DOPLNKY.json)
 let jmeninyOblibeni = [];          // oblíbení lidé (jmeniny v kalendáři)
@@ -468,13 +471,19 @@ async function pripravMotor(page) {
     route.fulfill({ status: kod ? 200 : 404, contentType: 'text/javascript; charset=utf-8', headers: { 'Access-Control-Allow-Origin': '*' }, body: kod || '' });
   });
   await page.route(MOTOR, async (route) => {
+    // bez sítě (ctx.setOffline): page.route by odpověď jinak doručil i offline
+    if (motorBezSite) { await route.abort('internetdisconnected'); return; }
     const data = JSON.parse(route.request().postData() || '{}');
     let telo;
     // jako motor: opakovaný požadavek se stejným rid se podruhé neprovede (vrátí výsledek prvního běhu)
     if (data.rid && odpovediRid.has(data.rid)) telo = odpovediRid.get(data.rid);
     else if (data.klic !== KLIC) telo = { ok: false, chyba: 'klic' };
     else if (!motor[data.akce]) telo = { ok: false, chyba: 'Neznámá akce.' };
-    else { volano.push(data); telo = { ok: true, data: motor[data.akce](data) }; }
+    else {
+      volano.push(data);
+      // jako motor: chyba akce = { ok: false, chyba } (aplikace ji ukáže)
+      try { telo = { ok: true, data: motor[data.akce](data) }; } catch (e) { telo = { ok: false, chyba: e.message }; }
+    }
     if (data.rid && telo.ok) odpovediRid.set(data.rid, telo);
     if (zpozdeniMotoru[data.akce]) await new Promise((r) => setTimeout(r, zpozdeniMotoru[data.akce])); // pomalý Apps Script
     // jako Google: motor akci provedl, ale odpověď se ztratila a prohlížeč skončil na úvodu motoru (doGet)
@@ -3807,15 +3816,18 @@ function vychoziVikendTestu() {
     await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"]'));
     const v = autoZapisy[1] || {};
     jistota(v.druh === 'naklad' && v.kategorie === 'Servis' && v.polozka === 'Výměna oleje' && v.castka === 3450 && v.kdo === 'K', 'výdaj: ' + JSON.stringify(v));
-    // účtenka (i z Fotek): fotka → motor ji přečte a rovnou zapíše → v oznámení Upravit → okno s fotkou → změna do tabulky
-    await page.setInputFiles('.auto-akce [data-auto-foto]', { name: 'uctenka.png', mimeType: 'image/png', buffer: fs.readFileSync(path.join(KOREN, 'ikony', 'ikona-192.png')) });
-    await page.waitForSelector('#toast.videt .toast__akce');
-    const oznameni = (await page.textContent('#toast')).replace(/\s+/g, ' ');
-    jistota(/Zapsáno z účtenky: tankování 1 860 Kč/.test(oznameni), 'oznámení: ' + oznameni);
+    // účtenka (i z Fotek): fotka → motor ji přečte a rovnou zapíše → v kartičce Upravit → okno s fotkou → změna do tabulky
+    jistota(await page.getAttribute('.auto-akce label.auto-foto', 'for') === 'auto-foto-vstup', 'tlačítko účtenek = popisek ke stálému poli');
+    await page.setInputFiles('#auto-foto-vstup', { name: 'uctenka.png', mimeType: 'image/png', buffer: fs.readFileSync(path.join(KOREN, 'ikony', 'ikona-192.png')) });
+    await page.waitForSelector('#auto-uctenky.auto-uctenky--ok [data-au-upravit]');
+    const oznameni = (await page.textContent('#auto-uctenky')).replace(/\s+/g, ' ');
+    jistota(/Zapsáno z účtenky/.test(oznameni) && /tankování 1 860 Kč · Pumpa Test/.test(oznameni), 'oznámení: ' + oznameni);
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_auto_uctenka_karticka.png') });
     const u = autoUctenky[autoUctenky.length - 1] || {};
     jistota(u.zapsat === true && /^[0-9a-f]{24}$/.test(u.otisk || ''), 'účtenka do motoru se zápisem a otiskem: ' + JSON.stringify(u));
     jistota(autoZapisy.length === 2, 'z účtenky se nezapisuje přes okno');
-    await page.click('#toast .toast__akce');
+    await page.click('#auto-uctenky [data-au-upravit]');
+    await page.waitForSelector('#auto-uctenky', { state: 'hidden' });
     // na PC fotka rovnou vedle formuláře (vlevo údaje, vpravo fotka)
     await page.waitForSelector('[data-panel="auto-zapis"].auto-s-fotkou .auto-zapis-foto img');
     const sloupce = await page.$eval('[data-panel="auto-zapis"] .auto-zapis-mrizka', (m) => getComputedStyle(m).gridTemplateColumns.split(' ').length);
@@ -3854,13 +3866,13 @@ function vychoziVikendTestu() {
     await page.click('.okno-pozadi [data-okno="ano"]');
     await page.waitForFunction(() => document.querySelectorAll('.auto-zapisy .auto-zapis--palivo').length === 6);
     jistota(autoSmazano.length === 1 && autoSmazano[0].list === 'tankovani' && autoSmazano[0].castka === 1900, 'smazání: ' + JSON.stringify(autoSmazano));
-    // víc účtenek najednou (z Fotek): každá zvlášť do motoru, souhrn v oznámení
+    // víc účtenek najednou (z Fotek): každá zvlášť do motoru, souhrn v kartičce
     const predUctenkami = autoUctenky.length;
-    jistota(await page.getAttribute('.auto-akce [data-auto-foto]', 'multiple') !== null, 'výběr víc fotek');
-    await page.setInputFiles('.auto-akce [data-auto-foto]', [
+    jistota(await page.getAttribute('#auto-foto-vstup', 'multiple') !== null, 'výběr víc fotek');
+    await page.setInputFiles('#auto-foto-vstup', [
       { name: 'a.png', mimeType: 'image/png', buffer: fs.readFileSync(path.join(KOREN, 'ikony', 'ikona-192.png')) },
       { name: 'b.png', mimeType: 'image/png', buffer: fs.readFileSync(path.join(KOREN, 'ikony', 'apple-touch-icon.png')) }]);
-    await page.waitForFunction(() => /Účtenky: zapsáno 2/.test(document.getElementById('toast').textContent), null, { timeout: 15000 });
+    await page.waitForFunction(() => /Účtenky: zapsáno 2/.test(document.getElementById('auto-uctenky').textContent), null, { timeout: 15000 });
     const dve = autoUctenky.slice(predUctenkami);
     jistota(dve.length === 2 && dve[0].otisk !== dve[1].otisk, 'dvě účtenky, každá s vlastním otiskem: ' + JSON.stringify(dve));
     await page.waitForFunction(() => document.querySelectorAll('.auto-zapisy .auto-zapis--palivo').length === 8);
@@ -3903,12 +3915,182 @@ function vychoziVikendTestu() {
     await page.waitForSelector('.auto-hero');
     await page.click('.lista__plus');
     await page.waitForSelector('[data-panel="rychle"] [data-rychle-akce="tankovani"]');
-    jistota(await page.locator('[data-panel="rychle"] .rychle__foto input[data-auto-foto]').count() === 1, 'účtenka v „+“');
-    jistota(await page.getAttribute('[data-panel="rychle"] .rychle__foto input[data-auto-foto]', 'capture') === null, 'účtenka i z Fotek (bez vynuceného fotoaparátu)');
+    jistota(await page.locator('[data-panel="rychle"] label.rychle__foto[for="auto-foto-vstup"]').count() === 1, 'účtenka v „+“');
+    jistota(await page.getAttribute('#auto-foto-vstup', 'capture') === null && await page.getAttribute('#auto-foto-vstup', 'accept') === 'image/*',
+      'účtenka i z Fotek (bez vynuceného fotoaparátu)');
+    jistota(await page.locator('[data-panel="rychle"] [data-rychle-akce="myti"]').count() === 1, 'Mytí auta v „+“');
     await page.click('[data-panel="rychle"] [data-rychle-akce="tankovani"]');
     await page.waitForSelector('[data-panel="auto-zapis"] [data-az="castka"]');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
+  });
+
+  // ---------- účtenka z iPhonu (10. 10. se ztratila: pole pro fotku bylo ve stránce, kterou překreslení přepíše)
+  const fotkaUctenky = () => ({ name: 'uctenka.png', mimeType: 'image/png', buffer: fs.readFileSync(path.join(KOREN, 'ikony', 'ikona-192.png')) });
+  const pocetVZarizeni = (page) => page.evaluate(() => new Promise((hotovo) => {
+    const r = indexedDB.open('asistent-auto', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('uctenky', { keyPath: 'id' });
+    r.onsuccess = () => { const q = r.result.transaction('uctenky').objectStore('uctenky').count(); q.onsuccess = () => { hotovo(q.result); r.result.close(); }; };
+    r.onerror = () => hotovo(-1);
+  }));
+  const textKarty = (page) => page.evaluate(() => { const k = document.getElementById('auto-uctenky'); return k && !k.hidden ? k.textContent.replace(/\s+/g, ' ').trim() : ''; });
+
+  await test('Auto: účtenka z iPhonu přežije překreslení i návrat z fotoaparátu („+“ i stránka Auto), průběh a výsledek v kartičce', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
+    try {
+      await page.goto(WEB);
+      await page.waitForSelector('.lista__plus');
+      // „+“ → Účtenky: během výběru (iPhone otevře Fotky / fotoaparát na desítky vteřin) přijdou data a stránka se překreslí,
+      // po návratu z fotoaparátu aplikace obnoví data (visibilitychange) – teprve potom iPhone doručí vybranou fotku
+      await page.click('.lista__plus');
+      await page.waitForSelector('[data-panel="rychle"] label.rychle__foto');
+      const [vyber] = await Promise.all([page.waitForEvent('filechooser'), page.click('[data-panel="rychle"] label.rychle__foto')]);
+      jistota(await page.evaluate(() => (window.asistentPrace || []).some((f) => f())), 'otevřený výběr fotky = rozdělaná práce (nová verze nepřenačte)');
+      jistota(await page.evaluate(() => !!localStorage.getItem('asistent.auto.vyber')), 'značka rozdělaného výběru');
+      await page.evaluate(async () => {
+        const s = await import('/js/stav.js');
+        s.zmeneno();
+        await new Promise((r) => setTimeout(r, 50));
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+        s.stav.naposledy = Date.now() - 120000; // aplikace byla dlouho v pozadí → obnovVse
+        document.dispatchEvent(new Event('visibilitychange'));
+        await new Promise((r) => setTimeout(r, 100));
+      });
+      jistota(await vyber.element().evaluate((el) => el.isConnected && el.id === 'auto-foto-vstup'), 'pole pro fotku po překreslení pořád v dokumentu');
+      const pred = autoUctenky.length;
+      zpozdeniMotoru.autoUctenka = 1500; // motor čte účtenku (OCR) – průběh musí být vidět hned
+      await vyber.setFiles(fotkaUctenky());
+      await page.waitForSelector('[data-panel="rychle"]', { state: 'detached' });
+      await page.waitForFunction(() => /Nahrávám účtenku/.test(document.getElementById('auto-uctenky').textContent));
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_uctenka_nahravam.png') });
+      jistota(await page.evaluate(() => (window.asistentPrace || []).some((f) => f())), 'nahrávání = rozdělaná práce');
+      await page.waitForSelector('#auto-uctenky.auto-uctenky--ok [data-au-upravit]', { timeout: 10000 });
+      jistota(autoUctenky.length === pred + 1, 'účtenka došla do motoru: ' + (autoUctenky.length - pred));
+      const karta = await textKarty(page);
+      jistota(/Zapsáno z účtenky/.test(karta) && /tankování 1 860 Kč · Pumpa Test/.test(karta), 'výsledek s částkou a stanicí: ' + karta);
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_uctenka_zapsano.png') });
+      jistota(await pocetVZarizeni(page) === 0, 'zapsaná účtenka už není ve frontě v zařízení');
+      jistota(!(await page.evaluate(() => (window.asistentPrace || []).some((f) => f()))) && !(await page.evaluate(() => localStorage.getItem('asistent.auto.vyber'))),
+        'po zápisu nic rozdělaného');
+      // Upravit = odkaz na zápis (okno s fotkou)
+      await page.click('#auto-uctenky [data-au-upravit]');
+      await page.waitForSelector('[data-panel="auto-zapis"] [data-az="castka"]');
+      jistota(/Upravit tankování/.test(await page.textContent('[data-panel="auto-zapis"] .panel-titul')), 'Upravit otevře zápis');
+      await page.click('[data-panel="auto-zapis"] [data-zavrit-panel]');
+      await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"]'));
+      // stránka Auto: totéž přes tlačítko Účtenky z fotek, překreslení stránky během výběru
+      await page.click('.hlava-ja [data-menu]');
+      await page.click('[data-panel="menu"] [data-menu-cil="auto"]');
+      await page.waitForSelector('.auto-akce label.auto-foto');
+      const [vyber2] = await Promise.all([page.waitForEvent('filechooser'), page.click('.auto-akce label.auto-foto')]);
+      await page.evaluate(() => import('/js/stav.js').then((s) => { s.zmeneno(); return new Promise((r) => setTimeout(r, 50)); }));
+      await vyber2.setFiles({ name: 'jina.png', mimeType: 'image/png', buffer: fs.readFileSync(path.join(KOREN, 'ikony', 'apple-touch-icon.png')) });
+      await cekej(() => autoUctenky.length === pred + 2, 10000, 'druhá účtenka ze stránky Auto do motoru');
+      await page.waitForSelector('#auto-uctenky.auto-uctenky--ok');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      delete zpozdeniMotoru.autoUctenka;
+      await ctx.close();
+    }
+  });
+
+  await test('Auto: účtenka bez sítě počká v telefonu a pošle se sama, chyba motoru → Zkusit znovu (i po zavření aplikace) / Zahodit', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
+    try {
+      await page.goto(WEB);
+      await page.waitForSelector('.lista__plus');
+      const pred = autoUctenky.length;
+      // bez sítě: fotka zůstane v zařízení, kartička to řekne a po návratu sítě se pošle sama
+      motorBezSite = true;
+      await ctx.setOffline(true);
+      await page.setInputFiles('#auto-foto-vstup', fotkaUctenky());
+      await page.waitForSelector('#auto-uctenky.auto-uctenky--ceka');
+      const bezSite = await textKarty(page);
+      jistota(/čeká v telefonu/.test(bezSite) && /bez sítě – pošlu ji sama, až bude síť/.test(bezSite), 'bez sítě: ' + bezSite);
+      jistota(await pocetVZarizeni(page) === 1, 'účtenka uložená v zařízení');
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_uctenka_bez_site.png') });
+      motorBezSite = false;
+      await ctx.setOffline(false);
+      await page.waitForSelector('#auto-uctenky.auto-uctenky--ok', { timeout: 10000 });
+      jistota(autoUctenky.length === pred + 1 && await pocetVZarizeni(page) === 0, 'po návratu sítě odeslaná');
+      await page.click('#auto-uctenky [data-au-zavrit]');
+      await page.waitForSelector('#auto-uctenky', { state: 'hidden' });
+      // chyba motoru: Zkusit znovu / Zahodit; účtenka přežije i zavření aplikace a pošle se při dalším otevření
+      autoUctenkaChyba = 'Tabulka auta není propojená.';
+      await page.setInputFiles('#auto-foto-vstup', fotkaUctenky());
+      await page.waitForSelector('#auto-uctenky.auto-uctenky--chyba [data-au-znovu]');
+      jistota(/Účtenka se nenahrála/.test(await textKarty(page)) && /není propojená/.test(await textKarty(page)), 'chyba motoru: ' + await textKarty(page));
+      const predStartem = autoUctenky.length;
+      await page.evaluate(() => localStorage.removeItem('asistent.videno')); // bez okna „Co je nového“ po přenačtení
+      await page.reload();
+      await cekej(() => autoUctenky.length === predStartem + 1, 10000, 'po otevření aplikace se účtenka z minula poslala sama');
+      await page.waitForSelector('#auto-uctenky.auto-uctenky--chyba [data-au-znovu]', { timeout: 10000 });
+      autoUctenkaChyba = '';
+      const predZnovu = autoUctenky.length;
+      await page.click('#auto-uctenky [data-au-znovu]');
+      await page.waitForSelector('#auto-uctenky.auto-uctenky--ok', { timeout: 10000 });
+      jistota(autoUctenky.length === predZnovu + 1 && await pocetVZarizeni(page) === 0, 'Zkusit znovu po otevření aplikace');
+      // Zahodit (s potvrzením) – fotka z fronty v zařízení pryč
+      autoUctenkaChyba = 'Fotka účtenky je moc velká.';
+      await page.setInputFiles('#auto-foto-vstup', fotkaUctenky());
+      await page.waitForSelector('#auto-uctenky.auto-uctenky--chyba [data-au-zahodit]');
+      await page.click('#auto-uctenky [data-au-zahodit]');
+      await page.click('.okno-pozadi [data-okno="ano"]');
+      await page.waitForSelector('#auto-uctenky', { state: 'hidden' });
+      jistota(await pocetVZarizeni(page) === 0, 'zahozená účtenka pryč ze zařízení');
+      autoUctenkaChyba = '';
+      // aplikace se zavřela během výběru fotky (iPhone ji při focení občas ukončí) → při dalším otevření to řekne
+      await Promise.all([page.waitForEvent('filechooser'), page.click('.lista__plus').then(() => page.click('[data-panel="rychle"] label.rychle__foto'))]);
+      await page.evaluate(() => localStorage.removeItem('asistent.videno'));
+      await page.reload();
+      await page.waitForSelector('#auto-uctenky.auto-uctenky--chyba label[for="auto-foto-vstup"]');
+      jistota(/nenahrála/.test(await textKarty(page)) && /vyber ji znovu/.test(await textKarty(page)), 'přerušený výběr: ' + await textKarty(page));
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_uctenka_preruseno.png') });
+      jistota(!chybyStranky.filter((c) => !/ERR_INTERNET_DISCONNECTED|Failed to fetch|Failed to load resource/.test(c)).length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      autoUctenkaChyba = '';
+      motorBezSite = false;
+      await ctx.close();
+    }
+  });
+
+  await test('Auto: rychlý výdaj Mytí – v okně Výdaj (částka jako minule) i z „+“ dvěma klepnutími', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
+    try {
+      await page.goto(WEB);
+      await page.click('.hlava-ja [data-menu]');
+      await page.click('[data-panel="menu"] [data-menu-cil="auto"]');
+      await page.waitForSelector('.auto-akce [data-auto-zapis="naklad"]');
+      await page.click('.auto-akce [data-auto-zapis="naklad"]');
+      await page.waitForSelector('[data-panel="auto-zapis"] [data-az-rychle="0"]');
+      const volba = (await page.textContent('[data-panel="auto-zapis"] [data-az-rychle="0"]')).replace(/\s+/g, ' ').trim();
+      jistota(/Mytí/.test(volba) && /150 Kč/.test(volba), 'rychlá volba Mytí s částkou jako minule: ' + volba);
+      await page.click('[data-panel="auto-zapis"] [data-az-rychle="0"]');
+      jistota(await page.inputValue('[data-panel="auto-zapis"] [data-az="kategorie"]') === 'Myčka' &&
+        await page.inputValue('[data-panel="auto-zapis"] [data-az="castka"]') === '150', 'Mytí: kategorie Myčka a částka');
+      jistota(await page.getAttribute('[data-panel="auto-zapis"] [data-az-rychle="0"]', 'aria-pressed') === 'true', 'zvolená rychlá volba');
+      await page.fill('[data-panel="auto-zapis"] [data-az="castka"]', '100');
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_auto_myti.png') });
+      const predZapisy = autoZapisy.length;
+      await page.click('[data-panel="auto-zapis"] [data-auto-ulozit]');
+      await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"]'));
+      const z = autoZapisy[predZapisy] || {};
+      jistota(z.druh === 'naklad' && z.kategorie === 'Myčka' && z.castka === 100 && z.datum === iso(Date.now()), 'mytí do tabulky: ' + JSON.stringify(z));
+      // „+“ → Mytí auta → okno už s kategorií a částkou z posledního mytí (100 Kč) → Zapsat
+      await page.click('.lista__plus');
+      await page.click('[data-panel="rychle"] [data-rychle-akce="myti"]');
+      await page.waitForSelector('[data-panel="auto-zapis"] [data-az="castka"]');
+      jistota(await page.inputValue('[data-panel="auto-zapis"] [data-az="castka"]') === '100' &&
+        await page.inputValue('[data-panel="auto-zapis"] [data-az="kategorie"]') === 'Myčka', '„+“ Mytí auta předvyplní kategorii a částku');
+      jistota(await page.evaluate(() => !document.activeElement.matches('input')), 'bez klávesnice – stačí Zapsat');
+      await page.click('[data-panel="auto-zapis"] [data-auto-ulozit]');
+      await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"]'));
+      const z2 = autoZapisy[predZapisy + 1] || {};
+      jistota(z2.kategorie === 'Myčka' && z2.castka === 100, 'druhé mytí: ' + JSON.stringify(z2));
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      await ctx.close();
+    }
   });
 
   // ---------- telefon: menu zleva (klepnutí na jméno) vede i na Fotbal a Reely; klepnutí vedle menu zavře

@@ -512,9 +512,11 @@ function otevriRychle() {
       (umiMotor('pitiJidlo') ? volba('jidlo', IKONY.jidlo, 'zdravi', 'Jídlo', 'napiš, co jsi měl – bílkoviny spočítám') : '') +
       (umiMotor('vaha') ? volba('vaha', IKONY.vaha, 'oranz', 'Váha', 'kg – zapíše se i s časem') : '') +
       (umiMotor('autoZapsat') ? volba('tankovani', IKONY.palivo, 'auto', 'Tankování', 'částka, cena za litr, km – do tabulky auta') : '') +
-      // účtenka: popisek s polem pro fotku – klepnutí otevře nabídku iPhonu (Fotky / Vyfotit / Soubory; jinak okno nepustí)
-      (umiMotor('autoUctenka') ? '<label class="rychle__foto"><i class="kruh kruh--auto">' + IKONY.foto + '</i><b>Účtenky</b><small>vyfoť nebo vyber z Fotek (i víc najednou) – zapíšou se samy</small>' +
-        '<input type="file" accept="image/*" multiple data-auto-foto hidden></label>' : '') + '</div>'
+      (umiMotor('autoZapsat') ? volba('myti', IKONY.kapka, 'auto', 'Mytí auta', 'výdaj za myčku – částka jako minule, stačí Zapsat') : '') +
+      // účtenka: popisek ke stálému poli pro fotku (js/auto.js – překreslení ho nesmaže) – klepnutí otevře nabídku iPhonu
+      // (Fotky / Vyfotit / Soubory); po výběru se „+“ zavře a průběh je vidět v kartičce dole
+      (umiMotor('autoUctenka') ? auto.popisekFotky('rychle__foto', '<i class="kruh kruh--auto">' + IKONY.foto + '</i><b>Účtenky</b>' +
+        '<small>vyfoť nebo vyber z Fotek (i víc najednou) – zapíšou se samy</small>') : '') + '</div>'
   });
 }
 
@@ -527,6 +529,7 @@ function rychlaAkce(akce) {
   else if (akce === 'vaha') zdravi.otevriVahu();
   else if (akce === 'jidlo') zdravi.otevriJidlo();
   else if (akce === 'tankovani') auto.otevriZapis('tankovani');
+  else if (akce === 'myti') auto.otevriRychlyVydaj(0);
 }
 
 // ---------------------------------------------------------------- Dnes

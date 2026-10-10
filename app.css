@@ -2220,6 +2220,44 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
     background: var(--surface); color: inherit; cursor: pointer; }
 .rychle__foto b { font-size: 14.5px; font-weight: 650; }
 .rychle__foto small { font-size: 12px; color: var(--muted); line-height: 1.35; }
+/* okno Výdaj: rychlá volba (Mytí – částka jako minule) */
+.auto-rychle { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; }
+.auto-rychle > .label { margin: 0; }
+.auto-rychle__volby { display: flex; flex-wrap: wrap; gap: 6px; }
+.auto-rychle__volba small { font-size: 12px; font-weight: 600; opacity: .75; }
+/* účtenky z fotek: stálé pole mimo překreslované části (popisky na něj ukazují přes for – js/auto.js) a kartička se stavem */
+.auto-foto-vstup { position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; z-index: -1; }
+.auto-uctenky {
+    position: fixed; z-index: 50; left: 12px; right: 12px; bottom: calc(var(--lista-h) + 18px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 18px; background: var(--surface);
+    border: 1px solid color-mix(in srgb, var(--o-auto) 30%, var(--line)); box-shadow: var(--shadow-pop);
+}
+/* oznámení (toast) je na stejném místě – kartička uhne nad něj */
+:root:has(#toast.videt) .auto-uctenky { bottom: calc(var(--lista-h) + 74px + env(safe-area-inset-bottom)); }
+.auto-uctenky__radek { display: flex; align-items: center; gap: 12px; padding-right: 30px; }
+.auto-uctenky--prace .auto-uctenky__radek, .auto-uctenky--ceka .auto-uctenky__radek { padding-right: 0; }
+.auto-uctenky__radek img { width: 42px; height: 54px; object-fit: cover; border-radius: 8px; background: var(--sand); flex: none; }
+.auto-uctenky__radek .kruh { width: 40px; height: 40px; flex: none; }
+.auto-uctenky__radek .kruh svg { width: 19px; height: 19px; }
+.auto-uctenky__text { flex: 1; min-width: 0; }
+.auto-uctenky__text b { display: block; font-size: 14px; font-weight: 650; line-height: 1.3; }
+.auto-uctenky__text small { display: block; margin-top: 2px; font-size: 12.5px; line-height: 1.4; color: var(--muted); overflow-wrap: anywhere; }
+.auto-uctenky__povedlo { display: block; margin-top: 3px; color: var(--ok); font-weight: 600; }
+.auto-uctenky__prubeh { height: 6px; border-radius: 3px; overflow: hidden; background: color-mix(in srgb, var(--o-auto) 14%, var(--surface)); }
+.auto-uctenky__prubeh i { display: block; width: 4%; height: 100%; border-radius: 3px; background: var(--o-auto); transition: width .9s ease; }
+.auto-uctenky__akce { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.auto-uctenky__akce .btn svg { width: 15px; height: 15px; }
+.auto-uctenky__zavrit { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; min-height: 30px; border-color: transparent; background: none; }
+.auto-uctenky__zavrit svg { width: 15px; height: 15px; }
+.auto-uctenky--ok { border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+.auto-uctenky--ok .kruh { background: var(--ok-tint); color: var(--ok); }
+.auto-uctenky--ceka { border-color: color-mix(in srgb, var(--zluta) 45%, var(--line)); }
+.auto-uctenky--chyba { border-color: color-mix(in srgb, var(--oranz) 50%, var(--line)); }
+.auto-uctenky--chyba .kruh, .auto-uctenky--ceka .kruh { background: var(--oranz-tint); color: var(--oranz); }
+@media (min-width: 760px) {
+    .auto-uctenky { left: auto; right: 22px; bottom: 22px; width: min(400px, calc(100vw - 44px)); }
+    :root:has(#toast.videt) .auto-uctenky { bottom: 82px; }
+}
 @media (max-width: 999px) {
     .auto-mrizka { grid-template-columns: minmax(0, 1fr); }
 }
