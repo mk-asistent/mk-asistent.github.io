@@ -37,6 +37,7 @@ const KOPIE_ZAPISU = {
   schrankaSmazat: ['schranka'], schrankaObnovit: ['schranka'], mojePridat: ['schranka'], mojeHotovo: ['schranka'], mojeSmazat: ['schranka'],
   // Připomenout = odložení e-mailu (archiv) + úkol do schránky (CEKA) – mění obojí
   vlakno: ['posta'], odeslat: ['posta'], oznacit: ['posta'], pripomenout: ['posta', 'schranka'], postaPresunout: ['posta'], postaPrectene: ['posta'],
+  postaOznacit: ['posta'], // víc konverzací naráz, Beru na vědomí (10. 10.)
   navrhZahodit: ['posta'], navrhyNastavit: ['posta', 'info'], nastavPostu: ['posta', 'info'], podpisyUlozit: ['info'],
   udalostUlozit: ['kalendar'], udalostSmazat: ['kalendar'], zapasyImport: ['kalendar'], fotbalKalendar: ['kalendar', 'info', 'fotbal'],
   kalendarPridat: ['kalendar', 'info'], kalendarUpravit: ['kalendar', 'info'], kalendarOdebrat: ['kalendar', 'info'], kalendarZalozit: ['kalendar', 'info'],

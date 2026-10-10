@@ -58,6 +58,8 @@ function prostredi() {
   let stitkyGmailu = {}; // název → { neprectenych, vlakna }
 
   const zpravy = { m1, m2, m3 };
+  // hromadné metody Gmailu (*Threads): každé volání jeden záznam „co:id,id“ – výběr v aplikaci = jedno volání
+  const hromadne = (co, v) => { log.hromadne = (log.hromadne || []).concat(co + ':' + v.map((x) => x.getId()).join(',')); };
   let aktualizace = []; // vlákna v kategorii Aktualizace (oznámení)
   let kategorieVlaken = {}; // promotions / social / forums → vlákna (záložky jako v Gmailu)
   let odeslana = [vlakna.v2, vlakna.v3]; // výsledek „in:sent …“ (známí lidé)
@@ -85,9 +87,17 @@ function prostredi() {
     getUserLabels: () => Object.keys(stitkyGmailu).map((n) => ({ getName: () => n, getUnreadCount: () => stitkyGmailu[n].neprectenych })),
     getUserLabelByName: (n) => (stitkyGmailu[n] ? { getName: () => n, getThreads: (od, max) => stitkyGmailu[n].vlakna.slice(od, od + max),
       addToThread: (v) => { stitkyVlaken[v.getId()] = (stitkyVlaken[v.getId()] || []).filter((x) => x !== n).concat(n); },
-      removeFromThread: (v) => { stitkyVlaken[v.getId()] = (stitkyVlaken[v.getId()] || []).filter((x) => x !== n); } } : null),
+      removeFromThread: (v) => { stitkyVlaken[v.getId()] = (stitkyVlaken[v.getId()] || []).filter((x) => x !== n); },
+      // hromadně (výběr v aplikaci): jedno volání na celý seznam vláken
+      addToThreads: (vv) => { hromadne('stitek+' + n, vv); vv.forEach((v) => { stitkyVlaken[v.getId()] = (stitkyVlaken[v.getId()] || []).filter((x) => x !== n).concat(n); }); },
+      removeFromThreads: (vv) => { hromadne('stitek-' + n, vv); vv.forEach((v) => { stitkyVlaken[v.getId()] = (stitkyVlaken[v.getId()] || []).filter((x) => x !== n); }); } } : null),
     createLabel: (n) => { stitkyGmailu[n] = { neprectenych: 0, vlakna: [] }; log.zalozenyStitek = n; return GmailApp.getUserLabelByName(n); },
-    markThreadsRead: (v) => v.forEach((x) => x.markRead()),
+    markThreadsRead: (v) => { hromadne('precteno', v); v.forEach((x) => x.markRead()); },
+    markThreadsUnread: (v) => { hromadne('neprecteno', v); v.forEach((x) => x.markUnread()); },
+    moveThreadsToArchive: (v) => { hromadne('archiv', v); v.forEach((x) => x.moveToArchive()); },
+    moveThreadsToSpam: (v) => { hromadne('spam', v); v.forEach((x) => { log.spam = x.getId(); }); },
+    moveThreadsToTrash: (v) => { hromadne('kos', v); v.forEach((x) => { log.kos = (log.kos || []).concat(x.getId()); }); },
+    moveThreadsToInbox: (v) => { hromadne('doDorucenych', v); v.forEach((x) => x.moveToInbox()); },
     getInboxUnreadCount: () => 1,
     sendEmail: (komu, predmet, text, m) => log.odeslano.push({ jak: 'send', komu, predmet, t: text, m })
   };
@@ -303,7 +313,8 @@ function prostredi() {
       put: (k, v, s) => { cache.set(k, String(v)); ttl.set(k, s); },
       getAll: (ks) => Object.fromEntries(ks.filter((k) => cache.has(k)).map((k) => [k, cache.get(k)])),
       putAll: (o, s) => Object.entries(o).forEach(([k, v]) => { assert.ok(v.length <= 100000); cache.set(k, v); ttl.set(k, s); }),
-      remove: (k) => cache.delete(k)
+      remove: (k) => cache.delete(k),
+      removeAll: (ks) => ks.forEach((k) => cache.delete(k))
     }) },
     Utilities: {
       getUuid: () => crypto.randomUUID(), formatDate, parseDate,
@@ -2043,6 +2054,127 @@ test('pošta: přetažení na skupinu – přesun i ze skupiny do jiné (odebrat
   assert.deepStrictEqual([json(o.data.stitky), o.data.vDorucenych, p.log.doDorucenych.length - predVracenim], [[], true, 1]);
   assert.ok(p.vlakna.v1.isInInbox(), 'zpět v Doručené');
   assert.ok(!p.cache.has('posta'), 'mezipaměť pošty smazaná');
+});
+
+// ---- pošta 10. 10.: Beru na vědomí, víc konverzací naráz (výběr, pravé tlačítko, rychlé akce na Dnes)
+
+test('pošta: Beru na vědomí – informace všude (Dnes, ntfy, podklady pro Clauda), přečteno, platí do nové zprávy; zrušit', () => {
+  const p = prostredi();
+  p.chmu.cap = 'cap_rijen.xml';
+  const T = Date.parse('2026-10-02T07:30:00+02:00');
+  p.nastavCas(T);
+  p.vlastnosti.set('NTFY_TEMA', 'asistent-test');
+  // naléhavá nepřečtená zpráva od známého (trenérovi jsem psal) = hoří, podklad pro návrh od Clauda
+  const kdy = T - 20 * 60e3;
+  p.vlakna.v1 = p.vlakno('v1', [p.zprava({ id: 'm1', od: 'Trenér <trener@klub.test>', predmet: 'Hřiště', text: 'Urgentně: nefunguje osvětlení, ozvi se.', kdy, neprectena: true })], true);
+  let v = p.volej('posta', { znovu: true }).data.osobni.find((x) => x.id === 'v1');
+  assert.strictEqual(v.stav, 'hori', v.duvod);
+  const podklady = () => JSON.parse(p.schranka.soubory.find((f) => f.getName() === 'POSTA_K_ODPOVEDI.json' && !f.vKosi).getBlob().getDataAsString()).vlakna.map((x) => x.id);
+  assert.ok(podklady().includes('v1'), 'před Beru na vědomí v podkladech pro Clauda');
+  // s časem poslední zprávy ze souhrnu: jen přečte nepřečtenou (jedno hromadné volání) – vlákno se kvůli času nenačítá
+  let o = p.volej('postaOznacit', { ids: [{ id: 'v1', kdy: v.kdy, neprectena: true }], jak: 'vedomi' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data), { jak: 'vedomi', ids: ['v1'], chyby: {} });
+  assert.deepStrictEqual([p.log.precteno, p.log.hromadne], [['v1'], ['precteno:v1']]);
+  assert.deepStrictEqual(JSON.parse(p.vlastnosti.get('POSTA_VEDOMI')), { v1: kdy });
+  assert.ok(!p.cache.has('posta'), 'mezipaměť pošty smazaná');
+  // seznam (i kopie pro server): informace s důvodem, původní stav vedle, bez termínu
+  v = p.volej('posta').data.osobni.find((x) => x.id === 'v1');
+  assert.deepStrictEqual([v.stav, v.duvod, v.vedomi, v.puvodniStav, v.termin, v.poTerminu], ['info', 'bereš na vědomí', true, 'hori', null, false]);
+  assert.ok(!podklady().includes('v1'), 'po Beru na vědomí Claude návrh odpovědi nechystá');
+  p.ctx.kazdouHodinu();
+  assert.ok(!(p.log.ntfy || []).some((z) => /Hoří/.test(z.title)), 'ntfy „Hoří“ i u nepřečtené, kterou bereš na vědomí: ' + JSON.stringify(p.log.ntfy));
+  // přečtená s časem ze souhrnu: Gmail se nevolá vůbec
+  p.log.hromadne = [];
+  const gmail = p.ctx.GmailApp.getThreadById;
+  let volani = 0;
+  p.ctx.GmailApp.getThreadById = (id) => { volani++; return gmail(id); };
+  o = p.volej('postaOznacit', { ids: [{ id: 'v2', kdy: Date.now() - 36e5, neprectena: false }], jak: 'vedomi' });
+  assert.deepStrictEqual([o.ok, volani, p.log.hromadne.length], [true, 0, 0]);
+  p.ctx.GmailApp.getThreadById = gmail;
+  // nová zpráva ve vlákně → zase normální stav
+  p.vlakna.v1 = p.vlakno('v1', [p.zprava({ id: 'm1', od: 'Trenér <trener@klub.test>', predmet: 'Hřiště', text: 'Urgentně: nefunguje osvětlení, ozvi se.', kdy }),
+    p.zprava({ id: 'm1b', od: 'Trenér <trener@klub.test>', predmet: 'Re: Hřiště', text: 'Pořád to nejde, prosím ozvi se.', kdy: T - 60e3, neprectena: true })], true);
+  v = p.volej('posta', { znovu: true }).data.osobni.find((x) => x.id === 'v1');
+  assert.ok(v.stav !== 'info' && !v.vedomi, 'nová zpráva: ' + v.stav + ' / ' + v.duvod);
+  // bez času ze souhrnu se vezme čas poslední zprávy z Gmailu
+  o = p.volej('postaOznacit', { ids: ['v1'], jak: 'vedomi' });
+  assert.strictEqual(JSON.parse(p.vlastnosti.get('POSTA_VEDOMI')).v1, T - 60e3);
+  assert.strictEqual(p.volej('posta').data.osobni.find((x) => x.id === 'v1').stav, 'info');
+  // zrušit (Vrátit): zpět normální stav, předtím nepřečtená zase nepřečtená
+  o = p.volej('postaOznacit', { ids: [{ id: 'v1', neprectena: true }], jak: 'vedomiZrusit' });
+  assert.deepStrictEqual([o.ok, json(o.data.ids), p.log.neprecteno.slice(-1)[0]], [true, ['v1'], 'v1']);
+  assert.ok(!('v1' in JSON.parse(p.vlastnosti.get('POSTA_VEDOMI') || '{}')), 'záznam pryč');
+  assert.notStrictEqual(p.volej('posta').data.osobni.find((x) => x.id === 'v1').stav, 'info');
+  // zápis – opakovaný požadavek (rid) se neprovede dvakrát
+  assert.ok(vm.runInContext('CTENI_MOTORU', p.ctx).indexOf('postaOznacit') < 0, 'postaOznacit není čtení');
+});
+
+test('pošta: Beru na vědomí – vlastnost do 9 kB: starší než 100 dní pryč, nejvýš 240 nejnovějších', () => {
+  const p = prostredi();
+  const T = Date.parse('2026-10-02T07:30:00+02:00');
+  p.nastavCas(T);
+  const plna = {};
+  for (let i = 0; i < 300; i++) plna['1a2b3c4d5e6f' + String(i).padStart(4, '0')] = T - i * 6 * 36e5; // po 6 h dozadu (75 dní)
+  plna.stare = T - 120 * 864e5;
+  p.vlastnosti.set('POSTA_VEDOMI', JSON.stringify(plna));
+  const o = p.volej('postaOznacit', { ids: [{ id: 'v2', kdy: T - 1000, neprectena: false }], jak: 'vedomi' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  const ulozeno = p.vlastnosti.get('POSTA_VEDOMI');
+  const m = JSON.parse(ulozeno);
+  assert.ok(ulozeno.length <= 8500, 'délka ' + ulozeno.length);
+  assert.ok(Object.keys(m).length <= 240 && m.v2 === T - 1000 && !('stare' in m), Object.keys(m).length + ' záznamů');
+  assert.ok(m['1a2b3c4d5e6f0000'] && !m['1a2b3c4d5e6f0299'], 'zůstanou nejnovější');
+});
+
+test('pošta: víc konverzací naráz jedním dotazem – přečteno, nepřečteno, Hotovo, spam, koš a vrátit; odložení se zruší; chyby', () => {
+  const p = prostredi();
+  let o = p.volej('postaOznacit', { ids: ['v1', 'v2', 'neni', '../x', 'v1'], jak: 'prectene' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual([json(o.data.ids), Object.keys(o.data.chyby)], [['v1', 'v2'], ['neni']]);
+  assert.deepStrictEqual([p.log.precteno, p.log.hromadne], [['v1', 'v2'], ['precteno:v1,v2']], 'jedno hromadné volání Gmailu');
+  p.volej('postaOznacit', { ids: [{ id: 'v1' }, { id: 'v2' }], jak: 'neprectene' });
+  assert.deepStrictEqual(p.log.neprecteno, ['v1', 'v2']);
+  // Hotovo: odložená (Připomenout) konverzace v Doručené už odložená není
+  p.volej('pripomenout', { id: 'v1', termin: '2026-10-20' });
+  p.vlakna.v1.moveToInbox();
+  assert.ok(/v1/.test(p.vlastnosti.get('ODLOZENE')), 'odložená');
+  p.log.archiv = [];
+  o = p.volej('postaOznacit', { ids: ['v1', 'v2'], jak: 'archivovat' });
+  assert.deepStrictEqual([json(o.data.ids), p.log.archiv], [['v1', 'v2'], ['v1', 'v2']]);
+  assert.ok(!/v1/.test(p.vlastnosti.get('ODLOZENE') || ''), 'Hotovo zrušilo odložení');
+  assert.ok(!p.cache.has('posta'), 'mezipaměť pošty smazaná');
+  // Vrátit (zpět do Doručené), spam, koš
+  o = p.volej('postaOznacit', { ids: ['v1', 'v2'], jak: 'vratit' });
+  assert.ok(p.vlakna.v1.isInInbox() && p.vlakna.v2.isInInbox() && p.log.hromadne.slice(-1)[0] === 'doDorucenych:v1,v2', JSON.stringify(p.log.hromadne));
+  p.volej('postaOznacit', { ids: ['v2'], jak: 'spam' });
+  assert.strictEqual(p.log.spam, 'v2');
+  p.volej('postaOznacit', { ids: ['v1', 'v2'], jak: 'smazat' });
+  assert.deepStrictEqual(p.log.kos, ['v1', 'v2']);
+  // neplatné
+  assert.ok(/Neznámá akce/.test(p.volej('postaOznacit', { ids: ['v1'], jak: 'nesmysl' }).chyba));
+  assert.ok(/Chybí konverzace/.test(p.volej('postaOznacit', { ids: ['../x'], jak: 'prectene' }).chyba));
+  assert.ok(/nejvýš 100/.test(p.volej('postaOznacit', { ids: Array.from({ length: 101 }, (_, i) => 'x' + i), jak: 'prectene' }).chyba));
+});
+
+test('pošta: přesun víc konverzací do skupiny jedním dotazem (i nová skupina, ze skupiny do skupiny), Vrátit hromadně', () => {
+  const p = prostredi();
+  p.nastavStitkyGmailu({ AUTO: { neprectenych: 0, vlakna: [] }, 'AUTO/PATRIOT': { neprectenych: 0, vlakna: [] } });
+  let o = p.volej('postaPresunout', { ids: ['v1', 'v2', 'neni'], stitek: 'AUTO', archivovat: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual([o.data.stitek, json(o.data.ids), Object.keys(o.data.chyby), o.data.archivovano], ['AUTO', ['v1', 'v2'], ['neni'], true]);
+  assert.deepStrictEqual([json(p.stitkyVlaken.v1), json(p.stitkyVlaken.v2), p.log.archiv], [['AUTO'], ['AUTO'], ['v1', 'v2']]);
+  assert.deepStrictEqual(p.log.hromadne, ['stitek+AUTO:v1,v2', 'archiv:v1,v2'], 'štítek i archiv jedním voláním');
+  // ze skupiny do skupiny (odebrat) a Vrátit: štítek pryč a zpět do Doručené
+  o = p.volej('postaPresunout', { ids: ['v1', 'v2'], stitek: 'AUTO/PATRIOT', archivovat: true, odebrat: 'AUTO' });
+  assert.deepStrictEqual([json(p.stitkyVlaken.v1), json(p.stitkyVlaken.v2)], [['AUTO/PATRIOT'], ['AUTO/PATRIOT']]);
+  o = p.volej('postaPresunout', { ids: ['v1', 'v2'], stitek: 'AUTO/PATRIOT', pridat: false, doDorucenych: true });
+  assert.deepStrictEqual([json(p.stitkyVlaken.v1), p.vlakna.v1.isInInbox(), p.vlakna.v2.isInInbox()], [[], true, true]);
+  // nová skupina rovnou
+  o = p.volej('postaPresunout', { ids: ['v1'], stitek: ' VÝVOJ ', archivovat: true, novy: true });
+  assert.deepStrictEqual([o.ok, p.log.zalozenyStitek, json(p.stitkyVlaken.v1)], [true, 'VÝVOJ', ['VÝVOJ']]);
+  assert.ok(/není/.test(p.volej('postaPresunout', { ids: ['v1'], stitek: 'Neexistuje' }).chyba));
+  assert.ok(!p.cache.has('posta') && !p.cache.has('stitky'), 'mezipaměť pošty a štítků smazaná');
 });
 
 test('reely: seznam z REELY/reely.json, odkaz na video na Disku, skóre z FOTBAL.json, zveřejněno, jen platná data', () => {

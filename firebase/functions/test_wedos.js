@@ -601,6 +601,70 @@ module.exports = async function testyWedos(test) {
     assert.strictEqual(W.idyKonverzaci({ ids: Array.from({ length: 150 }, (x, i) => 'w' + String(i).padStart(15, '0')) }).length, 100);
   });
 
+  await test('Beru na vědomí: informace v kopii hned i po synchronizaci (dokud nepřijde nová zpráva), přečteno, zrušit, záznamy', async () => {
+    const k = schranka();
+    const v = await S.synchronizuj({ klient: k, rozeber, nastaveni: N, predchozi: null, ted: TED });
+    assert.deepStrictEqual(v.data.umi, ['vedomi', 'hromadne'], 'aplikace pozná nový server');
+    const nab = najdi(v, 'Nabídka na pasport');
+    assert.strictEqual(nab.stav, 'hori', nab.duvod);
+    // požadavek z aplikace: jen platná id, čas poslední zprávy ze souhrnu
+    const p = W.pozadavekVedomi({ ids: [nab.id, 'wffffffffffffff0', '../x'], kdy: { [nab.id]: nab.kdy, wffffffffffffff0: 'nic' } });
+    assert.deepStrictEqual([p.ids, p.kdy, p.zrusit, p.precist], [[nab.id, 'wffffffffffffff0'], { [nab.id]: nab.kdy }, false, true]);
+    const a = S.vedomiPoAkci(v.stav, p, TED);
+    assert.deepStrictEqual([a.ids, a.precist, a.vedomi], [[nab.id], [nab.id], { [nab.id]: nab.kdy }], 'bez času se konverzace přeskočí');
+    // server přečte konverzaci (jeden STORE) a kopii upraví hned
+    const slozky = await S.najdiSlozky(k);
+    k.log.length = 0;
+    await S.oznacPrecteno(k, slozky, S.polozkyKonverzaci(v.stav, a.precist), true);
+    assert.strictEqual(k.log.filter((x) => /^STORE/.test(x)).length, 1, k.log.join(' | '));
+    const kopie = S.upravKopii(v.data, nab.id, 'vedomi', a.vedomi[nab.id]);
+    const m = kopie.pracovni.find((x) => x.id === nab.id);
+    assert.deepStrictEqual([m.stav, m.duvod, m.vedomi, m.puvodniStav, m.neprectena, m.termin], ['info', 'bereš na vědomí', true, 'hori', false, null]);
+    assert.strictEqual(kopie.pocty.neprectene, v.data.pocty.neprectene - 1);
+    assert.deepStrictEqual(kopie.umi, W.UMI, 'kopie po akci nese, co server umí');
+    assert.ok(!S.upravKopii(v.data, nab.id, 'vedomi', nab.kdy - 1).pracovni.find((x) => x.id === nab.id).vedomi, 'jiný čas poslední zprávy = beze změny');
+    // seznam složený znovu (po hodině): pořád informace; záznam zůstává ve stavu serveru
+    const po = await S.synchronizuj({ klient: k, rozeber, nastaveni: N, predchozi: Object.assign({}, v.stav, { vedomi: a.vedomi }), ted: TED + 61 * 60e3 });
+    const nab2 = najdi(po, 'Nabídka na pasport');
+    assert.deepStrictEqual([nab2.stav, nab2.vedomi, nab2.neprectena, Object.keys(po.stav.vedomi)], ['info', true, false, [nab.id]]);
+    // nová zpráva v konverzaci → zase normální stav, záznam pryč
+    k.vloz(k.slozky.INBOX, email({ od: KLIENT, komu: JA, predmet: 'Re: Nabídka na pasport', kdy: TED + 2 * HOD, mid: '<a9@klient.test>', irt: '<a2@klient.test>',
+      refs: '<a1@klient.test> <a2@klient.test>', text: 'Ještě prosím pošlete ceník do zítra.' }), [], TED + 2 * HOD);
+    const nova = await S.synchronizuj({ klient: k, rozeber, nastaveni: N, predchozi: po.stav, ted: TED + 3 * HOD });
+    const nab3 = najdi(nova, 'Nabídka na pasport');
+    assert.ok(nab3.stav !== 'info' && !nab3.vedomi && !(nab.id in nova.stav.vedomi), nab3.stav + ' / ' + JSON.stringify(nova.stav.vedomi));
+    // zrušit (Vrátit): záznam pryč, předtím nepřečtené zase nepřečtené, v kopii původní stav
+    const z = S.vedomiPoAkci(po.stav, W.pozadavekVedomi({ id: nab.id, zrusit: true, neprectene: [nab.id, 'wffffffffffffff9'] }), TED);
+    assert.deepStrictEqual([z.vedomi, z.ids, z.precist, z.neprecist], [{}, [nab.id], [], [nab.id]]);
+    assert.deepStrictEqual(S.upravKopii(kopie, nab.id, 'vedomiZrusit').pracovni.find((x) => x.id === nab.id).stav, 'hori');
+    // záznamy: jen platná id, ne starší než 100 dní, nejvýš 500 nejnovějších
+    const mnoho = { spatne: TED, ['w' + 'f'.repeat(15)]: TED - 120 * DEN };
+    for (let i = 0; i < 600; i++) mnoho['w' + String(i).padStart(15, '0')] = TED - i * 60e3;
+    const o = W.omezVedomi(mnoho, TED);
+    assert.strictEqual(Object.keys(o).length, 500);
+    assert.ok(!('spatne' in o) && !(('w' + 'f'.repeat(15)) in o) && ('w000000000000000' in o) && !('w000000000000599' in o));
+  });
+
+  await test('hromadně: archiv a koš víc konverzací jedním přesunem IMAP, Vrátit celý výběr, přečteno víc najednou', async () => {
+    const k = schranka();
+    const v = await S.synchronizuj({ klient: k, rozeber, nastaveni: N, predchozi: null, ted: TED });
+    const ids = [najdi(v, 'Podklady').id, najdi(v, 'Představení firmy').id];
+    assert.deepStrictEqual(W.idyKonverzaci({ ids }), ids);
+    const slozky = await S.najdiSlozky(k);
+    const polozky = S.polozkyKonverzaci(v.stav, ids);
+    assert.strictEqual(polozky.length, 2);
+    k.log.length = 0;
+    await S.oznacPrecteno(k, slozky, polozky, true);
+    const p = await S.presunKonverzaci(k, slozky, polozky, 'archiv');
+    assert.deepStrictEqual([k.log.filter((x) => /^STORE/.test(x)).length, k.log.filter((x) => /^MOVE/.test(x)).length], [1, 1], 'jeden příkaz na výběr: ' + k.log.join(' | '));
+    assert.deepStrictEqual([p.presunuto, p.uidy.length, k.zpravy('Archiv').length], [2, 2, 2]);
+    const kopie = ids.reduce((x, id) => S.upravKopii(x, id, 'pryc'), v.data);
+    assert.deepStrictEqual([kopie.pracovni.length, kopie.pocty.konverzaci], [4, 4]);
+    // Vrátit: celý výběr zpět do Doručené
+    await S.vratitPresun(k, slozky, { cil: p.cil, uidy: p.uidy });
+    assert.deepStrictEqual([k.zpravy('Archiv').length, k.zpravy('INBOX').filter((z) => /Podklady|Představení firmy/.test(z.surova)).length], [0, 2]);
+  });
+
   await test('id konverzace drží kořen: když nejstarší zpráva vypadne z okna, id se nezmění', () => {
     const z = (uid, mid, irt, refs, kdy) => ({ klic: 'd:' + uid, slozka: 'd', uid, uv: '1', mid, odpovedNa: irt || '', odkazy: refs || [], od: { jmeno: '', adresa: 'p@k.test' },
       komu: [], kopie: [], skryta: [], odpovedet: [], predmet: 'X', kdy, precteno: true, oznaceno: false, hromadna: false, automat: false });

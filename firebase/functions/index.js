@@ -84,7 +84,8 @@ exports.obnovHned = onCall(NASTAVENI, async (pozadavek) => {
 // ostatní kopie, _stav.potvrzeno.wedos), detaily wedosDetaily/{id}; vnitřní stav serveru wedosInterni/stav (aplikace ho
 // nečte), id odeslaných wedosOdeslano/{idOdeslani} (e-mail se po opakovaném pokusu nepošle dvakrát).
 //   obnovWedos – každých 10 minut (6:00–23:50): STATUS složek, při změně nový seznam (wedos_schranka.synchronizuj)
-//   wedos      – z aplikace: obnov | detail | precteno (id nebo ids) | archivovat | smazat | vratit | odeslat | vypnout
+//   wedos      – z aplikace: obnov | detail | precteno | archivovat | smazat | vratit (id nebo ids – víc konverzací
+//                jedním příkazem IMAP) | vedomi (Beru na vědomí: ids, kdy, zrusit, neprectene) | odeslat | vypnout
 // Funkce s heslem jsou zvlášť: obnovAsistenta a obnovHned se nasazují i bez uloženého hesla.
 //
 // Heslo = tajemství WEDOS_HESLO v Secret Manageru; funkcím ho připojí volba `secrets` (Cloud Run ho při startu instance
@@ -289,17 +290,40 @@ async function akceWedos(uid, n, akce, d) {
         uprava: (x) => ids.reduce((kopie, id) => S.upravKopii(kopie, id, precteno ? 'precteno' : 'neprectene'), x) };
     }
     if (akce === 'archivovat' || akce === 'smazat') {
-      const polozky = polozkyNeboChyba(predchozi, d.id);
+      // jedna (id) nebo víc konverzací (ids – výběr v aplikaci): jeden přesun IMAP, Vrátit vrátí celý výběr
+      const ids = W.idyKonverzaci(d);
+      const polozky = S.polozkyKonverzaci(predchozi, ids);
+      if (!polozky.length) throw S.chybaAkce('Konverzace už ve schránce není – obnov poštu.', 'nenalezeno');
       const p = await bezpecneAkce(n, () => S.presunKonverzaci(klient, slozky, polozky, akce === 'archivovat' ? 'archiv' : 'kos'));
-      vysledek = { ok: true, slozka: p.cil, presunuto: p.presunuto, vratit: p.uidy.length > 0 };
+      vysledek = { ok: true, slozka: p.cil, presunuto: p.presunuto, vratit: p.uidy.length > 0, ids };
       const konverzace = Object.assign({}, predchozi.konverzace);
-      delete konverzace[d.id];
-      return { stav: Object.assign({}, predchozi, { slozky, konverzace, posledniPresun: { id: d.id, cil: p.cil, uidy: p.uidy, kdy: zacatek } }),
-        uprava: (x) => S.upravKopii(x, d.id, 'pryc'), smazatDetaily: [d.id] };
+      ids.forEach((id) => { delete konverzace[id]; });
+      return { stav: Object.assign({}, predchozi, { slozky, konverzace, posledniPresun: { id: ids[0], ids, cil: p.cil, uidy: p.uidy, kdy: zacatek } }),
+        uprava: (x) => ids.reduce((kopie, id) => S.upravKopii(kopie, id, 'pryc'), x), smazatDetaily: ids };
+    }
+    if (akce === 'vedomi') {
+      // Beru na vědomí (a Vrátit = zrusit): záznam ve stavu serveru, přečteno; zrušení složí seznam znovu (původní stav i termín)
+      const v = S.vedomiPoAkci(predchozi, W.pozadavekVedomi(d), Date.now());
+      if (!v.ids.length) throw S.chybaAkce('Chybí čas poslední zprávy – obnov poštu a zkus to znovu.', 'vstup');
+      const precist = S.polozkyKonverzaci(predchozi, v.precist);
+      const neprecist = S.polozkyKonverzaci(predchozi, v.neprecist);
+      if (precist.length) await bezpecneAkce(n, () => S.oznacPrecteno(klient, slozky, precist, true));
+      if (neprecist.length) await bezpecneAkce(n, () => S.oznacPrecteno(klient, slozky, neprecist, false));
+      vysledek = { ok: true, ids: v.ids };
+      const stav = Object.assign({}, predchozi, { slozky, vedomi: v.vedomi });
+      if (d.zrusit) {
+        try { return await S.synchronizuj({ klient, rozeber, nastaveni: n, predchozi: stav, ted: Date.now(), vynutit: true }); } catch (e) { /* níž jen kopie */ }
+        return { stav, uprava: (x) => v.ids.reduce((kopie, id) => S.upravKopii(kopie, id, 'vedomiZrusit'), x) };
+      }
+      return { stav, uprava: (x) => v.ids.reduce((kopie, id) => S.upravKopii(kopie, id, 'vedomi', v.vedomi[id]), x) };
     }
     if (akce === 'vratit') {
       const presun = predchozi.posledniPresun;
-      if (!presun || presun.id !== d.id) throw S.chybaAkce('Vrátit jde jen naposledy přesunutou konverzaci – najdeš ji ve složce archivu nebo koše.');
+      const ids = W.idyKonverzaci(d);
+      const vPresunu = presun ? presun.ids || [presun.id] : [];
+      if (!presun || !ids.length || !ids.every((id) => vPresunu.indexOf(id) >= 0)) {
+        throw S.chybaAkce('Vrátit jde jen naposledy přesunuté konverzace – najdeš je ve složce archivu nebo koše.');
+      }
       await bezpecneAkce(n, () => S.vratitPresun(klient, slozky, presun));
       const v = await S.synchronizuj({ klient, rozeber, nastaveni: n, predchozi: Object.assign({}, predchozi, { posledniPresun: null }), ted: Date.now(), vynutit: true });
       v.stav.posledniPresun = null;
@@ -345,8 +369,9 @@ exports.wedos = onCall(NASTAVENI_WEDOS, async (pozadavek) => {
   const ucet = await db.doc('uzivatele/' + uid).get();
   const n = W.platneNastaveni(ucet.exists ? ucet.get('wedos') : null);
   if (!n) throw new HttpsError('failed-precondition', 'Pracovní schránka není nastavená (Nastavení → Pošta).');
-  if (['detail', 'precteno', 'archivovat', 'smazat', 'vratit'].indexOf(akce) >= 0 && !W.JE_ID.test(String(d.id || '')) &&
-      !(akce === 'precteno' && W.idyKonverzaci(d).length)) {
+  // id, nebo ids (víc konverzací naráz – výběr v aplikaci; detail jen jedna)
+  const naKonverzaci = ['detail', 'precteno', 'archivovat', 'smazat', 'vratit', 'vedomi'];
+  if (naKonverzaci.indexOf(akce) >= 0 && !W.JE_ID.test(String(d.id || '')) && !(akce !== 'detail' && W.idyKonverzaci(d).length)) {
     throw new HttpsError('invalid-argument', 'Neplatné id konverzace.');
   }
   if (akce === 'obnov') {
@@ -356,6 +381,6 @@ exports.wedos = onCall(NASTAVENI_WEDOS, async (pozadavek) => {
       konverzaci: data ? data.pocty.konverzaci : undefined, neprectene: data ? data.pocty.neprectene : undefined };
   }
   if (akce === 'detail') return { detail: await detailWedos(uid, n, d.id, !!d.precist) };
-  if (['precteno', 'archivovat', 'smazat', 'vratit', 'odeslat'].indexOf(akce) >= 0) return akceWedos(uid, n, akce, d);
+  if (['precteno', 'archivovat', 'smazat', 'vratit', 'vedomi', 'odeslat'].indexOf(akce) >= 0) return akceWedos(uid, n, akce, d);
   throw new HttpsError('invalid-argument', 'Neznámá akce.');
 });
