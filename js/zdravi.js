@@ -713,9 +713,10 @@ function tydenDoplnku(rezim, denMs) {
  * polozky = vždy všechny položky režimu ve stejném pořadí (Michal 10. 10.: „když v doplňkách kliknu na pátek, tak se mi to
  * drobně přeháže … to by mělo být furt všude stejné“): plati = ten den podle režimu platí (jinak se ukáže ztlumeně na svém místě),
  * navic = neplatí, a přesto vzato (elektrolyty mimo zápas – napsané do jídla); hlavni = počítá se do plnění.
- * plneni = { vzato, celkem } jen z hlavních, které ten den platí (kroužky, karta).
+ * plneni = { vzato, celkem } jen z hlavních, které ten den platí (kroužky, karta). bezTydne = bez souhrnu týdne (tyden: null) –
+ * kroužky ho nepotřebují a týden v kroužcích by ho jinak počítal sedmkrát.
  */
-export function doplnkyDnes(denMs) {
+export function doplnkyDnes(denMs, bezTydne) {
   const rezim = stav.zdravi && stav.zdravi.rezim;
   if (!rezim || !Array.isArray(rezim.polozky) || !rezim.polozky.length) return null;
   const d = pulnoc(denMs || Date.now());
@@ -728,12 +729,12 @@ export function doplnkyDnes(denMs) {
   }).sort((a, b) => KDY.findIndex((k) => k[0] === a.kdy) - KDY.findIndex((k) => k[0] === b.kdy));
   const pocitane = polozky.filter((p) => p.hlavni && p.plati);
   return { d, dnes: d === pulnoc(Date.now()), polozky, vykop: den.vykop, trenink: den.trenink, kofeinDo: rezim.kofeinDo || '', chyba: rezim.chyba || '',
-    plneni: { vzato: pocitane.filter((p) => p.vzato).length, celkem: pocitane.length }, tyden: tydenDoplnku(rezim, d) };
+    plneni: { vzato: pocitane.filter((p) => p.vzato).length, celkem: pocitane.length }, tyden: bezTydne ? null : tydenDoplnku(rezim, d) };
 }
 
 /** Plnění hlavních doplňků dnes { vzato, celkem } (null bez režimu) – pro kroužky na Dnes. */
 export function plneniDoplnku() {
-  const d = doplnkyDnes();
+  const d = doplnkyDnes(0, true);
   return d ? d.plneni : null;
 }
 
@@ -1275,7 +1276,7 @@ function nabidkaDoplnku(el) {
   };
   const pol = [polozka(den)];
   if (den === dnes) pol.push(polozka(vcera)); else pol.push(polozka(dnes));
-  const d = doplnkyDnes(denZIso(den));
+  const d = doplnkyDnes(denZIso(den), true);
   const zbyva = d ? d.polozky.filter((x) => x.hlavni && x.plati && !x.vzato) : [];
   if (zbyva.length > 1) pol.push({ ikona: IKONY.doplnky, text: 'Odškrtnout všechny hlavní (' + zbyva.length + ')', oddel: true, fn: () => prepniZNabidky(den, zbyva.map((x) => x.id), true) });
   return { nadpis: p.nazev + ' · ' + popisDne(den), polozky: pol };
@@ -1283,7 +1284,7 @@ function nabidkaDoplnku(el) {
 
 function nabidkaDneDoplnku(el) {
   const den = el.dataset.doplnkyUkaz;
-  const d = doplnkyDnes(denZIso(den));
+  const d = doplnkyDnes(denZIso(den), true);
   if (!d) return null;
   const zbyva = d.polozky.filter((x) => x.hlavni && x.plati && !x.vzato);
   const pol = [{ ikona: IKONY.kalendar, text: 'Ukázat ' + popisDne(den), fn: () => { denDoplnku = denZIso(den) === pulnoc(Date.now()) ? 0 : denZIso(den); denDoplnkuKdy = Date.now(); zmeneno(); } }];

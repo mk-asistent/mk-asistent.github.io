@@ -17,7 +17,9 @@ import { IKONY } from './ikony.js';
 
 export const VYCHOZI_CILE = { piti: 2500, bilkoviny: 130, kroky: 8000 };
 
-const cislo = (n, des) => Number(n).toLocaleString('cs-CZ', { minimumFractionDigits: des || 0, maximumFractionDigits: des || 0 });
+// formáty čísel jednou (toLocaleString s volbami si Intl.NumberFormat skládá při každém volání – týden v kroužcích ho volá stokrát)
+const FORMATY = [0, 1].map((d) => new Intl.NumberFormat('cs-CZ', { minimumFractionDigits: d, maximumFractionDigits: d }));
+const cislo = (n, des) => FORMATY[des ? 1 : 0].format(Number(n));
 const litry = (ml) => cislo(Math.round(ml / 100) / 10, 1);
 const cil = (hodnota, vychozi) => (Number(hodnota) > 0 ? Number(hodnota) : vychozi);
 
@@ -36,7 +38,7 @@ export function krouzkyDnes(ted) {
   let b = (pj.jidlo || []).reduce((s, x) => s + (Number(x.bilkoviny) || 0), 0);
   const odhad = (pj.jidlo || []).some((x) => x.odhad === 'mistni');
   // odškrtnuté doplňky s bílkovinami (protein, smoothie) se počítají jako v kartě Pití a jídlo
-  const d = doplnkyDnes(pulnoc(t));
+  const d = doplnkyDnes(pulnoc(t), true); // bez souhrnu týdne – stačí plnění a odškrtnuté
   if (d) d.polozky.forEach((p) => { if (p.vzato && Number(p.bilkoviny) > 0) b += Number(p.bilkoviny); });
   // kroky: Apple Watch i WHOOP posílají dnešek průběžně – větší číslo je čerstvější
   const dnes = (z.dny || []).find((x) => x.den === den) || {};
