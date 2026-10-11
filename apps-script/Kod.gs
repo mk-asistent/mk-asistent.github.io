@@ -39,7 +39,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-10.3';
+const VERZE = '2026-10-11.1';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -6944,6 +6944,7 @@ function upozorneniKontrola_() {
   try { ranniSouhrn_(hodina); } catch (chyba) { /* příště */ }
   try { nedelniPrehled_(hodina); } catch (chyba) { /* příště */ }
   try { if (hodina >= 8 && hodina <= 20) upozorneniAuto_(); } catch (chyba) { /* zítra */ }
+  try { if (hodina >= 5 && hodina <= 21) pripominkaDoplnku_(); } catch (chyba) { /* příště */ }
   const hodinaWhoop = Utilities.formatDate(new Date(Date.now()), CASOVE_PASMO, 'yyyy-MM-dd H');
   if (p.getProperty('UPOZORNENI_WHOOP') !== hodinaWhoop && whoopStav_().propojeno) {
     p.setProperty('UPOZORNENI_WHOOP', hodinaWhoop);
@@ -6999,6 +7000,37 @@ function upozorneniAuto_() {
   // staré záznamy pryč (déle než rok)
   Object.keys(ohlasene).forEach(function (k) { if (ted - ohlasene[k] > 400 * 864e5) delete ohlasene[k]; });
   p.setProperty('OHLASENO_AUTO', JSON.stringify(ohlasene).slice(0, 8000));
+}
+
+/**
+ * Připomínka doplňků (Michal 11. 10.: „přidej upozornění na 9 hodin na ten Champion“ – zapomíná ho): ZDRAVI_REZIM.json →
+ * pripomenout [{ id, cas: 'H:MM' }]. Od daného času (do 21:00), když položka platí každý den (bez „jen“) a dnes není
+ * odškrtnutá (aplikace ani diktát), přijde jedno upozornění za den pro všechny takové položky. Odškrtnuté = den vyřízený.
+ */
+function pripominkaDoplnku_() {
+  const p = vlastnosti_();
+  const ted = new Date(Date.now());
+  const dnes = Utilities.formatDate(ted, CASOVE_PASMO, 'yyyy-MM-dd');
+  const hhmm = Utilities.formatDate(ted, CASOVE_PASMO, 'HH:mm');
+  if (p.getProperty('PRIPOMINKA_DOPLNKU_DEN') === dnes || hhmm > '21:00') return;
+  const rezim = zdraviRezim_();
+  const casNa = function (c) { const m = /^(\d{1,2}):(\d{2})$/.exec(String(c || '').trim()); return m ? ('0' + m[1]).slice(-2) + ':' + m[2] : ''; };
+  const polozky = {};
+  ((rezim && rezim.polozky) || []).forEach(function (x) { if (x && x.id) polozky[x.id] = x; });
+  const naRade = ((rezim && Array.isArray(rezim.pripomenout)) ? rezim.pripomenout : []).filter(function (x) {
+    const cas = x && casNa(x.cas);
+    return cas && hhmm >= cas && polozky[x.id] && !polozky[x.id].jen;
+  });
+  if (!naRade.length) return;
+  const slozka = slozkaZdravi_();
+  const odskrtnute = spojDoplnky_(nactiDoplnky_(slozka).dny, nactiJson_(slozka, 'PITI_JIDLO_CLAUDE.json').data)[dnes] || {};
+  const chybi = naRade.filter(function (x) { return !odskrtnute[x.id]; });
+  if (!chybi.length) { p.setProperty('PRIPOMINKA_DOPLNKU_DEN', dnes); return; }
+  const nazvy = chybi.map(function (x) { return polozky[x.id].nazev || x.id; });
+  if (upozorni_('Nezapomeň: ' + nazvy.join(', '), 'Ještě není odškrtnuté – vezmi ' + (chybi.length > 1 ? 'je' : 'ho') +
+    ' a odškrtni v Asistentovi.', ['pill'], 3)) {
+    p.setProperty('PRIPOMINKA_DOPLNKU_DEN', dnes);
+  }
 }
 
 /** Nové konverzace „hoří“ za poslední 2 hodiny (každá jen jednou). */

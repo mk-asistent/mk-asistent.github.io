@@ -1542,6 +1542,34 @@ test('zdraví: zkratka Apple Zdraví – vlastní klíč, česká čísla a data
 
 // ---------------------------------------------------------------- upozornění do iPhonu (ntfy)
 
+test('připomínka doplňků (ZDRAVI_REZIM.pripomenout): od času jednou denně, jen neodškrtnutý a denní; odškrtnutý = nic', () => {
+  const p = prostredi();
+  p.vlastnosti.set('NTFY_TEMA', 'asistent-test');
+  p.schranka.createFile('ZDRAVI_REZIM.json', JSON.stringify({ polozky: [{ id: 'multi', nazev: 'Multivitamin', kdy: 'rano' },
+    { id: 'kofein', nazev: 'Kofein', kdy: 'zapas', jen: 'zapas' }], pripomenout: [{ id: 'multi', cas: '9:00' }, { id: 'kofein', cas: '9:00' }] }));
+  const pripominky = () => (p.log.ntfy || []).filter((x) => /Nezapomeň/.test(x.title));
+  p.nastavCas(Date.parse('2026-10-12T08:50:00+02:00'));
+  p.ctx.kazdouHodinu();
+  assert.strictEqual(pripominky().length, 0, 'před devátou nic');
+  p.nastavCas(Date.parse('2026-10-12T09:05:00+02:00'));
+  p.ctx.kazdouHodinu();
+  assert.strictEqual(pripominky().length, 1);
+  assert.ok(/Multivitamin/.test(pripominky()[0].title) && !/Kofein/.test(pripominky()[0].title), 'jen denní položka: ' + pripominky()[0].title);
+  p.nastavCas(Date.parse('2026-10-12T09:15:00+02:00'));
+  p.ctx.kazdouHodinu();
+  assert.strictEqual(pripominky().length, 1, 'jen jednou za den');
+  // další den odškrtnutý v aplikaci → bez připomínky
+  p.volej('doplnky', { den: '2026-10-13', zmeny: { multi: true } });
+  p.nastavCas(Date.parse('2026-10-13T09:05:00+02:00'));
+  p.ctx.kazdouHodinu();
+  assert.strictEqual(pripominky().length, 1, 'odškrtnutý → nic');
+  // bez tématu ntfy se nic nekontroluje
+  p.vlastnosti.delete('NTFY_TEMA');
+  p.nastavCas(Date.parse('2026-10-14T09:05:00+02:00'));
+  p.ctx.kazdouHodinu();
+  assert.strictEqual(pripominky().length, 1);
+});
+
 test('upozornění: bez tématu nic; hoří v poště jen počtem (bez jmen a předmětů) a jednou; ranní souhrn jednou denně', () => {
   const p = prostredi();
   p.chmu.cap = 'cap_rijen.xml';
