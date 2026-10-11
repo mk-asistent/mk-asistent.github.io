@@ -539,7 +539,7 @@ function sekceUpozorneni() {
   if (staryMotor()) return h + '<p>Upozornění ukáže nová verze motoru.</p>' + novaVerzeMotoruHtml() + '</section>';
   if (!umiMotor('upozorneniZapnout')) return h + '<p>Zapnutí upozornění ukáže nová verze motoru.</p></section>';
   h += '<p class="napoveda">Do 10 minut: 🔥 nová konverzace, která hoří (6–22 h), ⚠ výstraha ČHMÚ (oranžová a vyšší), reel zveřejněný ' +
-    'na Instagramu, nebo když nevyšel. Ráno souhrn dne s připraveností, v neděli večer přehled týdne. Jde to přes službu ntfy.sh – ' +
+    'na Instagramu, nebo když nevyšel. Ráno souhrn dne s připraveností, připomínka doplňku, když ho do nastaveného času neodškrtneš (režim doplňků), v neděli večer přehled týdne. Jde to přes službu ntfy.sh – ' +
     'posílají se jen počty a časy, žádná jména, předměty ani texty.</p>';
   const u = n.upozorneni;
   if (!u) {
