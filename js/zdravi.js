@@ -6,11 +6,13 @@ import { stav, zmeneno, umiMotor, staryMotor, hooky } from './stav.js';
 import { volej } from './api.js';
 import { esc, uloziste, pulnoc, pridejDny, zacatekTydne, isoDatum, DNY, DNY_KR, dm, hhmm, kdyKratce, trvani, rozdilDni, tvar } from './pomocne.js';
 import { IKONY } from './ikony.js';
-import { kostra, chybaHtml, hlavickaKarty, toast, toastAkce, okno, potvrd } from './ui.js';
+import { kostra, chybaHtml, hlavickaKarty, toast, toastAkce, okno, potvrd, kopiruj } from './ui.js';
 import { otevriPanel, zavriPanel, elementPanelu } from './panely.js';
 import { udalostiVRozsahu, jeZapas } from './kalendar.js';
 import { odhadniJidlo, denJidla } from './jidlo_odhad.js';
 import { bublina, grafAtr } from './grafy.js';
+import { karta, registruj, hlavaKarty } from './bubliny.js';
+import { pripoj as pripojNabidku } from './nabidka.js';
 
 const ULOZISTE = 'asistent.data.zdravi';
 
@@ -325,6 +327,7 @@ export function vykresliZdravi(el) {
   // pak čísla z hodinek; žádná karta se nenatahuje na výšku sousední (Michal 9. 10.: „stále v jedné stejné výšce“)
   h += '<div class="zdravi-mrizka-karet">' + (doplnky ? '<section class="card dlazdice zd-doplnky">' + doplnky + '</section>' : '') +
     (piti ? '<section class="card dlazdice zd-piti">' + piti + '</section>' : '') +
+    (hooky.tydenKrouzku ? hooky.tydenKrouzku() : '') +
     (umiMotor('vaha') ? '<section class="card dlazdice zd-vaha" id="zd-vaha">' + kartaVahyHtml() + '</section>' : '') +
     tydenniHtml(z.tydenni) +
     '<section class="card dlazdice zd-graf">' + hlavickaKarty(IKONY.srdce, 'Posledních 14 dní') +
@@ -510,7 +513,7 @@ export function kartaVahyHtml() {
   return hlavickaKarty(IKONY.vaha, 'Váha', z.length ? '<span class="muted small">' + z.length + ' ' + tvar(z.length, 'zápis', 'zápisy', 'zápisů') + '</span>' : '') +
     '<div class="dlazdice__telo">' + posledniVahaHtml(z) + cilVahyHtml() + vahaZapisHtml() +
       (z.length > 1 ? grafVahy(z) : '') +
-      (z.length ? '<ul class="vaha-seznam">' + z.slice(-6).reverse().map((x) => '<li><span>' + esc(kdyZapsano(x.kdy)) + '</span><b class="cisla">' + kgCz(x.kg) + ' kg</b>' +
+      (z.length ? '<ul class="vaha-seznam">' + z.slice(-6).reverse().map((x) => '<li data-vaha-kdy="' + x.kdy + '"' + karta('vaha', true, x.kdy) + '><span>' + esc(kdyZapsano(x.kdy)) + '</span><b class="cisla">' + kgCz(x.kg) + ' kg</b>' +
         '<button type="button" class="vaha-smazat" data-vaha-smazat="' + x.kdy + '" aria-label="Smazat zápis ' + esc(kdyZapsano(x.kdy)) + '" title="Smazat zápis">' + IKONY.zavrit + '</button></li>').join('') + '</ul>' : '') +
     '</div>';
 }
@@ -710,9 +713,10 @@ function tydenDoplnku(rezim, denMs) {
  * polozky = vždy všechny položky režimu ve stejném pořadí (Michal 10. 10.: „když v doplňkách kliknu na pátek, tak se mi to
  * drobně přeháže … to by mělo být furt všude stejné“): plati = ten den podle režimu platí (jinak se ukáže ztlumeně na svém místě),
  * navic = neplatí, a přesto vzato (elektrolyty mimo zápas – napsané do jídla); hlavni = počítá se do plnění.
- * plneni = { vzato, celkem } jen z hlavních, které ten den platí (kroužky, karta).
+ * plneni = { vzato, celkem } jen z hlavních, které ten den platí (kroužky, karta). bezTydne = bez souhrnu týdne (tyden: null) –
+ * kroužky ho nepotřebují a týden v kroužcích by ho jinak počítal sedmkrát.
  */
-export function doplnkyDnes(denMs) {
+export function doplnkyDnes(denMs, bezTydne) {
   const rezim = stav.zdravi && stav.zdravi.rezim;
   if (!rezim || !Array.isArray(rezim.polozky) || !rezim.polozky.length) return null;
   const d = pulnoc(denMs || Date.now());
@@ -725,12 +729,12 @@ export function doplnkyDnes(denMs) {
   }).sort((a, b) => KDY.findIndex((k) => k[0] === a.kdy) - KDY.findIndex((k) => k[0] === b.kdy));
   const pocitane = polozky.filter((p) => p.hlavni && p.plati);
   return { d, dnes: d === pulnoc(Date.now()), polozky, vykop: den.vykop, trenink: den.trenink, kofeinDo: rezim.kofeinDo || '', chyba: rezim.chyba || '',
-    plneni: { vzato: pocitane.filter((p) => p.vzato).length, celkem: pocitane.length }, tyden: tydenDoplnku(rezim, d) };
+    plneni: { vzato: pocitane.filter((p) => p.vzato).length, celkem: pocitane.length }, tyden: bezTydne ? null : tydenDoplnku(rezim, d) };
 }
 
 /** Plnění hlavních doplňků dnes { vzato, celkem } (null bez režimu) – pro kroužky na Dnes. */
 export function plneniDoplnku() {
-  const d = doplnkyDnes();
+  const d = doplnkyDnes(0, true);
   return d ? d.plneni : null;
 }
 
@@ -771,7 +775,7 @@ export function kartaDoplnkuHtml() {
     const s = t.polozky[p.id];
     const neplati = !p.plati && !p.vzato;
     return '<li><button type="button" class="doplnek' + (p.hlavni ? '' : ' doplnek--vedlejsi') + (neplati ? ' doplnek--neplati' : '') + '" data-doplnek="' + esc(p.id) +
-      '" data-doplnek-den="' + isoDatum(d.d) + '" aria-pressed="' + p.vzato + '">' +
+      '" data-doplnek-den="' + isoDatum(d.d) + '" aria-pressed="' + p.vzato + '"' + karta('doplnek', true, p.id + '|' + isoDatum(d.d)) + '>' +
       '<i class="zaskrt" aria-hidden="true">' + IKONY.fajfka + '</i><span><b>' + esc(p.nazev) + '</b><small>' + (p.navic ? 'navíc · ' : neplati ? esc(JEN_DNY[p.jen] || 'ten den neplatí') + ' · ' : '') +
       esc(nazevKdy(p.kdy)) + (p.davka ? ' · ' + esc(p.davka) : '') + '</small></span>' +
       (s && s.dni > 1 ? '<em class="doplnek__tyden cisla" title="za týden">' + s.vzato + '/' + s.dni + '</em>' : '') + '</button></li>';
@@ -930,7 +934,7 @@ export function kartaPitiHtml() {
       (presun ? '<button type="button" class="btn btn--ikona btn--sm" data-jidlo-presun="' + esc(j.id) + '" aria-label="Přesunout na jiný den: ' + esc(j.co) +
         '" title="Přesunout na jiný den">' + IKONY.kalendar + '</button>' : '') +
       '<button type="button" class="btn btn--ikona btn--sm" data-jidlo-smazat="' + esc(j.id) + '" aria-label="Smazat ' + esc(j.co) + '">' + IKONY.zavrit + '</button>') + '</span>';
-    h += '<ul class="piti__jidla">' + s.jidla.map((j) => '<li><span class="orez-1">' + esc(j.co) + stitek(j) + '</span>' +
+    h += '<ul class="piti__jidla">' + s.jidla.map((j) => '<li' + (j.id ? ' data-jidlo-zapis="' + esc(j.id) + '"' : '') + '><span class="orez-1">' + esc(j.co) + stitek(j) + '</span>' +
       '<b class="cisla"' + (j.odhad === 'mistni' ? bublina('Odhad aplikace', 'Claude ho upřesní') : '') + '>' + (j.odhad === 'mistni' ? '≈ ' : '') + j.bilkoviny + ' g</b>' +
       akce(j) + '</li>').join('') + '</ul>';
   }
@@ -1150,13 +1154,7 @@ export function klikZdravi(el) {
   if (el.hasAttribute('data-jidlo-ulozit')) { ulozJidlo(el); return true; }
   if (el.dataset.jidloNa) { jidloDenRucne = pulnoc(Date.parse(el.dataset.jidloNa + 'T12:00:00')); prekresliDenJidla(); return true; }
   if (el.dataset.jidloPresun) { presunJidla(el.dataset.jidloPresun, denTlacitkaPiti(el)); return true; }
-  if (el.dataset.jidloSmazat) {
-    const den = denTlacitkaPiti(el);
-    potvrd('Smazat jídlo?', { ikona: IKONY.smazat, ton: 'nebezpeci', ano: 'Smazat' }).then((ano) => {
-      if (ano) zapisPiti({ den, jak: 'smazat', id: el.dataset.jidloSmazat }, 'Smazáno').catch(() => {});
-    });
-    return true;
-  }
+  if (el.dataset.jidloSmazat) { smazJidlo(denTlacitkaPiti(el), el.dataset.jidloSmazat); return true; }
   if (el.dataset.doplnkyUkaz !== undefined) {
     const v = el.dataset.doplnkyUkaz;
     denDoplnku = /^\d{4}-\d{2}-\d{2}$/.test(v) ? pulnoc(Date.parse(v + 'T12:00:00')) : 0;
@@ -1168,18 +1166,7 @@ export function klikZdravi(el) {
     const den = el.dataset.doplnekDen || isoDatum(Date.now());
     if (den !== isoDatum(Date.now())) denDoplnkuKdy = Date.now(); // opravuje se zpětně – vybraný den nechat
     const id = el.dataset.doplnek;
-    const vzato = !vzatoVDen(den)[id];
-    if (umiMotor('doplnky')) {
-      nastavDoplnky(den, [id], vzato);
-    } else {
-      const klic = VZATO + den;
-      const mistni = uloziste.cti(klic) || {};
-      mistni[id] = vzato;
-      uloziste.pis(klic, mistni);
-      // staré dny pryč (jen posledních 7)
-      uloziste.klice(VZATO).filter((k) => k < VZATO + isoDatum(pridejDny(pulnoc(Date.now()), -7))).forEach((k) => uloziste.smaz(k));
-    }
-    zmeneno();
+    prepniDoplnky(den, [id], !vzatoVDen(den)[id]);
     return true;
   }
   if (el.hasAttribute('data-vaha-zapsat')) {
@@ -1200,16 +1187,7 @@ export function klikZdravi(el) {
     return true;
   }
   if (el.hasAttribute('data-vaha-okno-zapsat')) { zapisZOknaVahy(el); return true; }
-  if (el.dataset.vahaSmazat) {
-    const kdy = Number(el.dataset.vahaSmazat);
-    const x = vahy().find((v) => v.kdy === kdy);
-    if (!x) return true;
-    potvrd('Smazat zápis ' + kgCz(x.kg) + ' kg?', { ikona: IKONY.smazat, ton: 'nebezpeci', text: 'Zapsáno ' + kdyZapsano(x.kdy) + '.', ano: 'Smazat' }).then((ano) => {
-      if (!ano) return;
-      volej('vaha', { smazat: kdy }).then((v) => { poVaze(v.zaznamy || []); toast('Zápis smazán'); }).catch((e) => toast(e.message, true));
-    });
-    return true;
-  }
+  if (el.dataset.vahaSmazat) { smazVahu(Number(el.dataset.vahaSmazat)); return true; }
   const akce = el.dataset.zdravi;
   if (akce === 'znovu') { nactiZdravi(true); return true; }
   if (akce === 'propojit') {
@@ -1229,3 +1207,195 @@ export function klikZdravi(el) {
   }
   return false;
 }
+
+// ---------------------------------------------------------------- společné zápisy (klepnutí i nabídka)
+
+/** Odškrtnout / zrušit doplňky v den: hned v kartě a na Disk (motor doplnky); starší motor jen v zařízení. */
+function prepniDoplnky(den, idy, vzato) {
+  if (umiMotor('doplnky')) {
+    nastavDoplnky(den, idy, vzato);
+  } else {
+    const klic = VZATO + den;
+    const mistni = uloziste.cti(klic) || {};
+    idy.forEach((id) => { mistni[id] = vzato; });
+    uloziste.pis(klic, mistni);
+    // staré dny pryč (jen posledních 7)
+    uloziste.klice(VZATO).filter((k) => k < VZATO + isoDatum(pridejDny(pulnoc(Date.now()), -7))).forEach((k) => uloziste.smaz(k));
+  }
+  zmeneno();
+}
+
+function smazVahu(kdy) {
+  const x = vahy().find((v) => v.kdy === kdy);
+  if (!x) return;
+  potvrd('Smazat zápis ' + kgCz(x.kg) + ' kg?', { ikona: IKONY.smazat, ton: 'nebezpeci', text: 'Zapsáno ' + kdyZapsano(x.kdy) + '.', ano: 'Smazat' }).then((ano) => {
+    if (!ano) return;
+    volej('vaha', { smazat: kdy }).then((v) => { poVaze(v.zaznamy || []); toast('Zápis smazán'); }).catch((e) => toast(e.message, true));
+  });
+}
+
+function smazJidlo(den, id) {
+  potvrd('Smazat jídlo?', { ikona: IKONY.smazat, ton: 'nebezpeci', ano: 'Smazat' }).then((ano) => {
+    if (ano) zapisPiti({ den, jak: 'smazat', id }, 'Smazáno').catch(() => {});
+  });
+}
+
+// ---------------------------------------------------------------- pravé tlačítko a vyjeté karty (Michal 11. 10.)
+// Doplněk: odškrtnout dnes / včera / v ukázaný den, všechny hlavní naráz; karta s dávkou, kdy a týdnem po dnech.
+// Jídlo: Zopakovat dnes, Přesunout na jiný den, Kopírovat, Smazat. Den v týdnu Pití a jídlo: voda a jídlo k tomu dni.
+// Den v týdnu Doplňků: ukázat, odškrtnout vše. Váha: Kopírovat, Smazat; karta s rozdílem proti minulému vážení.
+
+const nazevKdy = (k) => (KDY.find((x) => x[0] === k) || [k, k])[1];
+const denZIso = (iso) => pulnoc(Date.parse(iso + 'T12:00:00'));
+/** „dnes“, „včera“, „po 5. 10.“ */
+function popisDne(iso) {
+  const r = rozdilDni(denZIso(iso));
+  return r === 0 ? 'dnes' : r === -1 ? 'včera' : DNY_KR[new Date(denZIso(iso)).getDay()] + ' ' + dm(denZIso(iso));
+}
+const polozkaRezimu = (id) => (((stav.zdravi && stav.zdravi.rezim) || {}).polozky || []).find((x) => x.id === id) || null;
+
+/** Odškrtnout / zrušit z nabídky – s oznámením (den v kartě se nemusí měnit) a Vrátit. */
+function prepniZNabidky(den, idy, vzato) {
+  const pred = vzatoVDen(den);
+  const zpet = idy.filter((id) => !!pred[id] !== vzato);
+  if (!zpet.length) return;
+  prepniDoplnky(den, zpet, vzato);
+  const nazvy = zpet.map((id) => (polozkaRezimu(id) || { nazev: id }).nazev);
+  toastAkce((vzato ? '✓ ' : 'Zrušeno ') + popisDne(den) + ': ' + (nazvy.length > 2 ? nazvy.length + ' doplňky' : nazvy.join(', ')), 'Vrátit',
+    () => prepniDoplnky(den, zpet, !vzato));
+}
+
+function nabidkaDoplnku(el) {
+  const id = el.dataset.doplnek, den = el.dataset.doplnekDen || isoDatum(Date.now());
+  const p = polozkaRezimu(id);
+  if (!p) return null;
+  const dnes = isoDatum(Date.now()), vcera = isoDatum(pridejDny(pulnoc(Date.now()), -1));
+  const polozka = (d) => {
+    const vz = !!vzatoVDen(d)[id];
+    return { ikona: vz ? IKONY.zavrit : IKONY.fajfka, text: (vz ? 'Zrušit ' : 'Odškrtnout ') + popisDne(d), fn: () => prepniZNabidky(d, [id], !vz) };
+  };
+  const pol = [polozka(den)];
+  if (den === dnes) pol.push(polozka(vcera)); else pol.push(polozka(dnes));
+  const d = doplnkyDnes(denZIso(den), true);
+  const zbyva = d ? d.polozky.filter((x) => x.hlavni && x.plati && !x.vzato) : [];
+  if (zbyva.length > 1) pol.push({ ikona: IKONY.doplnky, text: 'Odškrtnout všechny hlavní (' + zbyva.length + ')', oddel: true, fn: () => prepniZNabidky(den, zbyva.map((x) => x.id), true) });
+  return { nadpis: p.nazev + ' · ' + popisDne(den), polozky: pol };
+}
+
+function nabidkaDneDoplnku(el) {
+  const den = el.dataset.doplnkyUkaz;
+  const d = doplnkyDnes(denZIso(den), true);
+  if (!d) return null;
+  const zbyva = d.polozky.filter((x) => x.hlavni && x.plati && !x.vzato);
+  const pol = [{ ikona: IKONY.kalendar, text: 'Ukázat ' + popisDne(den), fn: () => { denDoplnku = denZIso(den) === pulnoc(Date.now()) ? 0 : denZIso(den); denDoplnkuKdy = Date.now(); zmeneno(); } }];
+  if (zbyva.length) pol.push({ ikona: IKONY.fajfka, text: 'Odškrtnout všechny hlavní (' + zbyva.length + ')', fn: () => prepniZNabidky(den, zbyva.map((x) => x.id), true) });
+  return { nadpis: 'Doplňky · ' + popisDne(den), polozky: pol };
+}
+
+function nabidkaJidla(el) {
+  const k = el.closest('[data-piti-den]');
+  const den = k ? k.dataset.pitiDen : isoDatum(Date.now());
+  const j = souctyDne(den).jidla.find((x) => x.id === el.dataset.jidloZapis);
+  if (!j) return null;
+  const dnes = isoDatum(Date.now());
+  const pol = [{ ikona: IKONY.plus, text: 'Zopakovat dnes', fn: () => {
+    const co = j.co.length > 50 ? j.co.slice(0, 48) + '…' : j.co;
+    zapisPiti({ den: dnes, jak: 'jidlo', co: j.co, bilkoviny: j.bilkoviny || 0, kcal: j.kcal || 0, odhad: j.odhad === 'mistni' },
+      () => oznamDen('Zapsáno znovu: ' + co + ' · ' + (j.odhad === 'mistni' ? '≈ ' : '') + (j.bilkoviny || 0) + ' g bílkovin', dnes)).catch(() => {});
+  } }];
+  if (umiMotor('pitiJidloPresun')) pol.push({ ikona: IKONY.kalendar, text: 'Přesunout na jiný den…', fn: () => presunJidla(j.id, den) });
+  pol.push({ ikona: IKONY.kopirovat, text: 'Kopírovat', fn: () => kopiruj(j.co + ' · ' + (j.odhad === 'mistni' ? '≈ ' : '') + (j.bilkoviny || 0) + ' g bílkovin' +
+    (j.kcal ? ' · ' + j.kcal + ' kcal' : '')) });
+  pol.push({ ikona: IKONY.smazat, text: 'Smazat', nebezpeci: true, oddel: true, fn: () => smazJidlo(den, j.id) });
+  return { nadpis: j.co + ' · ' + popisDne(den), polozky: pol };
+}
+
+function nabidkaDnePiti(el) {
+  const den = el.dataset.pitiUkaz;
+  const t = denZIso(den);
+  return { nadpis: 'Pití a jídlo · ' + popisDne(den), polozky: [
+    { ikona: IKONY.kalendar, text: 'Ukázat ' + popisDne(den), fn: () => ukazDenPiti(den === isoDatum(Date.now()) ? '' : den) },
+    { ikona: IKONY.kapka, text: '+0,25 l vody', oddel: true, fn: () => zapisPiti({ den, jak: 'piti', ml: 250 }, () => oznamDen('+0,25 l · ' + popisDne(den), den)).catch(() => {}) },
+    { ikona: IKONY.kapka, text: '+0,5 l vody', fn: () => zapisPiti({ den, jak: 'piti', ml: 500 }, () => oznamDen('+0,5 l · ' + popisDne(den), den)).catch(() => {}) },
+    { ikona: IKONY.jidlo, text: 'Jídlo na tento den…', fn: () => otevriJidlo(t) }
+  ] };
+}
+
+function nabidkaVahy(el) {
+  const x = vahy().find((v) => v.kdy === Number(el.dataset.vahaKdy));
+  if (!x) return null;
+  return { nadpis: 'Váha · ' + kdyZapsano(x.kdy), polozky: [
+    { ikona: IKONY.kopirovat, text: 'Kopírovat', fn: () => kopiruj(kgCz(x.kg) + ' kg · ' + kdyZapsano(x.kdy)) },
+    { ikona: IKONY.smazat, text: 'Smazat zápis', nebezpeci: true, oddel: true, fn: () => smazVahu(x.kdy) }
+  ] };
+}
+
+export function nabidkaZdravi(cil) {
+  if (!stav.zdravi) return null;
+  let el = cil.closest('[data-doplnek]');
+  if (el) return nabidkaDoplnku(el);
+  el = cil.closest('.doplnky-tyden ol [data-doplnky-ukaz]');
+  if (el && /^\d{4}-\d{2}-\d{2}$/.test(el.dataset.doplnkyUkaz)) return nabidkaDneDoplnku(el);
+  el = cil.closest('[data-jidlo-zapis]');
+  if (el) return nabidkaJidla(el);
+  el = cil.closest('.piti__tyden [data-piti-ukaz]');
+  if (el && /^\d{4}-\d{2}-\d{2}$/.test(el.dataset.pitiUkaz)) return nabidkaDnePiti(el);
+  el = cil.closest('[data-vaha-kdy]');
+  if (el) return nabidkaVahy(el);
+  return null;
+}
+pripojNabidku(nabidkaZdravi);
+
+// ---- karty
+
+const ikonaZdravi = (ikona) => '<span class="bk-ikona bk-ikona--zdravi">' + ikona + '</span>';
+
+/** Karta doplňku: název, dávka, kdy, podmínka (jen v den zápasu…), týden po dnech (✓ / – / neplatí) a x z y dní. */
+function kartaDoplnkuJednoho(el) {
+  const kl = String(el.dataset.kartaKlic || ''), i = kl.lastIndexOf('|');
+  const id = kl.slice(0, i), den = kl.slice(i + 1);
+  const rezim = stav.zdravi && stav.zdravi.rezim;
+  const d = rezim && /^\d{4}-\d{2}-\d{2}$/.test(den) ? doplnkyDnes(denZIso(den)) : null;
+  const p = d && d.polozky.find((x) => x.id === id);
+  if (!p) return '';
+  const dnes = pulnoc(Date.now());
+  const s = d.tyden.polozky[id] || { vzato: 0, dni: 0 };
+  const dny = DNY_TYDNE.map((nazev, j) => {
+    const t = pridejDny(d.tyden.pondeli, j);
+    if (t > dnes) return '<span class="bk-den bk-den--budouci"><i></i><small>' + nazev + '</small></span>';
+    const vz = !!vzatoVDen(isoDatum(t))[id];
+    const plati = denRezimu(rezim, t).plati(p);
+    return '<span class="bk-den' + (vz ? ' bk-den--ano' : plati ? ' bk-den--ne' : ' bk-den--neplati') + (t === dnes ? ' bk-den--dnes' : '') + '"><i>' +
+      (vz ? IKONY.fajfka : '') + '</i><small>' + nazev + '</small></span>';
+  }).join('');
+  const radky = [[IKONY.cas, nazevKdy(p.kdy) + (p.davka ? ' · ' + p.davka : '')]];
+  if (p.jen) radky.push([IKONY.info, velkym(JEN_DNY[p.jen] || 'jen některé dny')]);
+  if (Number(p.bilkoviny) > 0) radky.push([IKONY.jidlo, p.bilkoviny + ' g bílkovin – počítá se do Pití a jídla']);
+  if (!p.hlavni) radky.push([IKONY.info, 'vedlejší – do plnění se nepočítá']);
+  return hlavaKarty(ikonaZdravi(IKONY.doplnky), (d.dnes ? 'Doplněk · dnes' : 'Doplněk · ' + popisDne(den)), esc(p.nazev),
+    p.vzato ? '✓ vzato' : p.plati ? 'ještě nevzato' : 'ten den neplatí',
+    s.dni ? '<b class="bk-body cisla">' + s.vzato + '<small>/' + s.dni + '</small></b>' : '') +
+    '<ul class="bk-radky">' + radky.map((r) => '<li>' + r[0] + '<span>' + esc(r[1]) + '</span></li>').join('') + '</ul>' +
+    '<div class="bk-oddil"><div class="bk-mezinadpis">' + (d.tyden.tentoTyden ? 'Tento týden' : 'Týden ' + dm(d.tyden.pondeli)) + '</div>' +
+    '<div class="bk-dny-tydne">' + dny + '</div></div>';
+}
+
+/** Karta vážení: kg, kdy a denní doba, rozdíl proti minulému vážení ve stejnou dobu, plán k cíli. */
+function kartaVahyJedne(el) {
+  const z = vahy();
+  const i = z.findIndex((v) => v.kdy === Number(el.dataset.kartaKlic));
+  if (i < 0) return '';
+  const x = z[i];
+  const pred = minuleStejne(z, i);
+  const rozdil = pred ? Math.round((x.kg - pred.kg) * 10) / 10 : null;
+  const c = cilVahy();
+  const radky = [];
+  if (pred) radky.push([IKONY.vaha, (rozdil > 0 ? '+' : rozdil < 0 ? '−' : '±') + kgCz(Math.abs(rozdil)) + ' kg proti ' + kdyZapsano(pred.kdy)]);
+  else radky.push([IKONY.info, 'první vážení v tuhle denní dobu (za 3 týdny)']);
+  if (c && x.kdy > c.od.t) radky.push([IKONY.zatez, 'plán k cíli ' + kgCz(planVahy(c, x.kdy)) + ' kg']);
+  return hlavaKarty(ikonaZdravi(IKONY.vaha), 'Váha · ' + NAZEV_DOBY[dobaVazeni(x.kdy)], kgCz(x.kg) + '<small> kg</small>', esc(kdyZapsano(x.kdy))) +
+    '<ul class="bk-radky">' + radky.map((r) => '<li>' + r[0] + '<span>' + esc(r[1]) + '</span></li>').join('') + '</ul>';
+}
+
+registruj('doplnek', kartaDoplnkuJednoho);
+registruj('vaha', kartaVahyJedne);

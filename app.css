@@ -872,6 +872,101 @@ button.legenda-radek { width: 100%; background: none; border: 0; text-align: lef
 .pruh-spanku i.graf-aktivni, .zony i.graf-aktivni { filter: brightness(1.12) saturate(1.1); }
 .doplnky-tyden li > .graf-aktivni { box-shadow: inset 0 0 0 1.5px var(--accent); }
 
+/* ================================================================ [nabídky a karty po stránkách – začátek bloku]
+   Michal 11. 10.: „další využití pravého tlačítka … denní kroužky a najetí na to se mi líbí, podobné věci můžeme přidat“.
+   Nabídka (js/nabidka.js): oddělovače skupin, dlouhá nabídka se posouvá. Vyjeté karty (js/bubliny.js) u událostí, dnů
+   v měsíci, zápasů, tabulky, doplňků, váhy, zápisů auta a stavu na Instagramu; týden v kroužcích na stránce Zdraví. */
+.nabidka { max-height: calc(100vh - 16px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.nabidka__oddel { margin: 4px 8px; border: 0; border-top: 1px solid var(--line-soft); }
+@media (pointer: coarse) {
+    /* dlouhé podržení otevře nabídku – ne výběr textu ani bublinu iPhonu (text popisku reelu jde dál označit) */
+    [data-udalost], [data-zapas-id], [data-tab-klub], .doplnek, [data-jidlo-zapis], [data-vaha-kdy], [data-auto-zapis-id], .reel, .reel-krok,
+    .mesic-den, .mini__den, .cas-den-nadpis, .kal-den__hlava, .agenda__den-btn, [data-svatek-den], .brzy__radek, .pas-den, .doplnky-tyden button,
+    .piti__tyden button, .plakat-nahled {
+        -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+    .reel__popisek, .reel-krok__popisek { -webkit-touch-callout: default; -webkit-user-select: text; user-select: text; }
+}
+
+/* vyjeté karty: barva oblasti, řádky s ikonou, seznam s časy, popis */
+.bublina--karta[data-druh="udalost"], .bublina--karta[data-druh="den"] { --o: var(--o-kalendar); }
+.bublina--karta[data-druh="zapas"], .bublina--karta[data-druh="tabulka"], .bublina--karta[data-druh="ig"] { --o: var(--o-fotbal); }
+.bublina--karta[data-druh="doplnek"], .bublina--karta[data-druh="vaha"], .bublina--karta[data-druh="krouzky-den"] { --o: var(--o-zdravi); }
+.bublina--karta[data-druh="auto-zapis"] { --o: var(--o-auto); }
+.bublina--karta[data-druh="krouzky-den"] { width: 392px; }
+.bk-ikona--fotbal, .bk-ikona--ig { --o: var(--o-fotbal); }
+.bk-ikona--zdravi { --o: var(--o-zdravi); }
+.bk-ikona--auto { --o: var(--o-auto); }
+.bk-ikona.bk-vrp--V { --o: var(--ok); }
+.bk-ikona.bk-vrp--R { --o: var(--zluta); }
+.bk-ikona.bk-vrp--P { --o: var(--danger); }
+.bk-hlava__text > span .bk-nazev { display: block; margin-top: 1px; font-size: 13.5px; line-height: 1.3; font-weight: 650; color: var(--text); }
+.bk-radky { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.bk-radky li { display: flex; align-items: flex-start; gap: 9px; font-size: 12.5px; line-height: 1.35; color: var(--text-soft); }
+.bk-radky li > svg { flex: none; width: 15px; height: 15px; margin-top: 1px; color: var(--muted); }
+.bk-radky li > .bk-tecka { margin: 4px 3px 0; }
+.bk-radky li > span { min-width: 0; overflow-wrap: anywhere; }
+.bk-tecka { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--b, var(--sand-2)); }
+.bk-popis { margin: 10px 0 0; font-size: 12px; line-height: 1.45; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    overflow: hidden; }
+.bk-seznam { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.bk-seznam li { display: grid; grid-template-columns: 56px auto minmax(0, 1fr); align-items: center; gap: 8px; font-size: 12.5px; }
+.bk-seznam li > span { font-size: 11.5px; font-weight: 650; color: var(--muted); }
+.bk-seznam li > b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bk-oddil .bk-seznam { margin-top: 0; }
+.bk-pocasi { flex: none; align-self: flex-start; display: flex; flex-direction: column; align-items: center; gap: 1px; color: var(--o-pocasi); }
+.bk-pocasi svg { width: 24px; height: 24px; }
+.bk-pocasi small { font-size: 11px; font-weight: 650; color: var(--text-soft); white-space: nowrap; }
+.bk-body { flex: none; align-self: flex-start; font-size: 22px; line-height: 1.1; font-weight: 750; letter-spacing: -.01em; }
+.bk-body small { font-size: 12px; font-weight: 600; color: var(--muted); }
+.bk-poradi { flex: none; align-self: flex-start; font-size: 12px; font-weight: 700; color: var(--muted); }
+
+/* zápas: góly a karty (náš tým výrazně), forma V/R/P, tabulka celkem / doma / venku */
+.bk-goly { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.bk-goly li { display: grid; grid-template-columns: 30px 14px minmax(0, 1fr); align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.bk-goly li > span { font-size: 11.5px; font-weight: 650; }
+.bk-goly li > svg { width: 13px; height: 13px; }
+.bk-goly li > b { min-width: 0; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bk-goly li.nas { color: var(--text); }
+.bk-goly li.nas > b { font-weight: 700; }
+.bk-goly li.nas > svg { color: var(--o-fotbal); }
+.bk-forma { display: inline-flex; gap: 4px; }
+.bk-forma i { width: 21px; height: 21px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 10.5px; font-weight: 750; color: #fff; }
+.bk-forma i.bk-forma--V { background: var(--ok); }
+.bk-forma i.bk-forma--R { background: var(--zluta); }
+.bk-forma i.bk-forma--P { background: var(--danger); }
+.bk-seznam .bk-forma i { width: 17px; height: 17px; font-size: 9.5px; }
+.bk-tabulka { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.bk-tabulka li { display: grid; grid-template-columns: minmax(0, 1fr) 58px 52px 40px; align-items: center; gap: 6px; padding: 6px 9px; border-radius: 10px;
+    background: var(--bg-soft); font-size: 12.5px; }
+.bk-tabulka li > b { font-weight: 650; }
+.bk-tabulka li > span { text-align: right; color: var(--text-soft); }
+
+/* doplněk: týden po dnech (vzato / nevzato / ten den neplatí / budoucí) */
+.bk-dny-tydne { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.bk-den { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.bk-den i { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; box-shadow: inset 0 0 0 1.5px var(--line); color: #fff; }
+.bk-den i svg { width: 13px; height: 13px; }
+.bk-den--ano i { background: var(--o-zdravi); box-shadow: none; }
+.bk-den--neplati i { box-shadow: inset 0 0 0 1.5px var(--line-soft); opacity: .5; }
+.bk-den--budouci i { box-shadow: none; background: var(--bg-soft); }
+.bk-den small { font-size: 10px; font-weight: 650; text-transform: uppercase; color: var(--dim); }
+.bk-den--dnes small { color: var(--text); }
+
+/* Zdraví: týden v kroužcích (js/krouzky.js) – 7 dní vedle sebe, karta dne po najetí / klepnutí */
+.tyden-krouzku { list-style: none; margin: 0; padding: 2px 0 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.tk-den { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.tk-den__kruh { display: grid; place-items: center; width: 100%; max-width: 54px; aspect-ratio: 1; padding: 4px; border: 0; border-radius: 14px; background: none; color: inherit; }
+.tk-den__kruh .krouzky { width: 100%; height: 100%; }
+button.tk-den__kruh:hover, .tk-den__kruh[aria-expanded="true"] { background: var(--sand); }
+.tk-den__kruh:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tk-den--dnes .tk-den__kruh { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.tk-den--budouci .tk-den__kruh { opacity: .35; }
+.tk-den small { font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: var(--dim); }
+.tk-den--dnes small { color: var(--text); }
+.tk-den em { font-style: normal; font-size: 11px; font-weight: 650; color: var(--muted); }
+.tk-den--vse em { color: var(--ok); }
+/* ================================================================ [nabídky a karty po stránkách – konec bloku] */
+
 /* ================================================================ Fotbal (zápasy klubu) a druhy kalendářů */
 .fotbal-tymy { list-style: none; margin: 0; padding: 2px 0 10px; }
 .fotbal-tymy li { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 2px 10px; padding: 7px 16px; align-items: baseline; }

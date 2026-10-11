@@ -8,14 +8,18 @@
 // platí šetrné obecné výchozí: 2,5 l a 130 g (stejně jako karta Pití a jídlo) a 8 000 kroků (běžné doporučení
 // – po zranění spíš chůze než výkon; v režimu jde změnit).
 
-import { stav } from './stav.js';
-import { esc, isoDatum, pulnoc } from './pomocne.js';
+import { stav, hooky } from './stav.js';
+import { esc, isoDatum, pulnoc, pridejDny, zacatekTydne, dm, DNY } from './pomocne.js';
 import { doplnkyDnes } from './zdravi.js';
-import { hlavaKarty, pataKarty } from './bubliny.js';
+import { hlavaKarty, pataKarty, karta, registruj } from './bubliny.js';
+import { hlavickaKarty } from './ui.js';
+import { IKONY } from './ikony.js';
 
 export const VYCHOZI_CILE = { piti: 2500, bilkoviny: 130, kroky: 8000 };
 
-const cislo = (n, des) => Number(n).toLocaleString('cs-CZ', { minimumFractionDigits: des || 0, maximumFractionDigits: des || 0 });
+// formáty čísel jednou (toLocaleString s volbami si Intl.NumberFormat skládá při každém volání – týden v kroužcích ho volá stokrát)
+const FORMATY = [0, 1].map((d) => new Intl.NumberFormat('cs-CZ', { minimumFractionDigits: d, maximumFractionDigits: d }));
+const cislo = (n, des) => FORMATY[des ? 1 : 0].format(Number(n));
 const litry = (ml) => cislo(Math.round(ml / 100) / 10, 1);
 const cil = (hodnota, vychozi) => (Number(hodnota) > 0 ? Number(hodnota) : vychozi);
 
@@ -34,7 +38,7 @@ export function krouzkyDnes(ted) {
   let b = (pj.jidlo || []).reduce((s, x) => s + (Number(x.bilkoviny) || 0), 0);
   const odhad = (pj.jidlo || []).some((x) => x.odhad === 'mistni');
   // odškrtnuté doplňky s bílkovinami (protein, smoothie) se počítají jako v kartě Pití a jídlo
-  const d = doplnkyDnes(pulnoc(t));
+  const d = doplnkyDnes(pulnoc(t), true); // bez souhrnu týdne – stačí plnění a odškrtnuté
   if (d) d.polozky.forEach((p) => { if (p.vzato && Number(p.bilkoviny) > 0) b += Number(p.bilkoviny); });
   // kroky: Apple Watch i WHOOP posílají dnešek průběžně – větší číslo je čerstvější
   const dnes = (z.dny || []).find((x) => x.den === den) || {};
@@ -100,12 +104,53 @@ function velkyKrouzek(x) {
  * Vyjetá karta kroužků (dlaždice v horní liště, malá karta na telefonu – js/bubliny.js): pro každou věc velký kroužek
  * s procentem, hodnota z cíle a kolik zbývá; kolik cílů je splněných; tlačítko do Zdraví.
  */
-export function kartaKrouzkuHtml(k) {
+export function kartaKrouzkuHtml(k, nadpis, pata) {
   if (!k || !k.length) return '';
   const splneno = k.filter((x) => x.procent >= 100).length;
-  return hlavaKarty('<span class="bk-ikona bk-ikona--krouzky">' + krouzkySvg(k) + '</span>', 'Denní kroužky · dnes',
+  return hlavaKarty('<span class="bk-ikona bk-ikona--krouzky">' + krouzkySvg(k) + '</span>', nadpis || 'Denní kroužky · dnes',
     splneno + '<small> ze ' + k.length + '</small>', splneno === k.length ? 'všechny cíle splněné' : 'cílů splněno') +
     '<ul class="bk-krouzky bk-krouzky--' + k.length + '">' + k.map((x) => '<li class="krouzky--' + x.klic + (x.procent >= 100 ? ' splneno' : '') + '">' +
       velkyKrouzek(x) + '<b>' + esc(x.karta[0]) + '</b><span class="cisla">' + esc(x.karta[1]) + '</span><small>' + esc(x.zbyva) + '</small></li>').join('') + '</ul>' +
-    pataKarty([['data-cil="zdravi"', 'Zdraví', true]]);
+    pataKarty(pata || [['data-cil="zdravi"', 'Zdraví', true]]);
 }
+
+// ---------------------------------------------------------------- týden v kroužcích (Michal 11. 10.: „denní kroužky a najetí na to
+// se mi líbí … podobné věci můžeme přidat“): na stránce Zdraví řada Po–Ne, u každého dne malé kroužky (voda, bílkoviny, pohyb,
+// doplňky) a pod nimi kolik cílů ten den padlo; najetí / klepnutí = stejná vyjetá karta jako u kroužků na Přehledu, jen za ten
+// den (s tlačítkem na Pití a jídlo toho dne). Budoucí dny jsou prázdné a nic neukazují.
+
+const DNY_TYDNE = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
+const kDni = (iso) => krouzkyDnes(Date.parse(iso + 'T12:00:00'));
+
+/** Karta „Kroužky · tento týden“ do mřížky karet Zdraví (hooky.tydenKrouzku – zdravi.js bez kruhového importu). */
+export function tydenKrouzkuHtml() {
+  if (!stav.zdravi) return '';
+  const dnes = pulnoc(Date.now()), po = zacatekTydne(dnes);
+  let cile = 0, splneno = 0;
+  const dny = DNY_TYDNE.map((nazev, i) => {
+    const t = pridejDny(po, i);
+    if (t > dnes) {
+      return '<li class="tk-den tk-den--budouci"><span class="tk-den__kruh">' + krouzkySvg([{ klic: 'voda', podil: 0 }, { klic: 'bilkoviny', podil: 0 }, { klic: 'pohyb', podil: 0 }]) +
+        '</span><small>' + nazev + '</small><em>&nbsp;</em></li>';
+    }
+    const k = krouzkyDnes(t + 12 * 36e5) || [];
+    const n = k.filter((x) => x.procent >= 100).length;
+    cile += k.length;
+    splneno += n;
+    return '<li class="tk-den' + (t === dnes ? ' tk-den--dnes' : '') + (k.length && n === k.length ? ' tk-den--vse' : '') + '"><button type="button" class="tk-den__kruh"' +
+      karta('krouzky-den', false, isoDatum(t)) + ' aria-label="' + esc(DNY[new Date(t).getDay()] + ' ' + dm(t) + ': ' + popisKrouzku(k)) + '">' + krouzkySvg(k) + '</button>' +
+      '<small>' + nazev + '</small><em class="cisla">' + n + '/' + k.length + '</em></li>';
+  }).join('');
+  return '<section class="card dlazdice zd-krouzky" data-oblast="zdravi">' + hlavickaKarty(IKONY.aktivita, 'Kroužky · tento týden',
+    '<span class="muted small cisla">' + splneno + ' z ' + cile + ' cílů</span>') +
+    '<div class="dlazdice__telo"><ol class="tyden-krouzku">' + dny + '</ol></div></section>';
+}
+hooky.tydenKrouzku = tydenKrouzkuHtml;
+
+registruj('krouzky-den', (el) => {
+  const iso = el.dataset.kartaKlic;
+  const t = Date.parse(iso + 'T12:00:00');
+  const dnes = iso === isoDatum(Date.now());
+  return kartaKrouzkuHtml(kDni(iso), 'Denní kroužky · ' + (dnes ? 'dnes' : DNY[new Date(t).getDay()] + ' ' + dm(t)),
+    [['data-piti-ukaz="' + (dnes ? 'dnes' : iso) + '"', 'Pití a jídlo ' + (dnes ? 'dnes' : 'toho dne'), true]]);
+});

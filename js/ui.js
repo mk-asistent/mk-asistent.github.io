@@ -31,6 +31,32 @@ export function toastAkce(text, popisek, fn) {
   casovac = setTimeout(() => el.classList.remove('videt', 's-akci'), 7000);
 }
 
+/** Text do schránky (na https Clipboard API, jinak – starší Safari, http – označením v <textarea>) → true / false. */
+export async function doSchranky(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* náhradní cesta níž */ }
+  const t = document.createElement('textarea');
+  t.value = text;
+  t.setAttribute('readonly', '');
+  t.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;';
+  document.body.appendChild(t);
+  t.focus();
+  t.select();
+  t.setSelectionRange(0, text.length);
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  t.remove();
+  return ok;
+}
+
+/** Kopírovat z nabídky (pravé tlačítko): text do schránky a oznámení „Zkopírováno: …“ (hlaseni = co se kopírovalo). */
+export function kopiruj(text, hlaseni) {
+  return doSchranky(String(text || '')).then((ok) => {
+    if (ok) toast((hlaseni || 'Zkopírováno') + (hlaseni ? '' : ': ' + (text.length > 48 ? text.slice(0, 46) + '…' : text)));
+    else toast('Kopírování nejde – označ text ručně', true);
+    return ok;
+  });
+}
+
 export function kostra(n) {
   let s = '';
   for (let i = 0; i < (n || 3); i++) s += '<i></i>';

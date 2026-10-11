@@ -94,7 +94,7 @@ const motor = {
   vlakno: (d) => ({ id: d.id, predmet: d.id === 'v1' ? 'Sraz v sobotu' : 'Protokol', odkaz: '#', vDorucenych: true, skryto: 0, ucet: d.id === 'v1' ? 'osobni' : 'pracovni',
     navrhOdpovedi: d.id === 'v1' && !navrhZahozen ? { zpravaId: 'm-v1', text: 'Ahoj, budu tam v 8:15.', kdy: new Date(ted).toISOString(), poznamka: '' } : undefined,
     zpravy: (d.id === 'v1' ? [{ id: 'm-starsi', od: 'Já', odAdresa: 'tester@example.com', odeMe: true, komu: 'trener@klub.test', kopie: '', kdy: ted - 30 * H, predmet: 'Sraz',
-      text: 'Kdy je sraz?', html: '', prilohy: [] }] : []).concat([{ id: 'm-' + d.id, od: 'Trenér', odAdresa: 'trener@klub.test', odeMe: false, komu: 'tester@example.com', kopie: '', kdy: kdySouhrnu(d.id), predmet: 'Sraz',
+      text: 'Kdy je sraz?', html: '', prilohy: [] }] : []).concat([{ id: 'm-' + d.id, od: 'Trenér', odAdresa: 'trener@klub.test', odeMe: false, komu: 'tester@example.com', kopie: d.id === 'v2' ? vlaknoV2Kopie : '', kdy: kdySouhrnu(d.id), predmet: 'Sraz',
       text: 'Ahoj, sraz v 8:30.', html: d.id === 'v2' ? '<p>Protokol <img src="https://sledovani.example/pixel.gif" width="1" height="1"></p>' : '', prilohy: [] }]) }),
   kalendar: (d) => ({ udalosti: kalendarPrazdny ? [] : [
     { id: 'u1|' + den(0, 9), nazev: 'Porada', zacatek: den(0, 9), konec: den(0, 10), celodenni: false, misto: 'kancelář', popis: '', kalendar: 'Osobní', kalendarId: 'g1', barva: '#2f6bff', zdroj: 'google', opakovana: true },
@@ -364,6 +364,7 @@ const volano = [];
 let ztratitOdpovedi = 0;          // kolik dalších odpovědí motoru „ztratí Google“ (test opakování)
 const odpovediRid = new Map();    // rid → odpověď (motor opakovaný zápis neprovede)
 let navrhZahozen = false;
+let vlaknoV2Kopie = '';           // kopie u zprávy v2 (test Odpovědět všem v nabídce)
 // schránka: smazané poznámky (koš na Disku – Vrátit je vrátí) a moje poznámky „pro mě“ (MOJE, hotové = MOJE/HOTOVO)
 const smazanoSchranka = new Set(), mojeHotoveTest = new Set();
 const MOJE_VYCHOZI = [{ id: 'moje-a', text: 'Koupit žárovky do garáže', kdy: ted - 2 * H, odkud: 'iPhone' },
@@ -1410,15 +1411,16 @@ function vychoziVikendTestu() {
   });
 
   // ---------- bubliny místo title i jinde: výsledky Fotbalu na Přehledu, předpověď u dne a svátek v kalendáři
-  await test('bubliny místo title: výsledek Fotbalu na Přehledu, předpověď ČHMÚ u dne v kalendáři', async () => {
+  await test('bubliny místo title: výsledek Fotbalu na Přehledu (vyjetá karta), předpověď ČHMÚ u dne v kalendáři', async () => {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
     await page.goto(WEB);
     await page.waitForSelector('#dl-fotbal .fotbal-vysledek--P');
     jistota(!(await page.locator('#dl-fotbal .fotbal-vysledek[title]').count()), 'title u výsledku');
     await page.locator('#dl-fotbal .fotbal-vysledek--P').first().hover();
-    await page.waitForFunction(() => !document.getElementById('graf-bublina').hidden);
-    const t = (await page.textContent('#graf-bublina')).replace(/\s+/g, ' ');
-    jistota(/A-tým/.test(t) && /1:3 prohra/.test(t) && /FK Agro Vnorovy – TJ Lysovice/.test(t), 'bublina výsledku: ' + t);
+    await page.waitForSelector('#bublina-karta.videt[data-druh="zapas"]');
+    const t = (await page.textContent('#bublina-karta')).replace(/\s+/g, ' ');
+    jistota(/A-tým/.test(t) && /1:3 prohra/.test(t) && /FK Agro Vnorovy – TJ Lysovice/.test(t) && /Poločas\s?0:2/.test(t), 'karta výsledku: ' + t);
+    await page.mouse.move(2, 2);
     await page.screenshot({ path: path.join(VYSTUP, 'pc_bublina_fotbal.png') });
     await page.click('#rail [data-cil="kalendar"]');
     await page.click('[data-kal-pohled="tyden"]');
@@ -1930,7 +1932,7 @@ function vychoziVikendTestu() {
     await page.waitForSelector('.nabidka.videt [data-nabidka-i]');
     await page.$eval('#posta-seznam [data-vlakno="v2"]', (b) => b.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch', isPrimary: true })));
     const polozky = await page.$$eval('.nabidka [data-nabidka-i] span', (x) => x.map((e) => e.textContent));
-    jistota(polozky.join('|') === 'Otevřít|Označit jako nepřečtené|Hotovo|Beru na vědomí|Přesunout do skupiny…|Připomenout…|Odpovědět|Vybrat|Spam|Smazat',
+    jistota(new RegExp('^Otevřít\\|Označit jako nepřečtené\\|Hotovo\\|Beru na vědomí\\|Přesunout do skupiny…\\|Připomenout…\\|Odpovědět\\|Přeposlat\\|(Nový e-mail odesílateli\\|Kopírovat adresu\\|)?Vybrat\\|Spam\\|Smazat$').test(polozky.join('|')),
       'nabídka: ' + polozky.join(' | '));
     jistota(!(await page.locator('[data-panel="vlakno"]').count()), 'podržení nemá otevřít konverzaci');
     jistota(await page.$eval('.nabidka', (n) => { const r = n.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; }), 'nabídka celá na obrazovce');
@@ -2063,7 +2065,7 @@ function vychoziVikendTestu() {
       // pravé tlačítko: nabídka jako ve schránce, v pořadí, jak ji Michal popsal
       await page.click('#posta-seznam [data-vlakno="v1"]', { button: 'right' });
       await page.waitForSelector('.nabidka.videt');
-      jistota(await polozkyNabidky(page) === 'Otevřít|Označit jako přečtené|Hotovo|Beru na vědomí|Přesunout do skupiny…|Připomenout…|Odpovědět|Vybrat|Spam|Smazat',
+      jistota(new RegExp('^Otevřít\\|Označit jako přečtené\\|Hotovo\\|Beru na vědomí\\|Přesunout do skupiny…\\|Připomenout…\\|Odpovědět\\|Přeposlat\\|(Nový e-mail odesílateli\\|Kopírovat adresu\\|)?Vybrat\\|Spam\\|Smazat$').test(await polozkyNabidky(page)),
         'nabídka: ' + await polozkyNabidky(page));
       jistota(/Trenér · Sraz v sobotu/.test(await page.textContent('.nabidka__nadpis')), 'nadpis nabídky');
       await page.screenshot({ path: path.join(VYSTUP, 'pc_posta_nabidka.png') });
@@ -2288,7 +2290,7 @@ function vychoziVikendTestu() {
       await page.waitForSelector('.nabidka.videt');
       await page.$eval('.pozornost--posta [data-vlakno="v1"]', (b) => b.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch', isPrimary: true })));
       const n = await polozkyNabidky(page);
-      jistota(n === 'Otevřít|Označit jako přečtené|Hotovo|Beru na vědomí|Přesunout do skupiny…|Připomenout…|Odpovědět|Spam|Smazat', 'nabídka na Dnes: ' + n);
+      jistota(new RegExp('^Otevřít\\|Označit jako přečtené\\|Hotovo\\|Beru na vědomí\\|Přesunout do skupiny…\\|Připomenout…\\|Odpovědět\\|Přeposlat\\|(Nový e-mail odesílateli\\|Kopírovat adresu\\|)?Spam\\|Smazat$').test(n), 'nabídka na Dnes: ' + n);
       jistota(!(await page.locator('[data-panel="vlakno"]').count()), 'podržení e-mail neotevřelo');
       await page.waitForTimeout(200);
       await page.screenshot({ path: path.join(VYSTUP, 'telefon_dnes_posta_nabidka.png') });
@@ -2315,7 +2317,7 @@ function vychoziVikendTestu() {
       await page.click('#posta-seznam [data-vlakno="v1"]', { button: 'right' });
       await page.waitForSelector('.nabidka.videt');
       const n = await polozkyNabidky(page);
-      jistota(n === 'Otevřít|Označit jako přečtené|Hotovo|Přesunout do skupiny…|Připomenout…|Odpovědět|Vybrat|Spam', 'nabídka: ' + n);
+      jistota(new RegExp('^Otevřít\\|Označit jako přečtené\\|Hotovo\\|Přesunout do skupiny…\\|Připomenout…\\|Odpovědět\\|Přeposlat\\|(Nový e-mail odesílateli\\|Kopírovat adresu\\|)?Vybrat\\|Spam$').test(n), 'nabídka: ' + n);
       const pred = volano.length;
       await page.click('.nabidka [data-nabidka-i]:has-text("Hotovo")');
       await cekej(() => volano.slice(pred).some((d) => d.akce === 'oznacit' && d.id === 'v1' && d.jak === 'archivovat'), 3000, 'oznacit');
@@ -4332,7 +4334,7 @@ function vychoziVikendTestu() {
       await page.click('#posta-seznam [data-vlakno="' + W1 + '"]', { button: 'right' });
       await page.waitForSelector('.nabidka.videt');
       const n = await polozkyNabidky(page);
-      jistota(n === 'Otevřít|Označit jako přečtené|Hotovo|Beru na vědomí|Odpovědět|Vybrat|Smazat', 'nabídka WEDOS: ' + n);
+      jistota(new RegExp('^Otevřít\\|Označit jako přečtené\\|Hotovo\\|Beru na vědomí\\|Odpovědět\\|Přeposlat\\|(Nový e-mail odesílateli\\|Kopírovat adresu\\|)?Vybrat\\|Smazat$').test(n), 'nabídka WEDOS: ' + n);
       // Beru na vědomí: server s časem poslední zprávy, hned informace
       fbVolano.length = 0;
       fbVolanoData.length = 0;
@@ -5712,6 +5714,506 @@ function vychoziVikendTestu() {
     await page.waitForSelector('#posta-seznam [data-vlakno="v1"]');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
+  });
+
+
+  // ---------- pravé tlačítko a vyjeté karty po stránkách (Michal 11. 10.: „další využití pravého tlačítka … jednoduché vychytávky,
+  // co by bylo vhodné usnadnit a zrychlit … denní kroužky a najetí na to se mi líbí, podobné věci můžeme přidat“)
+  const nabidkaPolozky = (page) => page.$$eval('.nabidka [data-nabidka-i] span', (x) => x.map((e) => e.textContent).join('|'));
+  const vyberZNabidky = async (page, text) => {
+    await page.click('.nabidka [data-nabidka-i] span:text-is("' + text + '")');
+    await page.waitForSelector('.nabidka', { state: 'detached' });
+  };
+  const pravym = async (page, sel) => {
+    await page.click(sel, { button: 'right' });
+    await page.waitForSelector('.nabidka.videt [data-nabidka-i]');
+  };
+  const textVyjeteKarty = async (page) => (await page.textContent('#bublina-karta')).replace(/\s+/g, ' ');
+  const najetNaKartu = async (page, sel, druh) => {
+    await page.mouse.move(2, 2);
+    await page.hover(sel);
+    await page.waitForSelector('#bublina-karta.videt[data-druh="' + druh + '"]');
+    await page.waitForTimeout(220); // dojet přechod „vyjetí“ (kvůli snímkům)
+    return textVyjeteKarty(page);
+  };
+  const schrankaText = async (page) => (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n').replace(/ /g, ' ');
+
+  await test('nabídky: Kalendář – pravé tlačítko na události (Kopírovat, Duplikovat na zítra a Smazat s Vrátit, opakovaná s dotazem, iPhone jen ke čtení), den (Nová událost), svátek (přání, oblíbení); karta události a dne myší; klávesnice Shift+F10 (PC)', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: WEB.replace(/\/$/, '') });
+    await ctx.route('https://wa.me/**', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<p>ok</p>' }));
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="kalendar"]');
+      await page.click('[data-kal-pohled="mesic"]');
+      const pozdni = '#p-kalendar .kal-den [data-udalost^="u3|"]';
+      await page.waitForSelector(pozdni);
+      // událost v zapisovatelném kalendáři Google
+      await pravym(page, pozdni);
+      jistota(await nabidkaPolozky(page) === 'Otevřít|Upravit|Duplikovat na zítra|Duplikovat na jiný den…|Kopírovat|Smazat', 'nabídka události: ' + await nabidkaPolozky(page));
+      jistota(/Pozdní hovor/.test(await page.textContent('.nabidka__nadpis')) && await page.locator('.nabidka .nabidka__oddel').count() === 2, 'nadpis a oddělovače');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_kalendar_nabidka.png') });
+      await vyberZNabidky(page, 'Kopírovat');
+      const d0 = new Date(den(0));
+      jistota(await schrankaText(page) === ['ne', 'po', 'út', 'st', 'čt', 'pá', 'so'][d0.getDay()] + ' ' + d0.getDate() + '. ' + (d0.getMonth() + 1) + '. 23:00 Pozdní hovor',
+        'zkopírovaný text: ' + await schrankaText(page));
+      // Duplikovat na zítra: hned do motoru (stejný kalendář, o den později), Vrátit kopii smaže
+      let pred = volano.length;
+      await pravym(page, pozdni);
+      await vyberZNabidky(page, 'Duplikovat na zítra');
+      await cekej(() => volano.slice(pred).some((d) => d.akce === 'udalostUlozit'), 3000, 'duplikát do motoru');
+      const dup = volano.slice(pred).find((d) => d.akce === 'udalostUlozit');
+      jistota(dup.nazev === 'Pozdní hovor' && dup.zacatek === den(1, 23) && dup.konec === den(1, 23.5) && dup.kalendarId === 'g1' && !dup.udalost, 'duplikát: ' + JSON.stringify(dup));
+      await page.waitForSelector('#toast.videt .toast__akce');
+      jistota(/Zkopírováno na/.test(await page.textContent('#toast')), 'oznámení duplikátu: ' + await page.textContent('#toast'));
+      pred = volano.length;
+      await page.click('#toast .toast__akce');
+      await cekej(() => volano.slice(pred).some((d) => d.akce === 'udalostSmazat' && d.udalost === 'nova@google.com|' + den(1, 23)), 3000, 'Vrátit duplikát');
+      // Smazat obyčejnou: bez dotazu, hned zmizí, Vrátit ji založí znovu (Seznam – 30 dní)
+      await page.click('[data-kal-pohled="seznam"]');
+      const schuzka = '#p-kalendar [data-udalost^="u4|"]';
+      await page.waitForSelector(schuzka);
+      pred = volano.length;
+      await pravym(page, schuzka);
+      await vyberZNabidky(page, 'Smazat');
+      jistota(!(await page.locator('.okno-pozadi').count()), 'obyčejná událost se smaže bez dotazu');
+      await cekej(() => volano.slice(pred).some((d) => d.akce === 'udalostSmazat' && /^u4\|/.test(d.udalost)), 3000, 'smazání do motoru');
+      await page.waitForSelector('#toast.videt .toast__akce');
+      pred = volano.length;
+      await page.click('#toast .toast__akce');
+      await cekej(() => volano.slice(pred).some((d) => d.akce === 'udalostUlozit' && d.nazev === 'Schůzka' && d.zacatek === den(2, 10) && !d.udalost), 3000, 'Vrátit smazanou');
+      // opakovaná: Smazat… s potvrzením jako v detailu (Vrátit by řadu nevrátil)
+      await page.waitForSelector('#p-kalendar [data-udalost^="u1|"]');
+      await pravym(page, '#p-kalendar [data-udalost^="u1|"]');
+      jistota(/Smazat…$/.test(await nabidkaPolozky(page)), 'opakovaná: ' + await nabidkaPolozky(page));
+      await vyberZNabidky(page, 'Smazat…');
+      await page.waitForSelector('.okno-pozadi.videt [data-okno="ne"]');
+      jistota(/Smazat „Porada“ \(jen tento výskyt\)/.test(await page.textContent('.okno')), 'dotaz u opakované');
+      await page.click('.okno-pozadi [data-okno="ne"]');
+      await page.waitForSelector('.okno-pozadi', { state: 'detached' });
+      // kalendář z iPhonu jen ke čtení: bez Upravit a Smazat
+      await pravym(page, '#p-kalendar [data-udalost^="u2|"]');
+      jistota(await nabidkaPolozky(page) === 'Otevřít|Duplikovat na jiný den…|Kopírovat', 'iPhone: ' + await nabidkaPolozky(page));
+      // Duplikovat na jiný den: formulář předvyplněný o týden později
+      await vyberZNabidky(page, 'Duplikovat na jiný den…');
+      await page.waitForSelector('[data-panel="udalost-formular"] [data-uf="nazev"]');
+      jistota(await page.inputValue('[data-panel="udalost-formular"] [data-uf="nazev"]') === 'Narozeniny' &&
+        await page.inputValue('[data-panel="udalost-formular"] [data-uf="datum"]') === iso(den(8)), 'formulář kopie: ' + await page.inputValue('[data-panel="udalost-formular"] [data-uf="datum"]'));
+      await page.click('[data-panel="udalost-formular"] [data-zavrit-panel]');
+      await page.waitForFunction(() => !document.querySelector('[data-panel="udalost-formular"]'));
+      // den v měsíci: nová událost a zápas v ten den (a svátek – přání, oblíbení)
+      await page.click('[data-kal-pohled="mesic"]');
+      const dnesBunka = '#p-kalendar .mesic-den.dnes';
+      await page.waitForSelector(dnesBunka);
+      await pravym(page, dnesBunka + ' .mesic-cislo');
+      const nDne = await nabidkaPolozky(page);
+      jistota(/^Nová událost v tento den\|Nový zápas v tento den\|Ukázat týden/.test(nDne), 'nabídka dne: ' + nDne);
+      await vyberZNabidky(page, 'Nová událost v tento den');
+      await page.waitForSelector('[data-panel="udalost-formular"] [data-uf="datum"]');
+      jistota(await page.inputValue('[data-panel="udalost-formular"] [data-uf="datum"]') === iso(den(0)), 'nová událost v ten den');
+      await page.click('[data-panel="udalost-formular"] [data-zavrit-panel]');
+      await page.waitForFunction(() => !document.querySelector('[data-panel="udalost-formular"]'));
+      // svátek v buňce: přání přes WhatsApp (nová karta s textem), přidat a odebrat oblíbeného
+      const sv = await page.evaluate(() => {
+        const x = Array.from(document.querySelectorAll('#p-kalendar .mesic-den:not(.mimo) .svatek--bunka')).find((e) => /^[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][a-záčďéěíňóřšťúůýž]+$/.test(e.textContent.trim()));
+        return x ? { den: x.closest('[data-den]').dataset.den, jmeno: x.textContent.trim() } : null;
+      });
+      jistota(sv, 'buňka se svátkem');
+      const svSel = '#p-kalendar .mesic-den[data-den="' + sv.den + '"] .svatek--bunka';
+      await pravym(page, svSel);
+      const nSv = await nabidkaPolozky(page);
+      jistota(new RegExp('^Přání přes WhatsApp\\|Přání přes SMS / iMessage\\|Kopírovat přání\\|Přidat do oblíbených: ' + sv.jmeno + '\\|Nová událost v tento den').test(nSv), 'nabídka svátku: ' + nSv);
+      const [wa] = await Promise.all([ctx.waitForEvent('page'), page.click('.nabidka [data-nabidka-i] span:text-is("Přání přes WhatsApp")')]);
+      await wa.waitForURL(/wa\.me/);
+      jistota(/^https:\/\/wa\.me\/\?text=V%C5%A1echno%20nejlep%C5%A1%C3%AD/.test(wa.url()), 'WhatsApp: ' + wa.url());
+      await wa.close();
+      jistota(page.url() === WEB || page.url().indexOf(WEB) === 0, 'aplikace zůstala na místě');
+      await pravym(page, svSel);
+      await vyberZNabidky(page, 'Přidat do oblíbených: ' + sv.jmeno);
+      await cekej(() => jmeninyOblibeni.some((o) => o.jmeno === sv.jmeno), 3000, 'oblíbený do motoru');
+      await page.waitForSelector('#p-kalendar .mesic-den[data-den="' + sv.den + '"].svatek-oblibeny');
+      await pravym(page, '#p-kalendar .mesic-den[data-den="' + sv.den + '"] .cip-svatek');
+      jistota(new RegExp('Odebrat z oblíbených: ' + sv.jmeno).test(await nabidkaPolozky(page)), 'u oblíbeného Odebrat: ' + await nabidkaPolozky(page));
+      await vyberZNabidky(page, 'Odebrat z oblíbených: ' + sv.jmeno);
+      await cekej(() => !jmeninyOblibeni.length, 3000, 'odebrání');
+      // vyjeté karty myší: událost (čas od–do, kalendář) a den (co v něm je)
+      let k = await najetNaKartu(page, pozdni, 'udalost');
+      jistota(/23:00–23:30/.test(k) && /Pozdní hovor/.test(k) && /30 min/.test(k) && /Osobní/.test(k) && /Upravit/.test(k) && /Otevřít/.test(k), 'karta události: ' + k);
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_kalendar_karta_udalosti.png') });
+      k = await najetNaKartu(page, dnesBunka + ' .mesic-cislo', 'den');
+      jistota(/2 události/.test(k) && /9:00\s?Porada/.test(k) && /23:00\s?Pozdní hovor/.test(k), 'karta dne: ' + k);
+      // klávesnice: Shift+F10 na události otevře nabídku s fokusem na první položce, Esc ji zavře a vrátí fokus
+      await page.mouse.move(2, 2);
+      await page.focus(pozdni);
+      await page.keyboard.press('Shift+F10');
+      await page.waitForSelector('.nabidka.videt');
+      jistota(await page.evaluate(() => document.activeElement && document.activeElement.closest('.nabidka') && document.activeElement.textContent === 'Otevřít'), 'fokus v nabídce');
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('[data-panel="udalost-formular"] [data-uf="nazev"]');
+      jistota(await page.inputValue('[data-panel="udalost-formular"] [data-uf="nazev"]') === 'Pozdní hovor', 'Upravit z klávesnice');
+      await page.keyboard.press('Escape');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      jmeninyOblibeni = [];
+      await ctx.close();
+    }
+  });
+
+  await test('nabídky: Přehled – týden (událost, den: Otevřít v Kalendáři), karta Přehledu (Otevřít, Obnovit jen tuto část), karta události v týdnu (PC)', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-tyden .agenda__u[data-udalost^="u4|"]');
+      await pravym(page, '#dl-tyden .agenda__u[data-udalost^="u4|"]');
+      jistota(/^Otevřít\|Upravit\|Duplikovat na zítra/.test(await nabidkaPolozky(page)), 'událost v týdnu: ' + await nabidkaPolozky(page));
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.nabidka', { state: 'detached' });
+      const k = await najetNaKartu(page, '#dl-tyden .agenda__u[data-udalost^="u4|"]', 'udalost');
+      jistota(/Schůzka/.test(k) && /10:00–11:00/.test(k), 'karta události na Přehledu: ' + k);
+      await page.mouse.move(2, 2);
+      await pravym(page, '#dl-tyden [data-skoc-den="' + den(2) + '"] b');
+      const n = await nabidkaPolozky(page);
+      jistota(/^Nová událost v tento den\|Nový zápas v tento den\|Otevřít v Kalendáři/.test(n), 'den v týdnu: ' + n);
+      await vyberZNabidky(page, 'Otevřít v Kalendáři');
+      await cekejVeStrance(page, (t) => import('/js/stav.js').then((m) => m.stav.pohled === 'kalendar' && m.stav.kal.vybrany === t), den(2));
+      // karta Přehledu: Otevřít a Obnovit jen tuto část (tady kalendář z motoru)
+      await page.click('#rail [data-cil="dnes"]');
+      await page.waitForSelector('#dl-tyden .card-hlava');
+      await pravym(page, '#dl-tyden .card-hlava');
+      jistota(await nabidkaPolozky(page) === 'Otevřít Kalendář|Obnovit jen kalendář', 'karta Týden: ' + await nabidkaPolozky(page));
+      const pred = volano.length;
+      await vyberZNabidky(page, 'Obnovit jen kalendář');
+      await cekej(() => volano.slice(pred).some((d) => d.akce === 'kalendar' && d.znovu === true), 3000, 'obnova kalendáře');
+      jistota(!volano.slice(pred).some((d) => d.akce === 'posta' || d.akce === 'schranka'), 'obnovilo se jen to: ' + volano.slice(pred).map((d) => d.akce).join());
+      await pravym(page, '#dnes-kpi [data-pocasi]');
+      jistota(await nabidkaPolozky(page) === 'Celá předpověď|Obnovit jen počasí', 'dlaždice počasí: ' + await nabidkaPolozky(page));
+      await page.keyboard.press('Escape');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  await test('nabídky: Fotbal – zápas (Kopírovat výsledek, Rozbalit detail, Plakát k zápasu, Přidat do kalendáře), tabulka (Kopírovat řádek); karty výsledku, dalšího zápasu a řádku tabulky (PC)', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: WEB.replace(/\/$/, '') });
+    try {
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-fotbal .fotbal-dalsi[data-zapas-id="A2"]');
+      // další zápas na Přehledu: odpočet a místo v kartě; nabídka s Přidat do kalendáře a navigací (venku)
+      let k = await najetNaKartu(page, '#dl-fotbal .fotbal-dalsi[data-zapas-id="A2"]', 'zapas');
+      jistota(/A-tým/.test(k) && /za 2 dny/.test(k) && /FK Šardice – FK Agro Vnorovy/.test(k) && /venku/.test(k) && /výkop 15:00/.test(k), 'karta dalšího zápasu: ' + k);
+      await page.mouse.move(2, 2);
+      await pravym(page, '#dl-fotbal .fotbal-dalsi[data-zapas-id="A2"]');
+      jistota(await nabidkaPolozky(page) === 'Tabulka a zápasy A-tým|Kopírovat|Plakát k zápasu|Přidat do kalendáře…|Navigovat – Mapy Google', 'nabídka dalšího zápasu: ' + await nabidkaPolozky(page));
+      await vyberZNabidky(page, 'Přidat do kalendáře…');
+      await page.waitForSelector('[data-panel="udalost-formular"] [data-uf="nazev"]');
+      jistota(await page.inputValue('[data-panel="udalost-formular"] [data-uf="nazev"]') === '⚽ Šardice – Vnorovy (A-tým)' &&
+        await page.inputValue('[data-panel="udalost-formular"] [data-uf="od"]') === '15:00', 'zápas do kalendáře předvyplněný: ' + await page.inputValue('[data-panel="udalost-formular"] [data-uf="nazev"]'));
+      await page.click('[data-panel="udalost-formular"] [data-zavrit-panel]');
+      await page.waitForFunction(() => !document.querySelector('[data-panel="udalost-formular"]'));
+      // Plakát k zápasu: stránka Plakáty na víkendu toho zápasu
+      await pravym(page, '#dl-fotbal .fotbal-dalsi[data-zapas-id="A2"]');
+      await vyberZNabidky(page, 'Plakát k zápasu');
+      const t = den(2, 15), vikend = iso(new Date(den(2)).setDate(new Date(den(2)).getDate() + [-1, -2, -3, -4, -5, 1, 0][new Date(t).getDay()]));
+      await page.waitForSelector('#p-plakaty:not([hidden]) [data-pl-vyber]');
+      jistota(await page.inputValue('#p-plakaty [data-pl-vyber]') === vikend, 'víkend plakátu: ' + await page.inputValue('#p-plakaty [data-pl-vyber]') + ' × ' + vikend);
+      // stránka Fotbal: výsledek – karta se střelci a poločasem, nabídka Kopírovat výsledek a Rozbalit detail
+      await page.click('#rail [data-cil="fotbal"]');
+      await page.waitForSelector('#p-fotbal [data-zapas-id="A-6"] .zapas-hlava');
+      k = await najetNaKartu(page, '#p-fotbal [data-zapas-id="A-6"] .zapas-hlava', 'zapas');
+      jistota(/1:3 prohra/.test(k) && /Poločas\s?0:2/.test(k) && /Diváků\s?160/.test(k) && /Horák P\./.test(k) && /Svoboda T\./.test(k) && /Dvořák M\./.test(k), 'karta výsledku: ' + k);
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_fotbal_karta_vysledku.png') });
+      await page.mouse.move(2, 2);
+      await pravym(page, '#p-fotbal [data-zapas-id="A-6"] .zapas-hlava');
+      jistota(await nabidkaPolozky(page) === 'Rozbalit detail|Kopírovat výsledek|Plakát k zápasu', 'nabídka výsledku: ' + await nabidkaPolozky(page));
+      await vyberZNabidky(page, 'Kopírovat výsledek');
+      jistota(await schrankaText(page) === 'Vnorovy – Lysovice 1:3', 'zkopírovaný výsledek: ' + await schrankaText(page));
+      await pravym(page, '#p-fotbal [data-zapas-id="A-6"] .zapas-hlava');
+      await vyberZNabidky(page, 'Rozbalit detail');
+      await page.waitForSelector('#p-fotbal .zapas-radek.otevreny[data-zapas-id="A-6"] .zapas-detail');
+      // tabulka: řádek soupeře (zápasy s námi), náš řádek (forma), Kopírovat řádek
+      k = await najetNaKartu(page, '#p-fotbal tr[data-tab-klub="FK Šardice"]', 'tabulka');
+      jistota(/1\. místo/.test(k) && /FK Šardice/.test(k) && /25 b/.test(k) && /S námi/.test(k) && /venku/.test(k), 'karta soupeře: ' + k);
+      k = await najetNaKartu(page, '#p-fotbal tr[data-tab-klub="FK Agro Vnorovy"]', 'tabulka');
+      jistota(/2\. místo/.test(k) && /Doma\s?3–0–1/.test(k) && /Forma/.test(k) && await page.locator('#bublina-karta .bk-forma--P').count() === 1, 'karta našeho řádku: ' + k);
+      await page.mouse.move(2, 2);
+      await pravym(page, '#p-fotbal tr[data-tab-klub="FK Agro Vnorovy"]');
+      await vyberZNabidky(page, 'Kopírovat řádek');
+      jistota(await schrankaText(page) === '2. Vnorovy · 10 b · 3–1–5 · 16:20', 'řádek tabulky: ' + await schrankaText(page));
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  await test('nabídky: Zdraví – doplněk (Odškrtnout včera s Vrátit, všechny hlavní), jídlo (Zopakovat dnes, Kopírovat), den v týdnu Pití (+0,5 l), váha (Smazat); karty doplňku a váhy, týden v kroužcích (PC)', async () => {
+    const dnesIso = iso(ted), vceraIso = iso(den(-1));
+    Object.keys(doplnkyDny).forEach((x) => delete doplnkyDny[x]); // odškrtnutí z dřívějších testů pryč
+    pitiDny[dnesIso] = { piti: [], jidlo: [{ id: 'j-test', kdy: den(0, 8), co: 'Kuře s rýží', bilkoviny: 40, kcal: 600 }] };
+    vahaZaznamy = [{ kdy: den(-2, 7), kg: 80.4 }, { kdy: den(-1, 7), kg: 80.1 }];
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: WEB.replace(/\/$/, '') });
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="zdravi"]');
+      const kreatin = '#p-zdravi .zd-doplnky [data-doplnek="kreatin"]';
+      await page.waitForSelector(kreatin);
+      // doplněk: nabídka a Odškrtnout včera (karta ukazuje dnešek – oznámení s Vrátit)
+      await pravym(page, kreatin);
+      jistota(await nabidkaPolozky(page) === 'Odškrtnout dnes|Odškrtnout včera|Odškrtnout všechny hlavní (2)', 'nabídka doplňku: ' + await nabidkaPolozky(page));
+      const predD = doplnkyVolani.length;
+      await vyberZNabidky(page, 'Odškrtnout včera');
+      await cekej(() => doplnkyVolani.slice(predD).some((x) => x.den === vceraIso && x.zmeny.kreatin === true), 4000, 'včera do motoru');
+      jistota(/✓ včera: Kreatin/.test(await page.textContent('#toast')) && await page.getAttribute(kreatin, 'aria-pressed') === 'false', 'oznámení, dnešek beze změny');
+      await page.click('#toast .toast__akce');
+      await cekej(() => doplnkyVolani.slice(predD).some((x) => x.den === vceraIso && x.zmeny.kreatin === false), 4000, 'Vrátit');
+      // všechny hlavní na dnešek jedním dotazem
+      await pravym(page, kreatin);
+      await vyberZNabidky(page, 'Odškrtnout všechny hlavní (2)');
+      await page.waitForFunction((s) => document.querySelector(s).getAttribute('aria-pressed') === 'true' &&
+        document.querySelector('#p-zdravi .zd-doplnky [data-doplnek="horcik"]').getAttribute('aria-pressed') === 'true', kreatin);
+      await cekej(() => doplnkyVolani.some((x) => x.den === dnesIso && x.zmeny.kreatin === true && x.zmeny.horcik === true), 4000, 'oba jedním dotazem');
+      // karta doplňku (myš): dávka, kdy, týden po dnech
+      let k = await najetNaKartu(page, kreatin, 'doplnek');
+      jistota(/Kreatin/.test(k) && /Ráno · 5 g/.test(k) && /✓ vzato/.test(k) && /Tento týden/.test(k) && await page.locator('#bublina-karta .bk-den').count() === 7, 'karta doplňku: ' + k);
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_zdravi_karta_doplnku.png') });
+      // jídlo: Zopakovat dnes, Kopírovat
+      await page.mouse.move(2, 2);
+      await pravym(page, '#p-zdravi [data-jidlo-zapis="j-test"]');
+      jistota(await nabidkaPolozky(page) === 'Zopakovat dnes|Přesunout na jiný den…|Kopírovat|Smazat', 'nabídka jídla: ' + await nabidkaPolozky(page));
+      await vyberZNabidky(page, 'Kopírovat');
+      jistota(await schrankaText(page) === 'Kuře s rýží · 40 g bílkovin · 600 kcal', 'jídlo do schránky: ' + await schrankaText(page));
+      let predP = pitiVolani.length;
+      await pravym(page, '#p-zdravi [data-jidlo-zapis="j-test"]');
+      await vyberZNabidky(page, 'Zopakovat dnes');
+      await cekej(() => pitiVolani.slice(predP).some((x) => x.jak === 'jidlo' && x.den === dnesIso && x.co === 'Kuře s rýží' && x.bilkoviny === 40), 3000, 'zopakované jídlo');
+      await page.waitForFunction(() => document.querySelectorAll('#p-zdravi .piti__jidla li').length === 2);
+      // den v týdnu Pití a jídlo: voda k tomu dni
+      predP = pitiVolani.length;
+      await pravym(page, '#p-zdravi .piti__tyden [data-piti-ukaz="' + dnesIso + '"]');
+      jistota(await nabidkaPolozky(page) === 'Ukázat dnes|+0,25 l vody|+0,5 l vody|Jídlo na tento den…', 'nabídka dne pití: ' + await nabidkaPolozky(page));
+      await vyberZNabidky(page, '+0,5 l vody');
+      await cekej(() => pitiVolani.slice(predP).some((x) => x.jak === 'piti' && x.ml === 500 && x.den === dnesIso), 3000, 'voda do motoru');
+      // váha: karta s rozdílem, Smazat s potvrzením
+      k = await najetNaKartu(page, '#p-zdravi [data-vaha-kdy="' + den(-1, 7) + '"]', 'vaha');
+      jistota(/80,1 kg/.test(k) && /ráno/.test(k) && /−0,3 kg proti/.test(k), 'karta váhy: ' + k);
+      await page.mouse.move(2, 2);
+      await pravym(page, '#p-zdravi [data-vaha-kdy="' + den(-1, 7) + '"]');
+      jistota(await nabidkaPolozky(page) === 'Kopírovat|Smazat zápis', 'nabídka váhy: ' + await nabidkaPolozky(page));
+      await vyberZNabidky(page, 'Smazat zápis');
+      await page.click('.okno-pozadi.videt [data-okno="ano"]');
+      await cekej(() => vahaZaznamy.length === 1, 3000, 'smazaná váha');
+      // týden v kroužcích: dnešek s kartou (stejná jako na Přehledu) a tlačítkem na Pití a jídlo
+      await page.waitForSelector('#p-zdravi .zd-krouzky .tk-den--dnes .tk-den__kruh');
+      jistota(await page.locator('#p-zdravi .zd-krouzky .tk-den').count() === 7, '7 dní');
+      k = await najetNaKartu(page, '#p-zdravi .zd-krouzky .tk-den--dnes .tk-den__kruh', 'krouzky-den');
+      jistota(/Denní kroužky · dnes/.test(k) && /Voda/.test(k) && /0,5 \/ 2,5 l/.test(k) && /Bílkoviny/.test(k) && /Pití a jídlo dnes/.test(k), 'karta dne v kroužcích: ' + k);
+      await page.locator('#p-zdravi .zd-krouzky').screenshot({ path: path.join(VYSTUP, 'pc_zdravi_tyden_krouzku.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      delete pitiDny[dnesIso];
+      Object.keys(doplnkyDny).forEach((x) => delete doplnkyDny[x]);
+      vahaZaznamy = [];
+      await ctx.close();
+    }
+  });
+
+  await test('nabídky: Auto – zápis (Zopakovat tankování, Fotka účtenky, Kopírovat, Smazat jen u posledního); karta tankování se spotřebou od minula (PC)', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: WEB.replace(/\/$/, '') });
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="auto"]');
+      const radek = '.auto-zapisy [data-auto-zapis-id="tankovani:4"]';
+      await page.waitForSelector(radek);
+      // starší tankování s účtenkou: bez Smazat (motor smí jen poslední zápis)
+      await pravym(page, radek);
+      jistota(await nabidkaPolozky(page) === 'Upravit|Zopakovat tankování|Fotka účtenky|Kopírovat', 'nabídka zápisu: ' + await nabidkaPolozky(page));
+      await vyberZNabidky(page, 'Kopírovat');
+      jistota(/^Tankování \d+\. \d+\. \d{4} · 1 000 Kč · 25,0 l · 40,00 Kč\/l · 11 500 km · Pumpa Test$/.test(await schrankaText(page)), 'zápis do schránky: ' + await schrankaText(page));
+      const predF = autoFotky.length;
+      await pravym(page, radek);
+      await vyberZNabidky(page, 'Fotka účtenky');
+      await page.waitForSelector('[data-panel="auto-foto"] img');
+      jistota(autoFotky[predF] === 'uctenka-starsi-001', 'fotka z Disku');
+      await page.click('[data-panel="auto-foto"] [data-zavrit-panel]');
+      await page.waitForFunction(() => !document.querySelector('[data-panel="auto-foto"]'));
+      // Zopakovat: nové tankování se stejnou cenou za litr a stanicí
+      await pravym(page, radek);
+      await vyberZNabidky(page, 'Zopakovat tankování');
+      await page.waitForSelector('[data-panel="auto-zapis"] [data-az="cenaLitr"]');
+      jistota(await page.inputValue('[data-panel="auto-zapis"] [data-az="cenaLitr"]') === '40' && await page.inputValue('[data-panel="auto-zapis"] [data-az="poznamka"]') === 'Pumpa Test' &&
+        await page.inputValue('[data-panel="auto-zapis"] [data-az="castka"]') === '' && await page.inputValue('[data-panel="auto-zapis"] [data-az="datum"]') === iso(ted), 'předvyplněné tankování');
+      await page.click('[data-panel="auto-zapis"] [data-zavrit-panel]');
+      await page.waitForFunction(() => !document.querySelector('[data-panel="auto-zapis"]'));
+      // poslední zápis listu má Smazat
+      const posledni = await page.$eval('.auto-zapisy', () => {
+        const r = Array.from(document.querySelectorAll('.auto-zapisy [data-auto-zapis-id^="tankovani:"]')).map((x) => Number(x.dataset.autoZapisId.split(':')[1]));
+        return Math.max.apply(null, r);
+      });
+      await pravym(page, '.auto-zapisy [data-auto-zapis-id="tankovani:' + posledni + '"]');
+      jistota(/\|Smazat \(poslední zápis\)$/.test(await nabidkaPolozky(page)), 'u posledního Smazat: ' + await nabidkaPolozky(page));
+      await page.keyboard.press('Escape');
+      // karta tankování: litry, Kč/l, ujeto a spotřeba od minulého tankování se známým km
+      const k = await najetNaKartu(page, radek + ' .auto-zapis__hlavni', 'auto-zapis');
+      jistota(/25,0 l/.test(k) && /1 000 Kč · 40,00 Kč\/l/.test(k) && /Ujeto\s?700\s?km/.test(k) && /Spotřeba\s?3,6\s?l\/100/.test(k) && /Na km\s?1,43/.test(k), 'karta tankování: ' + k);
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_auto_karta_tankovani.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  await test('nabídky: Reely a Plakáty – reel (Kopírovat popisek, Označit zveřejněno, Zveřejnit teď s dotazem), karta stavu na Instagramu, plakát (Kopírovat popisek, Stáhnout obrázek) (PC)', async () => {
+    reelyPlan.reel_dorost_tesany = { kdy: ted + 3 * H, stav: 'ceka', pribeh: true, oznacit: [] };
+    const vikend = vychoziVikendTestu();
+    plakatyData.popisky[vikend] = { text: 'Víkend doma! ⚽', zdroj: 'claude' };
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: WEB.replace(/\/$/, '') });
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="reely"]');
+      const reel = '#p-reely [data-reel="reel_dorost_tesany"]';
+      await page.waitForSelector(reel + ' .reel__nazev');
+      await pravym(page, reel + ' .reel__nazev');
+      jistota(await nabidkaPolozky(page) === 'Kopírovat popisek|Přehrát video|Zveřejnit teď|Změnit čas…|Zrušit plán|Označit jako zveřejněné', 'nabídka naplánovaného reelu: ' + await nabidkaPolozky(page));
+      await vyberZNabidky(page, 'Zveřejnit teď');
+      await page.waitForSelector('.okno-pozadi.videt [data-okno="ne"]');
+      jistota(/Zveřejnit hned/.test(await page.textContent('.okno')), 'dotaz Zveřejnit teď');
+      await page.click('.okno-pozadi [data-okno="ne"]');
+      await page.waitForSelector('.okno-pozadi', { state: 'detached' });
+      // stav na Instagramu: karta s kroky
+      const k = await najetNaKartu(page, reel + ' .tag--plan[data-karta="ig"]', 'ig');
+      jistota(/Naplánováno/.test(k) && /Vnorovy – Těšany 3:1/.test(k) && /@klub_test/.test(k), 'karta stavu: ' + k);
+      await page.mouse.move(2, 2);
+      await pravym(page, reel + ' .reel__nazev');
+      await vyberZNabidky(page, 'Kopírovat popisek');
+      jistota(/^Hattrick!/.test(await schrankaText(page)), 'popisek reelu: ' + await schrankaText(page));
+      await pravym(page, reel + ' .reel__nazev');
+      await vyberZNabidky(page, 'Označit jako zveřejněné');
+      await cekej(() => !!reelyZverejneno.reel_dorost_tesany, 3000, 'zveřejněno do motoru');
+      await page.waitForSelector(reel + '.reel--venku');
+      // text popisku: nabídka prohlížeče (označit a kopírovat ručně)
+      await page.click(reel + ' .reel__popisek', { button: 'right' });
+      await page.waitForTimeout(200);
+      jistota(!(await page.locator('.nabidka').count()), 'v textu popisku nabídka prohlížeče');
+      // plakát: nabídka na náhledu
+      await page.click('#rail [data-cil="plakaty"]');
+      await page.waitForSelector('#p-plakaty .plakat-stage .poster');
+      await pravym(page, '#p-plakaty .plakat-nahled');
+      jistota(/^Stáhnout obrázek\|Vytisknout \/ PDF\|Kopírovat popisek\|Zveřejnit teď…\|Naplánovat na Instagram…\|Popisek od Clauda/.test(await nabidkaPolozky(page)), 'nabídka plakátu: ' + await nabidkaPolozky(page));
+      await vyberZNabidky(page, 'Kopírovat popisek');
+      jistota(await schrankaText(page) === 'Víkend doma! ⚽', 'popisek plakátu: ' + await schrankaText(page));
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      delete reelyPlan.reel_dorost_tesany;
+      delete reelyZverejneno.reel_dorost_tesany;
+      delete plakatyData.popisky[vikend];
+      await ctx.close();
+    }
+  });
+
+  await test('nabídky na dotyku: podržení doplňku a události = nabídka, klepnutí dál odškrtne / otevře (karta jen myší); týden v kroužcích – klepnutí ukáže kartu dne (telefon)', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
+    const podrz = async (sel) => {
+      await page.$eval(sel, (b) => {
+        const r = b.getBoundingClientRect();
+        b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', isPrimary: true, clientX: r.x + 20, clientY: r.y + 10 }));
+      });
+      await page.waitForSelector('.nabidka.videt [data-nabidka-i]');
+      await page.$eval(sel, (b) => b.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch', isPrimary: true })));
+    };
+    try {
+      await page.goto(WEB);
+      await page.click('.hlava-ja [data-cil="zdravi"]');
+      const kreatin = '#p-zdravi .zd-doplnky [data-doplnek="kreatin"]';
+      await page.waitForSelector(kreatin);
+      await page.locator(kreatin).scrollIntoViewIfNeeded();
+      await podrz(kreatin);
+      jistota(/^Odškrtnout dnes\|Odškrtnout včera/.test(await nabidkaPolozky(page)), 'podržení doplňku: ' + await nabidkaPolozky(page));
+      jistota(await page.getAttribute(kreatin, 'aria-pressed') === 'false', 'podržení neodškrtlo');
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_zdravi_nabidka_doplnku.png') });
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.nabidka', { state: 'detached' });
+      await page.waitForTimeout(1600); // klepnutí hned po podržení nabidka.js zahodí (prohlížeč ho posílá sám)
+      await page.tap(kreatin);
+      await page.waitForFunction((s) => document.querySelector(s).getAttribute('aria-pressed') === 'true', kreatin);
+      jistota(!(await page.locator('#bublina-karta.videt').count()), 'klepnutí na doplněk kartu neukazuje');
+      await page.tap(kreatin); // zpět
+      await page.waitForFunction((s) => document.querySelector(s).getAttribute('aria-pressed') === 'false', kreatin);
+      // týden v kroužcích: klepnutí ukáže kartu dne, klepnutí jinam ji zavře
+      const dnes = '#p-zdravi .zd-krouzky .tk-den--dnes .tk-den__kruh';
+      await page.locator(dnes).scrollIntoViewIfNeeded();
+      await page.tap(dnes);
+      await page.waitForSelector('#bublina-karta.videt[data-druh="krouzky-den"]');
+      const k = await textVyjeteKarty(page);
+      jistota(/Denní kroužky · dnes/.test(k), 'karta dne na dotyku: ' + k);
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_zdravi_karta_krouzku.png') });
+      await page.tap('#p-zdravi .zd-krouzky .card-hlava');
+      await page.waitForFunction(() => !document.querySelector('#bublina-karta.videt'));
+      // Kalendář: podržení události = nabídka, klepnutí otevře detail (ne kartu)
+      await page.evaluate(() => import('/js/stav.js').then((m) => { m.prejdi('kalendar'); m.zmeneno(); }));
+      await page.click('[data-kal-pohled="seznam"]');
+      const ud = '#p-kalendar [data-udalost^="u4|"]';
+      await page.waitForSelector(ud);
+      await podrz(ud);
+      jistota(/^Otevřít\|Upravit\|Duplikovat na zítra/.test(await nabidkaPolozky(page)), 'podržení události: ' + await nabidkaPolozky(page));
+      jistota(!(await page.locator('[data-panel="udalost"]').count()), 'podržení detail neotevřelo');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.nabidka', { state: 'detached' });
+      await page.waitForTimeout(1600);
+      await page.tap(ud);
+      await page.waitForSelector('[data-panel="udalost"]');
+      jistota(!(await page.locator('#bublina-karta.videt').count()), 'klepnutí na událost kartu neukazuje');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  await test('pošta: nabídka – Přeposlat (Fwd:, prázdné Komu), Odpovědět všem jen u zprávy pro víc lidí, Kopírovat adresu a Nový e-mail odesílateli z načteného detailu (PC)', async () => {
+    vlaknoV2Kopie = 'Kolega <kolega@firma.test>';
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: WEB.replace(/\/$/, '') });
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="posta"]');
+      await page.waitForSelector('#posta-seznam [data-vlakno="v1"]');
+      // přednačtené detaily (adresy) – pak je nabídka úplná
+      await cekejVeStrance(page, () => import('/js/stav.js').then((m) => !!(m.stav.vlakna.v1 && m.stav.vlakna.v1.data && m.stav.vlakna.v2 && m.stav.vlakna.v2.data)), null, 8000);
+      await pravym(page, '#posta-seznam [data-vlakno="v1"]');
+      const n1 = await nabidkaPolozky(page);
+      jistota(/\|Odpovědět\|Přeposlat\|Nový e-mail odesílateli\|Kopírovat adresu\|Vybrat\|/.test(n1) && !/Odpovědět všem/.test(n1), 'nabídka (jen mně): ' + n1);
+      await vyberZNabidky(page, 'Přeposlat');
+      await page.waitForSelector('[data-panel="psani"] [data-psani-komu]');
+      jistota(/Přeposlat/.test(await page.textContent('[data-panel="psani"] .panel-titul')) && /Fwd: Sraz v sobotu/.test(await page.textContent('[data-panel="psani"]')) &&
+        await page.inputValue('[data-panel="psani"] [data-psani-komu]') === '', 'psaní přeposlání');
+      await page.click('[data-panel="psani"] [data-zavrit-panel]');
+      await page.waitForFunction(() => !document.querySelector('[data-panel="psani"]'));
+      // zpráva i pro dalšího (kopie): Odpovědět všem; Kopírovat adresu odesílatele
+      await pravym(page, '#posta-seznam [data-vlakno="v2"]');
+      jistota(/\|Odpovědět\|Odpovědět všem\|Přeposlat\|Nový e-mail odesílateli\|Kopírovat adresu\|/.test(await nabidkaPolozky(page)), 'nabídka (víc lidí): ' + await nabidkaPolozky(page));
+      await vyberZNabidky(page, 'Kopírovat adresu');
+      jistota(await schrankaText(page) === 'trener@klub.test', 'adresa: ' + await schrankaText(page));
+      await pravym(page, '#posta-seznam [data-vlakno="v2"]');
+      await vyberZNabidky(page, 'Odpovědět všem');
+      await page.waitForSelector('[data-panel="psani"] [data-psani-text]');
+      const psani = (await page.textContent('[data-panel="psani"]')).replace(/\s+/g, ' ');
+      jistota(/Odpověď všem/.test(psani) && /Trenér/.test(psani) && /Kolega/.test(psani), 'odpověď všem: ' + psani.slice(0, 200));
+      await page.click('[data-panel="psani"] [data-zavrit-panel]');
+      await page.waitForFunction(() => !document.querySelector('[data-panel="psani"]'));
+      await pravym(page, '#posta-seznam [data-vlakno="v1"]');
+      await vyberZNabidky(page, 'Nový e-mail odesílateli');
+      await page.waitForSelector('[data-panel="psani"] [data-psani-komu]');
+      jistota(/Trenér <trener@klub\.test>/.test(await page.inputValue('[data-panel="psani"] [data-psani-komu]')) &&
+        await page.inputValue('[data-panel="psani"] [data-psani-predmet]') === '', 'nový e-mail odesílateli: ' + await page.inputValue('[data-panel="psani"] [data-psani-komu]'));
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      vlaknoV2Kopie = '';
+      await ctx.close();
+    }
   });
 
   await prohlizec.close();

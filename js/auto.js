@@ -8,10 +8,12 @@
 import { stav, zmeneno, umiMotor, prejdi } from './stav.js';
 import { volej, jePripojeno } from './api.js';
 import { esc, uloziste, dm, isoDatum, kdyKratce, MESICE_1 } from './pomocne.js';
-import { kostra, chybaHtml, toast, potvrd, segment, hlavickaKarty } from './ui.js';
+import { kostra, chybaHtml, toast, potvrd, segment, hlavickaKarty, kopiruj } from './ui.js';
 import { IKONY } from './ikony.js';
 import { otevriPanel, zavriPanel, obnovPanel, elementPanelu, horniPanel } from './panely.js';
 import { bublina, grafAtr } from './grafy.js';
+import { karta, registruj, hlavaKarty } from './bubliny.js';
+import { pripoj as pripojNabidku } from './nabidka.js';
 
 const ULOZISTE = 'asistent.data.auto';
 const CELE = new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 });
@@ -394,8 +396,10 @@ function zapisyHtml(d) {
         esc((z.datum != null ? dm(z.datum) + ' ' + new Date(z.datum).getFullYear() : z.datumText) + (pod ? ' · ' + pod : '')) + '</small></div>' +
         '<span class="auto-zapis__castka cisla">' + (z.castka != null ? kc(z.castka) : '—') + (z.kdo ? '<i class="auto-kdo auto-kdo--' + (z.kdo === 'K' ? 'k' : 'm') +
         '"' + bublina('Platil(a)', z.kdo === 'K' ? 'Katka' : 'Michal') + '>' + esc(z.kdo) + '</i>' : '') + '</span>';
-      return '<li class="auto-zapis' + (tank ? ' auto-zapis--palivo' : '') + '">' +
-        (upravit ? '<button type="button" class="auto-zapis__hlavni" data-auto-upravit="' + esc(z.list + ':' + z.radek) + '" aria-label="Upravit zápis">' + obsah + '</button>' : obsah) +
+      const klic = z.list + ':' + z.radek;
+      return '<li class="auto-zapis' + (tank ? ' auto-zapis--palivo' : '') + '" data-auto-zapis-id="' + esc(klic) + '"' + (upravit ? '' : karta('auto-zapis', true, klic)) + '>' +
+        (upravit ? '<button type="button" class="auto-zapis__hlavni" data-auto-upravit="' + esc(klic) + '" aria-label="Upravit zápis"' + karta('auto-zapis', true, klic) + '>' +
+          obsah + '</button>' : obsah) +
         (smazat ? '<button type="button" class="btn btn--ikona" data-auto-smazat="' + esc(z.list + ':' + z.radek) + '" aria-label="Smazat zápis (překlep)">' +
           IKONY.smazat + '</button>' : '') + '</li>';
     }).join('') + '</ul>' +
@@ -1285,19 +1289,7 @@ export function klikAuto(el) {
       .catch((e) => { el.disabled = false; chyba.textContent = e.message; chyba.hidden = false; });
     return true;
   }
-  if (el.dataset.autoSmazat) {
-    const [list, radek] = el.dataset.autoSmazat.split(':');
-    const z = ((stav.auto || {})[list] || []).find((x) => String(x.radek) === radek);
-    if (!z) return true;
-    potvrd('Smazat poslední zápis?', { text: (list === 'tankovani' ? 'Tankování' : z.kategorie || 'Výdaj') + ' ' + dm(z.datum) + ' za ' + kc(z.castka) +
-      ' se smaže i z tabulky.', ton: 'nebezpeci', ano: 'Smazat' }).then((ano) => {
-      if (!ano) return;
-      volej('autoSmazat', { list, radek: Number(radek), datum: z.datum, castka: z.castka })
-        .then((data) => { uloz(data); toast('Zápis smazaný'); zmeneno(); })
-        .catch((e) => toast(e.message, true));
-    });
-    return true;
-  }
+  if (el.dataset.autoSmazat) { const [list, radek] = el.dataset.autoSmazat.split(':'); smazZapis(najdiZapis(list, radek)); return true; }
   return false;
 }
 
@@ -1341,3 +1333,94 @@ export function klavesaAuto(e) {
   if (!f.ukladam) ulozZapis();
   return true;
 }
+
+// ---------------------------------------------------------------- pravé tlačítko a vyjeté karty (Michal 11. 10.)
+// Zápis: Upravit, Zopakovat (nové tankování se stejnou cenou za litr a stanicí / výdaj se stejnou kategorií a částkou),
+// Účtenka, Kopírovat, Smazat (motor smí jen poslední zápis listu – nabídka ho má jen u něj). Karta: u tankování litry,
+// Kč/l, ujeto a spotřeba od minulého tankování, Kč/km; u výdaje kategorie, km a kolik šlo na kategorii za rok.
+
+/** Smazat poslední zápis listu (překlep) – s potvrzením; tlačítko u zápisu i nabídka. */
+function smazZapis(z) {
+  if (!z) return;
+  potvrd('Smazat poslední zápis?', { text: (z.list === 'tankovani' ? 'Tankování' : z.kategorie || 'Výdaj') + ' ' + dm(z.datum) + ' za ' + kc(z.castka) +
+    ' se smaže i z tabulky.', ton: 'nebezpeci', ano: 'Smazat' }).then((ano) => {
+    if (!ano) return;
+    volej('autoSmazat', { list: z.list, radek: Number(z.radek), datum: z.datum, castka: z.castka })
+      .then((data) => { uloz(data); toast('Zápis smazaný'); zmeneno(); })
+      .catch((e) => toast(e.message, true));
+  });
+}
+
+const jePosledni = (z) => {
+  const list = ((stav.auto || {})[z.list] || []).filter((x) => x.castka != null || x.datum != null);
+  return !!list.length && list.reduce((a, x) => (x.radek > a.radek ? x : a)) === z;
+};
+
+/** „Tankování 5. 10. 2026 · 1 520 Kč · 41,2 l · 36,90 Kč/l · 123 456 km“ */
+function textZapisu(z) {
+  const tank = z.list === 'tankovani';
+  return [(tank ? 'Tankování' : z.kategorie || 'Výdaj') + ' ' + (z.datum != null ? dm(z.datum) + ' ' + new Date(z.datum).getFullYear() : z.datumText || ''),
+    z.castka != null ? kc(z.castka) : '', !tank && z.polozka && z.polozka !== z.kategorie ? z.polozka : '', tank && z.litry != null ? JEDNO.format(z.litry) + ' l' : '',
+    tank && z.cenaLitr ? DVE.format(z.cenaLitr) + ' Kč/l' : '', z.km != null ? CELE.format(z.km) + ' km' : '', z.poznamka || ''].filter(Boolean).join(' · ');
+}
+
+function otevriUctenku(z) {
+  toast('Načítám fotku účtenky…');
+  volej('autoUctenkaFoto', { id: z.uctenka }).then((v) => ukazFotku(v.obrazek)).catch((e) => toast(e.message, true));
+}
+
+export function nabidkaAuta(cil) {
+  const el = cil.closest('[data-auto-zapis-id]');
+  if (!el || !stav.auto) return null;
+  const [list, radek] = el.dataset.autoZapisId.split(':');
+  const z = najdiZapis(list, radek);
+  if (!z) return null;
+  const tank = z.list === 'tankovani';
+  const p = [];
+  if (z.datum != null && z.castka != null && umiMotor('autoUpravit')) p.push({ ikona: IKONY.psat, text: 'Upravit', fn: () => otevriUpravu(z) });
+  p.push({ ikona: IKONY.plus, text: tank ? 'Zopakovat tankování' : 'Zopakovat výdaj', fn: () => (tank
+    ? otevriZapis('tankovani', { cenaLitr: z.cenaLitr, poznamka: z.poznamka || '', kdo: z.kdo })
+    : otevriZapis('naklad', { kategorie: z.kategorie, polozka: z.polozka || '', castka: z.castka, kdo: z.kdo })) });
+  if (z.uctenka && umiMotor('autoUctenkaFoto')) p.push({ ikona: IKONY.foto, text: 'Fotka účtenky', fn: () => otevriUctenku(z) });
+  p.push({ ikona: IKONY.kopirovat, text: 'Kopírovat', fn: () => kopiruj(textZapisu(z)) });
+  if (jePosledni(z) && z.datum != null && z.castka != null && umiMotor('autoSmazat')) {
+    p.push({ ikona: IKONY.smazat, text: 'Smazat (poslední zápis)', nebezpeci: true, oddel: true, fn: () => smazZapis(z) });
+  }
+  return { nadpis: textZapisu(z).split(' · ').slice(0, 2).join(' · '), polozky: p };
+}
+pripojNabidku(nabidkaAuta);
+
+function kartaZapisuHtml(el) {
+  const [list, radek] = String(el.dataset.kartaKlic || '').split(':');
+  const z = najdiZapis(list, radek);
+  if (!z) return '';
+  const datum = z.datum != null ? dm(z.datum) + ' ' + new Date(z.datum).getFullYear() : z.datumText || '';
+  const ikona = (i) => '<span class="bk-ikona bk-ikona--auto">' + i + '</span>';
+  const cisla = (c) => '<div class="bk-cisla">' + c.filter(Boolean).map((x) => '<span><small>' + esc(x[0]) + '</small><b>' + x[1] + '</b>' + (x[2] ? '<em>' + esc(x[2]) + '</em>' : '') +
+    '</span>').join('') + '</div>';
+  if (z.list === 'tankovani') {
+    // minulé tankování se známým km: ujeto, spotřeba (natankované litry doplní, co se od minula projelo) a Kč/km
+    const t = (stav.auto.tankovani || []).filter((x) => x.datum != null).sort((a, b) => a.datum - b.datum || a.radek - b.radek);
+    const i = t.indexOf(z);
+    const pred = i > 0 && z.km != null ? t.slice(0, i).reverse().find((x) => x.km != null) : null;
+    const ujeto = pred && z.km > pred.km ? z.km - pred.km : null;
+    const p = prehledAuta(stav.auto);
+    const rozdil = z.cenaLitr && p.cenaPrumer ? z.cenaLitr - p.cenaPrumer : null;
+    return hlavaKarty(ikona(IKONY.palivo), 'Tankování · ' + datum, z.litry != null ? JEDNO.format(z.litry) + '<small> l</small>' : esc(z.castka != null ? kc(z.castka) : '—'),
+      esc([z.castka != null && z.litry != null ? kc(z.castka) : '', z.cenaLitr ? DVE.format(z.cenaLitr) + ' Kč/l' : '', z.km != null ? CELE.format(z.km) + ' km' : ''].filter(Boolean).join(' · '))) +
+      // čtyři čísla v řadě (krátké popisky – karta je úzká)
+      cisla([ujeto != null ? ['Ujeto', CELE.format(ujeto) + '<i>km</i>', 'od ' + dm(pred.datum)] : null,
+        ujeto && z.litry ? ['Spotřeba', JEDNO.format(z.litry / ujeto * 100) + '<i>l/100</i>', p.spotreba ? 'průměr ' + JEDNO.format(p.spotreba) : ''] : null,
+        ujeto && z.castka ? ['Na km', DVE.format(z.castka / ujeto) + '<i>Kč</i>', ''] : null,
+        rozdil != null ? ['Cena', (rozdil > 0 ? '+' : rozdil < 0 ? '−' : '±') + DVE.format(Math.abs(rozdil)) + '<i>Kč/l</i>', 'proti průměru'] : null]);
+  }
+  // výdaj: kolik šlo na stejnou kategorii za posledních 12 měsíců
+  const rok = (z.datum || Date.now()) - 365 * 864e5;
+  const stejne = (stav.auto.naklady || []).filter((x) => x.kategorie === z.kategorie && x.castka && x.datum != null && x.datum > rok && x.datum <= (z.datum || Date.now()));
+  return hlavaKarty(ikona(IKONY.auto), (z.kategorie || 'Výdaj') + ' · ' + datum, esc(z.castka != null ? kc(z.castka) : '—'),
+    esc([z.polozka && z.polozka !== z.kategorie ? z.polozka : '', z.poznamka || ''].filter(Boolean).join(' · '))) +
+    cisla([z.km != null ? ['Stav km', CELE.format(z.km), ''] : null,
+      stejne.length > 1 ? ['Za rok v kategorii', CELE.format(stejne.reduce((s, x) => s + x.castka, 0)) + '<i>Kč</i>', stejne.length + '× za 12 měsíců'] : null,
+      z.kdo ? ['Platil(a)', z.kdo === 'K' ? 'Katka' : 'Michal', ''] : null]);
+}
+registruj('auto-zapis', kartaZapisuHtml);
