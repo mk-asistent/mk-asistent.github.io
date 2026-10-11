@@ -80,7 +80,10 @@ export const IKONY = {
   plakaty: s('<path d="M12 2.8v2.4"/><rect x="2.8" y="5.2" width="18.4" height="14.6" rx="1.8"/><path d="M6.3 9.2h11.4M6.3 12.7h4.6M6.3 15.9h4.6"/><rect x="13.3" y="12.2" width="4.4" height="4.4" rx="1"/>'),
   tisk: s('<path d="M7 9V3.5h10V9"/><rect x="3.5" y="9" width="17" height="7.5" rx="2"/><path d="M7 14h10v6.5H7z"/><path d="M17 11.8h.01"/>'),
   stahnout: s('<path d="M12 4v11"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M4.5 19.5h15"/>'),
-  instagram: s('<rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="3.9"/><path d="M17.2 6.8h.01"/>')
+  instagram: s('<rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="3.9"/><path d="M17.2 6.8h.01"/>'),
+  // Knihovna: otevřená kniha; hvězda (hodnocení)
+  knihovna: s('<path d="M12 6.5C10.2 5 7.6 4.3 3.5 4.5v13c4.1-.2 6.7.5 8.5 2 1.8-1.5 4.4-2.2 8.5-2v-13c-4.1-.2-6.7.5-8.5 2z"/><path d="M12 6.5V19.5"/>'),
+  hvezda: s('<path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/>')
 };
 // ikona počasí podle klíče z motoru (slunce, polojasno, oblacno, dest, bourka, snih, mlha)
 IKONY.zdravi = IKONY.srdce;

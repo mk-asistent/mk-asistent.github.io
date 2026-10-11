@@ -3620,7 +3620,7 @@ test('značky změn: zápis k autu ji posune, čtení ne', () => {
   const p = prostredi();
   tabulkaAuta(p);
   p.vlastnosti.set('AUTO_TABULKA', TAB_AUTO);
-  assert.deepStrictEqual(json(p.volej('zmeny').data), { auto: 0, zdravi: 0, instagramBezi: false });
+  assert.deepStrictEqual(json(p.volej('zmeny').data), { auto: 0, zdravi: 0, instagramBezi: false, knihovna: 0 });
   p.nastavCas(Date.parse('2026-10-05T21:00:00+02:00'));
   p.volej('auto');
   assert.strictEqual(p.volej('zmeny').data.auto, 0, 'čtení značku nemění');
@@ -3700,6 +3700,255 @@ test('auto: čtení účtenek – myčka, servis, částka bez klíčového slov
   assert.deepStrictEqual([n.druh, n.kategorie, n.castka], ['naklad', 'Nákup doplňků', 89.9]);
   n = zUctenky('', ted);
   assert.deepStrictEqual([n.castka, n.datum, n.litry, n.obchod], [null, null, null, null]);
+});
+
+// ---------------------------------------------------------------- Knihovna (CLAUDE_SCHRANKA/KNIHOVNA, skill osobni-knihovna)
+// Karty a rešerše píše jen Claude (tady je test „napíše“ rovnou do napodobeného Disku), moje.json jen motor.
+
+const KARTA_TEST = {
+  id: 'film-zkusebni-let', druh: 'film', nazev: 'Zkušební let', original: 'Test Flight', rok: 2020,
+  tvurci: [{ role: 'režie', jmena: ['Jana Testová'] }, { role: 'hrají', jmena: [] }],
+  zanry: ['drama'], delka: '120 min', zeme: 'Česko',
+  obrazek: { url: 'https://upload.wikimedia.org/test/plakat.jpg', zdroj: 'Wikipedie', popis: 'plakát' },
+  hodnoceni: [{ zdroj: 'ČSFD', hodnota: '80 %', url: 'https://www.csfd.cz/film/1' }, { zdroj: 'Zlý', hodnota: '1', url: 'javascript:alert(1)' }],
+  kratce: 'Pilotka testuje nové letadlo.', obsah: 'Děj bez spoilerů.', proc: 'Krásné záběry.',
+  zajimavosti: ['Natáčelo se v hangáru.'], oceneni: [], serie: { nazev: 'Lety', dily: [{ nazev: 'Zkušební let', rok: 2020, delka: '120 min' }, { nazev: 'Druhý let', rok: 2023 }],
+    poradi: 'Podle vydání.' },
+  kdeSledovat: { text: 'Na streamovací službě s dabingem.', overeno: '2026-10-11' },
+  souvisi: [{ id: 'reserse-letectvi', proc: 'rešerše k tématu' }, { id: 'NEPLATNE ID!', proc: 'x' }],
+  stitky: ['letadla'], odkazy: [{ nazev: 'ČSFD', url: 'https://www.csfd.cz/film/1' }, { nazev: 'zlý', url: 'data:text/html,x' }],
+  zdroje: [{ nazev: 'Wikipedie', url: 'https://cs.wikipedia.org/wiki/Test' }],
+  nesmysl: 'pole navíc', pozadavek: null, pripraveno: '2026-10-11T22:00:00+02:00'
+};
+const RESERSE_TEST = {
+  id: 'reserse-letectvi', nazev: 'Jak létá letadlo', otazka: 'Proč letadlo nespadne?', kratce: 'Vztlak na křídle.',
+  sekce: [{ nadpis: 'Vztlak', odstavce: ['Křídlo vychyluje proud vzduchu dolů.'], body: ['úhel náběhu', 'rychlost'] }, { nadpis: '', odstavce: [] }],
+  pojmy: [{ pojem: 'Vztlak', vysvetleni: 'Síla kolmá na proud vzduchu.' }], casovaOsa: [{ kdy: '1903', co: 'První řízený motorový let.' }],
+  cisla: [{ hodnota: '900 km/h', co: 'cestovní rychlost dopravních letadel' }], dalsiOtazky: ['Jak funguje vrtulník?'],
+  zdroje: [{ nazev: 'Encyklopedie', url: 'https://example.com/vztlak' }], stitky: ['fyzika'], pripraveno: '2026-10-10T20:00:00+02:00'
+};
+/** Knihovna na napodobeném Disku: polozky a reserse podle Clauda; čtení souborů se počítá (cteni). */
+function knihovnaNaDisku(p, karty, reserse) {
+  const kn = p.schranka.createFolder('KNIHOVNA');
+  const pol = kn.createFolder('polozky');
+  const res = kn.createFolder('reserse');
+  const cteni = { n: 0 };
+  const pridej = (slozka, nazev, obsah) => {
+    const f = slozka.createFile(nazev, typeof obsah === 'string' ? obsah : JSON.stringify(obsah));
+    const blob = f.getBlob;
+    f.getBlob = () => { cteni.n++; return blob(); };
+    return f;
+  };
+  (karty || []).forEach((k) => pridej(pol, k[0], k[1]));
+  (reserse || []).forEach((r) => pridej(res, r[0], r[1]));
+  return { kn, pol, res, cteni, pridej, moje: () => { const f = kn.soubory.find((x) => x.getName() === 'moje.json' && !x.vKosi); return f ? JSON.parse(f.getBlob().getDataAsString()) : null; } };
+}
+
+test('knihovna: bez složky prázdná (nic nezaloží), info hlásí akce, čtení v dávce i v CTENI_MOTORU', () => {
+  const p = prostredi();
+  const o = p.volej('knihovna');
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.karty), []);
+  assert.deepStrictEqual(json(o.data.reserse), []);
+  assert.deepStrictEqual(json(o.data.pozadavky), []);
+  assert.ok(!p.schranka.deti.KNIHOVNA, 'čtení složku nezakládá');
+  const akce = p.volej('info').data.akce;
+  assert.ok(['knihovna', 'knihovnaReserse', 'knihovnaPridat', 'knihovnaMoje', 'knihovnaZrusit'].every((a) => akce.indexOf(a) >= 0), 'info hlásí akce knihovny');
+  const cteni = vm.runInContext('CTENI_MOTORU', p.ctx);
+  assert.ok(cteni.indexOf('knihovna') >= 0 && cteni.indexOf('knihovnaReserse') >= 0 && cteni.indexOf('knihovnaPridat') < 0, 'čtení vs. zápis');
+  const d = p.volej('davka', { polozky: [{ akce: 'info' }, { akce: 'knihovna' }] });
+  assert.strictEqual(d.data[1].ok, true, d.data[1].chyba);
+  assert.strictEqual(p.volej('info').data.verze, '2026-10-11.5');
+});
+
+test('knihovna: karty a rešerše z Disku – jen známá pole, adresy jen http(s), rešerše v seznamu jen index; neplatný JSON a karta bez názvu nic nerozbijí', () => {
+  const p = prostredi();
+  knihovnaNaDisku(p, [
+    ['film-zkusebni-let.json', KARTA_TEST],
+    ['kniha-bez-id.json', { druh: 'kniha', nazev: 'Kniha bez id v obsahu', pripraveno: '2026-10-12T08:00:00+02:00', obrazek: { url: 'javascript:alert(1)' } }],
+    ['rozbita.json', '{ "id": "film-rozbita", "nazev": '],
+    ['bez-nazvu.json', { id: 'film-bez-nazvu', druh: 'film' }],
+    ['duplicitni.json', Object.assign({}, KARTA_TEST, { nazev: 'Jiná se stejným id' })],
+    ['poznamky.txt', 'není JSON karty']
+  ], [['reserse-letectvi.json', RESERSE_TEST]]);
+  const d = p.volej('knihovna').data;
+  assert.deepStrictEqual(d.karty.map((k) => k.id), ['kniha-bez-id', 'film-zkusebni-let'], 'nejnovější nahoře, id ze souboru');
+  const k = json(d.karty[1]);
+  assert.ok(!('nesmysl' in k), 'pole navíc pryč');
+  assert.deepStrictEqual(k.hodnoceni, [{ zdroj: 'ČSFD', hodnota: '80 %', url: 'https://www.csfd.cz/film/1' }, { zdroj: 'Zlý', hodnota: '1' }], 'javascript: adresa pryč');
+  assert.deepStrictEqual(k.odkazy, [{ nazev: 'ČSFD', url: 'https://www.csfd.cz/film/1' }], 'data: odkaz pryč');
+  assert.deepStrictEqual(k.tvurci, [{ role: 'režie', jmena: ['Jana Testová'] }], 'role bez jmen pryč');
+  assert.deepStrictEqual(k.souvisi, [{ id: 'reserse-letectvi', proc: 'rešerše k tématu' }]);
+  assert.strictEqual(k.serie.dily.length, 2);
+  assert.ok(!('oceneni' in k) && !('pozadavek' in k), 'prázdná pole vynechaná');
+  assert.strictEqual(k.zdroje[0].url, 'https://cs.wikipedia.org/wiki/Test', 'zdroje jdou s kartou (malé)');
+  assert.ok(!d.karty[0].obrazek, 'obrázek s javascript: adresou pryč');
+  assert.deepStrictEqual(json(d.reserse), [{ id: 'reserse-letectvi', nazev: 'Jak létá letadlo', kratce: 'Vztlak na křídle.', stitky: ['fyzika'], pripraveno: '2026-10-10T20:00:00+02:00' }],
+    'rešerše v seznamu jen index');
+  assert.deepStrictEqual(json(d.chybne).sort(), ['bez-nazvu.json', 'duplicitni.json (stejné id jako film-zkusebni-let.json)', 'rozbita.json'].sort());
+  // čisté funkce: dlouhý text zkrácený, neplatná karta null
+  const karta = vm.runInContext('KNIHOVNA_.karta', p.ctx);
+  assert.strictEqual(karta({ id: 'film-x', druh: 'film', nazev: 'X', kratce: 'a'.repeat(1000) }).kratce.length, 400);
+  assert.strictEqual(karta('nesmysl'), null);
+  assert.strictEqual(karta({ id: 'Film X', druh: 'film', nazev: 'X' }, 'Neplatne Jmeno.json'), null, 'bez platného id');
+  assert.strictEqual(karta({ nazev: 'X' }, 'serial-x.json').druh, 'serial', 'druh z id');
+});
+
+test('knihovna: mezipaměť podle id a času úpravy – druhé čtení soubory nečte, změněnou kartu ano', () => {
+  const p = prostredi();
+  const disk = knihovnaNaDisku(p, [['film-zkusebni-let.json', KARTA_TEST], ['film-druhy.json', { id: 'film-druhy', druh: 'film', nazev: 'Druhý' }]],
+    [['reserse-letectvi.json', RESERSE_TEST]]);
+  p.volej('knihovna');
+  const prvni = disk.cteni.n;
+  assert.strictEqual(prvni, 3, 'poprvé všechny tři soubory');
+  p.volej('knihovna');
+  assert.strictEqual(disk.cteni.n, prvni, 'podruhé nic (jen výpis složek)');
+  disk.pol.soubory[1].setContent(JSON.stringify({ id: 'film-druhy', druh: 'film', nazev: 'Druhý – opravený' }));
+  const d = p.volej('knihovna').data;
+  assert.strictEqual(disk.cteni.n, prvni + 1, 'jen změněná karta');
+  assert.ok(d.karty.some((k) => k.nazev === 'Druhý – opravený'));
+  // celá rešerše jde z téže mezipaměti
+  const r = p.volej('knihovnaReserse', { id: 'reserse-letectvi' });
+  assert.strictEqual(r.ok, true, r.chyba);
+  assert.strictEqual(disk.cteni.n, prvni + 1, 'rešerše z mezipaměti');
+});
+
+test('knihovnaReserse: celá rešerše (sekce, pojmy, osa, čísla, další otázky), neplatné a chybějící id', () => {
+  const p = prostredi();
+  knihovnaNaDisku(p, [], [['jiny-nazev-souboru.json', RESERSE_TEST]]);
+  const r = p.volej('knihovnaReserse', { id: 'reserse-letectvi' });
+  assert.strictEqual(r.ok, true, r.chyba);
+  assert.strictEqual(r.data.sekce.length, 1, 'prázdná sekce pryč');
+  assert.deepStrictEqual(json(r.data.sekce[0].body), ['úhel náběhu', 'rychlost']);
+  assert.deepStrictEqual(json(r.data.casovaOsa), [{ kdy: '1903', co: 'První řízený motorový let.' }]);
+  assert.deepStrictEqual(json(r.data.dalsiOtazky), ['Jak funguje vrtulník?']);
+  assert.ok(/Neplatná/.test(p.volej('knihovnaReserse', { id: '../moje' }).chyba));
+  assert.ok(/není/.test(p.volej('knihovnaReserse', { id: 'reserse-neni' }).chyba));
+});
+
+test('knihovnaPridat: požadavek do moje.json a pokyn pro Clauda v NOVE (schránka ho neukáže), kontrola druhu a délky, stejný se nezdvojí, značka změn', () => {
+  const p = prostredi();
+  p.schranka.createFolder('NOVE');
+  p.nastavCas(Date.parse('2026-10-11T22:10:00+02:00'));
+  const o = p.volej('knihovnaPridat', { druh: 'film', text: '  Interstellar  ' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(o.data.pozadavky.length, 1);
+  const pz = o.data.pozadavky[0];
+  assert.ok(/^p-20261011-2210-[a-z0-9]{2}$/.test(pz.id), pz.id);
+  assert.deepStrictEqual([pz.druh, pz.text, pz.kdy], ['film', 'Interstellar', '2026-10-11T22:10:00+02:00']);
+  const m = JSON.parse(p.schranka.deti.KNIHOVNA.soubory.find((f) => f.getName() === 'moje.json').getBlob().getDataAsString());
+  assert.deepStrictEqual(m.pozadavky, [json(pz)], 'moje.json');
+  const pokyn = p.schranka.deti.NOVE.soubory.find((f) => /_knih\.md$/.test(f.getName()));
+  assert.ok(pokyn && pokyn.getName().indexOf(pz.id) >= 0, 'pokyn v NOVE s id požadavku');
+  const text = pokyn.getBlob().getDataAsString();
+  assert.ok(/kartu filmu: „Interstellar“/.test(text) && /osobni-knihovna/.test(text) && /"pozadavek": "p-/.test(text) && /KNIHOVNA\\polozky\\<id>\.json/.test(text), text);
+  assert.ok(!p.volej('schranka').data.nove.some((x) => /Interstellar/.test(x.text)), 'aplikace pokyn neukazuje');
+  assert.strictEqual(p.volej('zmeny').data.knihovna, Date.parse('2026-10-11T22:10:00+02:00'), 'značka změn');
+  // stejný text znovu (dvojklik) → nic nového; rešerše jde
+  assert.strictEqual(p.volej('knihovnaPridat', { druh: 'film', text: 'interstellar' }).data.pozadavky.length, 1);
+  const r = p.volej('knihovnaPridat', { druh: 'reserse', text: 'Jak funguje černá díra?' });
+  assert.strictEqual(r.data.pozadavky.length, 2);
+  assert.ok(/rešerši/.test(p.schranka.deti.NOVE.soubory.filter((f) => /_knih\.md$/.test(f.getName()))[1].getBlob().getDataAsString()));
+  // kontrola: druh, prázdný a dlouhý text
+  assert.ok(/druh/.test(p.volej('knihovnaPridat', { druh: 'hra', text: 'Tetris' }).chyba));
+  assert.ok(/název nebo téma/.test(p.volej('knihovnaPridat', { druh: 'kniha', text: ' ' }).chyba));
+  assert.ok(/moc dlouhý/.test(p.volej('knihovnaPridat', { druh: 'kniha', text: 'x'.repeat(301) }).chyba));
+  // nejvýš 30 čekajících
+  for (let i = 0; i < 28; i++) assert.strictEqual(p.volej('knihovnaPridat', { druh: 'kniha', text: 'Kniha ' + i }).ok, true);
+  assert.ok(/počkej/.test(p.volej('knihovnaPridat', { druh: 'kniha', text: 'Kniha navíc' }).chyba));
+});
+
+test('knihovna: vyřízení požadavku kartou – v odpovědi hned pryč, z moje.json při nejbližším zápisu', () => {
+  const p = prostredi();
+  p.schranka.createFolder('NOVE');
+  const disk = knihovnaNaDisku(p, [['film-zkusebni-let.json', KARTA_TEST]]);
+  const pz = p.volej('knihovnaPridat', { druh: 'film', text: 'Interstellar' }).data.pozadavky[0];
+  p.volej('knihovnaPridat', { druh: 'kniha', text: 'Druhá' });
+  // Claude připravil kartu s "pozadavek"
+  disk.pridej(disk.pol, 'film-interstellar.json', { id: 'film-interstellar', druh: 'film', nazev: 'Interstellar', pozadavek: pz.id, pripraveno: '2026-10-11T22:30:00+02:00' });
+  const d = p.volej('knihovna').data;
+  assert.deepStrictEqual(d.pozadavky.map((x) => x.text), ['Druhá'], 'vyřízený v odpovědi není');
+  assert.strictEqual(disk.moje().pozadavky.length, 2, 'čtení moje.json nepřepisuje');
+  assert.strictEqual(p.volej('knihovnaMoje', { id: 'film-interstellar', stav: 'chci' }).ok, true);
+  assert.deepStrictEqual(disk.moje().pozadavky.map((x) => x.text), ['Druhá'], 'při zápisu vyřízený pryč');
+  assert.ok(/už to připravil/.test(p.volej('knihovnaZrusit', { id: pz.id }).chyba), 'vyřízený nejde zrušit');
+});
+
+test('knihovnaMoje: stav, hodnocení a poznámka – kontrola hodnot, zrušení, jen položky z knihovny', () => {
+  const p = prostredi();
+  const disk = knihovnaNaDisku(p, [['film-zkusebni-let.json', KARTA_TEST]], [['reserse-letectvi.json', RESERSE_TEST]]);
+  p.nastavCas(Date.parse('2026-10-11T20:00:00+02:00'));
+  let o = p.volej('knihovnaMoje', { id: 'film-zkusebni-let', stav: 'hotovo', hodnoceni: 5, poznamka: ' Skvělé!\r\nZnovu na Vánoce. ' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.moje['film-zkusebni-let']), { stav: 'hotovo', hodnoceni: 5, poznamka: 'Skvělé!\nZnovu na Vánoce.', zmeneno: '2026-10-11T20:00:00+02:00' });
+  // jen hodnocení – stav a poznámka zůstanou
+  o = p.volej('knihovnaMoje', { id: 'film-zkusebni-let', hodnoceni: 4 });
+  assert.deepStrictEqual([o.data.moje['film-zkusebni-let'].stav, o.data.moje['film-zkusebni-let'].hodnoceni], ['hotovo', 4]);
+  assert.ok(/1 až 5/.test(p.volej('knihovnaMoje', { id: 'film-zkusebni-let', hodnoceni: 7 }).chyba));
+  assert.ok(/Neplatný stav/.test(p.volej('knihovnaMoje', { id: 'film-zkusebni-let', stav: 'videno' }).chyba));
+  assert.ok(/moc dlouhá/.test(p.volej('knihovnaMoje', { id: 'film-zkusebni-let', poznamka: 'x'.repeat(2001) }).chyba));
+  assert.ok(/není/.test(p.volej('knihovnaMoje', { id: 'film-neexistuje', stav: 'chci' }).chyba), 'jen karty z knihovny');
+  assert.ok(/Není co uložit/.test(p.volej('knihovnaMoje', { id: 'film-zkusebni-let' }).chyba));
+  // rešerše má taky „můj“ stav (přečteno)
+  assert.strictEqual(p.volej('knihovnaMoje', { id: 'reserse-letectvi', stav: 'hotovo' }).ok, true);
+  // zrušit vše → položka z moje.json pryč
+  o = p.volej('knihovnaMoje', { id: 'film-zkusebni-let', stav: '', hodnoceni: 0, poznamka: '' });
+  assert.ok(!o.data.moje['film-zkusebni-let'], 'prázdný stav = pryč');
+  assert.deepStrictEqual(Object.keys(disk.moje().polozky), ['reserse-letectvi']);
+});
+
+test('knihovnaZrusit: nevyřízený požadavek pryč i s pokynem v NOVE (do koše), neplatné id', () => {
+  const p = prostredi();
+  p.schranka.createFolder('NOVE');
+  const pz = p.volej('knihovnaPridat', { druh: 'serial', text: 'Černobyl' }).data.pozadavky[0];
+  const pokyn = p.schranka.deti.NOVE.soubory.find((f) => /_knih\.md$/.test(f.getName()));
+  const o = p.volej('knihovnaZrusit', { id: pz.id });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.pozadavky), []);
+  assert.ok(pokyn.vKosi, 'pokyn pro Clauda v koši');
+  assert.ok(/už není/.test(p.volej('knihovnaZrusit', { id: pz.id }).chyba));
+  assert.ok(/Neplatný/.test(p.volej('knihovnaZrusit', { id: 'nesmysl' }).chyba));
+});
+
+test('knihovna: jeden zapisovatel – motor nepíše do polozky ani reserse, moje.json jen pod zámkem, neplatný moje.json nepřepíše', () => {
+  const p = prostredi();
+  p.schranka.createFolder('NOVE');
+  const disk = knihovnaNaDisku(p, [['film-zkusebni-let.json', KARTA_TEST]], [['reserse-letectvi.json', RESERSE_TEST]]);
+  const pred = disk.pol.soubory.concat(disk.res.soubory).map((f) => f.getName() + '|' + f.getLastUpdated().getTime() + '|' + f.getBlob().getDataAsString());
+  const zamek = [];
+  p.ctx.LockService = { getScriptLock: () => ({ waitLock() { zamek.push('zamknout'); }, releaseLock() { zamek.push('odemknout'); } }) };
+  const pz = p.volej('knihovnaPridat', { druh: 'kniha', text: 'Test' }).data.pozadavky[0];
+  p.volej('knihovnaMoje', { id: 'film-zkusebni-let', stav: 'chci' });
+  p.volej('knihovnaZrusit', { id: pz.id });
+  p.volej('knihovna');
+  p.volej('knihovnaReserse', { id: 'reserse-letectvi' });
+  assert.deepStrictEqual(zamek, ['zamknout', 'odemknout', 'zamknout', 'odemknout', 'zamknout', 'odemknout'], 'každý zápis pod zámkem, čtení bez');
+  const po = disk.pol.soubory.concat(disk.res.soubory).map((f) => f.getName() + '|' + f.getLastUpdated().getTime() + '|' + f.getBlob().getDataAsString());
+  assert.deepStrictEqual(po, pred, 'karty a rešerše beze změny (žádný soubor navíc ani přepsaný)');
+  const zalozene = (p.log.soubory || []).filter((s) => s.slozka === 'KNIHOVNA').map((s) => s.n);
+  assert.deepStrictEqual(zalozene, ['moje.json'], 'v KNIHOVNA motor zakládá jen moje.json');
+  // poškozený moje.json (ruční úprava, konflikt Disku): čtení jede dál, zápis ho nepřepíše
+  disk.kn.soubory.find((f) => f.getName() === 'moje.json').setContent('{ rozbity');
+  const d = p.volej('knihovna');
+  assert.strictEqual(d.ok, true, d.chyba);
+  assert.ok(d.data.chybne.indexOf('moje.json') >= 0);
+  assert.ok(/není platný JSON/.test(p.volej('knihovnaMoje', { id: 'film-zkusebni-let', stav: 'hotovo' }).chyba));
+  assert.strictEqual(disk.kn.soubory.find((f) => f.getName() === 'moje.json').getBlob().getDataAsString(), '{ rozbity', 'nepřepsáno');
+});
+
+test('knihovna: značka změn podle Claudových souborů (karta přibude → zmeny.knihovna), čisté funkce moje.json', () => {
+  const p = prostredi();
+  const disk = knihovnaNaDisku(p, [['film-zkusebni-let.json', KARTA_TEST]]);
+  const prvni = p.volej('zmeny').data.knihovna;
+  assert.ok(prvni > 0, 'čas úpravy karty');
+  p.cache.delete('zmena:knihovna');
+  disk.pridej(disk.pol, 'film-nova.json', { id: 'film-nova', druh: 'film', nazev: 'Nová' });
+  assert.ok(p.volej('zmeny').data.knihovna > prvni, 'nová karta posune značku');
+  const moje = vm.runInContext('KNIHOVNA_.moje', p.ctx);
+  assert.deepStrictEqual(json(moje({ polozky: { 'film-x': { stav: 'hotovo', hodnoceni: 9, navic: 1 }, 'ŠPATNĚ': { stav: 'chci' }, 'film-y': { stav: 'nic' } },
+    pozadavky: [{ id: 'p-20261011-2210-ab', druh: 'film', text: 'A' }, { id: 'p-20261011-2210-ab', druh: 'film', text: 'dvakrát' }, { id: 'x', druh: 'film', text: 'B' }] })),
+  { polozky: { 'film-x': { stav: 'hotovo' } }, pozadavky: [{ id: 'p-20261011-2210-ab', druh: 'film', text: 'A', kdy: '' }] });
+  assert.deepStrictEqual(json(moje('nesmysl')), { polozky: {}, pozadavky: [] });
 });
 
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

@@ -32,10 +32,10 @@ import * as ucet from './ucet.js';
 // Hlavní stránka se od 10. 10. jmenuje Přehled (Michal: „hlavní stránku pojmenuj jinak než Dnes“) – klíč „dnes“ zůstal
 // (odkazy data-cil, uložená stránka asistent.pohled, snímek, testy); ikona dlaždic, slunce zůstalo znakem aplikace.
 const SEKCE = [['dnes', 'Přehled'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář'], ['zdravi', 'Zdraví'], ['fotbal', 'Fotbal'], ['reely', 'Reely'],
-  ['plakaty', 'Plakáty'], ['auto', 'Auto']];
+  ['plakaty', 'Plakáty'], ['auto', 'Auto'], ['knihovna', 'Knihovna']];
 const ikonaSekce = (id) => IKONY[id === 'dnes' ? 'prehled' : id];
 // sekce, které ukáže jen motor, který je umí (starší verze motoru je schová)
-const viditelna = (s) => ['fotbal', 'reely', 'plakaty', 'auto'].indexOf(s[0]) < 0 || umiMotor(s[0]);
+const viditelna = (s) => ['fotbal', 'reely', 'plakaty', 'auto', 'knihovna'].indexOf(s[0]) < 0 || umiMotor(s[0]);
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
 const TELEFON = window.matchMedia('(max-width: 759px)');
 const SIROKA_POSTA = window.matchMedia('(min-width: 1000px)'); // Pošta se seznamem a detailem vedle sebe
@@ -145,6 +145,7 @@ function obnovVse(znovu) {
   reely.nactiReely(primo);
   if (stav.pohled === 'plakaty') plakaty.nactiPlakaty(znovu); // plakát se čte jen na své stránce
   if (znovu || stav.pohled === 'auto') auto.nactiAuto(znovu); // tabulku auta jen na její stránce nebo při Obnovit
+  if (stav.pohled === 'knihovna' && knihovnaModul) knihovnaModul.nactiKnihovnu(); // knihovna jen na své stránce (Knihovna níž)
   // Obnovit = i čerstvé kopie na serveru (třeba hned po nasazení motoru); jinak jen když jsou kopie starší
   if (znovu) ucet.obnovNaServeru(true);
   else ucet.obnovStare();
@@ -160,7 +161,11 @@ function stara(klic, minut) {
  *  aplikaci (zkratka Zdraví, Claude zapsal diktát „vypil jsem…“). */
 function zkontrolujZmeny() {
   if (!umiMotor('zmeny') || !ucet.zapnuty()) return;
-  volej('zmeny').then((z) => { auto.zkontrolujZmenu(z && z.auto); zdravi.zkontrolujZmenu(z && z.zdravi); }).catch(() => { /* jen zrychlení */ });
+  volej('zmeny').then((z) => {
+    auto.zkontrolujZmenu(z && z.auto);
+    zdravi.zkontrolujZmenu(z && z.zdravi);
+    if (knihovnaModul) knihovnaModul.zkontrolujZmenu(z && z.knihovna); // Knihovna: jen když je načtená
+  }).catch(() => { /* jen zrychlení */ });
 }
 
 /** Signál z jiného zařízení (voda, doplňky, váha, tankování…) → načíst hned, ne až za čtvrt hodiny. */
@@ -234,6 +239,7 @@ function vykresli() {
   auto.dotahni();
   if (stav.pohled === 'kalendar') dochazka.dotahni();
   if (stav.pohled === 'plakaty') plakaty.dotahni();
+  if (stav.pohled === 'knihovna' && knihovnaModul) knihovnaModul.dotahni();
   const p = pocty();
   document.querySelectorAll('[data-pohled]').forEach((el) => { el.hidden = el.dataset.pohled !== stav.pohled; });
   // levý pás: celý jen na Dnes (nebo připnutý), jinde úzký s ikonami – víc místa na práci
@@ -260,6 +266,7 @@ function vykresliStranku(el, p) {
   else if (stav.pohled === 'reely') reely.vykresliReely(el);
   else if (stav.pohled === 'plakaty') plakaty.vykresliPlakaty(el);
   else if (stav.pohled === 'auto') auto.vykresliAuto(el);
+  else if (stav.pohled === 'knihovna') vykresliKnihovnu(el);
   else kal.vykresliKalendar(el);
 }
 
@@ -389,6 +396,7 @@ function vykresliRail(p) {
 function hlavniAkce() {
   if (stav.pohled === 'posta') return '<button type="button" class="btn btn--primary" data-psat="novy">' + IKONY.psat + '<span>Nový e-mail</span></button>';
   if (stav.pohled === 'kalendar') return '<button type="button" class="btn btn--primary" data-nova-udalost>' + IKONY.plus + '<span>Nová událost</span></button>';
+  if (stav.pohled === 'knihovna' && umiMotor('knihovnaPridat')) return '<button type="button" class="btn btn--primary" data-kn-pridat>' + IKONY.plus + '<span>Přidat do knihovny</span></button>';
   // na Dnes se na užší liště zmenší na „+“ (popisek nese title a aria-label)
   return '<button type="button" class="btn btn--primary" data-nova-poznamka title="Poznámka pro Clauda" aria-label="Poznámka pro Clauda">' + IKONY.plus +
     '<span>Poznámka pro Clauda</span></button>';
@@ -440,6 +448,8 @@ function vykresliHlavu(p) {
     pod = plakaty.podnadpis();
   } else if (stav.pohled === 'auto') {
     pod = esc(auto.podnadpis());
+  } else if (stav.pohled === 'knihovna') {
+    pod = esc(knihovnaModul ? knihovnaModul.podnadpis() : 'Filmy, seriály, knihy a rešerše');
   } else if (stav.pohled === 'zdravi') {
     const z = stav.zdravi;
     pod = 'WHOOP a Apple Watch' + (z && z.whoop && z.whoop.sync && z.whoop.sync.kdy ? ' · aktualizováno ' + esc(kdyKratce(z.whoop.sync.kdy)) : '');
@@ -527,6 +537,7 @@ function otevriRychle() {
       volba('email', IKONY.psat, 'zluta', 'Nový e-mail', 'z osobní nebo pracovní adresy') +
       volba('udalost', IKONY.kalendar, 'zelena', 'Událost', 'do kalendáře, i s pozvánkami') +
       volba('zapas', IKONY.zapas, 'limetka', 'Zápas', 'tým, soupeř, výkop, sraz') +
+      (umiMotor('knihovnaPridat') ? volba('knihovna', IKONY.knihovna, 'knihovna', 'Do knihovny', 'film, seriál, kniha nebo otázka – přehled připraví Claude') : '') +
       (umiMotor('pitiJidlo') ? volba('jidlo', IKONY.jidlo, 'zdravi', 'Jídlo', 'napiš, co jsi měl – bílkoviny spočítám') : '') +
       (umiMotor('vaha') ? volba('vaha', IKONY.vaha, 'oranz', 'Váha', 'kg – zapíše se i s časem') : '') +
       (umiMotor('autoZapsat') ? volba('tankovani', IKONY.palivo, 'auto', 'Tankování', 'částka, cena za litr, km – do tabulky auta') : '') +
@@ -548,6 +559,7 @@ function rychlaAkce(akce) {
   else if (akce === 'jidlo') zdravi.otevriJidlo();
   else if (akce === 'tankovani') auto.otevriZapis('tankovani');
   else if (akce === 'myti') auto.otevriRychlyVydaj(0);
+  else if (akce === 'knihovna') knihovna((m) => m.otevriPridani());
 }
 
 // ---------------------------------------------------------------- Přehled (hlavní stránka, klíč „dnes“)
@@ -1093,6 +1105,32 @@ function dnesMobilHtml(p, dnes) {
   return h;
 }
 
+// ---------------------------------------------------------------- Knihovna (js/knihovna.js – načte se až na své stránce)
+// Michal 11. 10.: filmy, seriály, knihy a rešerše „ať se vzdělávám a mám svoji knihovnu“. Modul se stáhne a spustí až při
+// prvním otevření stránky (nebo „+“ → Do knihovny, výsledku hledání) – start aplikace na něj nečeká, do té doby kostra.
+// Klepnutí, psaní a klávesy mu app.js předává, jen když je načtený (klikKnihovna, vstupKnihovna, klavesaKnihovna).
+let knihovnaModul = null, knihovnaSlib = null;
+function knihovna(fn) {
+  if (!knihovnaSlib) {
+    knihovnaSlib = import('./knihovna.js')
+      .then((m) => { knihovnaModul = m; stav.chyby.knihovnaModul = null; zmeneno(); return m; })
+      .catch((e) => { knihovnaSlib = null; stav.chyby.knihovnaModul = e; zmeneno(); return null; });
+  }
+  return knihovnaSlib.then((m) => { if (m && fn) fn(m); return m; });
+}
+function vykresliKnihovnu(el) {
+  if (knihovnaModul) { knihovnaModul.vykresliKnihovnu(el); return; }
+  const chyba = stav.chyby.knihovnaModul;
+  nastavHtml(el, '<section class="card">' + (chyba ? chybaHtml({ message: 'Knihovna se nenačetla – zkontroluj připojení.' }, 'data-kn-modul-znovu') : kostra(5)) + '</section>');
+  if (!chyba) knihovna();
+}
+function klikKnihovna(el) {
+  if (knihovnaModul) return knihovnaModul.klikKnihovna(el);
+  if (el.hasAttribute('data-kn-modul-znovu')) { stav.chyby.knihovnaModul = null; knihovna(); zmeneno(); return true; }
+  if (el.hasAttribute('data-kn-pridat')) { const druh = el.dataset.knDruh; knihovna((m) => m.otevriPridani(druh)); return true; }
+  return false;
+}
+
 // ---------------------------------------------------------------- ovládání
 
 document.addEventListener('click', (e) => {
@@ -1134,6 +1172,7 @@ document.addEventListener('click', (e) => {
   }
   // e-mail otevřený z Dnes na širokém okně patří do pohledu Pošta (seznam + detail vedle sebe)
   if (el.dataset.vlakno && stav.pohled !== 'posta' && window.matchMedia('(min-width: 1000px)').matches) prejdi('posta');
+  if (klikKnihovna(el)) return;
   if (moje.klikMoje(el)) return;
   if (schranka.klikSchranka(el)) return;
   if (posta.klikPosta(el)) return;
@@ -1149,6 +1188,7 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('input', (e) => {
   vstupAdresy(e);
+  if (knihovnaModul && knihovnaModul.vstupKnihovna(e)) return;
   if (zdravi.vstupZdravi(e)) return;
   if (auto.vstupAuto(e)) return;
   if (reely.vstupReely(e)) return;
@@ -1176,6 +1216,7 @@ document.addEventListener('keydown', (e) => {
   if (zdravi.klavesaZdravi(e)) return; // Enter v poli váhy = Zapsat
   if (auto.klavesaAuto(e)) return; // Enter v okně tankování / výdaje = Zapsat
   if (moje.klavesaMoje(e)) return; // Enter v poli Moje poznámky = Přidat
+  if (knihovnaModul && knihovnaModul.klavesaKnihovna(e)) return; // Enter v okně Přidat do knihovny, Esc v hledání knihovny
   // Ctrl/Cmd+K = hledání (všude)
   if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); hledat.otevriHledani(); return; }
   // Ctrl/Cmd+Enter uloží poznámku nebo odešle e-mail

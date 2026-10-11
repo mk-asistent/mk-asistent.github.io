@@ -36,11 +36,13 @@
  *   Auto      – náklady a tankování v Michalově tabulce Google (vlastnost AUTO_TABULKA): čtení, zápis nových řádků,
  *               fotky účtenek do CLAUDE_SCHRANKA/AUTO/uctenky + text přes OCR Disku (služba Drive API);
  *               stav auta z MyŠkoda (CLAUDE_SCHRANKA/AUTO/myskoda.json – zapisuje domácí PC, NASTROJE\asistent\myskoda)
+ *   Knihovna  – karty filmů, seriálů a knih a rešerše od Clauda (CLAUDE_SCHRANKA/KNIHOVNA/polozky, reserse – motor je jen
+ *               čte); Michalův stav, hodnocení, poznámky a požadavky z aplikace (KNIHOVNA/moje.json – píše jen motor)
  *
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-11.3';
+const VERZE = '2026-10-11.5';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -133,7 +135,8 @@ function doPost(e) {
 const CTENI_MOTORU = ['info', 'schranka', 'posta', 'vlakno', 'hledat', 'kalendar', 'kalendare', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka',
   'postaDetaily', // pošta: přednačtení detailů posledních konverzací (nic neoznačí jako přečtené)
   'stitky', 'kontakty', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'davka', 'zmeny', 'plakaty',
-  'igStav']; // průběh zveřejňování na Instagram (aplikace se ptá každou minutu, když má něco brzy vyjít)
+  'igStav', // průběh zveřejňování na Instagram (aplikace se ptá každou minutu, když má něco brzy vyjít)
+  'knihovna', 'knihovnaReserse']; // Knihovna: karty, index rešerší, můj stav a požadavky; celá rešerše
 
 /** Výsledek dřívějšího běhu téhož požadavku (JSON), nebo null; když ještě běží, počká na něj (nejvýš ~25 s). */
 function vysledekRid_(rid) {
@@ -241,6 +244,13 @@ const AKCE = {
   autoUctenkaFoto: function (d) { return autoUctenkaFoto_(d); },
   autoPeceZapsat: function (d) { return autoPeceZapsat_(d); },
   autoTermin: function (d) { return autoTermin_(d); },
+  // Knihovna (filmy, seriály, knihy, rešerše): čtení, celá rešerše, požadavek pro Clauda, můj stav / hodnocení / poznámka,
+  // zrušení nevyřízeného požadavku – CLAUDE_SCHRANKA/KNIHOVNA (karty a rešerše píše jen Claude, moje.json jen motor)
+  knihovna: function () { return knihovna_(); },
+  knihovnaReserse: function (d) { return knihovnaReserse_(d.id); },
+  knihovnaPridat: function (d) { return knihovnaPridat_(d); },
+  knihovnaMoje: function (d) { return knihovnaMoje_(d); },
+  knihovnaZrusit: function (d) { return knihovnaZrusit_(d.id); },
   // značky změn: kdy se naposledy zapisovalo (auto, zdraví) – server je posílá s každou obnovou, aplikace podle nich načítá
   zmeny: function () { return zmeny_(); },
   // víc čtení v jednom požadavku – aplikace při startu neposílá deset dotazů naráz (ty se pak řadí do fronty)
@@ -258,7 +268,7 @@ const AKCE = {
 
 // akce, které smí jít v dávce: jen čtení (zápisy a pošta zvlášť)
 // (zmeny chyběly – server je chtěl v dávce každých 10 min a dostával „Akci nejde poslat v dávce“, kopie značek nevznikla)
-const DAVKA_AKCE = ['info', 'schranka', 'kalendar', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky', 'kontakty', 'zmeny', 'plakaty'];
+const DAVKA_AKCE = ['info', 'schranka', 'kalendar', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky', 'kontakty', 'zmeny', 'plakaty', 'knihovna'];
 
 // ---------------------------------------------------------------- nastavení (spouští se ručně v editoru)
 
@@ -3787,13 +3797,15 @@ function autoList_(ss, druh) {
  */
 // značky změn: kdy se naposledy zapisovalo k autu a ke zdraví – server je posílá s kopiemi (akce zmeny v dávce),
 // aplikace podle nich data načte znovu (zdraví i auto jdou přímo z motoru, kopie na serveru nemají)
-const ZNACKY_ZMEN = { auto: 'AUTO_ZMENA', zdravi: 'ZDRAVI_ZMENA' };
+// knihovna = Michalův stav a požadavky (moje.json) z aplikace; nové karty od Clauda přidá zmenaKnihovny_ podle souborů
+const ZNACKY_ZMEN = { auto: 'AUTO_ZMENA', zdravi: 'ZDRAVI_ZMENA', knihovna: 'KNIHOVNA_ZMENA' };
 const ZAPISY_ZDRAVI = ['vaha', 'doplnky', 'pitiJidlo', 'whoopPropojit', 'whoopOdpojit'];
 
-/** Oblast, které se zápis týká (auto | zdravi), nebo '' – čtení značku nemění. */
+/** Oblast, které se zápis týká (auto | zdravi | knihovna), nebo '' – čtení značku nemění. */
 function oblastZapisu_(akce) {
   if (CTENI_MOTORU.indexOf(akce) >= 0) return '';
   if (/^auto/.test(akce)) return 'auto';
+  if (/^knihovna/.test(akce)) return 'knihovna';
   return ZAPISY_ZDRAVI.indexOf(akce) >= 0 ? 'zdravi' : '';
 }
 
@@ -3813,7 +3825,8 @@ function oznacZmenu_(oblast) {
 function zmeny_() {
   const vl = vlastnosti_();
   return { auto: Number(vl.getProperty('AUTO_ZMENA') || 0),
-    zdravi: Math.max(Number(vl.getProperty('ZDRAVI_ZMENA') || 0), zmenaSouboruClauda_()), instagramBezi: igAktivni_() };
+    zdravi: Math.max(Number(vl.getProperty('ZDRAVI_ZMENA') || 0), zmenaSouboruClauda_()), instagramBezi: igAktivni_(),
+    knihovna: Math.max(Number(vl.getProperty('KNIHOVNA_ZMENA') || 0), zmenaKnihovny_()) };
 }
 
 /** Kdy Claude naposledy upravil ZDRAVI/PITI_JIDLO_CLAUDE.json nebo ZDRAVI_REZIM.json (id souborů v mezipaměti 6 h, výsledek 1 min). */
@@ -6566,8 +6579,8 @@ function presunDoplnky_(slozka, ids, odkud, kam) {
 // ---- jídlo k odhadu a hodnocení dne: pokyn pro Clauda jako poznámka v NOVE. Úloha schránky (obě PC, každých 30 min)
 // ji zpracuje jako ostatní poznámky podle skillu asistent-schranka – prompt úlohy se kvůli tomu nemění. Aplikace tyhle
 // poznámky neukazuje (SKRYTE_POZNAMKY). Michal 9. 10.: „napíšu, co jsem měl, bez bílkovin, pošle se to Claudovi a zapíše“.
-// _tyden = týdenní shrnutí zdraví pro e-mail (tydenniShrnutiNaPozadi_).
-const SKRYTE_POZNAMKY = /_(jidl|hodn|plak|tyden)\.md$/;
+// _tyden = týdenní shrnutí zdraví pro e-mail (tydenniShrnutiNaPozadi_); _knih = požadavek z Knihovny (pokynKnihovny_).
+const SKRYTE_POZNAMKY = /_(jidl|hodn|plak|tyden|knih)\.md$/;
 
 /** Jídlo s místním odhadem → řádek do poznámky „jídlo k odhadu“ v NOVE (jedna, dokud ji Claude nezpracuje, pak další). */
 function jidloKOdhadu_(den, zapis) {
@@ -7545,6 +7558,420 @@ function upozorneniZapnout_() {
 function upozorneniVypnout_() {
   vlastnosti_().deleteProperty('NTFY_TEMA');
   return upozorneniStav_();
+}
+
+// ---------------------------------------------------------------- Knihovna: filmy, seriály, knihy a rešerše (11. 10.)
+//
+// Michal 11. 10.: „přehled informací k filmu či knize … jednoduché přehledné informace, co se dají získat na internetu“
+// a „další stránku s rešerší k různým věcem – chci se vzdělávat a mít svoji knihovnu“. Formát dat: skill osobni-knihovna.
+//   CLAUDE_SCHRANKA/KNIHOVNA/polozky/<id>.json – karta filmu, seriálu nebo knihy   (píše JEN Claude)
+//   CLAUDE_SCHRANKA/KNIHOVNA/reserse/<id>.json – rešerše                          (píše JEN Claude)
+//   CLAUDE_SCHRANKA/KNIHOVNA/moje.json         – Michalův stav, hodnocení, poznámka a požadavky z aplikace (píše JEN motor)
+// Jeden zapisovatel na soubor (Disk pro počítače by při souběhu udělal konfliktní kopie). Požadavek z aplikace = záznam
+// v moje.json a pokyn pro Clauda v NOVE (…_<id>_knih.md – aplikace ho neukazuje, SKRYTE_POZNAMKY); úloha schránky ho
+// zpracuje jako ostatní poznámky. Vyřízený je, jakmile existuje karta / rešerše s "pozadavek": <id> – aplikaci se pak už
+// neposílá a z moje.json ho motor odebere při nejbližším zápisu. Karty a rešerše motor nikdy nepíše.
+// Čtení: rozebrané soubory se pamatují podle id a času úpravy (CacheService 6 h) – obnova čte z Disku jen výpis složek,
+// moje.json a soubory, které se od minula změnily. Neplatný JSON karty nic nerozbije: karta se vynechá (chybne v odpovědi).
+
+const KNIHOVNA_SLOZKA = 'KNIHOVNA';
+const KNIHOVNA_PAMET = 21600;          // s – rozebrané karty a rešerše (klíč nese čas úpravy souboru)
+const MAX_CHYBNYCH_KNIHOVNY = 20;
+
+/** Čisté funkce Knihovny (testuje motor.test.js): kontrola karet, rešerší a moje.json, požadavky, můj stav. */
+const KNIHOVNA_ = (function () {
+  const DRUHY_KARET = ['film', 'serial', 'kniha'];
+  const DRUHY_POZADAVKU = ['film', 'serial', 'kniha', 'reserse'];
+  const STAVY = ['chci', 'rozpracovane', 'hotovo'];
+  const ID = /^[a-z0-9][a-z0-9-]{0,119}$/;
+  const ID_POZADAVKU = /^p-\d{8}-\d{4}-[a-z0-9]{2,8}$/;
+  const MAX_TEXTU = 300;               // znaků požadavku (název, otázka)
+  const MAX_POZNAMKY = 2000;
+  const MAX_POZADAVKU = 30;            // nevyřízených naráz
+
+  /** Text (jen řetězec nebo číslo), bez \r, ořezaný; delší než max se zkrátí a končí „…“. */
+  function txt(x, max) {
+    if (typeof x !== 'string' && typeof x !== 'number') return '';
+    const s = String(x).replace(/\r\n?/g, '\n').trim();
+    return max && s.length > max ? s.slice(0, max - 1).trim() + '…' : s;
+  }
+  /** Jeden řádek (mezery a odřádkování sloučené). */
+  function radek(x, max) { return txt(typeof x === 'string' ? x.replace(/\s+/g, ' ') : x, max); }
+  /** Adresa jen http(s) bez mezer a uvozovek, jinak ''. */
+  function url(x) { const u = txt(x, 2000); return /^https?:\/\/[^\s"'<>\\]+$/i.test(u) ? u : ''; }
+  function obj(x) { return x && typeof x === 'object' && !Array.isArray(x) ? x : null; }
+  /** Pole přes fn (prázdné výsledky pryč), nejvýš max prvků. */
+  function pole(x, max, fn) {
+    return (Array.isArray(x) ? x : []).map(fn).filter(function (v) { return v !== '' && v != null; }).slice(0, max);
+  }
+  function rok(x) { const n = Number(x); return x !== '' && x != null && Number.isInteger(n) && n > -5000 && n < 3000 ? n : null; }
+  function hvezdy(x) { const n = Number(x); return Number.isInteger(n) && n >= 1 && n <= 5 ? n : null; }
+  /** Prázdná pole objektu pryč ('' , null, [], {}) – karta nese jen to, co Claude opravdu zjistil. */
+  function bezPrazdnych(o) {
+    Object.keys(o).forEach(function (k) {
+      const v = o[k];
+      if (v === '' || v == null || (Array.isArray(v) && !v.length) || (obj(v) && !Object.keys(v).length)) delete o[k];
+    });
+    return o;
+  }
+  function odkazy(x, max) {
+    return pole(x, max, function (o) {
+      const u = obj(o) ? url(o.url) : '';
+      return u ? { nazev: radek(o.nazev, 120) || u.replace(/^https?:\/\/(www\.)?/i, '').split(/[/?#]/)[0], url: u } : null;
+    });
+  }
+  function souvisi(x) {
+    return pole(x, 12, function (o) { const id = obj(o) ? radek(o.id, 120) : ''; return ID.test(id) ? bezPrazdnych({ id: id, proc: radek(o.proc, 160) }) : null; });
+  }
+  function stitky(x) { return pole(x, 12, function (s) { return radek(s, 40); }); }
+  function pozadavek(x) { return ID_POZADAVKU.test(String(x || '')) ? String(x) : ''; }
+  /** id z obsahu, jinak z názvu souboru (film-oppenheimer.json → film-oppenheimer). */
+  function idZ(d, nazevSouboru) {
+    const zeSouboru = String(nazevSouboru || '').replace(/\.json$/i, '').toLowerCase();
+    return ID.test(String(d.id || '')) ? String(d.id) : ID.test(zeSouboru) ? zeSouboru : '';
+  }
+
+  /** Karta z polozky/<soubor>.json → jen známá pole s omezenou délkou, adresy jen http(s); null = neplatná (bez id, druhu, názvu). */
+  function karta(d, nazevSouboru) {
+    if (!obj(d)) return null;
+    const id = idZ(d, nazevSouboru);
+    const druh = DRUHY_KARET.indexOf(d.druh) >= 0 ? d.druh : /^(film|serial|kniha)-/.test(id) ? id.split('-')[0] : '';
+    const nazev = radek(d.nazev, 200);
+    if (!id || !druh || !nazev) return null;
+    const o = obj(d.obrazek);
+    const obrazek = o && url(o.url) ? bezPrazdnych({ url: url(o.url), zdroj: radek(o.zdroj, 80), popis: radek(o.popis, 160) }) : null;
+    const s = obj(d.serie);
+    const serie = s ? bezPrazdnych({ nazev: radek(s.nazev, 200), poradi: txt(s.poradi, 1000),
+      dily: pole(s.dily, 40, function (x) {
+        return obj(x) && radek(x.nazev, 200) ? bezPrazdnych({ nazev: radek(x.nazev, 200), original: radek(x.original, 200), rok: rok(x.rok),
+          delka: radek(x.delka, 60), pozn: radek(x.pozn, 300) }) : null;
+      }) }) : null;
+    const k = obj(d.kdeSledovat);
+    const kde = k && txt(k.text, 800) ? bezPrazdnych({ text: txt(k.text, 800), overeno: radek(k.overeno, 30) }) : null;
+    const stran = Number(d.stran);
+    return bezPrazdnych({
+      id: id, druh: druh, nazev: nazev, original: radek(d.original, 200), rok: rok(d.rok), roky: radek(d.roky, 30),
+      tvurci: pole(d.tvurci, 10, function (t) {
+        const jmena = obj(t) ? pole(t.jmena, 8, function (j) { return radek(j, 80); }) : [];
+        return jmena.length && radek(t.role, 40) ? { role: radek(t.role, 40), jmena: jmena } : null;
+      }),
+      zanry: pole(d.zanry, 8, function (z) { return radek(z, 40); }),
+      delka: radek(d.delka, 60), stran: Number.isInteger(stran) && stran > 0 && stran < 100000 ? stran : null, zeme: radek(d.zeme, 120),
+      obrazek: obrazek,
+      hodnoceni: pole(d.hodnoceni, 6, function (h) {
+        return obj(h) && radek(h.zdroj, 40) && radek(h.hodnota, 30) ? bezPrazdnych({ zdroj: radek(h.zdroj, 40), hodnota: radek(h.hodnota, 30), url: url(h.url) }) : null;
+      }),
+      kratce: txt(d.kratce, 400), obsah: txt(d.obsah, 3000), proc: txt(d.proc, 1500),
+      zajimavosti: pole(d.zajimavosti, 12, function (z) { return txt(z, 600); }),
+      skutecnost: txt(d.skutecnost, 1500), oceneni: pole(d.oceneni, 10, function (z) { return radek(z, 200); }),
+      serie: serie && (serie.dily || serie.poradi) ? serie : null, kdeSledovat: kde,
+      souvisi: souvisi(d.souvisi), stitky: stitky(d.stitky), odkazy: odkazy(d.odkazy, 10), zdroje: odkazy(d.zdroje, 10),
+      pozadavek: pozadavek(d.pozadavek), pripraveno: radek(d.pripraveno, 40)
+    });
+  }
+
+  /** Rešerše z reserse/<soubor>.json (celá – čtečka v aplikaci); null = neplatná (bez id nebo názvu). */
+  function reserse(d, nazevSouboru) {
+    if (!obj(d)) return null;
+    const id = idZ(d, nazevSouboru);
+    const nazev = radek(d.nazev, 200);
+    if (!id || !nazev) return null;
+    return bezPrazdnych({
+      id: id, nazev: nazev, otazka: txt(d.otazka, 600), kratce: txt(d.kratce, 1200),
+      sekce: pole(d.sekce, 12, function (s) {
+        if (!obj(s)) return null;
+        const x = bezPrazdnych({ nadpis: radek(s.nadpis, 160), odstavce: pole(s.odstavce, 12, function (o) { return txt(o, 2500); }),
+          body: pole(s.body, 20, function (b) { return txt(b, 600); }) });
+        return x.nadpis || x.odstavce || x.body ? x : null;
+      }),
+      pojmy: pole(d.pojmy, 30, function (p) { return obj(p) && radek(p.pojem, 80) ? bezPrazdnych({ pojem: radek(p.pojem, 80), vysvetleni: txt(p.vysvetleni, 600) }) : null; }),
+      casovaOsa: pole(d.casovaOsa, 40, function (x) { return obj(x) && radek(x.kdy, 40) && txt(x.co, 400) ? { kdy: radek(x.kdy, 40), co: txt(x.co, 400) } : null; }),
+      cisla: pole(d.cisla, 8, function (x) { return obj(x) && radek(x.hodnota, 30) ? bezPrazdnych({ hodnota: radek(x.hodnota, 30), co: radek(x.co, 160) }) : null; }),
+      dalsiOtazky: pole(d.dalsiOtazky, 10, function (q) { return radek(q, MAX_TEXTU); }),
+      souvisi: souvisi(d.souvisi), zdroje: odkazy(d.zdroje, 12), stitky: stitky(d.stitky),
+      pozadavek: pozadavek(d.pozadavek), pripraveno: radek(d.pripraveno, 40)
+    });
+  }
+
+  /** Rešerše do seznamu: jen id, název, krátce, štítky, kdy a požadavek (celá přijde až v čtečce – knihovnaReserse). */
+  function indexReserse(r) {
+    return bezPrazdnych({ id: r.id, nazev: r.nazev, kratce: txt(r.kratce, 300), stitky: r.stitky, pripraveno: r.pripraveno, pozadavek: r.pozadavek });
+  }
+
+  /** moje.json → { polozky: { id: { stav, hodnoceni, poznamka, zmeneno } }, pozadavky: [{ id, druh, text, kdy }] } (neplatné pryč). */
+  function moje(d) {
+    const o = obj(d) || {};
+    const polozky = {};
+    const zdroj = obj(o.polozky) || {};
+    Object.keys(zdroj).forEach(function (id) {
+      const x = obj(zdroj[id]);
+      if (!ID.test(id) || !x) return;
+      const m = bezPrazdnych({ stav: STAVY.indexOf(x.stav) >= 0 ? x.stav : '', hodnoceni: hvezdy(x.hodnoceni), poznamka: txt(x.poznamka, MAX_POZNAMKY),
+        zmeneno: radek(x.zmeneno, 40) });
+      if (m.stav || m.hodnoceni || m.poznamka) polozky[id] = m;
+    });
+    const videno = {};
+    const pozadavky = (Array.isArray(o.pozadavky) ? o.pozadavky : []).filter(function (p) {
+      const ok = obj(p) && ID_POZADAVKU.test(String(p.id || '')) && !videno[p.id] && DRUHY_POZADAVKU.indexOf(p.druh) >= 0 && radek(p.text, MAX_TEXTU);
+      if (ok) videno[p.id] = true;
+      return ok;
+    }).map(function (p) { return { id: p.id, druh: p.druh, text: radek(p.text, MAX_TEXTU), kdy: radek(p.kdy, 40) }; });
+    return { polozky: polozky, pozadavky: pozadavky };
+  }
+
+  /** Id požadavků, ke kterým už je karta nebo rešerše ({ id: true }). */
+  function vyrizene(karty, reserseSeznam) {
+    const s = {};
+    (karty || []).concat(reserseSeznam || []).forEach(function (x) { if (x && x.pozadavek) s[x.pozadavek] = true; });
+    return s;
+  }
+
+  /** Nový požadavek z aplikace (kontrola druhu a délky textu). */
+  function novyPozadavek(druh, text, kdy, id) {
+    if (DRUHY_POZADAVKU.indexOf(druh) < 0) throw new Error('Neznámý druh – film, seriál, kniha nebo rešerše.');
+    const t = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+    if (t.length < 2) throw new Error('Napiš název nebo téma.');
+    if (t.length > MAX_TEXTU) throw new Error('Text je moc dlouhý (nejvýš ' + MAX_TEXTU + ' znaků).');
+    if (!ID_POZADAVKU.test(String(id || ''))) throw new Error('Neplatné id požadavku.');
+    return { id: id, druh: druh, text: t, kdy: String(kdy || '') };
+  }
+
+  /** Můj stav u položky id: stav ('' / null = zrušit), hodnoceni (0 / null = zrušit), poznamka ('' = smazat); co chybí, zůstává. */
+  function zmenMoje(m, id, d, kdy) {
+    if (!ID.test(String(id || ''))) throw new Error('Neplatná položka.');
+    const x = Object.assign({}, m.polozky[id]);
+    let zmena = false;
+    if (d.stav !== undefined) {
+      const s = d.stav == null ? '' : String(d.stav);
+      if (s && STAVY.indexOf(s) < 0) throw new Error('Neplatný stav (chci, rozpracovane, hotovo).');
+      x.stav = s;
+      zmena = true;
+    }
+    if (d.hodnoceni !== undefined) {
+      const prazdne = d.hodnoceni == null || d.hodnoceni === '' || Number(d.hodnoceni) === 0;
+      if (!prazdne && !hvezdy(d.hodnoceni)) throw new Error('Hodnocení je 1 až 5 hvězd.');
+      x.hodnoceni = prazdne ? null : hvezdy(d.hodnoceni);
+      zmena = true;
+    }
+    if (d.poznamka !== undefined) {
+      const p = String(d.poznamka == null ? '' : d.poznamka).replace(/\r\n?/g, '\n').trim();
+      if (p.length > MAX_POZNAMKY) throw new Error('Poznámka je moc dlouhá (nejvýš 2 000 znaků).');
+      x.poznamka = p;
+      zmena = true;
+    }
+    if (!zmena) throw new Error('Není co uložit.');
+    const v = bezPrazdnych({ stav: x.stav, hodnoceni: x.hodnoceni, poznamka: x.poznamka, zmeneno: String(kdy || '') });
+    if (v.stav || v.hodnoceni || v.poznamka) m.polozky[id] = v; else delete m.polozky[id];
+    return m;
+  }
+
+  /** Odpověď pro aplikaci: karty (nejnovější nahoře), index rešerší, můj stav, nevyřízené požadavky, vadné soubory. */
+  function vystup(karty, reserseSeznam, m, chybne, ted) {
+    const hotove = vyrizene(karty, reserseSeznam);
+    const cas = function (x) { return Date.parse(String(x.pripraveno || '')) || 0; };
+    const podleCasu = function (a, b) { return (cas(b) - cas(a)) || a.nazev.localeCompare(b.nazev); };
+    return {
+      karty: karty.slice().sort(podleCasu),
+      reserse: reserseSeznam.map(indexReserse).sort(podleCasu),
+      moje: m.polozky,
+      pozadavky: m.pozadavky.filter(function (p) { return !hotove[p.id]; }),
+      chybne: (chybne || []).slice(0, MAX_CHYBNYCH_KNIHOVNY),
+      ted: ted
+    };
+  }
+
+  return { karta: karta, reserse: reserse, indexReserse: indexReserse, moje: moje, vyrizene: vyrizene, novyPozadavek: novyPozadavek,
+    zmenMoje: zmenMoje, vystup: vystup, ID: ID, ID_POZADAVKU: ID_POZADAVKU, STAVY: STAVY, DRUHY_POZADAVKU: DRUHY_POZADAVKU,
+    MAX_POZADAVKU: MAX_POZADAVKU };
+})();
+
+/** Složka KNIHOVNA (čtení ji nezakládá – null, dokud Claude nic nepřipravil). */
+function slozkaKnihovny_(zalozit) {
+  const koren = koren_();
+  if (zalozit) return podslozka_(koren, KNIHOVNA_SLOZKA);
+  const it = koren.getFoldersByName(KNIHOVNA_SLOZKA);
+  return it.hasNext() ? it.next() : null;
+}
+
+/** Soubory .json v podsložce (polozky, reserse) mimo koš. */
+function jsonKnihovny_(slozka, nazev) {
+  const vysledek = [];
+  if (!slozka) return vysledek;
+  const it = slozka.getFoldersByName(nazev);
+  if (!it.hasNext()) return vysledek;
+  const fit = it.next().getFiles();
+  while (fit.hasNext()) {
+    const f = fit.next();
+    if (/\.json$/i.test(f.getName()) && !f.isTrashed()) vysledek.push(f);
+  }
+  return vysledek;
+}
+
+/**
+ * Rozebrané soubory přes mezipaměť (klíč = druh, id souboru, čas úpravy → změněný soubor má nový klíč): fn(data, název) →
+ * objekt / null. Vrací { polozky, chybne } – neplatný JSON nebo karta bez povinných polí jde do chybne (název souboru),
+ * dvě karty se stejným id taky (platí ta, která přišla první).
+ */
+function rozeberKnihovnu_(soubory, druh, fn) {
+  const cache = CacheService.getScriptCache();
+  const klice = soubory.map(function (f) { return 'kn:' + druh + ':' + f.getId() + ':' + f.getLastUpdated().getTime(); });
+  let ulozene = {};
+  try { ulozene = klice.length ? cache.getAll(klice) || {} : {}; } catch (chyba) { ulozene = {}; }
+  const nove = {}, polozky = [], chybne = [], videno = {};
+  soubory.forEach(function (f, i) {
+    let v = ulozene[klice[i]];
+    if (v == null) {
+      let o = null;
+      try { o = fn(JSON.parse(f.getBlob().getDataAsString('UTF-8').replace(/^﻿/, '')), f.getName()); } catch (chyba) { o = null; }
+      v = o ? JSON.stringify(o) : '!';
+      if (v.length < 90000) nove[klice[i]] = v;
+    }
+    let x = null;
+    if (v !== '!') { try { x = JSON.parse(v); } catch (chyba) { x = null; } }
+    if (!x) { chybne.push(f.getName()); return; }
+    if (videno[x.id]) { chybne.push(f.getName() + ' (stejné id jako ' + videno[x.id] + ')'); return; }
+    videno[x.id] = f.getName();
+    polozky.push(x);
+  });
+  if (Object.keys(nove).length) { try { cache.putAll(nove, KNIHOVNA_PAMET); } catch (chyba) { /* jen zrychlení */ } }
+  return { polozky: polozky, chybne: chybne };
+}
+
+/** moje.json: { soubor, data, chyba } – chyba = soubor je, ale není platný JSON (zápis ho pak nepřepíše). */
+function mojeKnihovny_(slozka) {
+  const prazdne = KNIHOVNA_.moje(null);
+  if (!slozka) return { soubor: null, data: prazdne, chyba: false };
+  const it = slozka.getFilesByName('moje.json');
+  let soubor = null;
+  while (it.hasNext() && !soubor) { const f = it.next(); if (!f.isTrashed()) soubor = f; }
+  if (!soubor) return { soubor: null, data: prazdne, chyba: false };
+  try {
+    return { soubor: soubor, data: KNIHOVNA_.moje(JSON.parse(soubor.getBlob().getDataAsString('UTF-8').replace(/^﻿/, ''))), chyba: false };
+  } catch (chyba) {
+    return { soubor: soubor, data: prazdne, chyba: true };
+  }
+}
+
+/** Karty, rešerše a moje.json najednou (karty a rešerše přes mezipaměť). */
+function obsahKnihovny_(slozka) {
+  const karty = rozeberKnihovnu_(jsonKnihovny_(slozka, 'polozky'), 'p', KNIHOVNA_.karta);
+  const res = rozeberKnihovnu_(jsonKnihovny_(slozka, 'reserse'), 'r', KNIHOVNA_.reserse);
+  const m = mojeKnihovny_(slozka);
+  return { karty: karty.polozky, reserse: res.polozky, moje: m, chybne: karty.chybne.concat(res.chybne).concat(m.chyba ? ['moje.json'] : []) };
+}
+
+/** Akce knihovna: karty (celé), index rešerší, můj stav a nevyřízené požadavky. */
+function knihovna_() {
+  const o = obsahKnihovny_(slozkaKnihovny_(false));
+  return KNIHOVNA_.vystup(o.karty, o.reserse, o.moje.data, o.chybne, Date.now());
+}
+
+/** Akce knihovnaReserse: celá rešerše (nejdřív soubor <id>.json, jinak podle id uvnitř). */
+function knihovnaReserse_(id) {
+  const x = String(id || '');
+  if (!KNIHOVNA_.ID.test(x)) throw new Error('Neplatná rešerše.');
+  const soubory = jsonKnihovny_(slozkaKnihovny_(false), 'reserse');
+  const najdi = function (seznam) { return rozeberKnihovnu_(seznam, 'r', KNIHOVNA_.reserse).polozky.filter(function (r) { return r.id === x; })[0]; };
+  const r = najdi(soubory.filter(function (f) { return f.getName().toLowerCase() === x + '.json'; })) || najdi(soubory);
+  if (!r) throw new Error('Rešerše v knihovně není – obnov stránku.');
+  return r;
+}
+
+/**
+ * Zápis moje.json pod zámkem: vyřízené požadavky pryč, fn(moje, { karty, reserse, hotove }) ho upraví (chyba = nic se
+ * nezapíše). Vrací knihovnu jako akce knihovna (z toho, co se právě četlo – bez dalšího čtení Disku).
+ */
+function upravKnihovnu_(fn) {
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(30000);
+  try {
+    const slozka = slozkaKnihovny_(true);
+    const o = obsahKnihovny_(slozka);
+    if (o.moje.chyba) throw new Error('KNIHOVNA/moje.json není platný JSON – nic jsem nepřepsal (oprav ho na Disku, nebo ho smaž).');
+    const m = o.moje.data;
+    const hotove = KNIHOVNA_.vyrizene(o.karty, o.reserse);
+    m.pozadavky = m.pozadavky.filter(function (p) { return !hotove[p.id]; });
+    fn(m, { karty: o.karty, reserse: o.reserse, hotove: hotove });
+    const obsah = JSON.stringify({ polozky: m.polozky, pozadavky: m.pozadavky }, null, 1);
+    if (o.moje.soubor) o.moje.soubor.setContent(obsah); else slozka.createFile('moje.json', obsah, MimeType.PLAIN_TEXT);
+    return KNIHOVNA_.vystup(o.karty, o.reserse, m, o.chybne, Date.now());
+  } finally {
+    zamek.releaseLock();
+  }
+}
+
+const kdyKnihovny_ = function (t) { return Utilities.formatDate(t, CASOVE_PASMO, "yyyy-MM-dd'T'HH:mm:ssXXX"); };
+
+/** Akce knihovnaPridat { druh, text }: požadavek do moje.json + pokyn pro Clauda v NOVE. Stejný čekající požadavek se nezdvojí. */
+function knihovnaPridat_(d) {
+  const ted = new Date(Date.now());
+  // kontrola textu a druhu hned (bez zámku a Disku)
+  KNIHOVNA_.novyPozadavek(d.druh, d.text, '', 'p-00000000-0000-xx');
+  return upravKnihovnu_(function (m) {
+    let id;
+    do { id = 'p-' + Utilities.formatDate(ted, CASOVE_PASMO, 'yyyyMMdd-HHmm') + '-' + Utilities.getUuid().replace(/-/g, '').slice(0, 2).toLowerCase(); }
+    while (m.pozadavky.some(function (p) { return p.id === id; }));
+    const p = KNIHOVNA_.novyPozadavek(d.druh, d.text, kdyKnihovny_(ted), id);
+    // dvojklik, dvě zařízení: stejný text a druh už čeká → nic nového
+    if (m.pozadavky.some(function (x) { return x.druh === p.druh && x.text.toLowerCase() === p.text.toLowerCase(); })) return;
+    if (m.pozadavky.length >= KNIHOVNA_.MAX_POZADAVKU) {
+      throw new Error('Nevyřízených požadavků je ' + m.pozadavky.length + ' – počkej, až je Claude připraví.');
+    }
+    m.pozadavky.push(p);
+    pokynKnihovny_(p, ted);
+  });
+}
+
+/** Pokyn pro Clauda v NOVE (aplikace ho neukazuje – SKRYTE_POZNAMKY): připravit kartu nebo rešerši k požadavku p. */
+function pokynKnihovny_(p, ted) {
+  const co = { film: 'kartu filmu', serial: 'kartu seriálu', kniha: 'kartu knihy', reserse: 'rešerši' }[p.druh];
+  podslozka_(koren_(), 'NOVE').createFile(Utilities.formatDate(ted, CASOVE_PASMO, 'yyyy-MM-dd_HHmmss') + '_' + p.id + '_knih.md', ['---',
+    'kdy: ' + p.kdy, 'odkud: aplikace (knihovna)', 'typ: knihovna', 'pozadavek: ' + p.id, '---', '',
+    'Připrav do Knihovny ' + co + ': „' + p.text + '“ (skill osobni-knihovna).',
+    'Zapiš ' + (p.druh === 'reserse' ? 'KNIHOVNA\\reserse\\<id>.json' : 'KNIHOVNA\\polozky\\<id>.json') + ' s "pozadavek": "' + p.id + '" – podle toho ' +
+    'aplikace pozná, že je hotovo. moje.json nepiš (píše ho jen motor).', ''].join('\n'), MimeType.PLAIN_TEXT);
+}
+
+/** Akce knihovnaMoje { id, stav?, hodnoceni?, poznamka? }: můj stav u karty nebo rešerše, která v knihovně je. */
+function knihovnaMoje_(d) {
+  const id = String(d.id || '');
+  return upravKnihovnu_(function (m, k) {
+    const je = function (x) { return x.id === id; };
+    if (!k.karty.some(je) && !k.reserse.some(je)) throw new Error('Položka v knihovně není – obnov stránku.');
+    KNIHOVNA_.zmenMoje(m, id, { stav: d.stav, hodnoceni: d.hodnoceni, poznamka: d.poznamka }, kdyKnihovny_(new Date(Date.now())));
+  });
+}
+
+/** Akce knihovnaZrusit { id }: nevyřízený požadavek pryč (i s pokynem pro Clauda, pokud ho ještě nezpracoval). */
+function knihovnaZrusit_(id) {
+  const x = String(id || '');
+  if (!KNIHOVNA_.ID_POZADAVKU.test(x)) throw new Error('Neplatný požadavek.');
+  return upravKnihovnu_(function (m, k) {
+    const i = m.pozadavky.map(function (p) { return p.id; }).indexOf(x);
+    if (i < 0) throw new Error(k.hotove[x] ? 'Claude už to připravil – požadavek nejde zrušit.' : 'Požadavek už není – obnov stránku.');
+    m.pozadavky.splice(i, 1);
+    const it = podslozka_(koren_(), 'NOVE').getFiles();
+    while (it.hasNext()) {
+      const f = it.next();
+      if (f.getName().indexOf('_' + x + '_knih.md') >= 0 && !f.isTrashed()) f.setTrashed(true);
+    }
+  });
+}
+
+/** Kdy Claude naposledy upravil kartu nebo rešerši (čas úpravy souborů; výsledek 5 min v mezipaměti) – značka změn. */
+function zmenaKnihovny_() {
+  const cache = CacheService.getScriptCache();
+  const hotovo = cache.get('zmena:knihovna');
+  if (hotovo) return Number(hotovo);
+  let nejnovejsi = 0;
+  try {
+    const slozka = slozkaKnihovny_(false);
+    ['polozky', 'reserse'].forEach(function (n) {
+      jsonKnihovny_(slozka, n).forEach(function (f) { nejnovejsi = Math.max(nejnovejsi, f.getLastUpdated().getTime()); });
+    });
+  } catch (chyba) { /* jen zrychlení */ }
+  cache.put('zmena:knihovna', String(nejnovejsi), 300);
+  return nejnovejsi;
 }
 
 // ---------------------------------------------------------------- mezipaměť (CacheService, po kusech)

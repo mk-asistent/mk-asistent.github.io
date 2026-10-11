@@ -428,6 +428,80 @@ function najdiPolozku(id) {
   throw new Error('Položka nenalezena.');
 }
 
+// Knihovna (CLAUDE_SCHRANKA/KNIHOVNA přes motor): vymyšlené filmy, seriál a knižní série jen pro ukázku – žádné skutečné
+// hodnocení ani tituly; rešerše o modré obloze je obecně známá fyzika. Čekající požadavek ukazuje „Claude připravuje…“.
+const isoCas = (t) => new Date(t).toISOString();
+const knihovnaUkazka = {
+  karty: [
+    { id: 'film-expedice-polarka', druh: 'film', nazev: 'Expedice Polárka', original: 'Expedice Polárka', rok: 2021,
+      tvurci: [{ role: 'režie', jmena: ['Eva Ukázková'] }, { role: 'hrají', jmena: ['Jan Vymyšlený', 'Petra Testová', 'Ota Příkladný'] }],
+      zanry: ['dobrodružný', 'rodinný'], delka: '104 min', zeme: 'Česko', obrazek: null,
+      hodnoceni: [{ zdroj: 'ČSFD', hodnota: '78 %' }, { zdroj: 'IMDb', hodnota: '7,1/10' }],
+      kratce: 'Tři sourozenci se vydají za dědečkem na polární stanici a cestou zjistí, že mapa, kterou dostali, vede jinam. (vymyšlený film pro ukázku)',
+      obsah: 'Na začátku zimních prázdnin dostanou tři sourozenci starou mapu a dopis od dědečka, který léta pracuje na polární stanici. Vydají se za ním – vlakem, lodí a nakonec na saních.\n\nCesta je víc o tom, jak spolu vyjít, než o mrazu. Konec neprozradíme.',
+      proc: 'Pohodový film na neděli s rodinou – krásné záběry ledu, žádné násilí, děti od osmi let. Hodina a tři čtvrtě.',
+      zajimavosti: ['Scény na ledu se natáčely ve studiu s umělým sněhem.', 'Psí spřežení vedl skutečný musher.', 'Hudbu nahrál dětský sbor.'],
+      oceneni: ['Cena diváků na festivalu dětských filmů (ukázka)'],
+      kdeSledovat: { text: 'V ukázce nikde – u skutečných filmů tu Claude napíše streamovací službu, dabing nebo titulky.', overeno: iso(ted) },
+      souvisi: [{ id: 'reserse-proc-je-obloha-modra', proc: 'polární záře a barvy oblohy' }],
+      stitky: ['zima', 'rodina'], odkazy: [], zdroje: [], pripraveno: isoCas(ted - 30 * H) },
+    { id: 'serial-majak', druh: 'serial', nazev: 'Maják', rok: 2019, roky: '2019–2022',
+      tvurci: [{ role: 'tvůrce', jmena: ['Tomáš Smyšlený'] }, { role: 'hrají', jmena: ['Lucie Ukázková', 'Karel Vzorový'] }],
+      zanry: ['mysteriózní', 'drama'], delka: '3 řady · 18 dílů po 50 min', zeme: 'Česko', obrazek: null,
+      hodnoceni: [{ zdroj: 'ČSFD', hodnota: '84 %' }],
+      kratce: 'Nová správkyně majáku na ostrově zjistí, že se ve vsi něco tají. (vymyšlený seriál pro ukázku)',
+      obsah: 'Lucie přijme práci správkyně starého majáku na malém ostrově. Místní jsou milí, ale o jedné bouřlivé noci před dvaceti lety nikdo nechce mluvit.',
+      proc: 'Pomalé, atmosférické, každá řada uzavírá jeden příběh. Ideální na zimní večery.',
+      zajimavosti: ['Každá řada se odehrává v jiném ročním období.', 'Maják ve skutečnosti stojí ve studiu.'],
+      serie: { nazev: 'Maják', poradi: 'Řady sledovat popořadě – druhá navazuje na konec první.',
+        dily: [{ nazev: '1. řada', rok: 2019, delka: '300 min', pozn: '6 dílů' }, { nazev: '2. řada', rok: 2021, delka: '300 min', pozn: '6 dílů' },
+          { nazev: '3. řada', rok: 2022, delka: '300 min', pozn: '6 dílů' }] },
+      kdeSledovat: { text: 'Ukázka – u skutečného seriálu tu bude, kde ho teď v Česku sledovat.', overeno: iso(ted) },
+      stitky: ['ostrov'], pripraveno: isoCas(ted - 5 * 24 * H) },
+    { id: 'kniha-kroniky-udoli', druh: 'kniha', nazev: 'Kroniky Údolí', rok: 2015, roky: '2015–2020',
+      tvurci: [{ role: 'autor', jmena: ['Marta Vymyšlená'] }, { role: 'ilustrace', jmena: ['Petr Kreslený'] }],
+      zanry: ['fantasy', 'pro mládež'], stran: 320, obrazek: null,
+      hodnoceni: [{ zdroj: 'Databáze knih', hodnota: '86 %' }],
+      kratce: 'Chlapec z horské vesnice se stane učněm strážců Údolí. (vymyšlená série pro ukázku)',
+      obsah: 'Dvanáctiletý Matěj se nedostane do kovářského učení, o které stál – místo toho si ho vybere tichý strážce hranic Údolí. Učí se stopovat, střílet z luku a hlavně trpělivosti.',
+      proc: 'Čtivé, dobrodružné, kapitoly tak akorát na večer. Od 10 let, baví i dospělé.',
+      zajimavosti: ['Autorka psala první díl pro svého syna.', 'Mapa Údolí je na předsádce každého dílu.'],
+      serie: { nazev: 'Kroniky Údolí', poradi: 'Číst popořadě – díly na sebe přímo navazují.',
+        dily: [{ nazev: 'Učeň strážců', rok: 2015 }, { nazev: 'Most přes Bystrou', rok: 2016 }, { nazev: 'Zimní hlídka', rok: 2018 }, { nazev: 'Návrat do Údolí', rok: 2020 }] },
+      kdeSledovat: { text: 'Ukázka – u skutečné knihy tu bude, kde ji půjčit nebo koupit (i e-kniha a audiokniha).', overeno: iso(ted) },
+      stitky: ['fantasy'], pripraveno: isoCas(ted - 2 * 24 * H) }
+  ],
+  reserse: [{ id: 'reserse-proc-je-obloha-modra', nazev: 'Proč je obloha modrá', kratce: 'Molekuly vzduchu rozptylují modré světlo mnohem víc než červené – proto modrá přichází ze všech stran oblohy.',
+    stitky: ['fyzika', 'příroda'], pripraveno: isoCas(ted - 3 * H) }],
+  moje: { 'film-expedice-polarka': { stav: 'hotovo', hodnoceni: 4, poznamka: 'Pěkné na neděli s rodinou.' }, 'kniha-kroniky-udoli': { stav: 'rozpracovane' } },
+  pozadavky: [{ id: 'p-' + iso(ted).replace(/-/g, '') + '-0930-uk', druh: 'kniha', text: 'Ukázková kniha o vesmíru', kdy: isoCas(ted - 0.4 * H) }],
+  chybne: []
+};
+const reserseUkazka = {
+  'reserse-proc-je-obloha-modra': {
+    id: 'reserse-proc-je-obloha-modra', nazev: 'Proč je obloha modrá', otazka: 'Proč je obloha přes den modrá a při západu slunce do červena?',
+    kratce: 'Sluneční světlo je směs všech barev. Molekuly vzduchu rozptylují krátké vlnové délky (modrou) mnohem víc než dlouhé (červenou), takže modré světlo k nám přichází ze všech stran oblohy.\n\nPři západu slunce jde světlo k očím delší cestou atmosférou – modrá se cestou rozptýlí pryč a zbude oranžová a červená.',
+    sekce: [
+      { nadpis: 'Bílé světlo je směs barev', odstavce: ['Když světlo projde hranolem, rozloží se na duhu. Každá barva má jinou vlnovou délku – fialová a modrá krátkou, červená dlouhou.'] },
+      { nadpis: 'Rayleighův rozptyl', odstavce: ['Molekuly dusíku a kyslíku jsou mnohem menší než vlnová délka světla. Na takových částicích roste rozptyl se čtvrtou mocninou kratší vlnové délky.'],
+        body: ['modrá (kolem 450 nm) se rozptýlí zhruba 6× víc než červená (kolem 700 nm)', 'rozptýlené světlo přichází ze všech směrů – celá obloha svítí modře'] },
+      { nadpis: 'Proč ne fialová?', odstavce: ['Fialová se rozptyluje ještě víc, ale Slunce jí vyzařuje méně, část se pohltí vysoko v atmosféře a naše oči jsou na ni málo citlivé.'] },
+      { nadpis: 'Západy slunce a mraky', odstavce: ['Nízko nad obzorem jde světlo atmosférou mnohokrát delší cestou, takže modrá „dojde“ a zbude teplá barva. Mraky jsou bílé, protože kapky vody jsou velké a rozptylují všechny barvy stejně.'] }
+    ],
+    pojmy: [{ pojem: 'Vlnová délka', vysvetleni: 'Vzdálenost mezi dvěma vrcholy vlny; u viditelného světla zhruba 400–700 nanometrů.' },
+      { pojem: 'Rayleighův rozptyl', vysvetleni: 'Rozptyl světla na částicích mnohem menších, než je vlnová délka – silně závisí na barvě.' },
+      { pojem: 'Mieův rozptyl', vysvetleni: 'Rozptyl na větších částicích (kapky, prach) – skoro stejný pro všechny barvy, proto jsou mraky bílé.' }],
+    casovaOsa: [{ kdy: '1859', co: 'John Tyndall zkoumá rozptyl světla na drobných částicích.' }, { kdy: '1871', co: 'Lord Rayleigh vysvětlí, proč se modré světlo rozptyluje víc.' },
+      { kdy: '1910', co: 'Albert Einstein dopočítá rozptyl na kolísání hustoty vzduchu.' }],
+    cisla: [{ hodnota: '≈ 6×', co: 'víc se rozptýlí modrá než červená' }, { hodnota: '78 %', co: 'vzduchu tvoří dusík – hlavní rozptylovač' }, { hodnota: '400–700 nm', co: 'rozsah viditelného světla' }],
+    dalsiOtazky: ['Proč jsou mraky bílé a bouřkové šedé?', 'Jakou barvu má obloha na Marsu?'],
+    souvisi: [{ id: 'film-expedice-polarka', proc: 'barvy polární oblohy' }],
+    zdroje: [{ nazev: 'Wikipedie – Rayleighův rozptyl', url: 'https://cs.wikipedia.org/wiki/Rayleigh%C5%AFv_rozptyl' }, { nazev: 'NASA Space Place – Why Is the Sky Blue?', url: 'https://spaceplace.nasa.gov/blue-sky/' }],
+    stitky: ['fyzika', 'příroda'], pripraveno: isoCas(ted - 3 * H)
+  }
+};
+const knihovnaKopie = () => kopie(Object.assign({}, knihovnaUkazka, { ted: Date.now() }));
+
 let domovUkazka = ''; // domov pro počasí v ukázce (Nastavení → Počasí → Domov)
 
 const akce = {
@@ -767,6 +841,36 @@ const akce = {
   },
   zdravi: () => zdraviUkazka(),
   zmeny: () => ({ auto: 0, zdravi: 0 }),
+  // Knihovna: čtení, celá rešerše, požadavek (zůstane čekat – v ukázce ho nikdo nepřipraví), můj stav, zrušení
+  knihovna: () => knihovnaKopie(),
+  knihovnaReserse: (d) => { if (!reserseUkazka[d.id]) throw new Error('Rešerše v knihovně není – obnov stránku.'); return kopie(reserseUkazka[d.id]); },
+  knihovnaPridat: (d) => {
+    const text = String(d.text || '').replace(/\s+/g, ' ').trim();
+    if (['film', 'serial', 'kniha', 'reserse'].indexOf(d.druh) < 0) throw new Error('Neznámý druh – film, seriál, kniha nebo rešerše.');
+    if (text.length < 2 || text.length > 300) throw new Error(text.length < 2 ? 'Napiš název nebo téma.' : 'Text je moc dlouhý (nejvýš 300 znaků).');
+    if (!knihovnaUkazka.pozadavky.some((p) => p.druh === d.druh && p.text.toLowerCase() === text.toLowerCase())) {
+      const t = new Date();
+      knihovnaUkazka.pozadavky.push({ id: 'p-' + iso(t.getTime()).replace(/-/g, '') + '-' + String(t.getHours()).padStart(2, '0') + String(t.getMinutes()).padStart(2, '0') + '-' +
+        Math.random().toString(36).slice(2, 4).padEnd(2, '0'), druh: d.druh, text, kdy: t.toISOString() });
+    }
+    return knihovnaKopie();
+  },
+  knihovnaMoje: (d) => {
+    if (!knihovnaUkazka.karty.some((x) => x.id === d.id) && !knihovnaUkazka.reserse.some((x) => x.id === d.id)) throw new Error('Položka v knihovně není – obnov stránku.');
+    const x = Object.assign({}, knihovnaUkazka.moje[d.id]);
+    if (d.stav !== undefined) x.stav = d.stav || undefined;
+    if (d.hodnoceni !== undefined) x.hodnoceni = Number(d.hodnoceni) || undefined;
+    if (d.poznamka !== undefined) x.poznamka = String(d.poznamka || '').trim() || undefined;
+    Object.keys(x).forEach((k) => { if (x[k] === undefined) delete x[k]; });
+    if (Object.keys(x).length) knihovnaUkazka.moje[d.id] = x; else delete knihovnaUkazka.moje[d.id];
+    return knihovnaKopie();
+  },
+  knihovnaZrusit: (d) => {
+    const i = knihovnaUkazka.pozadavky.findIndex((p) => p.id === d.id);
+    if (i < 0) throw new Error('Požadavek už není – obnov stránku.');
+    knihovnaUkazka.pozadavky.splice(i, 1);
+    return knihovnaKopie();
+  },
   // jako motor: den nejvýš 14 dní zpátky a ne do budoucna, přesun zápisu (najde se podle id v kterémkoli dni), smazání i v jiném dni
   pitiJidlo: (d) => {
     if (d.jak !== 'smazat' && (d.den > iso(den(0)) || d.den < iso(den(-14)))) throw new Error(d.den > iso(den(0)) ? 'Do budoucna zapsat nejde.' : 'Zpětně jde zapsat nejvýš 14 dní.');

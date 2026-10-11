@@ -2,8 +2,9 @@
 
 Osobní přehled v jedné aplikaci: **schránka poznámek pro Clauda**, **pošta** (osobní a pracovní účet), **kalendář**
 (Google + kalendáře z iPhonu), **počasí ČHMÚ**, **zdraví** (WHOOP + Apple Watch), **zápasy klubu** z fotbal.cz
-a hotové **reely** s popisky pro Instagram, **plakát na víkend** (A3 k tisku, obrázek a Instagram) a **auto** (náklady
-a tankování z tabulky Google, účtenky z fotky).
+a hotové **reely** s popisky pro Instagram, **plakát na víkend** (A3 k tisku, obrázek a Instagram), **auto** (náklady
+a tankování z tabulky Google, účtenky z fotky) a **knihovna** (karty k filmům, seriálům a knihám a rešerše, které připraví
+Claude).
 Webová aplikace (PWA) – na iPhonu, iPadu i PC se přidá na plochu a otevírá se jako samostatná aplikace.
 
 ## Z čeho se skládá
@@ -26,7 +27,7 @@ jen u akcí (odeslat, archivovat…) a u zdraví a počasí. Vzhled: styl „Fix
 
 ## Navigace
 Na PC a iPadu postranní panel se všemi sekcemi. Na telefonu spodní lišta (Přehled, Schránka, +, Pošta, Kalendář) a **menu
-zleva** po klepnutí na jméno nahoře – všechny sekce včetně Zdraví, Fotbalu, Reelů a Plakátů, dole Nastavení.
+zleva** po klepnutí na jméno nahoře – všechny sekce včetně Zdraví, Fotbalu, Reelů, Plakátů, Auta a Knihovny, dole Nastavení.
 
 **Levý pás** (Michal 9. 10.: „víc pracovního místa“): na PC je celý s popisky jen na **Přehledu**, na ostatních stránkách jen
 ikony s počty v odznacích. Po **najetí myší** (nebo Tabem z klávesnice) se rozbalí **přes obsah** – stránka neposkočí;
@@ -468,6 +469,36 @@ Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**
 - Tabulka se propojí odkazem na stránce Auto (vlastnost `AUTO_TABULKA`). Motor k tomu potřebuje oprávnění k Tabulkám
   a službu Drive API – obojí je v `apps-script/appsscript.json`; po jeho vložení jednou spustit **`povolitTabulky`**.
 
+## Knihovna (filmy, seriály, knihy a rešerše)
+Michal 11. 10. 2026: „přehled informací k filmu či knize … jednoduché přehledné informace, co se dají získat na internetu“
+a „rešerše k různým věcem – chtěl bych se tak vzdělávat a mít svoji knihovnu“. Stránka **Knihovna** (levý pruh, na telefonu
+menu) se záložkami **Filmy** (filmy i seriály) · **Knihy** · **Rešerše**:
+- **Dlaždice** s plakátem / obálkou (poměr 2 : 3, načítá se líně; bez obrázku nebo když nejde načíst, zástupná plocha
+  s iniciálou), název, rok, krátce, první hodnocení a můj stav (Chci vidět / Rozkoukané / Viděno, u knih Chci číst / Čtu /
+  Přečteno). Filtr podle stavu, hledání v knihovně (bez diakritiky – název, původní název, tvůrci, štítky) a i v Hledat (Ctrl K).
+  Pravé tlačítko / podržení = stav, Kopírovat název, Otevřít ČSFD (u knih Databázi knih); u hodnocení vyjede karta se všemi
+  hodnoceními a mojí poznámkou.
+- **Detail karty** (panel vpravo, na telefonu celá obrazovka): hodnocení s odkazy, tvůrci, žánry, délka, krátce, o čem to je
+  (bez spoilerů), proč to stojí za to, série s díly a doporučeným pořadím (i celková délka), zajímavosti, skutečnost vs. film,
+  ocenění, kde sledovat („ověřeno …“), související (otevře se nad detailem; co v knihovně není, jde rovnou přidat), odkazy
+  a zdroje. Můj stav, hvězdy 1–5 a poznámka (uloží se sama chvíli po psaní).
+- **Čtečka rešerše:** otázka, krátce zvýrazněně, výrazná čísla, sekce, časová osa, pojmy (rozbalovací), další otázky
+  (klepnutí = rovnou nový požadavek na rešerši), zdroje; Přečteno. Celá rešerše se čte až při otevření, posledních 8 i bez sítě.
+- **Přidat** („+ Přidat do knihovny“ nahoře, na telefonu na stránce a v „+“ → Do knihovny): film / seriál / kniha / rešerše
+  a název nebo otázka. Karta se hned ukáže jako **„Claude připravuje…“** s časem zadání (u filmu, seriálu a knihy i s náhledem
+  z Wikipedie – shrnutí přes REST API Wikipedie, v CSP jen `cs.wikipedia.org` a `en.wikipedia.org`); Vrátit / Zrušit požadavek.
+  Claude ho zpracuje úlohou schránky (7–22 h po 30 min) a kartu / rešerši zapíše na Disk – pak je v aplikaci plná a 3 dny „nová“.
+  Když „už v knihovně je“ stejný název, okno to napíše (přidat jde i tak).
+
+Data jsou na Disku `CLAUDE_SCHRANKA/KNIHOVNA` – karty `polozky/*.json` a rešerše `reserse/*.json` píše **jen Claude**
+(formát a postup ve skillu `osobni-knihovna`), `moje.json` (můj stav, hodnocení, poznámky, požadavky) **jen motor** pod
+zámkem. Požadavek = záznam v `moje.json` + pokyn pro Clauda v `NOVE/…_<id>_knih.md` (aplikace ho neukazuje); vyřízený je,
+jakmile existuje karta s `"pozadavek": "<id>"`. Motor: akce `knihovna`, `knihovnaReserse`, `knihovnaPridat`, `knihovnaMoje`,
+`knihovnaZrusit` (rozebrané soubory si pamatuje podle času úpravy; neplatný JSON karty se jen vynechá a aplikace ho nahlásí).
+Kopii na serveru (Firebase) knihovna nemá – čte se z motoru, jen když je stránka otevřená, a v zařízení se drží pro okamžitý
+start; ostatní zařízení se o změně dozví ze značky `zmeny.knihovna`. Modul `js/knihovna.js` se stáhne a spustí až na stránce
+Knihovna (start aplikace na něj nečeká), čisté funkce `js/knihovna_data.js`, vzhled `knihovna.css`.
+
 ## Nasazení motoru
 
 **Automaticky z PC** (od 5. 10. 2026): `python NASTROJE\asistent\motor\nasad_motor.py` – testy motoru → kontrola projektu
@@ -541,6 +572,7 @@ Adresa: <https://mk-asistent.github.io> (organizace `mk-asistent`, vlastní adre
 | WHOOP | spouštěč motoru každých 10 min stáhne nová data nejvýš 1× za 30 min | čtení Zdraví na WHOOP nečeká (dřív 10 s) |
 | Počasí | – (jen motor, podle polohy zařízení) | při návratu nejvýš 1× za 30 min |
 | Auto (tabulka) | – | na stránce Auto: poprvé, po 6 h, podle značky změny nebo hned po signálu |
+| Knihovna | – (jen motor; značka `zmeny.knihovna` jde s ostatními značkami) | na stránce Knihovna: při otevření, při návratu do aplikace, podle značky změny; dokud něco čeká na Clauda, každých 5 min |
 
 **Start** (Michal 9. 10.: „dostat načtení na sekundu“): aplikace se ukáže hned z dat v zařízení a obnoví se potichu –
 kolečko u Obnovit jen po klepnutí. Knihovny Firebase stahuje index.html hned (`modulepreload`) a service worker je po prvním

@@ -46,6 +46,9 @@ const KOPIE_ZAPISU = {
   plakatNaplanovat: ['plakaty'], plakatZrusitPlan: ['plakaty'],
   // krok zveřejnění na Instagram: aplikace ho posílá každých ~15 s – kopie zneplatní až změna stavu (js/ig.js zmenaOblasti)
   igKrok: [],
+  // Knihovna: kopii na serveru nemá (čte se z motoru na své stránce) – zápis zneplatní jen značky změn, server je hned obnoví
+  // a ostatní zařízení si podle zmeny.knihovna knihovnu načtou znovu
+  knihovnaPridat: ['zmeny'], knihovnaMoje: ['zmeny'], knihovnaZrusit: ['zmeny'],
   vaha: [], doplnky: [], pitiJidlo: [], whoopPropojit: [], whoopOdpojit: [], zdraviKlic: [], upozorneniZapnout: [], upozorneniVypnout: [], upozorneniTest: []
 };
 const SIGNAL_ZAPISU = { vaha: 'zdravi', doplnky: 'zdravi', pitiJidlo: 'zdravi', whoopPropojit: 'zdravi', whoopOdpojit: 'zdravi' };
@@ -63,7 +66,8 @@ const Z_KOPIE = ['info', 'schranka', 'posta', 'fotbal', 'reely', 'zmeny', 'plaka
 export const CTENI = ['info', 'schranka', 'posta', 'kalendar', 'kalendare', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky',
   'postaDetaily', // pošta: přednačtení detailů posledních konverzací (nic neoznačí jako přečtené)
   'kontakty', 'hledat', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'zmeny', 'plakaty',
-  'igStav']; // čtení bez kopie nic nezneplatní (igStav = průběh zveřejňování na Instagram, js/ig.js)
+  'igStav', // čtení bez kopie nic nezneplatní (igStav = průběh zveřejňování na Instagram, js/ig.js)
+  'knihovna', 'knihovnaReserse']; // Knihovna (js/knihovna.js) – jen z motoru, kopii na serveru nemá
 
 const s = { fb: null, fbSlib: null, fnSlib: null, uzivatel: null, kopie: {}, server: null, pripraveno: null, odber: null, prvni: true,
   obnovuje: null, naposledyObnova: 0, casovac: 0, chyba: null, naKopie: [], naStav: [], naSignal: [],
