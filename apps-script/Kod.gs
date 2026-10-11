@@ -17,6 +17,7 @@
  *               každá konverzace má stav (hoří, čeká na tebe, otázka, čekáš na ně, řeší se, informace) i s důvodem;
  *               „Beru na vědomí“ (vlastnost POSTA_VEDOMI) = informace, dokud nepřijde nová zpráva; víc konverzací naráz
  *               (postaOznacit: přečteno, archiv, spam, koš, vrátit, beru na vědomí – jedním dotazem).
+ *               Hlídaní odesílatelé (CLAUDE_SCHRANKA/POSTA_HLIDANI.json) = vždy „hoří“, i z Aktualizací a z noreply.
  *               Dva účty: osobní (Gmail) a pracovní (vlastnost PRACOVNI_ADRESA). Pracovní pošta se do Gmailu
  *               dostane přeposíláním kopií od poskytovatele; odpovídá se z ní přes „Odesílat poštu jako“ v Gmailu.
  *               Náhradní zdroj bez přeposílání: CLAUDE_SCHRANKA/POSTA_FIREMNI.json (souhrny, zapisuje skript na PC).
@@ -39,7 +40,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-11.1';
+const VERZE = '2026-10-11.3';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -724,13 +725,22 @@ function nactiPostu_(znovu) {
     pracovni: filtrPrac == null ? null : [hledej(zaklad + filtrPrac), hledej(starsi + filtrPrac, MAX_STARSICH)],
     osobni: [hledej(zaklad + filtrOsob), hledej(starsi + filtrOsob, MAX_STARSICH)]
   };
+  // hlídaní odesílatelé (POSTA_HLIDANI.json; Obnovit ho čte znovu z Disku): Aktualizace v Doručené jsou, Promoakce, Sociální
+  // sítě a Fóra ne – ty se dohledají jedním dotazem navíc podle adres a domén ze vzorů (jen když nějaké jsou)
+  const hlidani = hlidaniPosty_(znovu);
+  const zHlidani = dotazHlidanych_(hlidani, Date.now());
+  let navic = null;
+  if (zHlidani) {
+    try { navic = hledej('in:inbox newer_than:' + DNI_POSTY + 'd ' + KATEGORIE_MIMO_DORUCENOU + ' ' + zHlidani, MAX_HLIDANYCH_NAVIC); } catch (chyba) { navic = null; }
+  }
   let navrhy = {};
   try { navrhy = nactiNavrhy_(); } catch (chyba) { navrhy = {}; }
   const idy = function (h) { return h.vlakna.map(function (v) { return v.getId(); }); };
-  // i „Beru na vědomí“ (mění stav konverzace bez změny v Gmailu)
+  // i „Beru na vědomí“ (mění stav konverzace bez změny v Gmailu) a platná hlídání (nový vzor, konec „do“)
   const otisk = md5_(JSON.stringify([prac, dotazy.pracovni ? dotazy.pracovni.map(idy) : null, dotazy.osobni.map(idy),
     GmailApp.search('in:inbox is:unread newer_than:' + DNI_STARSI_POSTY + 'd', 0, 200).map(function (v) { return v.getId(); }).sort(),
-    Object.keys(navrhy).sort().map(function (k) { return k + ':' + navrhy[k].zpravaId; }), vedomi_()]));
+    Object.keys(navrhy).sort().map(function (k) { return k + ':' + navrhy[k].zpravaId; }), vedomi_(),
+    hlidaniPlati_(hlidani, Date.now()), navic ? idy(navic) : null]));
   const doplnPostu = function (v) {
     v.firemni = nactiFiremni_(); // souhrny z PC (náhradní zdroj, když se pracovní pošta nepřeposílá)
     v.pocty = null;              // nepřečtené v Promoakcích, Sociálních sítích a Fórech (čísla u záložek)
@@ -755,6 +765,16 @@ function nactiPostu_(znovu) {
   const vPracovni = {};
   pracovni.forEach(function (v) { vPracovni[v.id] = true; });
   const osobni = ucet(dotazy.osobni, 'osobni').filter(function (v) { return !vPracovni[v.id]; });
+  // hlídané z Promoakcí, Sociálních sítí a Fór jen dokud hoří (po „Beru na vědomí“ zůstanou jen ve své záložce)
+  if (navic && navic.vlakna.length) {
+    const uz = {};
+    osobni.concat(pracovni).forEach(function (v) { uz[v.id] = true; });
+    try {
+      seznamVlaken_(null, ja, prac, null, null, navic.vlakna).forEach(function (v) {
+        if (!uz[v.id] && v.hlidano && v.stav === 'hori') (v.ucet === 'pracovni' && prac ? pracovni : osobni).push(v);
+      });
+    } catch (chyba) { /* Doručená i bez nich */ }
+  }
   // podklady pro návrhy odpovědí od Clauda (jen na Disk, do aplikace nejdou) + značka „návrh“ u konverzace
   const kOdpovedi = [];
   osobni.concat(pracovni).forEach(function (v) {
@@ -894,14 +914,18 @@ function seznamVlaken_(dotaz, ja, prac, ucet, max, predem, sPodklady) {
     }
     const odeMne = function (m) { return [ja, prac].indexOf(adresa_(m.getFrom())) >= 0; };
     const odeMe = odeMne(posledni);
-    const s = stavADuvod_(posledni, odeMe, vlakno, !!oznameni[vlakno.getId()], ted, seznam.some(odeMne), znami);
+    // zprávy, které nepsal Michal – hlídaní odesílatelé se hledají v kterékoli z nich (už načtené, Gmail se nevolá)
+    const cizi = seznam.filter(function (m) { return !odeMne(m); });
+    const s = stavADuvod_(posledni, odeMe, vlakno, !!oznameni[vlakno.getId()], ted, cizi.length < seznam.length, znami, cizi);
     // „Beru na vědomí“: informace, dokud je poslední zpráva stejná (nová zpráva = zase normální stav) – i pro ntfy a Clauda
     if (vedomi[vlakno.getId()] === posledni.getDate().getTime()) naVedomi_(s);
     const cekas = s.stav === 'cekas';
     // náhled = vlastní text zprávy: bez hlaviček přeposlání, citací a podpisu (Michal 9. 10.)
     const ukazka = nahledZpravy_(posledni.getPlainBody());
     // čeká na odpověď → podklad pro návrh od Clauda (nactiPostu_ ho odebere a zapíše do POSTA_K_ODPOVEDI.json)
-    const kOdpovedi = !!sPodklady && !odeMe && !!odesilatel && (s.stav === 'hori' || s.stav === 'ceka' || s.stav === 'otazka');
+    // (hlídaná zpráva z automatické adresy hoří, ale odpověď na noreply nemá smysl)
+    const kOdpovedi = !!sPodklady && !odeMe && !!odesilatel && (s.stav === 'hori' || s.stav === 'ceka' || s.stav === 'otazka') &&
+      !(s.hlidano && AUTOMAT.test(String(odesilatel.getFrom() || '')));
     const polozka = {
       id: vlakno.getId(),
       // u hledání účet předem neznáme – stačí adresy zpráv (přeposlaná pracovní pošta má pracovní adresu v Komu/Kopie)
@@ -930,6 +954,7 @@ function seznamVlaken_(dotaz, ja, prac, ucet, max, predem, sPodklady) {
     if (oznameni[vlakno.getId()]) polozka.aktualizace = true; // kategorie Aktualizace – v aplikaci vlastní záložka
     // upozornění Googlu na chyby Apps Scriptu: v seznamu zůstane, ale nikde se nehlásí (Dnes, počty, ntfy)
     if (s.tiche) polozka.tiche = true;
+    if (s.hlidano) polozka.hlidano = true; // hlídaný odesílatel (POSTA_HLIDANI.json)
     if (s.vedomi) Object.assign(polozka, { vedomi: true, puvodniStav: s.puvodniStav, puvodniDuvod: s.puvodniDuvod });
     if (kOdpovedi) polozka._odpoved = { zpravaId: odesilatel.getId(), text: vlastniText_(odesilatel) };
     return polozka;
@@ -1430,8 +1455,9 @@ function jeZnamy_(od, znami) {
 /**
  * Stav konverzace podle poslední zprávy i s důvodem pro aplikaci: { stav, duvod, termin } (termin z terminZTextu_
  * nebo null). znami = { adresa: true, '@domena': true } ze znamiLide_; bez něj se bere každý jako známý.
+ * cizi = zprávy vlákna, které nepsal Michal (hlídaní odesílatelé), bez nich jen poslední zpráva.
  */
-function stavADuvod_(posledni, odeMe, vlakno, jeOznameni, ted, jsemPsal, znami) {
+function stavADuvod_(posledni, odeMe, vlakno, jeOznameni, ted, jsemPsal, znami, cizi) {
   ted = ted || Date.now();
   const text = vlastniText_(posledni);
   const vse = String(posledni.getSubject() || '') + '\n' + text;
@@ -1448,6 +1474,9 @@ function stavADuvod_(posledni, odeMe, vlakno, jeOznameni, ted, jsemPsal, znami) 
   }
   // chyby Apps Scriptu od Googlu: informace, která se nikde nehlásí (ani hoří, ani čeká, ani ntfy)
   if (jeUpozorneniAppsScriptu_(posledni.getFrom(), posledni.getSubject())) return { stav: 'info', duvod: 'upozornění Google Apps Script', termin: null, tiche: true };
+  // hlídaný odesílatel (POSTA_HLIDANI.json): hoří vždy – i v Aktualizacích a z automatické adresy (Beru na vědomí platí dál)
+  const hlidane = hlidanaZprava_(hlidaniPosty_(), cizi && cizi.length ? cizi : [posledni], ted);
+  if (hlidane) return { stav: 'hori', duvod: 'hlídáš: ' + (hlidane.popis || hlidane.vzor), termin: termin, hlidano: true };
   if (jeOznameni) return vysledek('info', 'Gmail: Aktualizace');
   if (AUTOMAT.test(String(posledni.getFrom() || ''))) return vysledek('info', 'automatická adresa');
   if (AUTOODPOVED.test(String(posledni.getSubject() || ''))) return vysledek('info', 'automatická odpověď (mimo kancelář)');
@@ -1467,8 +1496,106 @@ function stavADuvod_(posledni, odeMe, vlakno, jeOznameni, ted, jsemPsal, znami) 
 }
 
 /** Jen stav (hori, ceka, otazka, cekas, resi, info) – viz stavADuvod_. */
-function stavPripadu_(posledni, odeMe, vlakno, jeOznameni, ted, jsemPsal, znami) {
-  return stavADuvod_(posledni, odeMe, vlakno, jeOznameni, ted, jsemPsal, znami).stav;
+function stavPripadu_(posledni, odeMe, vlakno, jeOznameni, ted, jsemPsal, znami, cizi) {
+  return stavADuvod_(posledni, odeMe, vlakno, jeOznameni, ted, jsemPsal, znami, cizi).stav;
+}
+
+// ---------------------------------------------------------------- Pošta – hlídaní odesílatelé
+// Michal 11. 10. (pozdě zaplacené pojištění auta): zprávy od vybraných odesílatelů mají být vždy vidět jako „hoří“ (a přijde
+// i upozornění do iPhonu), i když je Gmail dá do Aktualizací nebo přijdou z automatické adresy (noreply). Seznam je
+// v CLAUDE_SCHRANKA/POSTA_HLIDANI.json (jen na Michalově Disku, do repa nepatří):
+//   { "hlidat": [ { "vzor": "pojistovna\\.example|Pojišťovna", "popis": "pojištění auta", "do": "2026-12-31" } ] }
+// vzor = regulární výraz (bez ohledu na velikost písmen) proti odesílateli (jméno i adresa) a předmětu kterékoli zprávy
+// vlákna, kterou nepsal Michal; do = poslední den hlídání (včetně, i „31. 12. 2026“), bez něj napořád. Neplatný vzor se
+// přeskočí, chybějící soubor = nic se nehlídá. „Beru na vědomí“ platí jako u ostatních „hoří“ (do nové zprávy ve vlákně).
+// Doručená nese Primární i Aktualizace; z Promoakcí, Sociálních sítí a Fór se hlídané dohledají jedním dotazem navíc podle
+// adres a domén, které ve vzoru stojí samy („pojistovna.example“, „info@pojistovna.example“) – vzor jen se jménem nebo
+// předmětem hlídá Primární a Aktualizace.
+
+const HLIDANI_SEKUND = 600;        // seznam v mezipaměti 10 minut (Obnovit v aplikaci ho čte hned z Disku)
+const MAX_HLIDANI = 50;
+const MAX_HLIDANYCH_NAVIC = 10;    // konverzací z Promoakcí, Sociálních sítí a Fór v jednom dotazu
+const KATEGORIE_MIMO_DORUCENOU = '{category:promotions category:social category:forums}'; // Gmail: { } = kterákoli
+let HLIDANI_ = null;               // [{ vzor, popis, do }] – jednou za běh skriptu
+
+/** Hlídaní odesílatelé (POSTA_HLIDANI.json, očištěné hlidaniCiste_) – z mezipaměti, znovu = rovnou z Disku. */
+function hlidaniPosty_(znovu) {
+  if (HLIDANI_ !== null && !znovu) return HLIDANI_;
+  let seznam = null;
+  if (!znovu) {
+    try { seznam = nactiZCache_('posta-hlidani'); } catch (chyba) { seznam = null; }
+  }
+  if (!Array.isArray(seznam)) {
+    try {
+      seznam = hlidaniCiste_(nactiJson_(koren_(), 'POSTA_HLIDANI.json').data);
+      ulozDoCache_('posta-hlidani', seznam, HLIDANI_SEKUND);
+    } catch (chyba) {
+      seznam = []; // Disk teď nejde – pošta se ukáže bez hlídání, příští běh to zkusí znovu
+    }
+  }
+  HLIDANI_ = seznam;
+  return seznam;
+}
+
+/** Obsah POSTA_HLIDANI.json → [{ vzor, popis, do: 'RRRR-MM-DD' | '' }]; bez platného regulárního výrazu se položka přeskočí. */
+function hlidaniCiste_(data) {
+  const pole = data && Array.isArray(data.hlidat) ? data.hlidat : [];
+  const vysledek = [];
+  pole.slice(0, MAX_HLIDANI).forEach(function (x) {
+    if (!x || typeof x !== 'object') return;
+    const vzor = String(x.vzor == null ? '' : x.vzor).trim();
+    if (!vzor || vzor.length > 300) return;
+    try { new RegExp(vzor, 'i'); } catch (chyba) { return; }
+    // „do“ jako RRRR-MM-DD nebo D. M. RRRR; nečitelné datum = hlídat dál (raději zpráva navíc než zmeškaná platba)
+    const d = String(x.do == null ? '' : x.do).trim();
+    const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(d);
+    const cz = /^(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})$/.exec(d);
+    const ymd = iso ? [iso[1], iso[2], iso[3]] : cz ? [cz[3], cz[2], cz[1]] : null;
+    vysledek.push({
+      vzor: vzor,
+      popis: String(x.popis == null ? '' : x.popis).replace(/\s+/g, ' ').trim().slice(0, 80),
+      do: ymd ? ymd[0] + '-' + ('0' + ymd[1]).slice(-2) + '-' + ('0' + ymd[2]).slice(-2) : ''
+    });
+  });
+  return vysledek;
+}
+
+/** Hlídání platná v den `ted` (v Praze): bez „do“, nebo „do“ je dnes či později. */
+function hlidaniPlati_(seznam, ted) {
+  seznam = seznam || [];
+  if (!seznam.some(function (h) { return h.do; })) return seznam;
+  const dnes = Utilities.formatDate(new Date(ted || Date.now()), CASOVE_PASMO, 'yyyy-MM-dd');
+  return seznam.filter(function (h) { return !h.do || h.do >= dnes; });
+}
+
+/** První platné hlídání, kterému odpovídá odesílatel (jméno i adresa) nebo předmět některé ze zpráv; jinak null. */
+function hlidanaZprava_(seznam, zpravy, ted) {
+  if (!seznam || !seznam.length) return null; // nic se nehlídá – bez dalších volání (i v testu WEDOS bez služeb Googlu)
+  const platne = hlidaniPlati_(seznam, ted);
+  if (!platne.length) return null;
+  const texty = [];
+  zpravy.forEach(function (m) { texty.push(String(m.getFrom() || ''), String(m.getSubject() || '')); });
+  for (let i = 0; i < platne.length; i++) {
+    let re;
+    try { re = new RegExp(platne[i].vzor, 'i'); } catch (chyba) { continue; }
+    if (texty.some(function (t) { return re.test(t); })) return platne[i];
+  }
+  return null;
+}
+
+/**
+ * Gmail dotaz na hlídané mimo Doručenou: adresy a domény, které ve vzorech platných hlídání stojí samy jako jedna z možností
+ * („pojistovna\.example|Pojišťovna“ → „from:(pojistovna.example)“); žádné → ''.
+ */
+function dotazHlidanych_(seznam, ted) {
+  const adresy = [];
+  hlidaniPlati_(seznam, ted).forEach(function (h) {
+    h.vzor.split('|').forEach(function (kus) {
+      const a = kus.trim().replace(/\\\./g, '.').toLowerCase().replace(/^@/, ''); // „@domena.cz“ → „domena.cz“
+      if (/^(?:[a-z0-9._%+-]+@)?[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(a) && adresy.indexOf(a) < 0) adresy.push(a);
+    });
+  });
+  return adresy.length ? 'from:(' + adresy.slice(0, 20).join(' OR ') + ')' : '';
 }
 
 /**
@@ -7038,8 +7165,20 @@ function horiVPoste_() {
   const p = vlastnosti_();
   const ja = mojeAdresa_().toLowerCase();
   const prac = pracovniAdresa_();
-  const nove = seznamVlaken_('in:inbox is:unread newer_than:2h -category:promotions -category:social -category:forums', ja, prac, null, 20)
+  let nove = seznamVlaken_('in:inbox is:unread newer_than:2h -category:promotions -category:social -category:forums', ja, prac, null, 20)
     .filter(function (v) { return v.stav === 'hori'; });
+  // hlídaní odesílatelé i z Promoakcí, Sociálních sítí a Fór (jen s adresou nebo doménou ve vzoru – viz dotazHlidanych_)
+  const zHlidani = dotazHlidanych_(hlidaniPosty_(), Date.now());
+  if (zHlidani) {
+    try {
+      const vlakna = GmailApp.search('in:inbox is:unread newer_than:2h ' + KATEGORIE_MIMO_DORUCENOU + ' ' + zHlidani, 0, MAX_HLIDANYCH_NAVIC);
+      const uz = {};
+      nove.forEach(function (v) { uz[v.id] = true; });
+      if (vlakna.length) {
+        nove = nove.concat(seznamVlaken_(null, ja, prac, null, null, vlakna).filter(function (v) { return v.stav === 'hori' && !uz[v.id]; }));
+      }
+    } catch (chyba) { /* upozornění aspoň z Doručené */ }
+  }
   if (!nove.length) return;
   let ohlasene = [];
   try { ohlasene = JSON.parse(p.getProperty('OHLASENA_POSTA') || '[]'); } catch (chyba) { ohlasene = []; }

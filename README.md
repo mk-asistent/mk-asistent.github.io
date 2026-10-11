@@ -618,7 +618,7 @@ zprávou v Doručené (Hotovo = archiv ji schová, i když tvoje odpověď zůst
   předmět, ukázka), schránka, kalendář na 2 měsíce, nastavení, fotbal a reely (`uzivatele/{uid}/data`). Čte je jen
   přihlášený vlastník a server; registrace je vypnutá. **Zdraví a počasí na server nejdou.**
 - Data, která zůstávají jen na Michalově Disku: zdraví a režim doplňků, plné FOTBAL.json, podklady a návrhy odpovědí na
-  poštu, videa reelů (nezletilí hráči – videa se nesdílí, odkaz otevře jen Michalův účet).
+  poštu, hlídaní odesílatelé pošty (`POSTA_HLIDANI.json` – vždy „hoří“), videa reelů (nezletilí hráči – videa se nesdílí, odkaz otevře jen Michalův účet).
 
 ## Testy
 ```
