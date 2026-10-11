@@ -2166,6 +2166,190 @@ test('pošta: Beru na vědomí – vlastnost do 9 kB: starší než 100 dní pry
   assert.ok(m['1a2b3c4d5e6f0000'] && !m['1a2b3c4d5e6f0299'], 'zůstanou nejnovější');
 });
 
+// ---- pošta 11. 10.: hlídaní odesílatelé (POSTA_HLIDANI.json) – v testech jen vymyšlené firmy a adresy
+
+/** Zapíše (nebo přepíše) POSTA_HLIDANI.json ve schránce; text = rovnou obsah souboru. */
+function zapisHlidani(p, hlidat) {
+  const obsah = typeof hlidat === 'string' ? hlidat : JSON.stringify({ hlidat });
+  const f = p.schranka.soubory.find((x) => x.getName() === 'POSTA_HLIDANI.json' && !x.vKosi);
+  if (f) f.setContent(obsah); else p.schranka.createFile('POSTA_HLIDANI.json', obsah);
+}
+
+/**
+ * Doručená s upomínkou z noreply adresy (h1) a jiným oznámením (h2) – obě v Aktualizacích; hledání Gmailu bere vlákna
+ * z p.vlakna (vlákno jde vyměnit). promo = hlídaní mimo Doručenou (dotaz „from:(…)“), dotazy = všechna hledání.
+ */
+function postaSHlidanim(p, T) {
+  p.vlakna.h1 = p.vlakno('h1', [p.zprava({ id: 'hm1', od: 'Pojišťovna Vzor <noreply@pojistovna.example>', predmet: 'Upomínka: pojistné po splatnosti',
+    text: 'Evidujeme neuhrazené pojistné.', kdy: T - 20 * 60e3, neprectena: true })], true);
+  p.vlakna.h2 = p.vlakno('h2', [p.zprava({ id: 'hm2', od: 'Obchod <noreply@obchod.example>', predmet: 'Vaše objednávka', text: 'Zásilka je na cestě.',
+    kdy: T - 30 * 60e3, neprectena: true })], true);
+  const puvodni = p.ctx.GmailApp.search;
+  const dotazy = [];
+  const promo = [];
+  p.ctx.GmailApp.search = (q, od, max) => {
+    dotazy.push(q);
+    const doruc = [p.vlakna.h1, p.vlakna.h2];
+    if (/category:updates/.test(q)) return doruc; // oznámení = kategorie Aktualizace
+    if (/from:\(/.test(q)) return promo.filter((v) => !/is:unread/.test(q) || v._neprectene);
+    if (/^in:inbox (?:is:unread )?newer_than:(?:30d|2h) -category:promotions/.test(q)) return doruc.concat(p.vlakna.v1);
+    return puvodni(q, od, max);
+  };
+  return { dotazy, promo };
+}
+
+test('pošta: hlídaný odesílatel – noreply v Aktualizacích hoří („hlídáš: …“), přijde ntfy, Claude návrh nechystá; jiné oznámení dál informace', () => {
+  const p = prostredi();
+  p.chmu.cap = 'cap_rijen.xml';
+  const T = Date.parse('2026-10-02T07:30:00+02:00');
+  p.nastavCas(T);
+  postaSHlidanim(p, T);
+  // bez souboru se nic nehlídá: upomínka z noreply v Aktualizacích je jen informace
+  let o = p.volej('posta', { znovu: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  let h1 = o.data.osobni.find((x) => x.id === 'h1');
+  assert.deepStrictEqual([h1.stav, h1.duvod, h1.aktualizace, h1.hlidano], ['info', 'Gmail: Aktualizace', true, undefined]);
+  zapisHlidani(p, [{ vzor: 'pojistovna\\.example|Pojišťovna Vzor', popis: 'pojištění auta', do: '2026-12-31' }]);
+  p.vlastnosti.set('NTFY_TEMA', 'asistent-test');
+  o = p.volej('posta', { znovu: true });
+  h1 = o.data.osobni.find((x) => x.id === 'h1');
+  const h2 = o.data.osobni.find((x) => x.id === 'h2');
+  assert.deepStrictEqual([h1.stav, h1.duvod, h1.hlidano, h1.aktualizace], ['hori', 'hlídáš: pojištění auta', true, true]);
+  assert.deepStrictEqual([h2.stav, h2.duvod, !!h2.hlidano], ['info', 'Gmail: Aktualizace', false]);
+  // na noreply se neodpovídá – do podkladů pro návrhy odpovědí od Clauda nejde
+  const podklady = JSON.parse(p.schranka.soubory.find((f) => f.getName() === 'POSTA_K_ODPOVEDI.json' && !f.vKosi).getBlob().getDataAsString()).vlakna.map((x) => x.id);
+  assert.ok(!podklady.includes('h1'), JSON.stringify(podklady));
+  // upozornění do iPhonu „Hoří v poště“ – bez jmen a předmětů
+  p.ctx.kazdouHodinu();
+  const hori = (p.log.ntfy || []).find((z) => /Hoří/.test(z.title));
+  assert.ok(hori && /1 nová konverzace/.test(hori.message) && !/Pojišťovna|pojistovna|Upomínka/.test(hori.title + hori.message), JSON.stringify(p.log.ntfy));
+  // hlídá se i odesílatel starší zprávy ve vlákně (poslední psal někdo jiný)
+  const starsi = p.zprava({ id: 'x1', od: 'Pojišťovna Vzor <noreply@pojistovna.example>', predmet: 'Smlouva', text: 'Posíláme smlouvu.', kdy: T - 864e5 });
+  const posledni = p.zprava({ id: 'x2', od: 'Makléř <makler@jinde.example>', predmet: 'Re: Smlouva', text: 'Přeposílám pro info.', kdy: T - 36e5 });
+  assert.strictEqual(p.ctx.stavADuvod_(posledni, false, null, false, T, false, null, [starsi, posledni]).duvod, 'hlídáš: pojištění auta');
+  assert.ok(!p.ctx.stavADuvod_(posledni, false, null, false, T, false, null, [posledni]).hlidano, 'bez ní se nehlídá');
+  // upozornění Apps Scriptu zůstanou tiché, i když na ně vzor sedí
+  zapisHlidani(p, [{ vzor: 'google', popis: 'Google' }]);
+  p.ctx.hlidaniPosty_(true);
+  const chyba = p.zprava({ id: 'x3', od: 'Apps Script <apps-scripts-notifications@google.com>', predmet: 'Summary of failures for Google Apps Script: Asistent', text: 'Chyba.', kdy: T });
+  const s = p.ctx.stavADuvod_(chyba, false, null, false, T, false, null, [chyba]);
+  assert.deepStrictEqual([s.stav, s.tiche, !!s.hlidano], ['info', true, false]);
+});
+
+test('pošta: hlídání platí do dne „do“ včetně (i „D. M. RRRR“, den v Praze), pak ne; soubor jednou za běh, pak z mezipaměti', () => {
+  const p = prostredi();
+  const T = Date.parse('2026-10-02T07:30:00+02:00');
+  p.nastavCas(T);
+  postaSHlidanim(p, T);
+  const stav = () => { const v = p.volej('posta', { znovu: true }).data.osobni.find((x) => x.id === 'h1'); return v.stav + ' / ' + v.duvod; };
+  zapisHlidani(p, [{ vzor: 'pojistovna\\.example', popis: 'pojištění auta', do: '2026-10-01' }]);
+  assert.strictEqual(stav(), 'info / Gmail: Aktualizace', 'den po „do“ už ne');
+  zapisHlidani(p, [{ vzor: 'pojistovna\\.example', popis: 'pojištění auta', do: '2026-10-02' }]);
+  assert.strictEqual(stav(), 'hori / hlídáš: pojištění auta', 'poslední den ještě ano');
+  zapisHlidani(p, [{ vzor: 'pojistovna\\.example', popis: 'pojištění auta', do: '2. 10. 2026' }]);
+  assert.strictEqual(stav(), 'hori / hlídáš: pojištění auta', 'české datum');
+  p.nastavCas(Date.parse('2026-10-03T00:30:00+02:00')); // v Praze už 3. 10. (v UTC ještě 2. 10.)
+  assert.strictEqual(stav(), 'info / Gmail: Aktualizace');
+  // bez „do“ napořád; bez popisu důvod ze vzoru
+  zapisHlidani(p, [{ vzor: 'pojistovna\\.example' }]);
+  assert.strictEqual(stav(), 'hori / hlídáš: pojistovna\\.example');
+  // jedno čtení souboru na celé načtení pošty; další běh skriptu (bez Obnovit) z mezipaměti – Disk se nečte
+  let cteni = 0;
+  const hledej = p.schranka.getFilesByName;
+  p.schranka.getFilesByName = (n) => { if (n === 'POSTA_HLIDANI.json') cteni++; return hledej(n); };
+  p.volej('posta', { znovu: true });
+  assert.strictEqual(cteni, 1, 'na celé načtení pošty jedno čtení');
+  vm.runInContext('HLIDANI_ = null', p.ctx); // nový běh skriptu
+  assert.strictEqual(p.ctx.hlidaniPosty_().length, 1);
+  assert.strictEqual(cteni, 1, 'z mezipaměti');
+  assert.strictEqual(p.ttl.get('posta-hlidani'), 600);
+});
+
+test('pošta: neplatný vzor, rozbitý nebo chybějící soubor hlídání nic nerozbije', () => {
+  const p = prostredi();
+  const T = Date.parse('2026-10-02T07:30:00+02:00');
+  p.nastavCas(T);
+  postaSHlidanim(p, T);
+  zapisHlidani(p, [{ vzor: '(nezavrena|[' }, { vzor: '' }, null, 'text', { vzor: 'a'.repeat(301) }, { vzor: 'pojistovna\\.example', popis: 'pojištění' }]);
+  let o = p.volej('posta', { znovu: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(o.data.osobni.find((x) => x.id === 'h1').duvod, 'hlídáš: pojištění');
+  assert.deepStrictEqual(json(p.ctx.hlidaniCiste_({ hlidat: [{ vzor: '*' }, { vzor: 'x', do: 'zítra' }] })), [{ vzor: 'x', popis: '', do: '' }], 'nečitelné „do“ = napořád');
+  for (const obsah of [JSON.stringify({ hlidat: [{ vzor: '*' }] }), '{nejson', JSON.stringify({ hlidat: 'pojistovna' }), '[]']) {
+    zapisHlidani(p, obsah);
+    o = p.volej('posta', { znovu: true });
+    assert.strictEqual(o.ok, true, obsah + ': ' + o.chyba);
+    assert.strictEqual(o.data.osobni.find((x) => x.id === 'h1').stav, 'info', obsah);
+  }
+  // Disk teď nejde → pošta bez hlídání
+  zapisHlidani(p, [{ vzor: 'pojistovna\\.example' }]);
+  const slozka = p.ctx.DriveApp.getFolderById;
+  p.ctx.DriveApp.getFolderById = () => { throw new Error('Disk nedostupný'); };
+  p.ctx.DriveApp.getRootFolder = () => { throw new Error('Disk nedostupný'); };
+  o = p.volej('posta', { znovu: true });
+  p.ctx.DriveApp.getFolderById = slozka;
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(o.data.osobni.find((x) => x.id === 'h1').stav, 'info');
+});
+
+test('pošta: hlídaná zpráva po Beru na vědomí přestane hořet (ani ntfy), nová zpráva ve vlákně zase hoří', () => {
+  const p = prostredi();
+  p.chmu.cap = 'cap_rijen.xml';
+  const T = Date.parse('2026-10-02T07:30:00+02:00');
+  p.nastavCas(T);
+  postaSHlidanim(p, T);
+  zapisHlidani(p, [{ vzor: 'pojistovna\\.example', popis: 'pojištění auta' }]);
+  let v = p.volej('posta', { znovu: true }).data.osobni.find((x) => x.id === 'h1');
+  assert.strictEqual(v.stav, 'hori', v.duvod);
+  const o = p.volej('postaOznacit', { ids: [{ id: 'h1', kdy: v.kdy, neprectena: true }], jak: 'vedomi' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  v = p.volej('posta').data.osobni.find((x) => x.id === 'h1');
+  assert.deepStrictEqual([v.stav, v.duvod, v.vedomi, v.puvodniStav, v.puvodniDuvod], ['info', 'bereš na vědomí', true, 'hori', 'hlídáš: pojištění auta']);
+  p.vlastnosti.set('NTFY_TEMA', 'asistent-test');
+  p.ctx.kazdouHodinu();
+  assert.ok(!(p.log.ntfy || []).some((z) => /Hoří/.test(z.title)), JSON.stringify(p.log.ntfy));
+  // druhá upomínka ve stejném vlákně → zase hoří
+  const prvni = p.vlakna.h1.getMessages()[0];
+  p.vlakna.h1 = p.vlakno('h1', [prvni, p.zprava({ id: 'hm1b', od: 'Pojišťovna Vzor <noreply@pojistovna.example>', predmet: 'Re: Upomínka: pojistné po splatnosti',
+    text: 'Druhá upomínka.', kdy: T - 60e3, neprectena: true })], true);
+  v = p.volej('posta', { znovu: true }).data.osobni.find((x) => x.id === 'h1');
+  assert.deepStrictEqual([v.stav, v.duvod, !!v.vedomi], ['hori', 'hlídáš: pojištění auta', false]);
+});
+
+test('pošta: hlídaný v Promoakcích se dohledá jedním dotazem navíc (from: z adres ve vzoru) a hlásí se; po Beru na vědomí jen v záložce', () => {
+  const p = prostredi();
+  p.chmu.cap = 'cap_rijen.xml';
+  const T = Date.parse('2026-10-02T07:30:00+02:00');
+  p.nastavCas(T);
+  const { dotazy, promo } = postaSHlidanim(p, T);
+  promo.push(p.vlakno('pr1', [p.zprava({ id: 'prm1', od: 'Pojišťovna Vzor <info@pojistovna.example>', predmet: 'Výročí smlouvy',
+    text: 'Blíží se výročí vaší smlouvy.', kdy: T - 40 * 60e3, neprectena: true })], true));
+  p.nastavKategorie({ promotions: promo });
+  // vzor jen se jménem: žádný dotaz navíc, Promoakce se neprohledávají
+  zapisHlidani(p, [{ vzor: 'Pojišťovna Vzor', popis: 'pojištění auta' }]);
+  let o = p.volej('posta', { znovu: true });
+  assert.ok(!dotazy.some((q) => /from:\(/.test(q)), dotazy.join('\n'));
+  assert.ok(!o.data.osobni.some((x) => x.id === 'pr1'));
+  // adresa a doména ve vzoru → jeden dotaz navíc (prošlé hlídání se nehledá)
+  zapisHlidani(p, [{ vzor: 'Pojišťovna Vzor|pojistovna\\.example|@druha-pojistovna\\.example', popis: 'pojištění auta' }, { vzor: 'jina\\.example', do: '2026-01-31' }]);
+  o = p.volej('posta', { znovu: true });
+  assert.deepStrictEqual(dotazy.filter((q) => /from:\(/.test(q)),
+    ['in:inbox newer_than:30d {category:promotions category:social category:forums} from:(pojistovna.example OR druha-pojistovna.example)']);
+  const pr = o.data.osobni.find((x) => x.id === 'pr1');
+  assert.deepStrictEqual(pr && [pr.stav, pr.duvod, pr.hlidano], ['hori', 'hlídáš: pojištění auta', true]);
+  // upozornění: upomínka z Aktualizací i zpráva z Promoakcí
+  p.vlastnosti.set('NTFY_TEMA', 'asistent-test');
+  p.ctx.kazdouHodinu();
+  const hori = (p.log.ntfy || []).find((z) => /Hoří/.test(z.title));
+  assert.ok(hori && /2 nové konverzace/.test(hori.message), JSON.stringify(p.log.ntfy));
+  // Beru na vědomí: z Doručené pryč, v záložce Promoakce zůstane jako informace
+  assert.strictEqual(p.volej('postaOznacit', { ids: [{ id: 'pr1', kdy: T - 40 * 60e3, neprectena: false }], jak: 'vedomi' }).ok, true);
+  o = p.volej('posta');
+  assert.ok(!o.data.osobni.some((x) => x.id === 'pr1'));
+  const vZalozce = p.volej('postaKategorie', { kategorie: 'promo', znovu: true }).data.vlakna.find((x) => x.id === 'pr1');
+  assert.deepStrictEqual([vZalozce.stav, vZalozce.duvod, vZalozce.puvodniStav], ['info', 'bereš na vědomí', 'hori']);
+});
+
 test('pošta: víc konverzací naráz jedním dotazem – přečteno, nepřečteno, Hotovo, spam, koš a vrátit; odložení se zruší; chyby', () => {
   const p = prostredi();
   let o = p.volej('postaOznacit', { ids: ['v1', 'v2', 'neni', '../x', 'v1'], jak: 'prectene' });
