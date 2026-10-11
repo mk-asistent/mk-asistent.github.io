@@ -5,11 +5,12 @@
 // nebo zveřejnit hned (Zveřejnit teď). Průběh s časy, zaseknutí a Zkusit znovu ukazuje js/ig.js (kroky pod reelem, karta
 // na Přehledu); když něco běží nebo má brzy vyjít, čte se stav přímo z motoru.
 
-import { stav, zmeneno, umiMotor, hooky } from './stav.js';
+import { stav, zmeneno, umiMotor, hooky, prejdi } from './stav.js';
 import { volej } from './api.js';
-import { esc, uloziste, dm, DNY_KR, rozdilDni, zacatekTydne, pridejDny, terminDatum, isoDatum, tvar, kdyKratce } from './pomocne.js';
+import { esc, uloziste, dm, DNY_KR, rozdilDni, zacatekTydne, pridejDny, terminDatum, isoDatum, tvar, kdyKratce, otevriOdkaz } from './pomocne.js';
 import { IKONY } from './ikony.js';
-import { toast, toastAkce, kostra, chybaHtml, segment, potvrd } from './ui.js';
+import { toast, toastAkce, kostra, chybaHtml, segment, potvrd, doSchranky } from './ui.js';
+import { pripoj as pripojNabidku } from './nabidka.js';
 import { otevriPanel, zavriPanel, obnovPanel, elementPanelu } from './panely.js';
 import * as ig from './ig.js';
 
@@ -109,7 +110,7 @@ function reelHtml(r) {
   return '<li class="reel' + (z ? ' reel--venku' : '') + '" data-reel="' + esc(r.id) + '">' + nahledHtml(r) +
     '<div class="reel__telo">' +
       '<div class="reel__hlava"><div class="reel__stitky">' + r.tymy.map((k) => '<span class="tag tag--seda">' + esc(nazevTymu(k)) + '</span>').join('') +
-        (z ? '<span class="tag tag--ok">' + IKONY.fajfka + 'na Instagramu od ' + esc(dm(terminDatum(stav.reely.zverejneno[r.id]))) + '</span>'
+        (z ? '<span class="tag tag--ok"' + (plan(r) ? ig.stavKartaAtr('reel', r.id) : '') + '>' + IKONY.fajfka + 'na Instagramu od ' + esc(dm(terminDatum(stav.reely.zverejneno[r.id]))) + '</span>'
           : stitekPlanu(r)) + '</div>' +
       '<b class="reel__nazev">' + esc(r.nazev) + '</b>' +
       '<small class="reel__meta">' + esc(meta.join(' · ')) + '</small></div>' +
@@ -138,12 +139,13 @@ function prubehHtml(r) {
 /** Stav reelu, který ještě není zveřejněný: naplánováno na čas, zveřejňuje se, nepovedlo se, nebo čeká. */
 function stitekPlanu(r) {
   const p = plan(r);
+  const kartaIg = p ? ig.stavKartaAtr('reel', r.id) : ''; // najetí / klepnutí = kroky s časy
   if (p && p.stav === 'ceka') {
-    return '<span class="tag tag--plan">' + IKONY.kalendar + (p.kdy > Date.now() ? 'vyjde ' : 'na řadě od ') + esc(kdyPlan(p.kdy)) + (p.pribeh ? ' + příběh' : '') + '</span>' +
+    return '<span class="tag tag--plan"' + kartaIg + '>' + IKONY.kalendar + (p.kdy > Date.now() ? 'vyjde ' : 'na řadě od ') + esc(kdyPlan(p.kdy)) + (p.pribeh ? ' + příběh' : '') + '</span>' +
       (p.oznacit && p.oznacit.length ? '<span class="tag tag--seda">označí ' + esc(p.oznacit.map((u) => '@' + u).join(', ')) + '</span>' : '');
   }
-  if (p && (p.stav === 'nahrava' || p.stav === 'zverejnuji')) return '<span class="tag tag--plan">' + IKONY.obnovit + 'zveřejňuje se na Instagram</span>';
-  if (p && p.stav === 'chyba') return '<span class="tag tag--danger">nepovedlo se – ' + (umiMotor('igKrok') ? 'zkus znovu' : 'naplánuj znovu') + '</span>';
+  if (p && (p.stav === 'nahrava' || p.stav === 'zverejnuji')) return '<span class="tag tag--plan"' + kartaIg + '>' + IKONY.obnovit + 'zveřejňuje se na Instagram</span>';
+  if (p && p.stav === 'chyba') return '<span class="tag tag--danger"' + kartaIg + '>nepovedlo se – ' + (umiMotor('igKrok') ? 'zkus znovu' : 'naplánuj znovu') + '</span>';
   return '<span class="tag tag--danger">čeká na Instagram</span>';
 }
 
@@ -324,7 +326,7 @@ export function kartaDnesHtml() {
   const k = kVyveseni();
   if (!k.length) return igKarta;
   const r = k[0];
-  return igKarta + '<div class="dalsi-krok reel-krok">' +
+  return igKarta + '<div class="dalsi-krok reel-krok" data-reel-krok="' + esc(r.id) + '">' +
     '<div class="reel-krok__hlava"><small>' + IKONY.reely + 'Reel k vyvěšení' + (k.length > 1 ? ' · ' + k.length : '') + '</small>' +
       '<button type="button" class="reel-krok__sipka" data-cil="reely" aria-label="Všechny reely" title="Všechny reely">' + IKONY.sipka + '</button></div>' +
     '<div class="reel-krok__obsah">' + nahledHtml(r) +
@@ -340,21 +342,24 @@ hooky.reelyTlacitko = (trida) => (umiMotor('reely')
   ? '<button type="button" class="' + (trida || 'chip') + ' reely-tl" data-cil="reely">' + IKONY.reely + '<span>Reely</span>' +
     (kVyveseni().length ? '<span class="pocet cisla">' + kVyveseni().length + '</span>' : '') + '</button>' : '');
 
-/** Do schránky: na https přes Clipboard API, jinak (starší Safari, http) označením textu v <textarea>. */
-async function kopiruj(text) {
-  try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* náhradní cesta níž */ }
-  const t = document.createElement('textarea');
-  t.value = text;
-  t.setAttribute('readonly', '');
-  t.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;';
-  document.body.appendChild(t);
-  t.focus();
-  t.select();
-  t.setSelectionRange(0, text.length);
-  let ok = false;
-  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
-  t.remove();
-  return ok;
+/** Popisek do schránky (tlačítko Kopírovat i nabídka; ui.doSchranky – i starší Safari) – u nezveřejněného s „Zveřejněno“. */
+function kopirujPopisek(r) {
+  doSchranky(popisekReelu(r)).then((ok) => {
+    if (!ok) { toast('Kopírování nejde – podrž prst na textu popisku a zkopíruj ho ručně.', true); return; }
+    if (zverejneno(r)) toast('Popisek zkopírovaný');
+    else toastAkce('Popisek zkopírovaný – vlož ho do Instagramu', 'Zveřejněno', () => oznac(r.id, true));
+  });
+}
+
+/** Zrušit naplánované zveřejnění (tlačítko i nabídka). */
+function zrusitPlan(r) {
+  potvrd('Zrušit naplánované zveřejnění?', { text: r.nazev + ' – na Instagram pak nepůjde sám.', ano: 'Zrušit plán', ne: 'Nechat' }).then((ano) => {
+    if (!ano) return;
+    volej('reelZrusitPlan', { id: r.id })
+      .then((v) => { stav.reely.plan = v.plan || {}; uloziste.pis(ULOZISTE, { data: stav.reely, kdy: Date.now() }); toast('Plán zrušený'); })
+      .catch((e) => toast(e.message, true))
+      .then(zmeneno);
+  });
 }
 
 function oznac(id, ano) {
@@ -377,12 +382,7 @@ export function klikReely(el) {
   if (ig.klikIg(el)) return true; // Zveřejnit teď / Zkusit znovu u naplánovaného reelu i plakátu a na Přehledu
   if (el.dataset.reelKopirovat) {
     const r = najdi(el.dataset.reelKopirovat);
-    if (!r) return true;
-    kopiruj(popisekReelu(r)).then((ok) => {
-      if (!ok) { toast('Kopírování nejde – podrž prst na textu popisku a zkopíruj ho ručně.', true); return; }
-      if (zverejneno(r)) toast('Popisek zkopírovaný');
-      else toastAkce('Popisek zkopírovaný – vlož ho do Instagramu', 'Zveřejněno', () => oznac(r.id, true));
-    });
+    if (r) kopirujPopisek(r);
     return true;
   }
   if (el.dataset.reelZverejneno) {
@@ -399,17 +399,42 @@ export function klikReely(el) {
   if (el.hasAttribute('data-rp-ulozit')) { if (rp && !rp.ukladam) ulozPlan(); return true; }
   if (el.dataset.reelZrusitPlan) {
     const r = najdi(el.dataset.reelZrusitPlan);
-    if (!r) return true;
-    potvrd('Zrušit naplánované zveřejnění?', { text: r.nazev + ' – na Instagram pak nepůjde sám.', ano: 'Zrušit plán', ne: 'Nechat' }).then((ano) => {
-      if (!ano) return;
-      volej('reelZrusitPlan', { id: r.id })
-        .then((v) => { stav.reely.plan = v.plan || {}; uloziste.pis(ULOZISTE, { data: stav.reely, kdy: Date.now() }); toast('Plán zrušený'); })
-        .catch((e) => toast(e.message, true))
-        .then(zmeneno);
-    });
+    if (r) zrusitPlan(r);
     return true;
   }
   if (el.dataset.reelyFiltr) { filtr = el.dataset.reelyFiltr; uloziste.pis(FILTR, filtr); zmeneno(); return true; }
   if (el.hasAttribute('data-reely-znovu')) { nactiReely(true); return true; }
   return false;
 }
+
+// ---------------------------------------------------------------- pravé tlačítko (Michal 11. 10.)
+// Reel (stránka Reely i karta „Reel k vyvěšení“ na Přehledu): Kopírovat popisek, Přehrát video, Zveřejnit teď / Naplánovat /
+// Změnit čas / Zrušit plán (jen kde je to tlačítko), Na Instagramu, Označit zveřejněno. V textu popisku zůstává nabídka
+// prohlížeče (označit a kopírovat ručně, kdyby schránka nešla).
+
+function nabidkaReelu(cil) {
+  if (cil.closest('.reel__popisek, .reel-krok__popisek')) return null;
+  const el = cil.closest('[data-reel], [data-reel-krok]');
+  const r = el && najdi(el.dataset.reel || el.dataset.reelKrok);
+  if (!r) return null;
+  const p = plan(r), z = zverejneno(r);
+  const pol = [];
+  if (r.popisek) pol.push({ ikona: IKONY.kopirovat, text: 'Kopírovat popisek', fn: () => kopirujPopisek(r) });
+  if (r.odkaz) pol.push({ ikona: IKONY.prehrat, text: 'Přehrát video', fn: () => otevriOdkaz(r.odkaz) });
+  if (p && p.stav === 'hotovo' && /^https:\/\//.test(p.odkaz || '')) pol.push({ ikona: IKONY.instagram, text: 'Otevřít na Instagramu', fn: () => otevriOdkaz(p.odkaz) });
+  // jako tlačítka u reelu (planAkceHtml): jen s propojeným Instagramem, nezveřejněný, s videem a popiskem
+  const lzePlan = instagram().nastaveno && !z && r.odkaz && r.popisek && umiMotor('reelNaplanovat') &&
+    !(p && (p.stav === 'nahrava' || p.stav === 'zverejnuji' || p.stav === 'hotovo'));
+  if (lzePlan && p && p.stav === 'ceka') {
+    if (umiMotor('igKrok')) pol.push({ ikona: IKONY.odeslat, text: 'Zveřejnit teď', oddel: true, fn: () => ig.zverejnitTed('reel', r.id) });
+    pol.push({ ikona: IKONY.kalendar, text: 'Změnit čas…', oddel: !umiMotor('igKrok'), fn: () => otevriPlan(r, false) });
+    pol.push({ ikona: IKONY.zavrit, text: 'Zrušit plán', fn: () => zrusitPlan(r) });
+  } else if (lzePlan) {
+    if (umiMotor('igKrok')) pol.push({ ikona: IKONY.odeslat, text: 'Zveřejnit teď…', oddel: true, fn: () => otevriPlan(r, true) });
+    pol.push({ ikona: IKONY.kalendar, text: 'Naplánovat na Instagram…', oddel: !umiMotor('igKrok'), fn: () => otevriPlan(r, false) });
+  }
+  pol.push({ ikona: IKONY.fajfka, text: z ? 'Vrátit mezi nezveřejněné' : 'Označit jako zveřejněné', oddel: true, fn: () => oznac(r.id, !z) });
+  if (el.closest('#p-dnes')) pol.push({ ikona: IKONY.reely, text: 'Všechny reely', fn: () => { prejdi('reely'); zmeneno(); } });
+  return { nadpis: r.nazev, polozky: pol };
+}
+pripojNabidku(nabidkaReelu);

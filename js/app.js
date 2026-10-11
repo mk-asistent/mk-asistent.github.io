@@ -1163,6 +1163,46 @@ document.addEventListener('input', (e) => {
 // pravé tlačítko / dlouhé podržení na položce schránky nebo mé poznámce: malá nabídka (Smazat, Hotovo… – js/nabidka.js)
 nabidka.pripoj((el) => schranka.nabidkaPolozky(el) || moje.nabidkaMoje(el));
 
+// ---------------------------------------------------------------- [nabídka karet Přehledu – začátek bloku]
+// Michal 11. 10.: pravé tlačítko / podržení na kartě Přehledu, kde nic konkrétnějšího nabídku nemá (e-mail, úkol, událost,
+// doplněk, zápas… mají vlastní v modulech): Otevřít stránku a Obnovit jen tuto část. S účtem obnoví server jen tu oblast
+// (kopie pak přijdou samy), bez účtu se čte přímo z motoru; zdraví a počasí vždy z motoru.
+const KARTY_PREHLEDU = [ // [výběr prvku, stránka, název, co obnovit, 4. pád]
+  ['#dl-posta, .pozornost--posta, #dnes-kpi [data-karta="posta"]', 'posta', 'Pošta', 'posta', 'poštu'],
+  ['#dl-pozornost, #dl-moje, .dl-zapis, .hero, .pozornost', 'schranka', 'Schránka', 'schranka', 'schránku'],
+  ['#dl-tyden', 'kalendar', 'Kalendář', 'kalendar', 'kalendář'],
+  ['#dl-doplnky, #dl-piti, #dl-vaha, #dnes-kpi [data-cil="zdravi"], .mini-kpi[data-cil="zdravi"]', 'zdravi', 'Zdraví', 'zdravi', 'zdraví'],
+  ['#dl-fotbal', 'fotbal', 'Fotbal', 'fotbal', 'zápasy'],
+  ['#dl-reel, .ig-karta', 'reely', 'Reely', 'reely', 'reely'],
+  ['#dnes-kpi [data-pocasi], .mini-kpi[data-pocasi]', '', 'Počasí', 'pocasi', 'počasí']
+];
+
+function obnovCast(cast) {
+  rucneObnovuje = true; // kolečko u Obnovit, dokud se to nenačte
+  const sUctem = ucet.zapnuty();
+  if (cast === 'zdravi') zdravi.nactiZdravi(true);
+  else if (cast === 'pocasi') pocasi.nactiPocasi(true);
+  else if (sUctem) ucet.obnovNaServeru(true, [cast]);
+  else if (cast === 'schranka') schranka.nactiSchranku();
+  else if (cast === 'posta') posta.nactiPostu(true);
+  else if (cast === 'kalendar') kal.nactiKalendar(true);
+  else if (cast === 'fotbal') fotbal.nactiFotbal();
+  else if (cast === 'reely') reely.nactiReely(true);
+  zmeneno();
+}
+
+nabidka.pripoj((el, dotyk) => {
+  // jen myš a klávesnice – podržení prstem na kartě patří označení textu a posouvání (konkrétní řádky mají nabídku i na dotyku)
+  if (dotyk || stav.pohled !== 'dnes' || !el.closest('#p-dnes, #dnes-kpi')) return null;
+  const k = KARTY_PREHLEDU.find((x) => el.closest(x[0]));
+  if (!k) return null;
+  const p = [k[1] ? { ikona: ikonaSekce(k[1]), text: 'Otevřít ' + k[2], fn: () => { prejdi(k[1]); zmeneno(); } }
+    : { ikona: IKONY.polojasno, text: 'Celá předpověď', fn: () => pocasi.ukazDetail() }];
+  p.push({ ikona: IKONY.obnovit, text: 'Obnovit jen ' + k[4], fn: () => obnovCast(k[3]) });
+  return { nadpis: k[2], polozky: p };
+});
+// ---------------------------------------------------------------- [nabídka karet Přehledu – konec bloku]
+
 document.addEventListener('change', (e) => { if (!auto.zmenaAuto(e) && !reely.vstupReely(e) && !plakaty.vstupPlakaty(e) && !posta.zmenaPosta(e) && !udalost.zmenaUdalost(e) && !kal.zmenaKalendar(e)) nast.zmenaNastaveni(e); });
 
 function pise(e) {

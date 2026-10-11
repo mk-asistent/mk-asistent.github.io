@@ -2,13 +2,13 @@
 // zápasy z rozpisu na webu dorostu. Zapisuje motor – jen do vlastních kalendářů Google; kalendáře z iPhonu (iCloud)
 // jsou jen ke čtení (upravují se v Kalendáři v iPhonu).
 
-import { stav } from './stav.js';
+import { stav, hooky } from './stav.js';
 import { volej } from './api.js';
-import { esc, pulnoc, pridejDny, isoDatum, terminDatum, uloziste } from './pomocne.js';
+import { esc, pulnoc, pridejDny, isoDatum, terminDatum, uloziste, prvniRadek, dm, DNY_KR } from './pomocne.js';
 import { otevriPanel, zavriPanel, obnovPanel, elementPanelu, zavriAPak } from './panely.js';
-import { toast, segment, potvrd, okno } from './ui.js';
+import { toast, toastAkce, segment, potvrd, okno } from './ui.js';
 import { IKONY } from './ikony.js';
-import { obnovPoZmene, najdiUdalost } from './kalendar.js';
+import { obnovPoZmene, najdiUdalost, schovejUdalost } from './kalendar.js';
 
 /** Rozpisy zápasů z webu (veřejné soubory) – tlačítko je importuje do kalendáře „Zápasy“. */
 export const ROZPISY = [
@@ -276,6 +276,60 @@ async function smaz(id, cela) {
     toast(e.message, true);
   }
 }
+
+// ---------------------------------------------------------------- z nabídky (pravé tlačítko, dlouhé podržení – kalendar.js)
+
+/** Stejná událost jako u (název, čas posunutý o dni, místo, poznámka, kalendář) – pro Duplikovat a Vrátit po smazání. */
+function kopieUdalosti(u, dni) {
+  return { nazev: u.nazev, misto: u.misto || '', popis: u.popis || '', celodenni: !!u.celodenni, zacatek: pridejDny(u.zacatek, dni), konec: pridejDny(u.konec, dni),
+    kalendarId: u.kalendarId };
+}
+
+/**
+ * Smazat z nabídky: obyčejnou událost hned, s Vrátit v oznámení (motor ji založí znovu se stejným názvem, časem, místem
+ * a poznámkou); opakovanou nebo s hosty s potvrzením jako v detailu (řada / hosté by se Vrátit nevrátili).
+ */
+export async function smazUdalostRychle(id) {
+  const u = najdiUdalost(id);
+  if (!u || !lzeZapisovat(u)) return;
+  if (u.opakovana || (u.hoste && u.hoste.length)) { smaz(id); return; }
+  schovejUdalost(id);
+  try {
+    await volej('udalostSmazat', { kalendarId: u.kalendarId, udalost: u.id, cela: false });
+    obnovPoZmene(null, u.id);
+    toastAkce('Smazáno: ' + prvniRadek(u.nazev, 40), 'Vrátit', () => {
+      volej('udalostUlozit', kopieUdalosti(u, 0)).then(() => { toast('Vráceno do kalendáře'); obnovPoZmene(null); }).catch((e) => toast(e.message, true));
+    });
+  } catch (e) {
+    toast(e.message, true);
+    obnovPoZmene(null);
+  }
+}
+
+/** Duplikovat o dni dopředu (Duplikovat na zítra) do stejného kalendáře; Vrátit kopii zase smaže. */
+export async function duplikujUdalost(id, dni) {
+  const u = najdiUdalost(id);
+  if (!u || !lzeZapisovat(u)) return;
+  const data = kopieUdalosti(u, dni);
+  try {
+    const v = await volej('udalostUlozit', data);
+    obnovPoZmene(null);
+    const kdy = DNY_KR[new Date(data.zacatek).getDay()] + ' ' + dm(data.zacatek);
+    toastAkce('Zkopírováno na ' + kdy + ': ' + prvniRadek(u.nazev, 30), 'Vrátit', () => {
+      // id události v aplikaci = id z Googlu | začátek (jako vrací motor v seznamu)
+      const nove = v && v.id ? v.id + '|' + data.zacatek : '';
+      if (!nove) return;
+      volej('udalostSmazat', { kalendarId: v.kalendarId || data.kalendarId, udalost: nove, cela: false })
+        .then(() => { toast('Kopie smazaná'); obnovPoZmene(null, nove); }).catch((e) => toast(e.message, true));
+    });
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+// pro nabídky jiných modulů (zápas z Fotbalu → Přidat do kalendáře) bez kruhových importů
+hooky.novaUdalost = (navrh) => otevriFormular({ navrh });
+hooky.lzeZalozitUdalost = () => zapisovatelneKalendare().length > 0;
 
 /** Tlačítka v detailu události (jen u kalendářů, kam jde zapisovat). */
 export function akceUdalostiHtml(u) {

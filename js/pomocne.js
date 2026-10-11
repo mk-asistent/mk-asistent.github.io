@@ -103,6 +103,31 @@ export function sOdkazy(text) {
   });
 }
 
+/** Navigace na místo (nabídka u události a zápasu): na iPhonu, iPadu a Macu Apple Mapy první, jinde jen Mapy Google.
+ *  → [{ text, url }] */
+export function navigaceNa(misto) {
+  const m = String(misto || '').trim();
+  if (!m) return [];
+  const google = { text: 'Navigovat – Mapy Google', url: 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(m) };
+  const apple = { text: 'Navigovat – Apple Mapy', url: 'https://maps.apple.com/?daddr=' + encodeURIComponent(m) };
+  return /Mac|iPhone|iPad/.test((typeof navigator !== 'undefined' && (navigator.platform || navigator.userAgent)) || '') ? [apple, google] : [google];
+}
+
+/** Otevřít odkaz z nabídky (nová karta; v aplikaci na ploše iPhonu Safari / Mapy). */
+export function otevriOdkaz(url) {
+  if (!/^(https:|sms:|tel:|mailto:)/.test(String(url || ''))) return;
+  if (/^(sms|tel|mailto):/.test(url)) { location.href = url; return; }
+  // odkaz s rel=noopener (jako <a target=_blank> v aplikaci) – window.open s noopener vrací null i při úspěchu
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.hidden = true;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 export function velikost(b) {
   if (b == null) return '';
   if (b < 1024) return b + ' B';

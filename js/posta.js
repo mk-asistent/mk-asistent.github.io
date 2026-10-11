@@ -16,7 +16,7 @@ import {
   pulnoc, pridejDny, isoDatum, terminDatum, dm, rozdilDni, tvar
 } from './pomocne.js';
 import { otevriPanel, obnovPanel, zavriPanel, zavriAPak, jeOtevreny, elementPanelu, horniPanel } from './panely.js';
-import { toast, toastAkce, kostra, chybaHtml, segment, prizpusobVysku, potvrd } from './ui.js';
+import { toast, toastAkce, kostra, chybaHtml, segment, prizpusobVysku, potvrd, kopiruj } from './ui.js';
 import { IKONY } from './ikony.js';
 import { nactiKontakty } from './adresy.js';
 import { pripoj as pripojNabidku } from './nabidka.js';
@@ -666,7 +666,7 @@ function vykresliDetail(vynutit) {
 export function otevriVlakno(id) {
   const m = najdiSouhrn(id);
   if (m && m.zPc) { if (m.odkaz && m.odkaz !== '#') window.open(m.odkaz, '_blank', 'noopener'); return; }
-  if (psaniPoNacteni !== id) psaniPoNacteni = null;
+  if (psaniPoNacteni && psaniPoNacteni.id !== id) psaniPoNacteni = null;
   stav.otevreneVlakno = id;
   stav.rozbaleneZpravy = {};
   const bylaNeprectena = !!(m && m.neprectena);
@@ -873,11 +873,12 @@ function obnovDetail(id) {
   if (stav.otevreneVlakno !== id) return;
   if (DVA_SLOUPCE.matches) vykresliDetail(true);
   else if (jeOtevreny('vlakno')) obnovPanel('vlakno');
-  // Odpovědět z nabídky: psaní, jakmile je konverzace načtená
+  // Odpovědět / Odpovědět všem / Přeposlat z nabídky: psaní, jakmile je konverzace načtená
   const st = stav.vlakna[id];
-  if (psaniPoNacteni === id && st && st.data && !st.nacita && !st.ceka) {
+  if (psaniPoNacteni && psaniPoNacteni.id === id && st && st.data && !st.nacita && !st.ceka) {
+    const rezim = psaniPoNacteni.rezim;
     psaniPoNacteni = null;
-    otevriPsani('odpoved');
+    otevriPsani(rezim);
   }
 }
 
@@ -1717,7 +1718,7 @@ async function prectiKategorii(tlacitko) {
 
 const vyber = { ids: new Set(), kotva: null };
 let ukazatel = 'mouse'; // poslední pointerdown (dotyk ve výběru: klepnutí vybírá)
-let psaniPoNacteni = null; // Odpovědět z nabídky: id konverzace, ke které se otevře psaní, až bude načtená
+let psaniPoNacteni = null; // Odpovědět / Přeposlat z nabídky: { id, rezim } – psaní se otevře, až bude konverzace načtená
 
 function vybraneSouhrny() { return Array.from(vyber.ids).map((id) => najdiSouhrn(id)).filter(Boolean); }
 
@@ -1832,12 +1833,28 @@ function otevritZ(id) {
   otevriVlakno(id);
 }
 
-/** Odpovědět z nabídky: otevřít konverzaci a psaní hned, nebo až se načte (obnovDetail). */
-function odpovedetNa(id) {
+/** Odpovědět / Odpovědět všem / Přeposlat z nabídky: otevřít konverzaci a psaní hned, nebo až se načte (obnovDetail). */
+function odpovedetNa(id, rezim) {
   otevritZ(id);
   const st = stav.vlakna[id];
-  if (st && st.data && !st.ceka) { otevriPsani('odpoved'); return; }
-  psaniPoNacteni = id;
+  if (st && st.data && !st.ceka) { otevriPsani(rezim || 'odpoved'); return; }
+  psaniPoNacteni = { id, rezim: rezim || 'odpoved' };
+}
+
+/** Poslední cizí zpráva z načtené (nebo přednačtené) konverzace – adresa odesílatele a adresáti pro nabídku; null = detail ještě není. */
+function ciziZNacteneho(id) {
+  const st = stav.vlakna[id];
+  return st && st.data && st.data.zpravy && st.data.zpravy.length ? posledniCizi(st.data) : null;
+}
+
+/** Odpovědět všem dává smysl, jen když zpráva šla i dalším lidem (kromě odesílatele a mě) – jako tlačítko Všem v psaní. */
+function viceAdresatu(z) {
+  if (!z) return false;
+  const info = infoPosty();
+  const ja = [info.osobniAdresa, info.pracovniAdresa].filter(Boolean).map((a) => a.toLowerCase());
+  const od = String(z.odAdresa || '').toLowerCase();
+  return rozdelAdresy(z.komu).concat(rozdelAdresy(z.kopie)).map((a) => a.toLowerCase())
+    .some((a) => a && !ja.some((x) => a.indexOf(x) >= 0) && !(od && a.indexOf(od) >= 0));
 }
 
 /** Nabídka pro e-mail, na který se kliklo (js/nabidka.js), nebo null. Na vybraném řádku (víc vybraných) akce výběru. */
@@ -1858,10 +1875,20 @@ export function nabidkaPosty(cil) {
   else if (maCekat(m) && lzeAkce(m, 'vedomi')) p.push({ ikona: IK_VEDOMI, text: 'Beru na vědomí', fn: () => akceNad([id], 'vedomi') });
   if (!wd && umiMotor('postaPresunout')) p.push({ ikona: IKONY.stitek, text: 'Přesunout do skupiny…', fn: () => otevriPresun(id) });
   if (!wd) p.push({ ikona: IKONY.pripomenout, text: 'Připomenout…', fn: () => otevriPripominku(id) });
-  p.push({ ikona: IKONY.odpovedet, text: 'Odpovědět', fn: () => odpovedetNa(id) });
-  if (vPoste) p.push({ ikona: IK_VYBRAT, text: vyber.ids.has(id) ? 'Zrušit výběr' : 'Vybrat', fn: () => prepniVyber(id) });
-  if (lzeAkce(m, 'spam')) p.push({ ikona: IKONY.spam, text: 'Spam', nebezpeci: true, fn: () => akceNad([id], 'spam') });
-  if (lzeAkce(m, 'smazat')) p.push({ ikona: IKONY.smazat, text: 'Smazat', nebezpeci: true, fn: () => akceNad([id], 'smazat') });
+  p.push({ ikona: IKONY.odpovedet, text: 'Odpovědět', oddel: true, fn: () => odpovedetNa(id) });
+  // Michal 11. 10.: „v nabídce chybí Přeposlat“ – jako tlačítka v otevřeném e-mailu (Gmail i pracovní pošta WEDOS);
+  // Odpovědět všem jen u zprávy pro víc lidí; adresa odesílatele až z načteného detailu (přednačtení, otevřený e-mail)
+  const cizi = ciziZNacteneho(id);
+  if (viceAdresatu(cizi)) p.push({ ikona: IKONY.vsem, text: 'Odpovědět všem', fn: () => odpovedetNa(id, 'vsem') });
+  p.push({ ikona: IKONY.preposlat, text: 'Přeposlat', fn: () => odpovedetNa(id, 'preposlat') });
+  if (cizi && cizi.odAdresa && !cizi.odeMe) {
+    const adresa = cizi.odAdresa, komu = (cizi.od && cizi.od !== adresa ? (/[,;]/.test(cizi.od) ? '"' + cizi.od + '"' : cizi.od) + ' <' + adresa + '>' : adresa);
+    p.push({ ikona: IKONY.psat, text: 'Nový e-mail odesílateli', fn: () => otevriPsani('novy', { id: 'odesilatel.' + id, prepsat: true, komu, ucet: m.ucet || 'osobni' }) });
+    p.push({ ikona: IKONY.kopirovat, text: 'Kopírovat adresu', fn: () => kopiruj(adresa) });
+  }
+  if (vPoste) p.push({ ikona: IK_VYBRAT, text: vyber.ids.has(id) ? 'Zrušit výběr' : 'Vybrat', oddel: true, fn: () => prepniVyber(id) });
+  if (lzeAkce(m, 'spam')) p.push({ ikona: IKONY.spam, text: 'Spam', nebezpeci: true, oddel: !vPoste, fn: () => akceNad([id], 'spam') });
+  if (lzeAkce(m, 'smazat')) p.push({ ikona: IKONY.smazat, text: 'Smazat', nebezpeci: true, oddel: !vPoste && !lzeAkce(m, 'spam'), fn: () => akceNad([id], 'smazat') });
   return { nadpis: prvniRadek(m.od + ' · ' + m.predmet, 70), polozky: p };
 }
 

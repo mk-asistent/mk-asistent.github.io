@@ -14,6 +14,7 @@ import * as ucet from './ucet.js';
 import { esc } from './pomocne.js';
 import { IKONY } from './ikony.js';
 import { toast, potvrd, hlavickaKarty } from './ui.js';
+import { karta, registruj, hlavaKarty } from './bubliny.js';
 import * as P from './ig_prubeh.js';
 
 const KROK_PO = 15e3;     // běží nebo je na řadě: další krok motoru za 15 s
@@ -172,14 +173,44 @@ export function klikIg(el) {
   if (!akce) return false;
   const typ = el.dataset.igTyp, id = el.dataset.igId;
   if (!zdroje[typ] || !id) return true;
-  if (akce === 'ted') {
-    const zd = zdroje[typ];
-    const z = planTypu(typ)[id] || {};
-    potvrd('Zveřejnit hned?', { ikona: IKONY.instagram, ton: 'ok', text: zd.nazev(id) + ' – na ' + zd.ucet() + ' teď' + (z.pribeh ? ', i do příběhu' : '') +
-      ', bez čekání na naplánovaný čas.', ano: 'Zveřejnit teď', ne: 'Počkat' }).then((ano) => { if (ano) hned(typ, id, 'ted'); });
-  } else hned(typ, id, akce);
+  if (akce === 'ted') zverejnitTed(typ, id);
+  else hned(typ, id, akce);
   return true;
 }
+
+/** Zveřejnit teď naplánovaný příspěvek (tlačítko i nabídka na pravém tlačítku): s potvrzením, pak hned. */
+export function zverejnitTed(typ, id) {
+  const zd = zdroje[typ];
+  if (!zd || !umiMotor('igKrok')) return;
+  const z = planTypu(typ)[id] || {};
+  potvrd('Zveřejnit hned?', { ikona: IKONY.instagram, ton: 'ok', text: zd.nazev(id) + ' – na ' + zd.ucet() + ' teď' + (z.pribeh ? ', i do příběhu' : '') +
+    ', bez čekání na naplánovaný čas.', ano: 'Zveřejnit teď', ne: 'Počkat' }).then((ano) => { if (ano) hned(typ, id, 'ted'); });
+}
+
+// ---------------------------------------------------------------- vyjetá karta u stavu na Instagramu (Michal 11. 10.: najetí
+// na štítek „vyjde …“ / „zveřejňuje se“ / „na Instagramu“ ukáže kroky s časy – poslední krok průběhu, bez rozklikávání)
+
+/** Atributy štítku stavu (reel, plakát): karta s průběhem. */
+export function stavKartaAtr(typ, id) { return karta('ig', false, typ + ':' + id); }
+
+registruj('ig', (el) => {
+  const kl = String(el.dataset.kartaKlic || '');
+  const i = kl.indexOf(':');
+  const typ = kl.slice(0, i), id = kl.slice(i + 1);
+  const zd = zdroje[typ];
+  const z = zd && planTypu(typ)[id];
+  if (!z || typeof z !== 'object') return '';
+  const ted = tedMotoru();
+  const sh = P.souhrn(z, { ted, video: zd.video });
+  const zas = P.zasek(z, ted, spoustec(), zd.video);
+  const hotovo = z.stav === 'hotovo';
+  const nazev = hotovo ? 'Na Instagramu' : zas && zas.chyba ? 'Nepovedlo se' : P.ceka(z) ? 'Naplánováno' : sh.krok.nazev;
+  const veta = hotovo ? 'vyšlo ' + P.casKratce(sh.krok.cas || P.konec(z), ted) + (z.pribehChyba ? ' · příběh nevyšel' : z.mediaPribeh ? ' · i v příběhu' : '')
+    : zas ? zas.duvod : [sh.krok.popis, P.infoText(z, ted)].filter(Boolean).join(' · ');
+  return hlavaKarty('<span class="bk-ikona bk-ikona--ig">' + IKONY.instagram + '</span>', zd.nazev(id) + ' · ' + zd.ucet(), esc(nazev), esc(veta),
+    hotovo ? '' : '<span class="bk-poradi cisla">' + sh.poradi + '/' + sh.celkem + '</span>') +
+    '<div class="bk-oddil">' + P.krokyHtml(z, { ted, video: zd.video }) + '</div>';
+});
 
 // ---------------------------------------------------------------- zobrazení
 

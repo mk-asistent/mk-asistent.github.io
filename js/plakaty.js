@@ -5,11 +5,12 @@
 // Plakát podle rozlosování skládá js/plakat.js ze zápasů fotbal.cz (stav.fotbal) a mládeže (plakat_data.js); ruční úpravy
 // kol, nastavení, popisky, obrázky a plán drží motor (akce plakaty, plakatUlozit… → CLAUDE_SCHRANKA/PLAKATY).
 
-import { stav, zmeneno, umiMotor, hooky } from './stav.js';
+import { stav, zmeneno, umiMotor, hooky, prejdi } from './stav.js';
 import { volej } from './api.js';
-import { esc, uloziste, dm, DNY_KR, terminDatum, pridejDny, isoDatum, hhmm } from './pomocne.js';
+import { esc, uloziste, dm, DNY_KR, terminDatum, pridejDny, isoDatum, hhmm, otevriOdkaz } from './pomocne.js';
 import { IKONY } from './ikony.js';
-import { toast, toastAkce, kostra, chybaHtml, potvrd, hlavickaKarty, segment } from './ui.js';
+import { toast, toastAkce, kostra, chybaHtml, potvrd, hlavickaKarty, segment, kopiruj } from './ui.js';
+import { pripoj as pripojNabidku } from './nabidka.js';
 import { otevriPanel, zavriPanel, obnovPanel, elementPanelu } from './panely.js';
 import { LOGA } from './plakat_data.js';
 import * as P from './plakat.js';
@@ -764,16 +765,17 @@ function stitekPopisku(zdroj) {
 
 function stavPlanuHtml(plan) {
   if (!plan) return '';
+  const kartaIg = ig_.stavKartaAtr('plakat', p.sobota); // najetí / klepnutí = kroky s časy
   if (plan.stav === 'ceka') {
-    return '<span class="tag tag--plan">' + IKONY.kalendar + 'vyjde ' + esc(kdyPlan(plan.kdy)) + '</span>' +
+    return '<span class="tag tag--plan"' + kartaIg + '>' + IKONY.kalendar + 'vyjde ' + esc(kdyPlan(plan.kdy)) + '</span>' +
       (plan.pribeh ? '<span class="tag tag--seda">i do příběhu</span>' : '');
   }
-  if (plan.stav === 'nahrava' || plan.stav === 'zverejnuji') return '<span class="tag tag--plan">' + IKONY.obnovit + 'zveřejňuje se na Instagram</span>';
+  if (plan.stav === 'nahrava' || plan.stav === 'zverejnuji') return '<span class="tag tag--plan"' + kartaIg + '>' + IKONY.obnovit + 'zveřejňuje se na Instagram</span>';
   if (plan.stav === 'hotovo') {
-    return '<span class="tag tag--ok">' + IKONY.fajfka + 'na Instagramu' + (plan.zverejneno ? ' od ' + esc(kdyPlan(plan.zverejneno)) : '') + '</span>' +
+    return '<span class="tag tag--ok"' + kartaIg + '>' + IKONY.fajfka + 'na Instagramu' + (plan.zverejneno ? ' od ' + esc(kdyPlan(plan.zverejneno)) : '') + '</span>' +
       (plan.mediaPribeh ? '<span class="tag tag--ok">i v příběhu</span>' : '');
   }
-  if (plan.stav === 'chyba') return '<span class="tag tag--danger">nepovedlo se – ' + (umiMotor('igKrok') ? 'zkus znovu' : 'naplánuj znovu') + '</span>';
+  if (plan.stav === 'chyba') return '<span class="tag tag--danger"' + kartaIg + '>nepovedlo se – ' + (umiMotor('igKrok') ? 'zkus znovu' : 'naplánuj znovu') + '</span>';
   return '';
 }
 
@@ -1024,3 +1026,44 @@ export function vstupPlakaty(e) {
   }
   return false;
 }
+
+// ---------------------------------------------------------------- pravé tlačítko (Michal 11. 10.) a Plakát k zápasu ze Fotbalu
+// Na náhledu plakátu a v kartě Instagram: Stáhnout obrázek, Vytisknout, Kopírovat popisek, Zveřejnit teď / Naplánovat /
+// Změnit čas / Zrušit plán (jako tlačítka v kartě), Popisek od Clauda, Vrátit podle rozlosování.
+
+/** Plakát k zápasu (nabídka zápasu ve Fotbale): stránka Plakáty rovnou na víkendu toho zápasu. */
+hooky.plakatVikend = (t) => {
+  const sobota = P.vikendZapasu(t);
+  if (p.sobota && p.sobota !== sobota) prepniVikend(sobota); else p.sobota = sobota;
+  prejdi('plakaty');
+  zmeneno();
+};
+
+function nabidkaPlakatu(cil) {
+  if (!cil.closest('#p-plakaty .plakat-nahled, #p-plakaty .pl-ig') || !data() || !p.plakat) return null;
+  const s = p.sobota, d = data();
+  const plan = d.plan[s] || null;
+  const ig = d.ig || {};
+  const text = String(s in p.popisek ? p.popisek[s] : (d.popisky[s] || {}).text || '');
+  const pol = [
+    { ikona: IKONY.stahnout, text: 'Stáhnout obrázek', fn: stahniObrazek },
+    { ikona: IKONY.tisk, text: 'Vytisknout / PDF', fn: tiskni }
+  ];
+  if (text.trim()) pol.push({ ikona: IKONY.kopirovat, text: 'Kopírovat popisek', fn: () => kopiruj(text, 'Popisek zkopírovaný') });
+  if (plan && plan.stav === 'hotovo') {
+    if (/^https:\/\//.test(plan.odkaz || '')) pol.push({ ikona: IKONY.instagram, text: 'Otevřít na Instagramu', oddel: true, fn: () => otevriOdkaz(plan.odkaz) });
+  } else if (umiMotor('plakatNaplanovat') && ig.nastaveno && !(plan && (plan.stav === 'nahrava' || plan.stav === 'zverejnuji'))) {
+    if (plan && plan.stav === 'ceka') {
+      if (umiMotor('igKrok')) pol.push({ ikona: IKONY.odeslat, text: 'Zveřejnit teď', oddel: true, fn: () => ig_.zverejnitTed('plakat', s) });
+      pol.push({ ikona: IKONY.kalendar, text: 'Změnit čas…', oddel: !umiMotor('igKrok'), fn: () => otevriPlan(false) });
+      pol.push({ ikona: IKONY.zavrit, text: 'Zrušit plán', fn: zrusPlan });
+    } else {
+      if (umiMotor('igKrok')) pol.push({ ikona: IKONY.odeslat, text: 'Zveřejnit teď…', oddel: true, fn: () => otevriPlan(true) });
+      pol.push({ ikona: IKONY.kalendar, text: 'Naplánovat na Instagram…', oddel: !umiMotor('igKrok'), fn: () => otevriPlan(false) });
+    }
+  }
+  if (!p.igPracuje) pol.push({ ikona: IKONY.claude, text: 'Popisek od Clauda', fn: pozadejClauda });
+  if (p.upraveno) pol.push({ ikona: IKONY.obnovit, text: 'Vrátit podle rozlosování', oddel: true, fn: vratPodleRozlosovani });
+  return { nadpis: 'Plakát · ' + P.popisVikendu(s), polozky: pol };
+}
+pripojNabidku(nabidkaPlakatu);

@@ -73,6 +73,39 @@ týmu v kartě Fotbal, předpověď u dne a svátek v kalendáři) – jedna kom
 z obrazovky, v tmavém režimu o stupeň světlejší plocha. Obsah karet skládá `app.js` (`kartaPocasiHtml`, `kartaZdraviHtml`,
 `kartaNeprectenychHtml`) a `krouzky.js` (`kartaKrouzkuHtml`) přes `bubliny.registruj`; prvek dostane `bubliny.karta('druh')`.
 
+**Pravé tlačítko a vyjeté karty po celé aplikaci** (Michal 11. 10.: „jednoduché vychytávky, co by bylo vhodné usnadnit a zrychlit
+tím, že se klikne pravým … denní kroužky a najetí na to se mi líbí“). Nabídka je všude stejná (`js/nabidka.js`; na dotyku dlouhé
+podržení, z klávesnice Shift+F10 / klávesa nabídky, šipky a Enter); skládá ji modul, kterému prvek patří, přes `nabidka.pripoj`.
+Jen akce, které aplikace už má – mazání se ptá nebo má v oznámení Vrátit:
+- **Kalendář a týden na Přehledu** – událost: Otevřít, Upravit, Duplikovat na zítra (Vrátit kopii smaže), Duplikovat na jiný
+  den… (formulář o týden dál), Kopírovat („so 17. 10. 14:30 Název, místo“), Navigovat (Apple Mapy / Mapy Google), Kopírovat
+  místo, Smazat (obyčejná hned s Vrátit – založí ji znovu; opakovaná a s hosty s dotazem; kalendáře z iPhonu jen ke čtení);
+  den: Nová událost / zápas v ten den, Otevřít v Kalendáři, Ukázat týden; **svátek**: přání přes WhatsApp, SMS / iMessage,
+  Kopírovat přání, Přidat / Odebrat z oblíbených (`jmeninyUlozit`).
+- **Fotbal** (Přehled i stránka) – zápas: Rozbalit detail, Tabulka a zápasy, Otevřít na fotbal.cz, Kopírovat výsledek, Plakát
+  k zápasu (Plakáty na tom víkendu), Přidat do kalendáře… (předvyplněný formulář, jen tým, který se do kalendáře nepřidává sám),
+  Navigovat (venku); řádek tabulky: Kopírovat řádek / celou tabulku.
+- **Zdraví** – doplněk: Odškrtnout / Zrušit dnes, včera (ukázaný den), všechny hlavní naráz (oznámení s Vrátit); jídlo:
+  Zopakovat dnes, Přesunout na jiný den…, Kopírovat, Smazat; den v týdnu Pití a jídlo: +0,25 / +0,5 l a jídlo k tomu dni;
+  doplňky v pásku týdne: odškrtnout vše; váha: Kopírovat, Smazat zápis.
+- **Auto** – zápis: Upravit, Zopakovat tankování (stejná cena za litr a stanice) / výdaj, Fotka účtenky, Kopírovat, Smazat jen
+  u posledního zápisu listu (motor jinak nesmí).
+- **Reely a Plakáty** – Kopírovat popisek, Přehrát video / Stáhnout obrázek, Vytisknout, Zveřejnit teď / Naplánovat / Změnit
+  čas / Zrušit plán (jen kde je to tlačítko), Na Instagramu, Označit jako zveřejněné, Popisek od Clauda, Vrátit podle
+  rozlosování. V textu popisku zůstává nabídka prohlížeče (označit a kopírovat ručně).
+- **Karty Přehledu** (myš, klávesnice) – Otevřít stránku a **Obnovit jen tuto část** (s účtem server obnoví jen tu oblast).
+- **Pošta** – navíc Přeposlat, Odpovědět všem (jen u zprávy pro víc lidí), Nový e-mail odesílateli a Kopírovat adresu
+  (z načteného detailu); i pro pracovní poštu WEDOS.
+
+**Vyjeté karty navíc** (myší po najetí, klávesnicí fokusem; kde klepnutí něco dělá – událost, zápas, doplněk, zápis auta –
+na dotyku klepnutí dělá dál svoje a karta je jen myší, `bubliny.karta(druh, jenMys, klic)`): **událost** (čas od–do, místo,
+kalendář, hosté, popis, předpověď, Upravit / Otevřít), **den v měsíci** (co v něm je, i co se do buňky nevešlo, svátek,
+předpověď), **výsledek zápasu** (skóre, poločas, diváci, střelci a karty), **další zápas** (odpočet, místo, předpověď),
+**řádek tabulky** (celkem / doma / venku, forma posledních 5 u nás, zápasy s námi u soupeře), **doplněk** (dávka, kdy, týden
+po dnech), **vážení** (rozdíl proti minulému ve stejnou dobu, plán k cíli), **tankování** (ujeto a spotřeba od minula, Kč/km,
+cena proti průměru), **stav na Instagramu** (kroky s časy) a na Zdraví **Kroužky · tento týden** – 7 dní malých kroužků
+(voda, bílkoviny, pohyb, doplňky), klepnutí / najetí = karta dne jako u kroužků na Přehledu s tlačítkem na Pití a jídlo.
+
 **„1 hoří“ → ten e-mail** (Michal 10. 10.): dlaždice Nepřečtené, „Hoří“ v kartě, „n hoří v poště“ v zelené kartě na telefonu
 i Ukázat v okně Co je nového – hoří-li jeden e-mail, klepnutí ho rovnou otevře (na PC v Poště s filtrem Hoří a e-mailem vedle,
 na užším displeji v panelu), hoří-li víc, otevře Poštu jen s hořícími (`horiAtr`, `otevriHorici` v app.js).
@@ -142,7 +175,8 @@ Klávesy na PC: `j`/`k`, `e` hotovo, `b` beru na vědomí, `h` připomenout, `v`
 **Ať e-maily „nevisí“** (Michal 10. 10.):
 - **Pravé tlačítko na e-mailu** (na iPadu a telefonu dlouhé podržení – v Poště, v kartě Pošta na Dnes i na telefonu na
   Dnes; `js/nabidka.js`): Otevřít, Označit jako přečtené / nepřečtené, Hotovo, Beru na vědomí, Přesunout do skupiny…,
-  Připomenout…, Odpovědět, Vybrat, Spam, Smazat (koš). Bez potvrzování – Hotovo, Spam, Smazat a Beru na vědomí mají
+  Připomenout…, Odpovědět, Odpovědět všem (jen u zprávy pro víc lidí), Přeposlat, Nový e-mail odesílateli a Kopírovat adresu
+  (až je detail načtený – přednačtení), Vybrat, Spam, Smazat (koš). Bez potvrzování – Hotovo, Spam, Smazat a Beru na vědomí mají
   v oznámení **Vrátit**. U pracovní pošty WEDOS nejsou skupiny, Připomenout ani Spam.
 - **Beru na vědomí** = konverzace přestane hořet a čekat na tebe (stav informace, důvod „bereš na vědomí“, v řádku oko,
   v detailu „předtím: Hoří – …“), přečte se a zůstane v Doručené; **nová zpráva** ji vrátí do normálního stavu. Pamatuje

@@ -1,28 +1,38 @@
 // Malá nabídka u kurzoru: pravé tlačítko myši, na dotyku dlouhé podržení (Michal 9. 10.: „když kliknu pravým, tak můžu
 // třeba smazat tu poznámku, aby se mi to tam zbytečně nezobrazovalo, co už je staré nebo jednoduše vyřešené“).
 // Co v ní je, skládají moduly podle prvku, na který se kliklo (schranka.js – položky schránky, moje.js – moje
-// poznámky, posta.js – e-maily); app.js a moduly je připojí přes pripoj(). Zavře se klepnutím vedle, Esc, posunem
-// stránky nebo výběrem položky. Kde žádný modul nabídku nemá (pole, odkazy, text odpovědi), zůstane běžná nabídka prohlížeče.
+// poznámky, posta.js – e-maily; od 11. 10. i kalendar.js – události, dny a svátky, fotbal.js – zápasy a tabulka,
+// zdravi.js – doplňky, jídlo, váha, auto.js – zápisy, reely.js a plakaty.js – příspěvky, app.js – karty Přehledu);
+// app.js a moduly je připojí přes pripoj(). Zavře se klepnutím vedle, Esc, posunem stránky nebo výběrem položky.
+// Kde žádný modul nabídku nemá (pole, odkazy, text odpovědi, označený text), zůstane běžná nabídka prohlížeče.
 
 import { esc } from './pomocne.js';
+import { skryjKartu } from './bubliny.js';
 
 const DRZET_MS = 480;     // dlouhé podržení prstu (iPhone pravé tlačítko nemá a contextmenu neposílá)
 const POSUN_PX = 10;      // prst se pohnul = posouvání stránky, ne podržení
-const zdroje = [];        // fn(prvek) → { nadpis, polozky: [{ ikona, text, fn, nebezpeci }] } | null – první, kdo nabídku má
+// fn(prvek, dotyk) → { nadpis, polozky: [{ ikona, text, fn, nebezpeci, oddel (čára nad položkou) }] } | null – první, kdo nabídku
+// má; dotyk = podržení prstem (nabídka celé karty ho nechce – na kartě se na telefonu označuje text a posouvá stránka)
+const zdroje = [];
 let otevrena = null;      // { el, puvod, kdy }
 let drzeni = null;        // { casovac, x, y }
 let potlacitKlik = 0;     // po dlouhém podržení pošle prohlížeč ještě klepnutí – to se zahodí (jinak by položku rozbalilo)
 
-/** Kdo skládá nabídku: fn(prvek) → nabídka, nebo null (zeptá se dalšího, nakonec běžná nabídka prohlížeče). */
+/** Kdo skládá nabídku: fn(prvek, dotyk) → nabídka, nebo null (zeptá se dalšího, nakonec běžná nabídka prohlížeče). */
 export function pripoj(fn) { if (zdroje.indexOf(fn) < 0) zdroje.push(fn); }
 export function jeOtevrena() { return !!otevrena; }
 
-function nabidkaPro(cil) {
+function nabidkaPro(cil, dotyk) {
   if (!zdroje.length || !cil || !cil.closest) return null;
   // v polích, v odkazech a v rozbaleném textu poznámky nechat nabídku prohlížeče (kopírovat, vložit, otevřít odkaz)
   if (cil.closest('input, textarea, select, [contenteditable="true"], a[href], .detail, .nabidka')) return null;
+  // označený text (myší přes popisek, adresu…) → nabídka prohlížeče s Kopírovat
+  try {
+    const v = window.getSelection && window.getSelection();
+    if (v && !v.isCollapsed && String(v).trim() && v.rangeCount && v.getRangeAt(0).intersectsNode(cil)) return null;
+  } catch (e) { /* bez výběru */ }
   for (let i = 0; i < zdroje.length; i++) {
-    const n = zdroje[i](cil);
+    const n = zdroje[i](cil, !!dotyk);
     if (n && n.polozky && n.polozky.length) return n;
   }
   return null;
@@ -32,12 +42,14 @@ function nabidkaPro(cil) {
  *  dotyk = otevřelo ji podržení prstem (fokus nepřesouvat – zavřela by se klávesnice a s ní okno). */
 export function otevri(x, y, n, puvod, dotyk) {
   zavri();
+  skryjKartu(); // vyjetá karta prvku (js/bubliny.js) by visela pod nabídkou
   const el = document.createElement('div');
   el.className = 'nabidka';
   el.setAttribute('role', 'menu');
   if (n.nadpis) el.setAttribute('aria-label', n.nadpis);
   el.innerHTML = (n.nadpis ? '<div class="nabidka__nadpis">' + esc(n.nadpis) + '</div>' : '') +
-    n.polozky.map((p, i) => '<button type="button" role="menuitem" class="nabidka__polozka' + (p.nebezpeci ? ' nabidka__polozka--nebezpeci' : '') +
+    n.polozky.map((p, i) => (p.oddel && i ? '<hr class="nabidka__oddel">' : '') +
+      '<button type="button" role="menuitem" class="nabidka__polozka' + (p.nebezpeci ? ' nabidka__polozka--nebezpeci' : '') +
       '" data-nabidka-i="' + i + '">' + (p.ikona || '') + '<span>' + esc(p.text) + '</span></button>').join('');
   document.body.appendChild(el);
   // u kurzoru, ale vždy celá na obrazovce (u pravého a dolního okraje se otočí); rozměr bez animace zvětšení
@@ -79,7 +91,7 @@ function zrusDrzeni() {
 // pravé tlačítko (PC), Ctrl+klik (Mac), klávesa nabídky, dlouhé podržení na Androidu
 document.addEventListener('contextmenu', (e) => {
   if (otevrena && otevrena.el.contains(e.target)) { e.preventDefault(); return; }
-  const n = nabidkaPro(e.target);
+  const n = nabidkaPro(e.target, e.pointerType === 'touch'); // Android pošle contextmenu i po podržení prstem
   if (!n) { zavri(true); return; }
   e.preventDefault();
   zrusDrzeni();
@@ -93,13 +105,13 @@ document.addEventListener('contextmenu', (e) => {
 document.addEventListener('pointerdown', (e) => {
   if (otevrena && !otevrena.el.contains(e.target)) zavri(true);
   zrusDrzeni();
-  if (e.pointerType !== 'touch' || !e.isPrimary || !nabidkaPro(e.target)) return;
+  if (e.pointerType !== 'touch' || !e.isPrimary || !nabidkaPro(e.target, true)) return;
   const cil = e.target, x = e.clientX, y = e.clientY;
   drzeni = {
     x, y,
     casovac: setTimeout(() => {
       drzeni = null;
-      const n = cil.isConnected ? nabidkaPro(cil) : null;
+      const n = cil.isConnected ? nabidkaPro(cil, true) : null;
       if (!n) return;
       potlacitKlik = Date.now();
       try { if (navigator.vibrate) navigator.vibrate(10); } catch (chyba) { /* nic */ }
@@ -138,7 +150,11 @@ document.addEventListener('keydown', (e) => {
 }, true);
 
 // posun stránky nebo seznamu, otočení / jiná šířka okna, odchod z aplikace → zavřít (nabídka by visela mimo svůj
-// řádek); výška se mění i s klávesnicí telefonu – ta nabídku nezavírá
-document.addEventListener('scroll', (e) => { if (otevrena && !otevrena.el.contains(e.target)) zavri(true); }, true);
+// řádek); výška se mění i s klávesnicí telefonu – ta nabídku nezavírá. Posun ohlášený hned po otevření (do 150 ms) patří
+// k dojetí na prvek ještě před ním (fokus z klávesnice + Shift+F10 posune stránku k prvku – prohlížeč to ohlásí až ve
+// dalším snímku) a nabídku nezavírá.
+document.addEventListener('scroll', (e) => {
+  if (otevrena && Date.now() - otevrena.kdy > 150 && !otevrena.el.contains(e.target)) zavri(true);
+}, true);
 window.addEventListener('resize', () => { if (otevrena && document.documentElement.clientWidth !== otevrena.sirka) zavri(true); });
 window.addEventListener('blur', () => zavri(true));

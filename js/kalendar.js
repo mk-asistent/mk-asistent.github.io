@@ -3,19 +3,20 @@
 // Nová událost: tlačítko, „+ Přidat“ u dne, klepnutí do volné hodiny v týdnu (formulář v udalost.js).
 // Data z motoru po měsících (mřížka 6 týdnů), uložená i v zařízení pro okamžitý start.
 
-import { stav, zmeneno, hooky, umiMotor } from './stav.js';
+import { stav, zmeneno, hooky, umiMotor, prejdi } from './stav.js';
 import { volej } from './api.js';
 import {
   esc, pulnoc, pridejDny, rozdilDni, zacatekTydne, hhmm, trvani, datumDlouhe, denNadpis, velkePrvni,
-  sOdkazy, uloziste, DNY_KR, MESICE, MESICE_1
+  sOdkazy, uloziste, DNY, DNY_KR, MESICE, MESICE_1, dm, prvniRadek, navigaceNa, otevriOdkaz
 } from './pomocne.js';
 import { otevriPanel, obnovPanel, elementPanelu } from './panely.js';
-import { chybaHtml, segment, hlavickaKarty, toast, prizpusobVysku } from './ui.js';
+import { chybaHtml, segment, hlavickaKarty, toast, prizpusobVysku, kopiruj } from './ui.js';
 import { jmenaDne, oblibeniDne, bezDiakritiky, svatkyOblibenych, pripravOblibene } from './jmeniny.js';
 import { IKONY, ikonaPocasi } from './ikony.js';
 import { predpovedNa, teplota } from './pocasi.js';
-import { bublina } from './bubliny.js';
-import { otevriFormular, akceUdalostiHtml, zapasyHtml, zapisovatelneKalendare } from './udalost.js';
+import { bublina, karta, registruj, hlavaKarty, pataKarty } from './bubliny.js';
+import { pripoj as pripojNabidku } from './nabidka.js';
+import { otevriFormular, akceUdalostiHtml, zapasyHtml, zapisovatelneKalendare, lzeZapisovat, smazUdalostRychle, duplikujUdalost } from './udalost.js';
 import { tymyHtml as fotbalTymyHtml } from './fotbal.js';
 
 const k = stav.kal;
@@ -192,7 +193,7 @@ export function agenda(dni, max) {
     ukazat.forEach((u) => {
       const celyDen = u.celodenni || (u.zacatek < t && u.konec > pridejDny(t, 1));
       const cas = celyDen ? 'celý den' : u.zacatek < t ? 'do ' + hhmm(u.konec) : hhmm(u.zacatek);
-      h += '<li><button type="button" class="agenda__u' + (jeZapas(u) ? ' agenda__u--zapas' : '') + '" data-udalost="' + esc(u.id) + '">' +
+      h += '<li><button type="button" class="agenda__u' + (jeZapas(u) ? ' agenda__u--zapas' : '') + '" data-udalost="' + esc(u.id) + '"' + karta('udalost', true, u.id) + '>' +
         '<span class="agenda__cas cisla">' + cas + '</span><i style="--b:' + esc(u.barva || 'var(--accent)') + '"></i>' +
         '<span class="agenda__nazev">' + esc(u.nazev) + (u.misto ? '<small>' + esc(u.misto) + '</small>' : '') + '</span></button></li>';
       pocet++;
@@ -204,10 +205,10 @@ export function agenda(dni, max) {
 /** Svátek v řádku dne na Dnes: oblíbení ★ výrazně (i se vztahem), jinak jméno z kalendáře šedě. */
 function agendaSvatekHtml(t, svatekObl) {
   if (svatekObl.length) {
-    return '<span class="agenda__svatek agenda__svatek--oblibeny">★ ' + esc(svatekObl.map(popisOblibeneho).join(', ')) + '</span>';
+    return '<span class="agenda__svatek agenda__svatek--oblibeny" data-svatek-den="' + t + '">★ ' + esc(svatekObl.map(popisOblibeneho).join(', ')) + '</span>';
   }
   const j = jmenaDne(t);
-  return j ? '<span class="agenda__svatek"' + bublina('Svátek · ' + DNY_KR[new Date(t).getDay()] + ' ' + new Date(t).getDate() + '. ' + (new Date(t).getMonth() + 1) + '.', j) + '>' + esc(j) + '</span>' : '';
+  return j ? '<span class="agenda__svatek" data-svatek-den="' + t + '"' + bublina('Svátek · ' + DNY_KR[new Date(t).getDay()] + ' ' + new Date(t).getDate() + '. ' + (new Date(t).getMonth() + 1) + '.', j) + '>' + esc(j) + '</span>' : '';
 }
 
 /** Pro hledání: všechny načtené události (bez duplicit). */
@@ -225,6 +226,12 @@ export function najdiUdalost(id) {
     if (u) return u;
   }
   return null;
+}
+
+/** Smazání z nabídky: událost hned zmizí (motor ji maže na pozadí, při chybě se kalendář načte znovu). */
+export function schovejUdalost(id) {
+  Object.keys(k.mesice).forEach((kl) => { k.mesice[kl].udalosti = k.mesice[kl].udalosti.filter((u) => u.id !== id); });
+  zmeneno();
 }
 
 /** Po zápisu do kalendáře: smazanou hned schovat, všechny měsíce načíst znovu, ukázat den změny. */
@@ -252,7 +259,7 @@ export function udalostHtml(u, den) {
   else cas = '<span class="cas cisla">' + hhmm(u.zacatek) + (u.konec > u.zacatek ? '<small>' + (konciPozdeji ? 'dál' : hhmm(u.konec)) + '</small>' : '') + '</span>';
   const probehla = !u.celodenni && u.konec < Date.now();
   const pod = [u.misto, u.kalendar].filter(Boolean).map(esc).join(' · ');
-  return '<li><button type="button" class="udalost' + (probehla ? ' probehla' : '') + '" data-udalost="' + esc(u.id) + '">' + cas +
+  return '<li><button type="button" class="udalost' + (probehla ? ' probehla' : '') + '" data-udalost="' + esc(u.id) + '"' + karta('udalost', true, u.id) + '>' + cas +
     '<span class="udalost-barva" style="--b:' + esc(u.barva || 'var(--accent)') + '"></span>' +
     '<span class="udalost-text"><span class="nazev">' + esc(u.nazev) + '</span>' + (pod ? '<span class="pod">' + pod + '</span>' : '') + '</span></button></li>';
 }
@@ -290,17 +297,17 @@ function svatekDne(den) {
 /** Do nadpisu dne: „svátek Eliška“ (oblíbení mají vlastní řádek v seznamu dne). */
 function svatekVNadpisu(den) {
   const sv = svatekDne(den);
-  return sv.jmeno ? ' <span class="svatek">svátek ' + esc(sv.jmeno) + '</span>' : '';
+  return sv.jmeno ? ' <span class="svatek" data-svatek-den="' + den + '">svátek ' + esc(sv.jmeno) + '</span>' : '';
 }
 
 const maOblibeneho = (den) => svatekDne(den).obl.length > 0;
 
 /** Oblíbený jako celodenní čip sekce Svátky (měsíc, celý den v týdnu). */
-const cipSvatkuHtml = (o) => '<span class="cip-udalost cip-svatek"' + bublina('Svátek', '★ ' + o.jmeno, o.kdo || 'Oblíbení lidé') + '>★ ' + esc(o.jmeno) + '</span>';
+const cipSvatkuHtml = (o, den) => '<span class="cip-udalost cip-svatek" data-svatek-den="' + den + '"' + bublina('Svátek', '★ ' + o.jmeno, o.kdo || 'Oblíbení lidé') + '>★ ' + esc(o.jmeno) + '</span>';
 
 /** Oblíbení jako první řádky seznamu dne (pod Měsícem, Seznam) – vypadají jako celodenní událost sekce Svátky. */
 function svatkyRadkyHtml(den) {
-  return svatekDne(den).obl.map((o) => '<li><div class="udalost udalost--svatek"><span class="cas">svátek</span><span class="udalost-barva"></span>' +
+  return svatekDne(den).obl.map((o) => '<li><div class="udalost udalost--svatek" data-svatek-den="' + den + '"><span class="cas">svátek</span><span class="udalost-barva"></span>' +
     '<span class="udalost-text"><span class="nazev">★ ' + esc(o.jmeno) + '</span><span class="pod">' + esc([o.kdo, 'Svátky'].filter(Boolean).join(' · ')) +
     '</span></span></div></li>').join('');
 }
@@ -478,7 +485,7 @@ function bocniPanelHtml() {
       ? '<ul class="seznam">' + dalsi.map((u) => {
           const den = pulnoc(u.zacatek);
           const kdy = rozdilDni(den) === 0 ? 'dnes' : rozdilDni(den) === 1 ? 'zítra' : DNY_KR[new Date(den).getDay()] + ' ' + new Date(den).getDate() + '. ' + (new Date(den).getMonth() + 1) + '.';
-          return '<li><button type="button" class="udalost udalost--mala" data-udalost="' + esc(u.id) + '"><span class="cas cisla">' + (u.celodenni ? 'celý' : hhmm(u.zacatek)) +
+          return '<li><button type="button" class="udalost udalost--mala" data-udalost="' + esc(u.id) + '"' + karta('udalost', true, u.id) + '><span class="cas cisla">' + (u.celodenni ? 'celý' : hhmm(u.zacatek)) +
             '<small>' + esc(kdy) + '</small></span><span class="udalost-barva" style="--b:' + esc(u.barva) + '"></span>' +
             '<span class="udalost-text"><span class="nazev">' + esc(u.nazev) + '</span>' + (u.misto ? '<span class="pod">' + esc(u.misto) + '</span>' : '') + '</span></button></li>';
         }).join('') + '</ul>'
@@ -510,13 +517,14 @@ function mesicHtml() {
     if (sv.obl.length) tridy.push('svatek-oblibeny');
     const mista = Math.max(1, 3 - sv.obl.length);
     const barvy = Array.from(new Set(ud.map((u) => u.barva))).slice(0, 3);
-    const cipy = sv.obl.map(cipSvatkuHtml).join('') +
-      ud.slice(0, mista).map((u) => '<span class="cip-udalost' + (u.celodenni ? ' celodenni' : '') + '" data-udalost="' + esc(u.id) + '" style="--b:' + esc(u.barva) + '">' +
+    const cipy = sv.obl.map((o) => cipSvatkuHtml(o, den)).join('') +
+      ud.slice(0, mista).map((u) => '<span class="cip-udalost' + (u.celodenni ? ' celodenni' : '') + '" data-udalost="' + esc(u.id) + '"' + karta('udalost', true, u.id) +
+      ' style="--b:' + esc(u.barva) + '">' +
       (u.celodenni || u.zacatek < den ? '' : '<b class="cisla">' + hhmm(u.zacatek) + '</b> ') + esc(u.nazev) + '</span>').join('') +
       (ud.length > mista ? '<span class="cip-vic">+' + (ud.length - mista) + ' další</span>' : '');
     h += '<button type="button" class="' + tridy.join(' ') + '" data-den="' + den + '" aria-label="' + esc(datumDlouhe(den)) + (ud.length ? ', událostí ' + ud.length : '') +
       (sv.obl.length ? ', svátek má ' + esc(sv.obl.map(popisOblibeneho).join(', ')) : sv.jmeno ? ', svátek ' + esc(sv.jmeno) : '') + '"' +
-      (den === vybrany ? ' aria-current="date"' : '') + '>' +
+      (den === vybrany ? ' aria-current="date"' : '') + (ud.length || sv.obl.length || sv.jmeno ? karta('den', true, den) : '') + '>' +
       '<span class="mesic-cislo cisla">' + d.getDate() + pocasiDneHtml(den) + '</span>' +
       (sv.jmeno ? '<span class="svatek svatek--bunka">' + esc(sv.jmeno) + '</span>' : '') +
       (sv.obl.length ? '<span class="svatek svatek--oblibeny svatek--mobil">★ ' + esc(sv.obl.map((o) => o.jmeno).join(', ')) + '</span>' : '') +
@@ -564,8 +572,8 @@ function casovaOsaHtml(dny) {
   const svatky = dny.map((d) => svatekDne(d).obl);
   const celodenni = dny.map((d) => udalostiDne(d).filter((u) => u.celodenni || (u.zacatek <= d && u.konec >= pridejDny(d, 1))));
   if (celodenni.some((a) => a.length) || svatky.some((a) => a.length)) {
-    h += '<div class="cas-celodenni" ' + sloupce + '><span class="cas-popisek">celý den</span>' + celodenni.map((a, i) => '<div>' + svatky[i].map(cipSvatkuHtml).join('') +
-      a.map((u) => '<button type="button" class="cip-udalost celodenni" data-udalost="' + esc(u.id) + '" style="--b:' + esc(u.barva) + '">' + esc(u.nazev) + '</button>').join('') +
+    h += '<div class="cas-celodenni" ' + sloupce + '><span class="cas-popisek">celý den</span>' + celodenni.map((a, i) => '<div>' + svatky[i].map((o) => cipSvatkuHtml(o, dny[i])).join('') +
+      a.map((u) => '<button type="button" class="cip-udalost celodenni" data-udalost="' + esc(u.id) + '"' + karta('udalost', true, u.id) + ' style="--b:' + esc(u.barva) + '">' + esc(u.nazev) + '</button>').join('') +
       '</div>').join('') + '</div>';
   }
   h += '<div class="cas-mrizka' + (zapisovatelneKalendare().length ? ' lze-zapisovat' : '') + '" style="--dnu:' + dny.length + ';--hodina:' + HODINA + 'px"' +
@@ -578,7 +586,7 @@ function casovaOsaHtml(dny) {
     rozloz(casove, d, konecDne).forEach((p) => {
       const nahore = hodinyOd(p.z, d) * HODINA;
       const vyska = Math.max((hodinyOd(p.k, d) - hodinyOd(p.z, d)) * HODINA - 2, 22);
-      h += '<button type="button" class="cas-udalost' + (p.u.konec < Date.now() ? ' probehla' : '') + '" data-udalost="' + esc(p.u.id) + '" style="top:' + nahore + 'px;height:' + vyska + 'px;' +
+      h += '<button type="button" class="cas-udalost' + (p.u.konec < Date.now() ? ' probehla' : '') + '" data-udalost="' + esc(p.u.id) + '"' + karta('udalost', true, p.u.id) + ' style="top:' + nahore + 'px;height:' + vyska + 'px;' +
         'left:calc(' + p.sloupec + ' * 100% / ' + p.sloupcu + ');width:calc(100% / ' + p.sloupcu + ' - 3px);--b:' + esc(p.u.barva) + '">' +
         '<b>' + esc(p.u.nazev) + '</b><small class="cisla">' + hhmm(p.u.zacatek) + '–' + hhmm(p.u.konec) + (p.u.misto ? ' · ' + esc(p.u.misto) : '') +
         (hooky.dochazkaKratce && hooky.dochazkaKratce(p.u) ? ' · ' + IKONY.lide + hooky.dochazkaKratce(p.u) : '') + '</small></button>';
@@ -962,3 +970,172 @@ export function pripravGesta(el) {
   });
   SIROKY.addEventListener('change', () => { posunOsy = null; zmeneno(); });
 }
+
+// ---------------------------------------------------------------- pravé tlačítko a vyjeté karty (Michal 11. 10.: „jednoduché
+// vychytávky, co by bylo vhodné usnadnit a zrychlit tím, že se klikne pravým … denní kroužky a najetí na to se mi líbí“)
+// Nabídka (js/nabidka.js; na dotyku dlouhé podržení): událost – Otevřít, Upravit, Duplikovat, Kopírovat, Navigovat,
+// Smazat (s Vrátit); den – Nová událost / zápas v ten den; svátek – přání přes WhatsApp / SMS, kopírovat, oblíbení.
+// Vyjetá karta (js/bubliny.js) jen myší a klávesnicí – na dotyku klepnutí dál otevře událost / vybere den.
+
+const SVATEK_PRVKY = '[data-svatek-den], .svatek--bunka, .svatek--hlava, .brzy__radek';
+const PRANI = 'Všechno nejlepší k svátku! 🎉';
+const APPLE = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
+
+/** „so 17. 10. 14:30 Vnorovy – Milotice, Vnorovy“ (celodenní „so 17. 10. celý den …“). */
+export function textUdalosti(u) {
+  return denKratce(u.zacatek) + ' ' + (u.celodenni ? 'celý den' : hhmm(u.zacatek)) + ' ' + u.nazev + (u.misto ? ', ' + u.misto : '');
+}
+
+/** Den prvku (půlnoc v ms): data-svatek-den, buňka měsíce / den v týdnu (data-den), den v týdnu na Přehledu (data-skoc-den). */
+function denPrvku(el) {
+  const x = el.closest('[data-svatek-den], [data-den], [data-skoc-den], [data-den-osa]');
+  if (!x) return null;
+  const t = Number(x.dataset.svatekDen || x.dataset.den || x.dataset.skocDen || x.dataset.denOsa);
+  return t > 0 ? pulnoc(t) : null;
+}
+
+function ukazDen(den, pohled) {
+  k.vybrany = den;
+  if (pohled) { k.pohled = pohled; uloziste.pis('asistent.kal.pohled', pohled); }
+  posunOsy = null;
+  nactiKalendar();
+  prejdi('kalendar');
+  zmeneno();
+}
+
+/** Oblíbení (jmeniny) přidat / odebrat jedním uložením (motor jmeninyUlozit) – bez okna. */
+function zmenOblibene(seznam, zprava) {
+  volej('jmeninyUlozit', { oblibeni: seznam })
+    .then((s) => {
+      stav.info = Object.assign({}, stav.info, { jmeniny: s || [] });
+      uloziste.pis('asistent.info', stav.info);
+      toast(zprava);
+      poZmeneZobrazeni();
+    })
+    .catch((e) => toast(e.message, true));
+}
+
+/** Položky nabídky ke svátku dne: přání (WhatsApp, SMS / iMessage, kopírovat) a oblíbení (přidat / odebrat). */
+function polozkySvatku(den) {
+  const obl = oblibeni();
+  const oblDne = oblibeniDne(den, obl);
+  const jmena = jmenaDne(den).split(',').map((x) => x.trim()).filter(Boolean);
+  if (!jmena.length && !oblDne.length) return [];
+  const p = [
+    { ikona: IKONY.odeslat, text: 'Přání přes WhatsApp', fn: () => otevriOdkaz('https://wa.me/?text=' + encodeURIComponent(PRANI)) },
+    { ikona: IKONY.posta, text: 'Přání přes SMS / iMessage', fn: () => otevriOdkaz('sms:' + (APPLE ? '&' : '?') + 'body=' + encodeURIComponent(PRANI)) },
+    { ikona: IKONY.kopirovat, text: 'Kopírovat přání', fn: () => kopiruj(PRANI, 'Přání zkopírované – vlož ho do zprávy') }
+  ];
+  if (!umiMotor('jmeninyUlozit')) return p;
+  oblDne.forEach((o) => p.push({ ikona: HVEZDA, text: 'Odebrat z oblíbených: ' + popisOblibeneho(o),
+    fn: () => zmenOblibene(oblibeni().filter((x) => !(x.jmeno === o.jmeno && (x.kdo || '') === (o.kdo || ''))), 'Odebráno z oblíbených: ' + o.jmeno) }));
+  jmena.filter((j) => !oblDne.some((o) => bezDiakritiky(o.jmeno) === bezDiakritiky(j))).forEach((j) => p.push({ ikona: HVEZDA, text: 'Přidat do oblíbených: ' + j,
+    fn: () => (oblibeni().length >= 60 ? toast('Oblíbených může být nejvýš 60.', true) : zmenOblibene(oblibeni().concat({ jmeno: j, kdo: '' }), '★ ' + j + ' – svátek uvidíš v kalendáři i na Přehledu')) }));
+  return p;
+}
+
+/** Den: nová událost a zápas v ten den, na Přehledu otevřít v Kalendáři, v měsíci ukázat týden. */
+function polozkyDne(den, el) {
+  const p = [];
+  if (zapisovatelneKalendare().length) {
+    p.push({ ikona: IKONY.plus, text: 'Nová událost v tento den', fn: () => otevriFormular({ den }) });
+    p.push({ ikona: IKONY.zapas, text: 'Nový zápas v tento den', fn: () => otevriFormular({ typ: 'zapas', den }) });
+  }
+  if (!el.closest('#p-kalendar')) p.push({ ikona: IKONY.kalendar, text: 'Otevřít v Kalendáři', fn: () => ukazDen(den) });
+  else if (k.pohled === 'mesic') p.push({ ikona: IKONY.kalendar, text: 'Ukázat týden', fn: () => ukazDen(den, 'tyden') });
+  return p;
+}
+
+function nabidkaUdalosti(id) {
+  const u = najdiUdalost(id);
+  if (!u) return null;
+  const zapis = lzeZapisovat(u);
+  const p = [{ ikona: IKONY.info, text: 'Otevřít', fn: () => otevriUdalost(id) }];
+  if (zapis) p.push({ ikona: IKONY.psat, text: 'Upravit', fn: () => otevriFormular({ udalost: id }) });
+  if (zapis) p.push({ ikona: IKONY.plus, text: 'Duplikovat na zítra', fn: () => duplikujUdalost(id, 1) });
+  if (zapisovatelneKalendare().length) {
+    // jiný den: formulář předvyplněný na stejný čas za týden – datum a čas se dají změnit, uloží se až Uložit
+    p.push({ ikona: IKONY.kalendar, text: 'Duplikovat na jiný den…', fn: () => otevriFormular({ navrh: { nazev: u.nazev, zacatek: pridejDny(u.zacatek, 7),
+      konec: pridejDny(u.konec, 7), celodenni: !!u.celodenni, misto: u.misto || '', popis: u.popis || '', hoste: [], pozvat: false } }) });
+  }
+  p.push({ ikona: IKONY.kopirovat, text: 'Kopírovat', oddel: true, fn: () => kopiruj(textUdalosti(u)) });
+  navigaceNa(u.misto).forEach((n) => p.push({ ikona: IKONY.misto, text: n.text, fn: () => otevriOdkaz(n.url) }));
+  if (u.misto) p.push({ ikona: IKONY.kopirovat, text: 'Kopírovat místo', fn: () => kopiruj(u.misto) });
+  if (zapis) p.push({ ikona: IKONY.smazat, text: u.opakovana || (u.hoste && u.hoste.length) ? 'Smazat…' : 'Smazat', nebezpeci: true, oddel: true, fn: () => smazUdalostRychle(id) });
+  return { nadpis: prvniRadek(denKratce(u.zacatek) + (u.celodenni ? '' : ' ' + hhmm(u.zacatek)) + ' · ' + u.nazev, 70), polozky: p };
+}
+
+/** Nabídka Kalendáře a týdne na Přehledu: událost, svátek, den. */
+export function nabidkaKalendare(cil) {
+  const ud = cil.closest('[data-udalost]');
+  if (ud) return nabidkaUdalosti(ud.dataset.udalost);
+  const sv = cil.closest(SVATEK_PRVKY);
+  const denEl = sv || cil.closest('#p-kalendar [data-den], [data-skoc-den], #p-kalendar .kal-den__hlava');
+  if (!denEl) return null;
+  const den = denPrvku(denEl) || (denEl.closest('#p-kalendar') ? pulnoc(k.vybrany) : null);
+  if (den == null) return null;
+  const svatek = polozkySvatku(den), dny = polozkyDne(den, denEl);
+  // na svátku nejdřív přání, jinde nejdřív nová událost
+  const p = sv ? svatek.concat(dny.map((x, i) => (i ? x : Object.assign({}, x, { oddel: true })))) : dny.concat(svatek.map((x, i) => (i ? x : Object.assign({}, x, { oddel: true }))));
+  if (!p.length) return null;
+  const obl = oblibeniDne(den, oblibeni());
+  return { nadpis: velkePrvni(DNY[new Date(den).getDay()]) + ' ' + dm(den) + (obl.length ? ' · ★ ' + obl.map(popisOblibeneho).join(', ') : jmenaDne(den) ? ' · svátek ' + jmenaDne(den) : ''),
+    polozky: p };
+}
+pripojNabidku(nabidkaKalendare);
+
+// ---- vyjeté karty
+
+const ikonaKarty = (barva, ikona) => '<span class="bk-ikona" style="--o:' + (/^(#[0-9a-f]{3,8}|var\(--[a-z-]+\))$/i.test(barva || '') ? barva : 'var(--o-kalendar)') + '">' + ikona + '</span>';
+const radekKarty = (ikona, html) => '<li>' + ikona + '<span>' + html + '</span></li>';
+
+function kdyRelativne(t) {
+  const r = rozdilDni(t);
+  return r === 0 ? 'dnes' : r === 1 ? 'zítra' : r === -1 ? 'včera' : denKratce(t);
+}
+
+/** Karta události: čas od–do, název, místo, kalendář, hosté, popis, předpověď; Otevřít / Upravit. */
+function kartaUdalostiHtml(el) {
+  const u = najdiUdalost(el.dataset.udalost);
+  if (!u) return '';
+  const vicedenni = u.celodenni ? pulnoc(pridejDny(u.konec, -1)) > pulnoc(u.zacatek) : pulnoc(u.konec - 1) > pulnoc(u.zacatek);
+  const cas = u.celodenni ? 'Celý den' : hhmm(u.zacatek) + '–' + hhmm(u.konec);
+  const radky = [];
+  if (vicedenni) radky.push(radekKarty(IKONY.kalendar, esc(kdyUdalosti(u))));
+  else if (!u.celodenni && u.konec > u.zacatek) radky.push(radekKarty(IKONY.cas, esc(trvani(u.konec - u.zacatek))));
+  if (u.misto) radky.push(radekKarty(IKONY.misto, esc(u.misto)));
+  radky.push(radekKarty('<i class="bk-tecka" style="--b:' + esc(u.barva || 'var(--accent)') + '"></i>', esc((u.kalendar || 'Kalendář') +
+    (u.zdroj === 'icloud' ? ' · iPhone' : '') + (u.opakovana ? ' · opakuje se' : ''))));
+  if (u.hoste && u.hoste.length) radky.push(radekKarty(IKONY.lide, esc(u.hoste.slice(0, 4).join(', ') + (u.hoste.length > 4 ? ' a další ' + (u.hoste.length - 4) : ''))));
+  const pr = u.konec > Date.now() ? predpovedNa(u.zacatek) : null;
+  if (pr) radky.push(radekKarty(ikonaPocasi(pr.ikona), esc(pr.uvod + (teplota(pr) ? ', ' + teplota(pr) : ''))));
+  const dochazka = hooky.dochazkaKratce && hooky.dochazkaKratce(u);
+  if (dochazka) radky.push(radekKarty(IKONY.lide, 'docházka ' + esc(dochazka)));
+  const popis = u.popis ? '<p class="bk-popis">' + esc(prvniRadek(u.popis.replace(/\s*\n\s*/g, ' · '), 200)) + '</p>' : '';
+  return hlavaKarty(ikonaKarty(u.barva, jeZapas(u) ? IKONY.zapas : IKONY.kalendar), velkePrvni(kdyRelativne(u.zacatek)) + (vicedenni || u.celodenni ? '' : ' · ' + DNY_KR[new Date(u.zacatek).getDay()]),
+    esc(cas), '<b class="bk-nazev">' + esc(u.nazev) + '</b>') +
+    '<ul class="bk-radky">' + radky.join('') + '</ul>' + popis +
+    pataKarty([lzeZapisovat(u) ? ['data-upravit-udalost="' + esc(u.id) + '"', 'Upravit'] : null, ['data-udalost="' + esc(u.id) + '"', 'Otevřít', true]]);
+}
+
+/** Karta dne v měsíci: co v něm je (i to, co se do buňky nevešlo), svátek, předpověď; Nová událost. */
+function kartaDneHtml(el) {
+  const den = Number(el.dataset.kartaKlic || el.dataset.den);
+  if (!(den > 0)) return '';
+  const ud = udalostiDne(den);
+  const sv = svatekDne(den);
+  const veta = sv.obl.length ? '★ ' + esc(sv.obl.map(popisOblibeneho).join(', ')) : sv.jmeno ? 'svátek ' + esc(sv.jmeno) : '';
+  const pr = predpovedNa(den + 12 * 36e5);
+  let h = hlavaKarty(ikonaKarty('', IKONY.kalendar), velkePrvni(DNY[new Date(den).getDay()]) + ' ' + dm(den),
+    ud.length ? ud.length + '<small> ' + (ud.length === 1 ? 'událost' : ud.length < 5 ? 'události' : 'událostí') + '</small>' : 'Volno', veta,
+    pr ? '<span class="bk-pocasi">' + ikonaPocasi(pr.ikona) + '<small>' + esc(teplota(pr) || pr.uvod || '') + '</small></span>' : '');
+  if (ud.length) {
+    h += '<ul class="bk-seznam">' + ud.slice(0, 8).map((u) => '<li><span class="cisla">' + (u.celodenni || u.zacatek < den ? 'celý den' : hhmm(u.zacatek)) + '</span>' +
+      '<i class="bk-tecka" style="--b:' + esc(u.barva || 'var(--accent)') + '"></i><b>' + esc(u.nazev) + '</b></li>').join('') + '</ul>' +
+      (ud.length > 8 ? '<p class="bk-popis">a další ' + (ud.length - 8) + '</p>' : '');
+  }
+  return h + (zapisovatelneKalendare().length ? pataKarty([['data-nova-udalost="' + den + '"', 'Nová událost']]) : '');
+}
+
+registruj('udalost', kartaUdalostiHtml);
+registruj('den', kartaDneHtml);

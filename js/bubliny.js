@@ -131,8 +131,12 @@ const obsahy = {}; // druh → fn(prvek) → HTML obsahu karty ('' = karta se ne
 /** Obsah karty pro prvky s karta(druh); fn dostane prvek a vrátí HTML ('' = nic neukázat, prvek se chová jako dřív). */
 export function registruj(druh, fn) { obsahy[druh] = fn; }
 
-/** Atribut prvku, u kterého vyjede karta. */
-export function karta(druh) { return ' data-karta="' + esc(druh) + '"'; }
+/** Atribut prvku, u kterého vyjede karta. jenMys = prvek má vlastní klepnutí (otevře událost, rozbalí zápas, odškrtne
+ *  doplněk) – karta jen myší a klávesnicí, na dotyku klepnutí dělá dál svoje (místo karty je tam dlouhé podržení = nabídka).
+ *  klic = která položka seznamu (id události, zápasu…) – po překreslení se karta drží té samé, ne první stejného druhu. */
+export function karta(druh, jenMys, klic) {
+  return ' data-karta="' + esc(druh) + '"' + (jenMys ? ' data-karta-mys' : '') + (klic != null && klic !== '' ? ' data-karta-klic="' + esc(klic) + '"' : '');
+}
 
 /** Hlavička karty: čtverec s ikonou (barva oblasti --o; hotový prvek „<span class="bk-…“ jde rovnou), malý nadpis
  *  verzálkami, velká hodnota a věta; vpravo nepovinně. hodnota a veta jsou HTML (volající je ošetří). */
@@ -227,8 +231,9 @@ function umistiKartu() {
 export function obnovKartu() {
   if (!kartaKotva || !kartaEl || kartaEl.hidden) return;
   if (!kartaKotva.isConnected) {
-    const druh = kartaKotva.dataset.karta;
-    const novy = Array.prototype.find.call(document.querySelectorAll('[data-karta]'), (x) => x.dataset.karta === druh && viditelny(x));
+    // stejný druh – a v seznamech (události, zápasy, doplňky) i stejná položka (data-karta-klic)
+    const druh = kartaKotva.dataset.karta, klic = kartaKotva.dataset.kartaKlic;
+    const novy = Array.prototype.find.call(document.querySelectorAll('[data-karta]'), (x) => x.dataset.karta === druh && x.dataset.kartaKlic === klic && viditelny(x));
     if (!novy) { skryjKartu(); return; }
     kartaKotva = novy;
     novy.setAttribute('aria-expanded', 'true');
@@ -301,7 +306,7 @@ function naslouchej() {
     const el = kartaZ(e.target);
     if (el && !vKarte(e.target)) {
       const puvod = puvodKliku(e);
-      if (puvod === 'touch' || puvod === 'pen') {
+      if ((puvod === 'touch' || puvod === 'pen') && !el.hasAttribute('data-karta-mys')) {
         if (el === kartaKotva && kartaVidet()) { e.preventDefault(); e.stopImmediatePropagation(); skryjKartu(); return; }
         if (ukazKartu(el, true)) { e.preventDefault(); e.stopImmediatePropagation(); }
         return;
