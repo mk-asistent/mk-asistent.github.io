@@ -991,6 +991,64 @@ a.reel__nahled:hover .reel__play { background: var(--limetka); }
 .reel__chyba { margin: 6px 0 0; font-size: 12.5px; color: var(--danger); }
 .reel__upraveno { align-self: flex-start; margin-top: 6px; }
 .reel-plan__popisek { min-height: 220px; }
+/* Instagram – průběh zveřejňování (js/ig.js, js/ig_prubeh.js): svislé kroky s časy, zaseknutí s tlačítkem, karta na Přehledu.
+   Hotové kroky zelené s fajfkou, aktuální fialový (barva plánu na Instagram) a pulzuje, chyba korálová, varování žluté. */
+.ig-prubeh { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft); }
+.ig-prubeh--zasek { border-color: color-mix(in srgb, var(--zluta) 40%, var(--line)); }
+.ig-kroky { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ig-krok { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; column-gap: 10px; align-items: start; padding: 0 0 10px; }
+.ig-krok:last-child { padding-bottom: 0; }
+.ig-krok:not(:last-child)::before { content: ''; position: absolute; left: 10px; top: 24px; bottom: 2px; width: 2px; border-radius: 1px; background: var(--line); }
+.ig-krok--hotovo:not(:last-child)::before { background: var(--ok); }
+.ig-krok__bod { width: 22px; height: 22px; display: grid; place-items: center; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--sand-2);
+  background: var(--surface); color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1; }
+.ig-krok__bod svg { width: 12px; height: 12px; stroke-width: 2.6; }
+.ig-krok--hotovo .ig-krok__bod { border-color: var(--ok); background: var(--ok); color: #fff; }
+.ig-krok--ted .ig-krok__bod { border-color: var(--fialova); color: var(--fialova); box-shadow: 0 0 0 4px var(--fialova-tint); animation: ig-puls 1.6s ease-in-out infinite; }
+.ig-krok--chyba .ig-krok__bod { border-color: var(--danger); background: var(--danger); color: #fff; }
+.ig-krok--varovani .ig-krok__bod { border-color: var(--zluta); background: var(--zluta); color: #fff; }
+@keyframes ig-puls { 50% { box-shadow: 0 0 0 7px transparent; } }
+@media (prefers-reduced-motion: reduce) { .ig-krok--ted .ig-krok__bod { animation: none; } }
+.ig-krok__text { min-width: 0; display: flex; flex-direction: column; gap: 1px; padding-top: 2px; }
+.ig-krok__text b { font-size: 13px; font-weight: 600; line-height: 1.3; color: var(--text-soft); }
+.ig-krok--ceka .ig-krok__text b { font-weight: 500; color: var(--dim); }
+.ig-krok--ted .ig-krok__text b { font-weight: 700; color: var(--fialova); }
+.ig-krok--chyba .ig-krok__text b, .ig-krok--chyba .ig-krok__text small { color: var(--danger); }
+.ig-krok--varovani .ig-krok__text small { color: var(--zluta-text); }
+.ig-krok__text small { font-size: 12px; line-height: 1.35; color: var(--muted); overflow-wrap: anywhere; }
+.ig-krok__cas { padding-top: 3px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ig-krok--ceka .ig-krok__cas { color: var(--dim); }
+.ig-prubeh__info { margin: 0; font-size: 12px; color: var(--muted); }
+.ig-zasek, .ig-prubeh__spoustec { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; padding: 8px 10px; border-radius: 10px;
+  background: var(--zluta-tint); color: var(--zluta-text); font-size: 12.5px; line-height: 1.4; }
+.ig-zasek > svg, .ig-prubeh__spoustec > svg { flex: none; width: 15px; height: 15px; }
+.ig-zasek > span, .ig-prubeh__spoustec > span { flex: 1; min-width: 12em; }
+.ig-zasek--chyba { background: var(--danger-tint); color: var(--danger); }
+.ig-zasek .btn { border-radius: 999px; }
+/* Přehled: karta Instagramu (nad „Reel k vyvěšení“) */
+.dl-reel { display: flex; flex-direction: column; gap: 16px; }
+.ig-karta__sipka { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--text-soft); }
+.ig-karta__sipka svg { width: 14px; height: 14px; }
+.ig-karta__telo { display: flex; flex-direction: column; gap: 6px; padding: 4px 16px 14px; }
+.ig-karta__nazev { font-size: 15px; font-weight: 700; line-height: 1.3; letter-spacing: -.01em; }
+.ig-karta__krok { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ig-karta__stav { font-size: 13px; font-weight: 650; color: var(--fialova); }
+.ig-karta__stav--chyba { color: var(--danger); }
+.ig-karta__stav--hotovo { color: var(--ok); }
+.ig-karta__stav--zasek { color: var(--zluta-text); }
+.ig-karta__poradi { margin-left: auto; font-size: 12px; color: var(--muted); }
+.ig-tecky { display: inline-flex; align-items: center; gap: 4px; }
+.ig-tecka { width: 8px; height: 8px; border-radius: 50%; background: var(--sand-2); }
+.ig-tecka--hotovo { background: var(--ok); }
+.ig-tecka--ted { background: var(--fialova); box-shadow: 0 0 0 3px var(--fialova-tint); }
+.ig-tecka--chyba { background: var(--danger); }
+.ig-tecka--varovani { background: var(--zluta); }
+.ig-karta__popis { font-size: 12.5px; line-height: 1.4; color: var(--muted); }
+.ig-karta--zasek .ig-karta__popis { color: var(--zluta-text); }
+.ig-karta__akce { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.ig-karta__akce .btn { border-radius: 999px; }
+/* okno plánu: Kdy – Naplánovat / Teď */
+.rp-kdy { display: flex; flex-direction: column; gap: 6px; }
 .auto-hlaseni { padding-bottom: 6px; }
 .auto-hlaseni__pozn { margin: 0 16px 10px; font-size: 12.5px; color: var(--muted); }
 .reely-napoveda { margin: 2px 2px 0; }
@@ -1020,6 +1078,7 @@ a.reel__nahled:hover .reel__play { background: var(--limetka); }
     .reel__akce { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
     .reel__akce > [data-reel-kopirovat], .reel__akce > [data-reel-kopirovat] + :last-child, .reel__akce > :only-child,
     .reel__akce > .reel__plan-cele { grid-column: 1 / -1; } /* Naplánovat na Instagram se do půlky nevešlo */
+    .reel__chyba, .ig-prubeh { grid-column: 1 / -1; } /* průběh zveřejňování přes celou šířku karty */
     .reel__akce .btn { min-width: 0; padding: 0 10px; }
 }
 /* počasí: příštích 12 hodin (Open-Meteo) */

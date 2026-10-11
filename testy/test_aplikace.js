@@ -239,6 +239,33 @@ const motor = {
     return { plan: JSON.parse(JSON.stringify(plakatyData.plan)) };
   },
   plakatZrusitPlan: (d) => { delete plakatyData.plan[d.tyden]; return { plan: JSON.parse(JSON.stringify(plakatyData.plan)) }; },
+  // průběh zveřejňování na Instagram (motor 2026-10-11.2): igStav jen čte, igKrok posune o fázi jako motor po krocích
+  // (reel: ceka → zpracovává → hotovo; plakát – obrázek – rovnou hotovo); igZaseknuto = Instagram video pořád zpracovává
+  igStav: () => igPrehled(),
+  igKrok: (d) => {
+    igKroky.push({ typ: d.typ, id: d.id, ted: !!d.ted, znovu: !!d.znovu });
+    const plan = d.typ === 'plakat' ? plakatyData.plan : reelyPlan;
+    if (!plan[d.id]) throw new Error('Příspěvek není v plánu – naplánuj ho znovu.');
+    const t = Date.now();
+    const z = plan[d.id];
+    if (d.ted && z.stav === 'ceka') z.kdy = Math.min(z.kdy, t);
+    if (d.znovu && z.stav !== 'hotovo' && z.stav !== 'ceka') plan[d.id] = { kdy: t, stav: 'ceka', pribeh: z.pribeh, oznacit: z.oznacit };
+    const x = plan[d.id];
+    const k = (x.kroky = x.kroky || {});
+    const hotovo = () => {
+      Object.assign(k, { zverejnuji: t, hotovo: t }, x.pribeh ? { pribeh: t } : {});
+      Object.assign(x, { stav: 'hotovo', zverejneno: t, odkaz: 'https://www.instagram.com/reel/TEST' + d.typ + '/', kontejner: '', mediaPribeh: x.pribeh ? 'media-2' : '', pribehChyba: '' });
+      delete x.stavIg;
+      if (d.typ === 'reel') reelyZverejneno[d.id] = iso(t);
+    };
+    if (x.stav === 'ceka' && x.kdy <= t + 60e3) {
+      Object.assign(x, { stav: 'nahrava', kontejner: 'kontejner-1', stavIg: 'IN_PROGRESS', kontrola: t });
+      Object.assign(k, { priprava: t, zpracovani: t });
+      if (d.typ === 'plakat') hotovo();
+    } else if ((x.stav === 'nahrava' || x.stav === 'zverejnuji') && !igZaseknuto) hotovo();
+    else if (x.stav === 'nahrava') x.kontrola = t;
+    return igPrehled();
+  },
   // auto: tabulka s vymyšlenými čísly (spotřeba 125 l na 2 900 km = 4,3 l/100 km, palivo 4 400 Kč / 2 900 km = 1,52 Kč/km)
   auto: () => JSON.parse(JSON.stringify(autoData)),
   autoNastavit: () => JSON.parse(JSON.stringify(autoData)),
@@ -364,6 +391,11 @@ const autoData = {
 };
 let reelyZverejneno = {};
 const reelyPlan = {}, reelyPopisky = {}, reelyNaplanovano = [];
+// průběh zveřejňování na Instagram: volání igKrok, „Instagram video pořád zpracovává“, kdy naposledy běžel spouštěč (0 = před 4 min)
+const igKroky = [];
+let igZaseknuto = false, igSpoustec = 0;
+const igPrehled = () => JSON.parse(JSON.stringify({ ted: Date.now(), spoustec: igSpoustec || Date.now() - 4 * 60e3, reely: reelyPlan, plakaty: plakatyData.plan,
+  zverejneno: reelyZverejneno, popiskyPlanu: reelyPopisky }));
 let vahaZaznamy = [];
 let pocasiDomov = null; // domov pro počasí (akce pocasiDomov)
 let kalendarPrazdny = false;  // test prázdného týdne na Dnes (žádné události)
@@ -4288,6 +4320,168 @@ function vychoziVikendTestu() {
     await ctx.close();
   });
 
+
+  // ---------- Instagram: Zveřejnit teď, průběh s časy (aplikace ho posouvá sama), karta na Přehledu (Michal 11. 10.)
+  await test('Reely: Zveřejnit teď – okno bez času, kroky s časy, aplikace posouvá průběh sama, hotovo s odkazem i na Přehledu', async () => {
+    Object.keys(reelyPlan).forEach((k) => delete reelyPlan[k]);
+    reelyZverejneno = {};
+    igKroky.length = 0;
+    igZaseknuto = false;
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="reely"]');
+      const R = '[data-reel="reel_dorost_tesany"] ';
+      await page.waitForSelector(R + '[data-reel-hned]');
+      jistota(await page.locator(R + '[data-reel-naplanovat]').count() === 1, 'vedle Zveřejnit teď i Naplánovat');
+      await page.click(R + '[data-reel-hned]');
+      const O = '[data-panel="reel-plan"] ';
+      await page.waitForSelector(O + '[data-rp-kdy-volba="ted"][aria-pressed="true"]');
+      jistota(!(await page.locator(O + '[data-rp="kdy"]').count()), 'u Teď se čas nevybírá');
+      jistota(/Zveřejnit teď/.test(await page.textContent(O + '[data-rp-ulozit]')) && /Zveřejnit na Instagram/.test(await page.textContent('[data-panel="reel-plan"] .panel-titul')), 'tlačítko a titulek');
+      // přepnout na Naplánovat a zpátky – čas se objeví a zmizí, rozepsané označení zůstane
+      await page.fill(O + '[data-rp="oznacit"]', '@dorost_agro, @klub_test');
+      await page.click(O + '[data-rp-kdy-volba="cas"]');
+      await page.waitForSelector(O + '[data-rp="kdy"]');
+      await page.click(O + '[data-rp-kdy-volba="ted"]');
+      await page.waitForFunction(() => !document.querySelector('[data-panel="reel-plan"] [data-rp="kdy"]'));
+      jistota(await page.inputValue(O + '[data-rp="oznacit"]') === '@dorost_agro, @klub_test', 'označení zůstalo');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_reel_zverejnit_ted.png') });
+      const pred = Date.now();
+      await page.click(O + '[data-rp-ulozit]');
+      // plán na teď + hned první krok (igKrok s ted) – nečeká se na čas ani na spouštěč
+      await cekej(() => igKroky.some((x) => x.id === 'reel_dorost_tesany' && x.ted), 6000, 'igKrok s ted');
+      const z = reelyNaplanovano[reelyNaplanovano.length - 1] || {};
+      jistota(z.id === 'reel_dorost_tesany' && z.kdy >= pred - 1000 && z.kdy <= Date.now() && z.pribeh === true, 'plán na teď: ' + JSON.stringify(z));
+      await page.waitForFunction((r) => /Instagram zpracovává/.test((document.querySelector(r + '.ig-krok--ted[aria-current="step"]') || {}).textContent || ''), R);
+      let kroky = (await page.textContent(R + '.ig-kroky')).replace(/\s+/g, ' ');
+      jistota(/Naplánováno/.test(kroky) && /Příprava videa/.test(kroky) && /Instagram zpracovává/.test(kroky) && /Příběh/.test(kroky) && /Na Instagramu/.test(kroky), 'kroky: ' + kroky);
+      jistota(/Instagram zpracovává/.test(await page.textContent(R + '.ig-krok--ted')), 'aktuální krok: ' + await page.textContent(R + '.ig-krok--ted'));
+      jistota(await page.locator(R + '.ig-krok--hotovo').count() === 2, 'hotové kroky: naplánováno a příprava');
+      jistota(/poslední kontrola na Instagramu před chvílí/.test(await page.textContent(R + '.ig-prubeh__info')), 'řádek s kontrolou');
+      jistota(/zveřejňuje se na Instagram/.test(await page.textContent(R + '.reel__stitky')), 'štítek: ' + await page.textContent(R + '.reel__stitky'));
+      await page.locator(R).screenshot({ path: path.join(VYSTUP, 'pc_reel_prubeh.png') });
+      // aplikace se za ~15 s sama zeptá motoru (igKrok) – reel vyjde a ukáže se odkaz
+      await page.waitForSelector(R + 'a[href="https://www.instagram.com/reel/TESTreel/"]', { timeout: 25000 });
+      jistota(igKroky.filter((x) => x.id === 'reel_dorost_tesany').length === 2 && !igKroky[1].ted, 'druhý krok bez ted: ' + JSON.stringify(igKroky));
+      kroky = (await page.textContent(R + '.ig-kroky')).replace(/\s+/g, ' ');
+      jistota(await page.locator(R + '.ig-krok--hotovo').count() === 6 && !(await page.locator(R + '.ig-krok--ted').count()), 'vše hotové: ' + kroky);
+      jistota(/na Instagramu od/.test(await page.textContent(R + '.reel__stitky')), 'zveřejněno z přímého čtení');
+      // Přehled: karta Instagramu s odkazem (vyšlo před chvílí)
+      await page.click('#rail [data-cil="dnes"]');
+      await page.waitForSelector('#dl-reel:not([hidden]) .ig-karta');
+      const karta = (await page.textContent('#dl-reel .ig-karta')).replace(/\s+/g, ' ');
+      jistota(/Instagram/.test(karta) && /Těšany 3:1/.test(karta) && /Na Instagramu/.test(karta) && /i v příběhu/.test(karta), 'karta na Přehledu: ' + karta);
+      jistota(await page.locator('#dl-reel .ig-karta a[href="https://www.instagram.com/reel/TESTreel/"]').count() === 1, 'odkaz na příspěvek na Přehledu');
+      await page.locator('#dl-reel').screenshot({ path: path.join(VYSTUP, 'pc_dnes_instagram.png') });
+      // hotové – už se nic nesleduje
+      const n = igKroky.length;
+      await page.waitForTimeout(2000);
+      jistota(igKroky.length === n && !volano.slice(-5).some((d) => d.akce === 'igStav'), 'po zveřejnění se motoru dál neptá');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      Object.keys(reelyPlan).forEach((k) => delete reelyPlan[k]);
+      Object.keys(reelyPopisky).forEach((k) => delete reelyPopisky[k]);
+      reelyZverejneno = {};
+      await ctx.close();
+    }
+  });
+
+  await test('Reely s účtem: stará kopie „vyjde 20:15“ u reelu, který už vyšel → přímé čtení z motoru ukáže Na Instagramu a server kopii obnoví', async () => {
+    const u = 'uzivatele/' + FB_UZIVATEL.uid;
+    const T = Date.now();
+    const kdy = T - 9 * 60e3; // naplánováno před 9 minutami, spouštěč reel zveřejnil – kopie serveru je z doby před tím
+    Object.keys(fbDocs).forEach((k) => delete fbDocs[k]);
+    fbDocs[u] = { pripojeni: { url: MOTOR, klic: KLIC }, upraveno: T };
+    const stara = Object.assign(motor.reely(), { zverejneno: {}, plan: { reel_dorost_tesany: { kdy, stav: 'ceka', oznacit: ['dorost_agro'], pribeh: true } } });
+    fbDocs[u + '/data/reely'] = { json: JSON.stringify(stara), kdy: T - 20 * 60e3, parametry: null };
+    fbDocs[u + '/data/_stav'] = { kdy: T, potvrzeno: { reely: T - 20 * 60e3 }, chyby: [] };
+    reelyPlan.reel_dorost_tesany = { kdy, stav: 'hotovo', oznacit: ['dorost_agro'], pribeh: true, odkaz: 'https://www.instagram.com/reel/TESTstary/', media: 'media-1',
+      mediaPribeh: 'media-2', pribehChyba: '', zverejneno: kdy + 70e3, kroky: { priprava: kdy + 5e3, zpracovani: kdy + 8e3, zverejnuji: kdy + 60e3, pribeh: kdy + 65e3, hotovo: kdy + 70e3 } };
+    reelyZverejneno = { reel_dorost_tesany: iso(T) };
+    igKroky.length = 0;
+    fbObnova = null;
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await ctx.addInitScript((ja) => {
+      if (!localStorage.getItem('asistent.ucet')) {
+        localStorage.setItem('asistent.ucet', JSON.stringify({ email: ja.email }));
+        localStorage.setItem('__fb.user', JSON.stringify({ uid: ja.uid, email: ja.email }));
+        localStorage.setItem('asistent.pohled', JSON.stringify('reely'));
+      }
+    }, FB_UZIVATEL);
+    try {
+      fbVolano.length = 0;
+      fbVolanoData.length = 0;
+      volano.length = 0;
+      await page.goto(WEB);
+      const R = '[data-reel="reel_dorost_tesany"] ';
+      await page.waitForSelector(R + '.reel__stitky');
+      // z kopie nejdřív „na řadě od …“ – aplikace se hned zeptá motoru (čas prošel) a ukáže skutečný stav
+      await page.waitForSelector(R + 'a[href="https://www.instagram.com/reel/TESTstary/"]', { timeout: 8000 });
+      const stitky = await page.textContent(R + '.reel__stitky');
+      jistota(/na Instagramu od/.test(stitky) && !/vyjde|na řadě/.test(stitky), 'štítek: ' + stitky);
+      jistota(volano.some((d) => d.akce === 'igKrok' || d.akce === 'igStav'), 'přímé čtení z motoru: ' + volano.map((d) => d.akce).join());
+      jistota(/Na Instagramu/.test(await page.textContent(R + '.ig-kroky')) && await page.locator(R + '.ig-krok--hotovo').count() === 6, 'kroky z motoru');
+      // stav se změnil → server obnoví kopii reelů (jen ji), stará se už nepoužije
+      await cekej(() => fbVolanoData.some((d) => d.jen && d.jen.join() === 'reely'), 6000, 'obnova kopie reelů na serveru: ' + JSON.stringify(fbVolanoData));
+      volano.length = 0;
+      await page.evaluate(() => import('/js/reely.js').then((m) => m.nactiReely(false)));
+      jistota(volano.some((d) => d.akce === 'reely'), 'stará kopie se znovu použila');
+      jistota(/na Instagramu od/.test(await page.textContent(R + '.reel__stitky')), 'pořád zveřejněno');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      Object.keys(reelyPlan).forEach((k) => delete reelyPlan[k]);
+      reelyZverejneno = {};
+      Object.keys(fbDocs).forEach((k) => delete fbDocs[k]);
+      await ctx.close();
+    }
+  });
+
+  await test('Instagram na telefonu: zaseknuté a chyba – důvod, Zkusit znovu z Přehledu, spouštěč neběží; nic nepřetéká', async () => {
+    const T = Date.now();
+    reelyZverejneno = {};
+    reelyPlan.reel_dorost_tesany = { kdy: T - 40 * 60e3, stav: 'chyba', pribeh: true, chyba: 'Instagram video odmítl: Error: video se nepodařilo stáhnout',
+      kontejner: '', kroky: { priprava: T - 39 * 60e3, zpracovani: T - 39 * 60e3, chyba: T - 30 * 60e3 } };
+    igKroky.length = 0;
+    igZaseknuto = true;
+    igSpoustec = T - 50 * 60e3;
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0], 'dark');
+    try {
+      await page.goto(WEB);
+      await page.waitForSelector('#dnes-mobil .ig-karta');
+      let karta = (await page.textContent('#dnes-mobil .ig-karta')).replace(/\s+/g, ' ');
+      jistota(/Těšany 3:1/.test(karta) && /Nepovedlo se/.test(karta) && /Instagram zpracovává: Instagram video odmítl/.test(karta) && /Zkusit znovu/.test(karta), 'karta s chybou: ' + karta);
+      await page.locator('#dnes-mobil .ig-karta').screenshot({ path: path.join(VYSTUP, 'telefon_dnes_instagram_chyba.png') });
+      await page.click('#dnes-mobil .ig-karta [data-ig-akce="znovu"]');
+      await cekej(() => igKroky.some((x) => x.znovu), 6000, 'igKrok se znovu');
+      // znovu: Instagram video zase zpracovává (zaseknuté) – karta ukáže krok a spouštěč, který neběží
+      await page.waitForFunction(() => /Instagram zpracovává/.test((document.querySelector('#dnes-mobil .ig-karta') || {}).textContent || ''));
+      karta = (await page.textContent('#dnes-mobil .ig-karta')).replace(/\s+/g, ' ');
+      jistota(/3\/6/.test(karta), 'krok 3 ze 6: ' + karta);
+      // stránka Reely: kroky, zaseknutí po 20 min zpracování (Nahrát znovu) a varování, že spouštěč neběží
+      reelyPlan.reel_dorost_tesany.kroky.zpracovani = T - 20 * 60e3;
+      reelyPlan.reel_dorost_tesany.kontrola = T - 30e3;
+      await page.evaluate(() => import('/js/stav.js').then((m) => { m.prejdi('reely'); m.zmeneno(); }));
+      await page.evaluate(() => import('/js/ig.js').then((m) => m.hned('reel', 'reel_dorost_tesany', 'krok')));
+      const R = '[data-reel="reel_dorost_tesany"] ';
+      await page.waitForSelector(R + '.ig-zasek [data-ig-akce="znovu"]');
+      const zasek = (await page.textContent(R + '.ig-prubeh')).replace(/\s+/g, ' ');
+      jistota(/zpracovává už 20 min/.test(zasek) && /Nahrát znovu/.test(zasek) && /Spouštěč motoru naposledy běžel před 50 min/.test(zasek), 'zaseknutí: ' + zasek);
+      const rozmer = await page.evaluate(() => ({ prekryv: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        prubeh: document.querySelector('[data-reel="reel_dorost_tesany"] .ig-prubeh').getBoundingClientRect().width,
+        reel: document.querySelector('[data-reel="reel_dorost_tesany"]').getBoundingClientRect().width }));
+      jistota(rozmer.prekryv <= 0 && rozmer.prubeh > rozmer.reel * 0.8, 'telefon: ' + JSON.stringify(rozmer));
+      await page.locator(R).screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_reel_zasek.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      Object.keys(reelyPlan).forEach((k) => delete reelyPlan[k]);
+      reelyZverejneno = {};
+      igZaseknuto = false;
+      igSpoustec = 0;
+      await ctx.close();
+    }
+  });
+
   // ---------- Plakáty: program víkendu na A3 jako na webu dorostu (zápasy z fotbal.cz + mládež z rozlosování), tisk, obrázek, Instagram
   const PL = '#p-plakaty .plakat-stage .poster ';
   const naVikend = async (page, sobota, text) => {
@@ -4553,6 +4747,43 @@ function vychoziVikendTestu() {
       jistota(!plakatyData.plan['2026-10-17'] && volano.some((d) => d.akce === 'plakatZrusitPlan' && d.tyden === '2026-10-17'), 'plán zrušený');
       jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     } finally {
+      fotbalPlakat = false;
+      await ctx.close();
+    }
+  });
+
+
+  await test('Plakáty: naplánovaný plakát – kroky, Zveřejnit teď s potvrzením, obrázek vyjde v jednom kroku', async () => {
+    fotbalPlakat = true;
+    const T = Date.now();
+    plakatyData.popisky['2026-10-17'] = { text: 'Áčko hostí Milotice!', zdroj: 'rucne', kdy: T };
+    plakatyData.obrazky['2026-10-17'] = { prispevek: true, pribeh: true, kdy: T };
+    plakatyData.plan['2026-10-17'] = { kdy: T + 3 * 3600e3, stav: 'ceka', pribeh: true };
+    igKroky.length = 0;
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3], 'light', PRAHA);
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="plakaty"]');
+      await page.waitForSelector('#p-plakaty [data-pl-vyber]');
+      await naVikend(page, '2026-10-17', 'MILOTICE');
+      await page.waitForSelector('#p-plakaty .pl-ig .ig-kroky');
+      const karta = (await page.textContent('#p-plakaty .pl-ig')).replace(/\s+/g, ' ');
+      jistota(/vyjde/.test(karta) && /Příprava obrázku/.test(karta) && /Zveřejnit teď/.test(karta) && /Změnit čas/.test(karta) && /Zrušit plán/.test(karta), 'karta: ' + karta.slice(0, 300));
+      jistota(!igKroky.length && !volano.some((d) => d.akce === 'igStav'), 'za 3 h – motoru se zatím neptá');
+      await page.click('#p-plakaty .pl-ig [data-ig-akce="ted"]');
+      await page.waitForSelector('.okno-pozadi [data-okno="ano"]');
+      jistota(/Zveřejnit hned/.test(await page.textContent('.okno-pozadi')) && /@fkagrovnorovy/.test(await page.textContent('.okno-pozadi')), 'potvrzení');
+      await page.click('.okno-pozadi [data-okno="ano"]');
+      await page.waitForSelector('#p-plakaty .pl-ig a[href="https://www.instagram.com/reel/TESTplakat/"]');
+      jistota(igKroky.length === 1 && igKroky[0].typ === 'plakat' && igKroky[0].id === '2026-10-17' && igKroky[0].ted, 'igKrok: ' + JSON.stringify(igKroky));
+      jistota((await page.locator('#p-plakaty .pl-ig .ig-krok--hotovo').count()) === 6, 'všechny kroky hotové');
+      jistota(/na Instagramu/.test(await page.textContent('#p-plakaty .pl-ig__stav')), 'štítek na Instagramu');
+      await page.locator('#p-plakaty .pl-ig').screenshot({ path: path.join(VYSTUP, 'pc_plakat_instagram_hotovo.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      delete plakatyData.plan['2026-10-17'];
+      delete plakatyData.popisky['2026-10-17'];
+      delete plakatyData.obrazky['2026-10-17'];
       fotbalPlakat = false;
       await ctx.close();
     }

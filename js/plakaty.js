@@ -1,6 +1,7 @@
 // Plakáty: program víkendu FK Agro Vnorovy na A3 – tvoření a tisk stejně jako stránka Plakáty na webu dorostu (náhled,
 // editor s uložením 700 ms po psaní, „Vrátit podle rozlosování“, tisk do PDF) a navíc obrázek ke stažení a Instagram:
-// příspěvek + příběh s popiskem od Clauda, zveřejnění v naplánovaný čas (motor, jako u reelů).
+// příspěvek + příběh s popiskem od Clauda, zveřejnění v naplánovaný čas nebo hned (motor, jako u reelů; průběh s časy,
+// zaseknutí a Zkusit znovu ukazuje js/ig.js).
 // Plakát podle rozlosování skládá js/plakat.js ze zápasů fotbal.cz (stav.fotbal) a mládeže (plakat_data.js); ruční úpravy
 // kol, nastavení, popisky, obrázky a plán drží motor (akce plakaty, plakatUlozit… → CLAUDE_SCHRANKA/PLAKATY).
 
@@ -8,10 +9,11 @@ import { stav, zmeneno, umiMotor, hooky } from './stav.js';
 import { volej } from './api.js';
 import { esc, uloziste, dm, DNY_KR, terminDatum, pridejDny, isoDatum, hhmm } from './pomocne.js';
 import { IKONY } from './ikony.js';
-import { toast, toastAkce, kostra, chybaHtml, potvrd, hlavickaKarty } from './ui.js';
+import { toast, toastAkce, kostra, chybaHtml, potvrd, hlavickaKarty, segment } from './ui.js';
 import { otevriPanel, zavriPanel, obnovPanel, elementPanelu } from './panely.js';
 import { LOGA } from './plakat_data.js';
 import * as P from './plakat.js';
+import * as ig_ from './ig.js'; // průběh zveřejňování (ig_ – „ig“ je níž okno plánu a stav Instagramu z motoru)
 
 const ULOZISTE = 'asistent.data.plakaty';
 const OTISKY = 'asistent.plakaty.otisky';   // víkend → otisk plakátu, ze kterého jsou obrázky na Instagramu (v tomhle zařízení)
@@ -63,6 +65,15 @@ function upravData(d) {
 }
 
 function ulozDoZarizeni() { if (data()) uloziste.pis(ULOZISTE, { data: data(), kdy: Date.now() }); }
+
+// průběh zveřejňování (js/ig.js): plán plakátů z motoru → sem (a do zařízení); bez načtených plakátů si ho drží ig.js
+ig_.zdroj('plakat', {
+  klic: 'plakaty', oblast: 'plakaty', video: false, cil: 'plakaty',
+  plan: () => (data() && data().plan) || null,
+  nastav: (plan) => { if (!data()) return false; data().plan = plan; ulozDoZarizeni(); return true; },
+  nazev: (t) => 'Plakát ' + P.rozsahVikendu(t),
+  ucet: () => '@' + ((data() && data().ig && data().ig.ucet) || P.nastaveniPlakatu(nastaveni()).instagram)
+});
 
 // kdy se plakáty v tomhle spuštění naposledy načítaly (uložená kopie v zařízení může být stará – jiné zařízení, Claude)
 let nacteno = 0;
@@ -757,19 +768,19 @@ function stavPlanuHtml(plan) {
     return '<span class="tag tag--plan">' + IKONY.kalendar + 'vyjde ' + esc(kdyPlan(plan.kdy)) + '</span>' +
       (plan.pribeh ? '<span class="tag tag--seda">i do příběhu</span>' : '');
   }
-  if (plan.stav === 'nahrava' || plan.stav === 'zverejnuji') return '<span class="tag tag--plan">' + IKONY.obnovit + 'nahrává se na Instagram</span>';
+  if (plan.stav === 'nahrava' || plan.stav === 'zverejnuji') return '<span class="tag tag--plan">' + IKONY.obnovit + 'zveřejňuje se na Instagram</span>';
   if (plan.stav === 'hotovo') {
     return '<span class="tag tag--ok">' + IKONY.fajfka + 'na Instagramu' + (plan.zverejneno ? ' od ' + esc(kdyPlan(plan.zverejneno)) : '') + '</span>' +
       (plan.mediaPribeh ? '<span class="tag tag--ok">i v příběhu</span>' : '');
   }
-  if (plan.stav === 'chyba') return '<span class="tag tag--danger">nepovedlo se – naplánuj znovu</span>';
+  if (plan.stav === 'chyba') return '<span class="tag tag--danger">nepovedlo se – ' + (umiMotor('igKrok') ? 'zkus znovu' : 'naplánuj znovu') + '</span>';
   return '';
 }
 
 function klicIg() {
   const d = data(), s = p.sobota;
   return JSON.stringify([s, d.popisky[s], d.plan[s], d.obrazky[s], d.ig, p.igPracuje, umiMotor('plakatNaplanovat'), s in p.popisek,
-    (uloziste.cti(OTISKY) || {})[s] === P.otisk(JSON.stringify(p.plakat || {}))]);
+    (uloziste.cti(OTISKY) || {})[s] === P.otisk(JSON.stringify(p.plakat || {})), ig_.klic('plakat', s), umiMotor('igKrok')]);
 }
 
 function igHtml() {
@@ -784,8 +795,11 @@ function igHtml() {
   let h = hlavickaKarty(IKONY.instagram, 'Instagram', '@' + esc(ig.ucet || n.instagram)) + '<div class="pl-telo">';
   const stavHtml = stavPlanuHtml(plan);
   if (stavHtml) h += '<div class="pl-ig__stav">' + stavHtml + '</div>';
-  if (plan && plan.stav === 'chyba') h += '<p class="pl-chyba">Na Instagram se nepodařilo: ' + esc(plan.chyba || 'neznámá chyba') + '</p>';
-  if (plan && plan.stav === 'hotovo' && plan.pribehChyba) h += '<p class="pl-chyba">Příběh nevyšel: ' + esc(plan.pribehChyba) + ' (příspěvek platí)</p>';
+  // průběh s časy, zaseknutí a Zkusit znovu (js/ig.js); starší motor bez průběhu: jen chyba jako dřív
+  const prubeh = plan ? ig_.prubehHtml('plakat', s, plan) : '';
+  if (prubeh) h += prubeh;
+  else if (plan && plan.stav === 'chyba') h += '<p class="pl-chyba">Na Instagram se nepodařilo: ' + esc(plan.chyba || 'neznámá chyba') + '</p>';
+  if (!prubeh && plan && plan.stav === 'hotovo' && plan.pribehChyba) h += '<p class="pl-chyba">Příběh nevyšel: ' + esc(plan.pribehChyba) + ' (příspěvek platí)</p>';
   // obrázky na Instagramu jsou ze starší podoby plakátu (jen víme-li to v tomhle zařízení)
   const otisk = (uloziste.cti(OTISKY) || {})[s];
   if (plan && plan.stav === 'ceka' && otisk && otisk !== P.otisk(JSON.stringify(p.plakat))) {
@@ -811,8 +825,13 @@ function igHtml() {
   } else if (plan && (plan.stav === 'nahrava' || plan.stav === 'zverejnuji')) {
     akce = '';
   } else if (plan && plan.stav === 'ceka') {
-    akce += '<button type="button" class="btn btn--plan" data-pl-ig-naplanovat>' + IKONY.kalendar + '<span>Změnit čas</span></button>' +
+    const ted = ig_.tlacitkoTedHtml('plakat', s);
+    akce += ted + '<button type="button" class="btn ' + (ted ? 'btn--ghost' : 'btn--plan') + '" data-pl-ig-naplanovat>' + IKONY.kalendar + '<span>Změnit čas</span></button>' +
       '<button type="button" class="btn btn--ghost" data-pl-ig-zrusit>' + IKONY.zavrit + '<span>Zrušit plán</span></button>';
+  } else if (umiMotor('igKrok')) {
+    // Zveřejnit teď i Naplánovat otevřou stejné okno (obrázky, příběh) – liší se jen „Kdy“
+    akce += '<button type="button" class="btn btn--plan" data-pl-ig-hned>' + IKONY.odeslat + '<span>Zveřejnit teď</span></button>' +
+      '<button type="button" class="btn btn--ghost" data-pl-ig-naplanovat>' + IKONY.kalendar + '<span>Naplánovat na Instagram</span></button>';
   } else {
     akce += '<button type="button" class="btn btn--plan" data-pl-ig-naplanovat>' + IKONY.kalendar + '<span>Naplánovat na Instagram</span></button>';
   }
@@ -873,7 +892,7 @@ function hlidejPopisek() {
   }, 180e3);
 }
 
-function otevriPlan() {
+function otevriPlan(hned) {
   if (!p.plakat) return;
   const tyden = p.sobota;
   const pop = data().popisky[tyden] || {};
@@ -881,17 +900,19 @@ function otevriPlan() {
     toast('Nejdřív popisek – napiš ho, nebo požádej Clauda.', true);
     return;
   }
-  p.ig = { tyden, kdy: doPole(vychoziCas(tyden)), pribeh: !(data().plan[tyden] && data().plan[tyden].pribeh === false), ukladam: false, nahled: null, chyba: '' };
+  p.ig = { tyden, kdy: doPole(vychoziCas(tyden)), pribeh: !(data().plan[tyden] && data().plan[tyden].pribeh === false), ukladam: false, nahled: null, chyba: '',
+    hned: !!hned && umiMotor('igKrok') };
   const moje = p.ig;
   // obrázky se kreslí hned při otevření – v okně je vidět, co na Instagram půjde
   moje.obrazky = obrazkyProInstagram();
   moje.obrazky.then((o) => { if (p.ig === moje) { moje.nahled = o; obnovPanel('plakat-ig'); } },
     (e) => { if (p.ig === moje) { moje.chyba = e.message; obnovPanel('plakat-ig'); } });
   otevriPanel({
-    id: 'plakat-ig', trida: 'panel-okno panel-formular', titul: 'Naplánovat na Instagram', vykresli: planHtml,
+    id: 'plakat-ig', trida: 'panel-okno panel-formular', titul: () => (p.ig && p.ig.hned ? 'Zveřejnit na Instagram' : 'Naplánovat na Instagram'), vykresli: planHtml,
     paticka: () => '<div class="akce"><button type="button" class="btn btn--ghost" data-zavrit-panel>Zrušit</button>' +
-      '<button type="button" class="btn btn--plan" data-pl-ig-ulozit' + (p.ig && (p.ig.ukladam || !p.ig.nahled) ? ' disabled' : '') + '>' + IKONY.kalendar + '<span>' +
-      (p.ig && p.ig.ukladam ? 'Nahrávám…' : p.ig && !p.ig.nahled && !p.ig.chyba ? 'Připravuji obrázky…' : 'Naplánovat') + '</span></button></div>',
+      '<button type="button" class="btn btn--plan" data-pl-ig-ulozit' + (p.ig && (p.ig.ukladam || !p.ig.nahled) ? ' disabled' : '') + '>' +
+      (p.ig && p.ig.hned ? IKONY.odeslat : IKONY.kalendar) + '<span>' +
+      (p.ig && p.ig.ukladam ? 'Nahrávám…' : p.ig && !p.ig.nahled && !p.ig.chyba ? 'Připravuji obrázky…' : p.ig && p.ig.hned ? 'Zveřejnit teď' : 'Naplánovat') + '</span></button></div>',
     poOtevreni: (el) => { const pole = el.querySelector('[data-pl-ig="kdy"]'); if (pole) pole.focus(); },
     priZavreni: () => { if (p.ig === moje) p.ig = null; }
   });
@@ -902,10 +923,13 @@ function planHtml() {
   if (!ig) return '';
   const n = P.nastaveniPlakatu(nastaveni());
   const ucet = '@' + ((data().ig || {}).ucet || n.instagram);
+  // Kdy: Naplánovat (čas) / Teď – jen s motorem, který umí igKrok (Zveřejnit teď)
+  const volba = umiMotor('igKrok') ? '<div class="rp-kdy"><span class="label">Kdy</span>' +
+    segment([['cas', 'Naplánovat'], ['ted', 'Teď']], ig.hned ? 'ted' : 'cas', 'data-pl-ig-kdy-volba', 'Kdy zveřejnit') + '</div>' : '';
   return '<div class="formular">' +
-    '<p class="napoveda">Plakát víkendu ' + esc(P.rozsahVikendu(ig.tyden)) + ' vyjde na ' + esc(ucet) + ' sám v zadaný čas (do 10 minut) – příspěvek s popiskem' +
-      (ig.pribeh ? ' a příběh' : '') + '.</p>' +
-    '<label><span class="label">Kdy</span><input class="field" type="datetime-local" data-pl-ig="kdy" value="' + esc(ig.kdy) + '"></label>' +
+    '<p class="napoveda">Plakát víkendu ' + esc(P.rozsahVikendu(ig.tyden)) + ' vyjde na ' + esc(ucet) + (ig.hned ? ' hned' : ' sám v zadaný čas (do 10 minut)') +
+      ' – příspěvek s popiskem' + (ig.pribeh ? ' a příběh' : '') + '.' + (ig.hned ? ' Průběh uvidíš v kartě Instagram.' : '') + '</p>' + volba +
+    (ig.hned ? '' : '<label><span class="label">' + (volba ? 'Datum a čas' : 'Kdy') + '</span><input class="field" type="datetime-local" data-pl-ig="kdy" value="' + esc(ig.kdy) + '"></label>') +
     '<label class="pl-zaskrtnout"><input type="checkbox" data-pl-ig="pribeh"' + (ig.pribeh ? ' checked' : '') + '><span>i do příběhu (1080 × 1920)</span></label>' +
     '<div class="pl-ig-nahled">' + (ig.nahled
       ? '<figure><img class="pl-nahled-prispevek" src="' + ig.nahled.prispevek + '" alt="Příspěvek"><figcaption>Příspěvek 1440 px</figcaption></figure>' +
@@ -919,9 +943,9 @@ async function ulozPlan() {
   if (!ig) return;
   const ukaz = (t) => { ig.chyba = t; const el = elementPanelu('plakat-ig'); const ch = el && el.querySelector('[data-pl-ig-chyba]'); if (ch) { ch.textContent = t; ch.hidden = !t; } };
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(ig.kdy || '');
-  if (!m) { ukaz('Vyber datum a čas.'); return; }
-  const kdy = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])).getTime();
-  if (kdy < Date.now() - 60e3) { ukaz('Ten čas už byl – vyber pozdější.'); return; }
+  if (!m && !ig.hned) { ukaz('Vyber datum a čas.'); return; }
+  let kdy = ig.hned ? Date.now() : new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])).getTime();
+  if (!ig.hned && kdy < Date.now() - 60e3) { ukaz('Ten čas už byl – vyber pozdější.'); return; }
   ig.ukladam = true;
   ukaz('');
   obnovPanel('plakat-ig');
@@ -930,6 +954,7 @@ async function ulozPlan() {
     const o = await ig.obrazky;
     const v1 = await volej('plakatObrazky', { tyden: ig.tyden, prispevek: o.prispevek, pribeh: o.pribeh });
     if (v1 && v1.obrazky) data().obrazky = v1.obrazky;
+    if (ig.hned) kdy = Date.now(); // obrázky se mezitím nahrávaly
     const v2 = await volej('plakatNaplanovat', { tyden: ig.tyden, kdy, pribeh: !!ig.pribeh });
     if (v2 && v2.plan) data().plan = v2.plan;
     ulozDoZarizeni();
@@ -937,8 +962,10 @@ async function ulozPlan() {
     otisky[ig.tyden] = o.otisk;
     uloziste.pis(OTISKY, otisky);
     zavriPanel();
-    toast('Naplánováno – vyjde ' + kdyPlan(kdy) + (ig.pribeh ? ' i s příběhem' : ''));
+    toast(ig.hned ? 'Zveřejňuji na Instagram' + (ig.pribeh ? ' i s příběhem' : '') + ' – průběh vidíš v kartě Instagram'
+      : 'Naplánováno – vyjde ' + kdyPlan(kdy) + (ig.pribeh ? ' i s příběhem' : ''));
     zmeneno();
+    if (ig.hned) ig_.hned('plakat', ig.tyden, 'ted');
   } catch (e) {
     if (p.ig !== ig) { toast(e.message, true); return; }
     ig.ukladam = false;
@@ -970,7 +997,8 @@ export function klikPlakaty(el) {
   if (el.dataset.plPridat) { pridej(el.dataset.plPridat); return true; }
   if (el.dataset.plSmazat) { smaz(el.dataset.plSmazat); return true; }
   if (el.hasAttribute('data-pl-popisek-claude')) { pozadejClauda(); return true; }
-  if (el.hasAttribute('data-pl-ig-naplanovat')) { otevriPlan(); return true; }
+  if (el.hasAttribute('data-pl-ig-naplanovat') || el.hasAttribute('data-pl-ig-hned')) { otevriPlan(el.hasAttribute('data-pl-ig-hned')); return true; }
+  if (el.dataset.plIgKdyVolba) { if (p.ig) { p.ig.hned = el.dataset.plIgKdyVolba === 'ted'; obnovPanel('plakat-ig'); } return true; }
   if (el.hasAttribute('data-pl-ig-ulozit')) { if (p.ig && !p.ig.ukladam) ulozPlan(); return true; }
   if (el.hasAttribute('data-pl-ig-zrusit')) { zrusPlan(); return true; }
   if (el.hasAttribute('data-pl-alias-pridat')) { pracovniNastaveni().aliasy.push(['', '']); nastaveniZmeneno(true); return true; }

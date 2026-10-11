@@ -347,9 +347,10 @@ přibližná poloha mimo domov má „≈“ a v detailu radu (iPhone: Polohové
   s termínem, předpověď); WHOOP se kvůli upozornění stahuje nejvýš jednou za hodinu. Přes ntfy jdou jen počty a časy,
   žádné názvy událostí ani texty.
 
-## Instagram – naplánované reely
-Na stránce Reely jde reel **naplánovat na Instagram** (datum a čas, výchozí nejbližší 18:00). Motor ho v ten čas zveřejní
-sám na klubovém účtu přes Instagram API (Meta aplikace „Asistent FK Vnorovy“ ve vývojovém režimu, účet je v ní tester).
+## Instagram – naplánované reely, Zveřejnit teď a průběh
+Na stránce Reely jde reel **naplánovat na Instagram** (datum a čas, výchozí nejbližší 18:00) nebo **zveřejnit teď** (stejné
+okno, „Kdy: Teď“). Motor ho zveřejní na klubovém účtu přes Instagram API (Meta aplikace „Asistent FK Vnorovy“ ve vývojovém
+režimu, účet je v ní tester).
 V okně plánu jdou **označit účty** (u dorostu předvyplněný `@dorost_agro`, aplikace si pamatuje poslední označení týmu;
 na Instagramu jde o označení osob v reelu – `user_tags`) a **upravit popisek** jen pro tenhle příspěvek (vlastnost
 `REELY_POPISEK:<id>`, po zveřejnění nebo zrušení plánu se smaže; soubor `popisky\*.txt` zůstává jediná pravda):
@@ -359,6 +360,27 @@ na Instagramu jde o označení osob v reelu – `user_tags`) a **upravit popisek
   hned potom se sdílení vypne; video jde beze změny (stejný soubor jako z PC – H.264 1080×1920), přepočítá ho až Instagram;
 - popisek je přesně ten z `popisky\*.txt`, pokud ho Michal v okně plánu neupravil;
 - po vložení klíče jednou spustit `overInstagram` (vypíše účet).
+
+**Průběh zveřejňování** (Michal 11. 10.: „trvá to a nevidím, v jaké je to fázi … jestli se to někde zaseklo“ – reel už na
+Instagramu byl a aplikace pořád ukazovala „vyjde …“ z kopie serveru). Pod reelem / v kartě Instagram u plakátu jsou **kroky
+s časy**: Naplánováno → Příprava videa/obrázku (dočasný odkaz na Disku, kontejner na Instagramu) → Instagram zpracovává
+(stav IN_PROGRESS / FINISHED, poslední kontrola) → Zveřejnění příspěvku → Příběh → Na Instagramu (odkaz); chyba červeně
+u kroku, který se nepovedl, s důvodem. Na **Přehledu** karta Instagram (nad Reelem k vyvěšení): co se zveřejňuje, vyjde do
+2 h, zaseklo se, nepovedlo se (den) nebo vyšlo před chvílí (2 h) – krok, tečky průběhu, odkaz nebo tlačítko.
+- **Přímo z motoru, ne z kopie:** když něco běží nebo má do 30 minut vyjít, čte aplikace stav akcí `igStav` (jednou za
+  minutu); běží-li nebo nastal čas, posouvá zveřejnění sama akcí `igKrok` (~každých 15 s, motor v ní čeká na Instagram
+  nejvýš 20 s) – jen při viditelné stránce Přehled, Reely nebo Plakáty (`js/ig.js`, čisté funkce `js/ig_prubeh.js`).
+  Spouštěč `instagramKazdych10Min` zůstává záloha – naplánované vyjde i se zavřenou aplikací. Přímé čtení přebije starší
+  kopii serveru; změnil-li se stav, server kopii reelů / plakátů hned obnoví (i pro ostatní zařízení). Motor navíc ve
+  značkách změn hlásí `instagramBezi` a server pak obnovuje reely a plakáty při každé obnově (ne po 30 min).
+- **Zveřejnit teď** u naplánovaného (s potvrzením) i nového; **Změnit čas** a **Zrušit plán** zůstávají.
+- **Zaseknutí:** Instagram zpracovává video déle než 15 min (obrázek 5 min) → **Nahrát znovu**; rozpracované a 20 min bez
+  kontroly → **Pokračovat**; čas prošel o 15 min a nezačalo → **Zveřejnit teď**; chyba → **Zkusit znovu**. Spouštěč neběžel
+  přes 25 min (`IG_SPOUSTEC`) → upozornění u průběhu.
+- **Nic se nezdvojí:** na položce pracuje vždy jen jeden běh (zámek `bezi` v položce plánu, 6,5 min); zveřejňuje se jen
+  kontejner, který ještě nevyšel (stav PUBLISHED = vyšel, jen se ztratila odpověď → příspěvek se dohledá podle času).
+  Zkusit znovu / nový plán po chybě dostane nový kontejner, ale starý, který se už zkoušel zveřejnit, se nejdřív ověří
+  (`kontejnerOverit`).
 
 ## Plakáty (program víkendu A3 a Instagram)
 Stránka **Plakáty** (levý pruh, na telefonu menu; tlačítko „Plakát“ na stránce Fotbal) = stránka Plakáty z webu dorostu
@@ -389,7 +411,8 @@ sobotu. Popisek jde upravit ručně (štítek „upraveno“, uloží se 700 ms 
 (výchozí čtvrtek před víkendem 18:00, když už prošel, za hodinu) a **i do příběhu** – aplikace vyrobí příspěvek (plakát
 1440 px) a příběh 1080 × 1920 (plakát na tmavém pozadí, nahoře PROGRAM VÍKENDU a datum, dole výzva a @účet), nahraje je
 (`plakatObrazky`) a naplánuje (`plakatNaplanovat`); motor je zveřejní stejně jako reely (`PLAKATY_PLAN`, spouštěč
-`instagramKazdych10Min`). Stav: vyjde … / nahrává se / na Instagramu (odkaz; „příběh nevyšel: důvod“) / nepovedlo se.
+`instagramKazdych10Min`) – nebo **Zveřejnit teď** (stejné okno, „Kdy: Teď“; u naplánovaného tlačítko v kartě). Stav: vyjde … /
+zveřejňuje se / na Instagramu (odkaz; „příběh nevyšel: důvod“) / nepovedlo se; pod ním kroky s časy jako u reelů (průběh výš).
 
 **Nastavení plakátu** (sbalitelný oddíl na stránce): názvy týmů na plakátu, soutěže, nadpis, místo, výzva, druhý řádek
 patičky, náš znak, Instagram, od kdy píše popisky Claude sám a aliasy znaků soupeřů. V motoru je jen rozdíl od výchozích
@@ -486,7 +509,8 @@ Vlastnosti skriptu (⚙ → Vlastnosti skriptu) – všechny nepovinné kromě k
 | `POCASI_MISTA`, `POCASI_POLOHA` | místa podle polohy a poslední poloha pro upozornění (spravuje motor) |
 | `REELY_STAV` | které reely už jsou na Instagramu (nastavuje aplikace) |
 | `AUTO_TABULKA` | ID tabulky Google s náklady auta (nastaví aplikace odkazem na stránce Auto) |
-| `IG_TOKEN`, `IG_UCET`, `IG_TOKEN_OBNOVA`, `REELY_PLAN` | Instagram: klíč (vloží Michal, motor obnovuje), účet, plán zveřejnění reelů (čas, označené účty) |
+| `IG_TOKEN`, `IG_UCET`, `IG_TOKEN_OBNOVA`, `REELY_PLAN`, `PLAKATY_PLAN` | Instagram: klíč (vloží Michal, motor obnovuje), účet, plán zveřejnění reelů a plakátů (čas, označené účty, průběh `kroky` s časy, `kontrola`, `stavIg`, zámek `bezi`; nejvýš 25 položek a 8 000 znaků) |
+| `IG_SPOUSTEC` | kdy naposledy běžel spouštěč `instagramKazdych10Min` (aplikace pozná „spouštěč neběží“) |
 | `REELY_POPISEK:<id>` | upravený popisek reelu jen pro Instagram (do zveřejnění nebo zrušení plánu) |
 | `FOTBAL`, `DRUHY_KALENDARU`, `ICS_KALENDARE`, `SKRYTE_KALENDARE`, … | spravuje motor sám |
 
@@ -511,7 +535,7 @@ Adresa: <https://mk-asistent.github.io> (organizace `mk-asistent`, vlastní adre
 |---|---|---|
 | Pošta, schránka, kalendář | každých 10 min (pošta s otiskem – beze změny bez načítání zpráv) | z kopie hned |
 | Fotbal, nastavení (`info`) | jednou za hodinu | kopie platí 3 h |
-| Reely | jednou za půl hodiny | kopie platí 90 min |
+| Reely, plakáty | jednou za půl hodiny; když se zveřejňuje na Instagram (`zmeny.instagramBezi`), každou obnovu | kopie platí 90 min; průběh zveřejňování přímo z motoru (`igStav` / `igKrok`), když něco běží nebo vyjde do 30 min |
 | Značky změn (`zmeny`) | každá obnova (v dávce – do 9. 10. ji motor v dávce odmítal, aplikace se proto ptala zvlášť) | auto a zdraví se načtou, když se k nim zapisovalo odjinud (i zkratka, Claude, WHOOP) |
 | Zdraví (voda, jídlo, doplňky, váha) | – (jen motor, zdravotní data jen na Disku; motor drží hotový přehled v mezipaměti) | s účtem jen po signálu / značce změny (záloha po 6 h), bez účtu při návratu nejvýš 1× za 15 min |
 | WHOOP | spouštěč motoru každých 10 min stáhne nová data nejvýš 1× za 30 min | čtení Zdraví na WHOOP nečeká (dřív 10 s) |
@@ -629,6 +653,7 @@ cd testy && npm i && npx playwright install chromium && node test_aplikace.js   
 JEN=telefon node test_aplikace.js      # jen testy, jejichž název obsahuje „telefon“
 PORT_TESTU=8776 node test_aplikace.js  # jiný port, když na PC zrovna běží testy z jiné kopie repa
 node testy/test_plakat.mjs             # plakát: víkendy, plakát podle rozlosování, znaky soupeřů, souhrn pro Clauda
+node testy/test_ig_prubeh.mjs          # Instagram: kroky s časy, zaseknutí, kdy se ptát motoru
 node testy/sw_verze.js --zapsat        # po změně souborů aplikace: VERZE service workeru podle obsahu
 node firebase/functions/test.js        # server: obnova kopií z napodobeného motoru
 node testy/mereni_rychlosti.js         # rychlost: studený/teplý start, přepínání stránek, e-mail, psaní (telefon CPU 4×, pomalé 4G)

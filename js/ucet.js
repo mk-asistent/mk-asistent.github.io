@@ -44,6 +44,8 @@ const KOPIE_ZAPISU = {
   jmeninyUlozit: ['info'], skupinyHostuUlozit: ['info'], pocasiDomov: ['info'], reelStav: ['reely'], reelNaplanovat: ['reely'], reelZrusitPlan: ['reely'],
   plakatUlozit: ['plakaty'], plakatNastaveni: ['plakaty'], plakatPopisek: ['plakaty'], plakatPopisekUlozit: ['plakaty'], plakatObrazky: ['plakaty'],
   plakatNaplanovat: ['plakaty'], plakatZrusitPlan: ['plakaty'],
+  // krok zveřejnění na Instagram: aplikace ho posílá každých ~15 s – kopie zneplatní až změna stavu (js/ig.js zmenaOblasti)
+  igKrok: [],
   vaha: [], doplnky: [], pitiJidlo: [], whoopPropojit: [], whoopOdpojit: [], zdraviKlic: [], upozorneniZapnout: [], upozorneniVypnout: [], upozorneniTest: []
 };
 const SIGNAL_ZAPISU = { vaha: 'zdravi', doplnky: 'zdravi', pitiJidlo: 'zdravi', whoopPropojit: 'zdravi', whoopOdpojit: 'zdravi' };
@@ -60,7 +62,8 @@ const Z_KOPIE = ['info', 'schranka', 'posta', 'fotbal', 'reely', 'zmeny', 'plaka
 // akce, které jen čtou – všechno ostatní mění data (i otevření konverzace: označí ji jako přečtenou)
 export const CTENI = ['info', 'schranka', 'posta', 'kalendar', 'kalendare', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky',
   'postaDetaily', // pošta: přednačtení detailů posledních konverzací (nic neoznačí jako přečtené)
-  'kontakty', 'hledat', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'zmeny', 'plakaty']; // čtení bez kopie nic nezneplatní
+  'kontakty', 'hledat', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'zmeny', 'plakaty',
+  'igStav']; // čtení bez kopie nic nezneplatní (igStav = průběh zveřejňování na Instagram, js/ig.js)
 
 const s = { fb: null, fbSlib: null, fnSlib: null, uzivatel: null, kopie: {}, server: null, pripraveno: null, odber: null, prvni: true,
   obnovuje: null, naposledyObnova: 0, casovac: 0, chyba: null, naKopie: [], naStav: [], naSignal: [],
@@ -208,7 +211,17 @@ export function primeCteni(akce, data) {
  *  za chvíli obnoví (jen ty oblasti). Zápis ke zdraví nebo k autu kopie nemění – nic se nezneplatní ani neobnovuje. */
 export function poZmene(akce) {
   if (!zapnuty()) return;
-  const oblasti = kopieZapisu(akce);
+  zneplatni(kopieZapisu(akce));
+}
+
+/** Data oblastí se změnila jinak než zápisem z aplikace (motor zveřejnil reel – aplikace to zjistila přímým čtením,
+ *  js/ig.js): starší kopie neplatí a server je za chvíli obnoví, stejně jako po zápisu. */
+export function zmenaOblasti(oblasti) {
+  if (zapnuty() && Array.isArray(oblasti) && oblasti.length) zneplatni(oblasti);
+}
+
+/** oblasti = které kopie změna zneplatní ([] = žádné, null = všechny); server je za 2 s obnoví. */
+function zneplatni(oblasti) {
   if (oblasti && !oblasti.length) return;
   const p = platnost(), ted = Date.now();
   if (!oblasti) p.zmena = ted;

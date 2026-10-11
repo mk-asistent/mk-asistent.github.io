@@ -3162,7 +3162,7 @@ function igPublikuj_(o) {
   const ted = Date.now();
   const zamek = upravPlan_(function (plan) {
     const z = plan[o.id];
-    if (!igRozpracovana_(z)) return 'nic';
+    if (!igNaRade_(z, ted)) return 'nic'; // hotové, chyba nebo ještě není čas
     if (z.bezi && z.bezi > ted) return 'obsazeno';
     z.bezi = ted + IG_ZAMEK_MS;
     return 'moje';

@@ -312,6 +312,9 @@ const reelyUkazka = [
 ];
 const reelyZverejneno = { reel_dorost_kyjov: iso(pridejDny(dnes, minulaNedele + 1)) };
 const reelyPlan = {}, reelyPopisky = {};
+/** Průběh zveřejňování jako akce igStav motoru (spouštěč „běžel“ před 4 minutami). */
+const igUkazka = () => kopie({ ted: Date.now(), spoustec: Date.now() - 4 * 60e3, reely: reelyPlan, plakaty: plakatyUkazka.plan, zverejneno: reelyZverejneno,
+  popiskyPlanu: reelyPopisky });
 // Plakáty v ukázce: výchozí nastavení, bez ručních úprav, k nejbližšímu víkendu už popisek „od Clauda“ (vymyšlený),
 // Instagram propojený na ukázkový účet; obrázky se jen „nahrají“ (v paměti zůstane, že jsou).
 const plakatVikendUkazky = iso(pridejDny(dnes, denTydne === 0 ? -1 : 6 - denTydne));
@@ -675,7 +678,8 @@ const akce = {
   reely: () => kopie({ aktualizovano: new Date(ted - 2 * H).toISOString(), reely: reelyUkazka, zverejneno: reelyZverejneno, plan: reelyPlan, popiskyPlanu: reelyPopisky,
     instagram: { nastaveno: true, ucet: 'klub_ukazka' } }),
   reelNaplanovat: (d) => {
-    reelyPlan[d.id] = { kdy: Number(d.kdy), stav: 'ceka', oznacit: String(d.oznacit || '').split(/[\s,]+/).filter(Boolean).map((u) => u.replace(/^@/, '')), upraveno: true };
+    reelyPlan[d.id] = { kdy: Number(d.kdy), stav: 'ceka', oznacit: String(d.oznacit || '').split(/[\s,]+/).filter(Boolean).map((u) => u.replace(/^@/, '')), upraveno: true,
+      pribeh: !!d.pribeh };
     if (d.popisek) reelyPopisky[d.id] = d.popisek;
     return { plan: kopie(reelyPlan), popisky: kopie(reelyPopisky) };
   },
@@ -711,6 +715,30 @@ const akce = {
     return { plan: kopie(plakatyUkazka.plan) };
   },
   plakatZrusitPlan: (d) => { delete plakatyUkazka.plan[d.tyden]; return { plan: kopie(plakatyUkazka.plan) }; },
+  // průběh zveřejňování na Instagram (motor igStav / igKrok): v ukázce posune každý krok zveřejnění o fázi – nic nikam nejde
+  igStav: () => igUkazka(),
+  igKrok: (d) => {
+    const plan = d.typ === 'plakat' ? plakatyUkazka.plan : reelyPlan;
+    const z = plan[d.id];
+    if (!z) throw new Error('Příspěvek není v plánu – naplánuj ho znovu.');
+    const t = Date.now();
+    if (d.ted && z.stav === 'ceka') z.kdy = Math.min(z.kdy, t);
+    if (d.znovu && z.stav === 'chyba') plan[d.id] = { kdy: t, stav: 'ceka', pribeh: z.pribeh, oznacit: z.oznacit };
+    const x = plan[d.id];
+    const k = (x.kroky = x.kroky || {});
+    if (x.stav === 'ceka' && x.kdy <= t + 60e3) {
+      Object.assign(x, { stav: 'nahrava', kontejner: 'ukazka', stavIg: 'IN_PROGRESS', kontrola: t });
+      k.priprava = t;
+      k.zpracovani = t;
+    } else if (x.stav === 'nahrava' || x.stav === 'zverejnuji') {
+      k.zverejnuji = t;
+      if (x.pribeh) k.pribeh = t;
+      k.hotovo = t;
+      Object.assign(x, { stav: 'hotovo', zverejneno: t, odkaz: '', kontejner: '', stavIg: undefined, mediaPribeh: x.pribeh ? 'ukazka' : '', pribehChyba: '' });
+      if (d.typ !== 'plakat') reelyZverejneno[d.id] = iso(t);
+    }
+    return igUkazka();
+  },
   reelStav: (d) => {
     if (!reelyUkazka.some((r) => r.id === d.id)) throw new Error('Neplatný reel.');
     if (d.zverejneno) reelyZverejneno[d.id] = iso(Date.now()); else delete reelyZverejneno[d.id];
