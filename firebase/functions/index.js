@@ -14,7 +14,7 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const logger = require('firebase-functions/logger');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
-const { obnov, otisk, platnePripojeni, mrizkaMesice, coPreskocit, platneOblasti } = require('./obnova');
+const { obnov, otisk, platnePripojeni, mrizkaMesice, coPreskocit, platneOblasti, instagramBezi } = require('./obnova');
 
 initializeApp();
 const db = getFirestore();
@@ -25,7 +25,9 @@ const NEJDRIV_ZNOVU = 45e3;        // obnovHned častěji nepouští (aplikace h
 async function obnovUzivatele(uid, pripojeni, vse, stavDoc, jen) {
   const ted = Date.now();
   const st = stavDoc || await db.doc('uzivatele/' + uid + '/data/_stav').get();
-  const v = await obnov(pripojeni, { ted, jen, preskocit: jen ? [] : coPreskocit(st.exists ? st.get('potvrzeno') : null, ted, vse) });
+  // zveřejňuje-li se na Instagram (hlásil to motor při minulé obnově), reely a plakáty se obnoví i před svým intervalem
+  const v = await obnov(pripojeni, { ted, jen, preskocit: jen ? [] : coPreskocit(st.exists ? st.get('potvrzeno') : null, ted, vse,
+    st.exists && st.get('instagramBezi') === true) });
   const ref = (id) => db.doc('uzivatele/' + uid + '/data/' + id);
   const idy = Object.keys(v.data);
   const stare = idy.length ? await db.getAll(...idy.map(ref)) : [];
@@ -41,15 +43,17 @@ async function obnovUzivatele(uid, pripojeni, vse, stavDoc, jen) {
     zapis.set(ref(id), { json, otisk: o, kdy: v.kdy, parametry: v.data[id].parametry || null });
     zmeneno.push(id);
   });
+  const ig = instagramBezi(v.data);
+  const navic = ig === undefined ? {} : { instagramBezi: ig };
   if (jen) {
     // částečná obnova: jen potvrzení obnovených kopií – čas celé obnovy (kdy) zůstává, podle něj se řídí otevření aplikace
-    zapis.set(ref('_stav'), { potvrzeno, castecne: { kdy: v.kdy, jen, chyby: v.chyby.slice(0, 5) } }, { merge: true });
+    zapis.set(ref('_stav'), Object.assign({ potvrzeno, castecne: { kdy: v.kdy, jen, chyby: v.chyby.slice(0, 5) } }, navic), { merge: true });
   } else {
     // minulý měsíc kalendáře už se neobnovuje – pryč, ať v aplikaci nezůstane stará kopie
     const minuly = 'kalendar_' + mrizkaMesice(v.kdy, -1).klic;
     zapis.delete(ref(minuly));
     potvrzeno[minuly] = FieldValue.delete();
-    zapis.set(ref('_stav'), { kdy: v.kdy, potvrzeno, chyby: v.chyby.slice(0, 10) }, { merge: true });
+    zapis.set(ref('_stav'), Object.assign({ kdy: v.kdy, potvrzeno, chyby: v.chyby.slice(0, 10) }, navic), { merge: true });
   }
   await zapis.commit();
   if (v.chyby.length) logger.warn('obnova s chybami', { jen: jen || 'vse', chyby: v.chyby.slice(0, 10) });

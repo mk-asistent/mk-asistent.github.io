@@ -39,7 +39,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-11.1';
+const VERZE = '2026-10-11.2';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -131,7 +131,8 @@ function doPost(e) {
 // akce, které jen čtou – opakovat je jde bez rizika (bez zapamatované odpovědi)
 const CTENI_MOTORU = ['info', 'schranka', 'posta', 'vlakno', 'hledat', 'kalendar', 'kalendare', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka',
   'postaDetaily', // pošta: přednačtení detailů posledních konverzací (nic neoznačí jako přečtené)
-  'stitky', 'kontakty', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'davka', 'zmeny', 'plakaty'];
+  'stitky', 'kontakty', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'davka', 'zmeny', 'plakaty',
+  'igStav']; // průběh zveřejňování na Instagram (aplikace se ptá každou minutu, když má něco brzy vyjít)
 
 /** Výsledek dřívějšího běhu téhož požadavku (JSON), nebo null; když ještě běží, počká na něj (nejvýš ~25 s). */
 function vysledekRid_(rid) {
@@ -220,6 +221,9 @@ const AKCE = {
   plakatObrazky: function (d) { return plakatObrazky_(d); },
   plakatNaplanovat: function (d) { return plakatNaplanovat_(d); },
   plakatZrusitPlan: function (d) { return plakatZrusitPlan_(d); },
+  // průběh zveřejňování na Instagram (reely i plakáty): igStav jen čte, igKrok posune (Zveřejnit teď, Zkusit znovu)
+  igStav: function () { return igPrehled_(); },
+  igKrok: function (d) { return igKrok_(d); },
   vaha: function (d) { return vaha_(d); },
   doplnky: function (d) { return doplnky_(d); },
   pitiJidlo: function (d) { return pitiJidlo_(d); },
@@ -2807,8 +2811,12 @@ const REELY_ = (function () {
 const IG_API = 'https://graph.instagram.com/v23.0/';
 const IG_OBNOVA_KLICE = 7 * 864e5;  // klíč platí 60 dní – obnovit jednou týdně
 const IG_CEKANI_MS = 4 * 60e3;      // v jednom běhu spouštěče čekat na zpracování videa nejvýš 4 minuty, pak příště
+const IG_KROK_MS = 20e3;            // akce z aplikace (Zveřejnit teď, igKrok) čeká na Instagram nejvýš 20 s – pak další akce
+const IG_ZAMEK_MS = 6.5 * 60e3;     // zámek položky na dobu jednoho běhu (Apps Script běží nejvýš 6 min) – nic se nezdvojí
 const IG_POKUSU = 3;                // výpadek při čekání nebo zveřejnění – tolikrát zkusit znovu, pak chyba
+const IG_AKTIVNI_MS = 20 * 60e3;    // „zveřejňování běží“ pro server: do 20 min před časem a 20 min po konci (zmeny_)
 const MAX_PLANU = 25;               // vlastnost má limit 9 kB
+const IG_PLAN_ZNAKU = 8000;         // … a když je plán delší, starší hotové položky přijdou o průběh, pak úplně
 const IG_POPISEK = 'REELY_POPISEK:'; // + id reelu = popisek upravený v aplikaci jen pro Instagram (soubor na PC se nemění)
 const IG_UCET_JMENO = /^[a-z0-9._]{1,30}$/i;
 
@@ -2880,6 +2888,9 @@ function nactiPlan_(vlastnost) {
   try { return JSON.parse(vlastnosti_().getProperty(vlastnost) || '{}') || {}; } catch (chyba) { return {}; }
 }
 
+/** Položka plánu, se kterou se ještě pracuje (čeká na čas, nahrává se, zveřejňuje se) – ze zkracování plánu ji nic nevyhodí. */
+function igRozpracovana_(z) { return !!z && (z.stav === 'ceka' || z.stav === 'nahrava' || z.stav === 'zverejnuji'); }
+
 /**
  * Úprava plánu pod krátkým zámkem (zámek se nikdy nedrží přes čekání na Instagram). fn(plan) → výsledek (jinak celý plán).
  * vlastnost = REELY_PLAN (výchozí) nebo PLAKATY_PLAN.
@@ -2891,13 +2902,25 @@ function upravPlan_(fn, vlastnost) {
   try {
     const plan = nactiPlan_(nazev);
     const vysledek = fn(plan);
-    Object.keys(plan).sort(function (a, b) { return (plan[b].kdy || 0) - (plan[a].kdy || 0); })
-      .slice(MAX_PLANU).forEach(function (k) { delete plan[k]; });
+    zkratPlan_(plan);
     vlastnosti_().setProperty(nazev, JSON.stringify(plan));
     return vysledek === undefined ? plan : vysledek;
   } finally {
     zamek.releaseLock();
   }
+}
+
+/** Plán se musí vejít do vlastnosti (9 kB): nejvýš MAX_PLANU položek; dlouhý plán – nejstarší hotové položky nejdřív
+ *  přijdou o průběh (kroky), pak úplně. Rozpracované a čekající nikdy. */
+function zkratPlan_(plan) {
+  const poradi = Object.keys(plan).sort(function (a, b) { return (plan[b].kdy || 0) - (plan[a].kdy || 0); });
+  poradi.slice(MAX_PLANU).forEach(function (k) { if (!igRozpracovana_(plan[k])) delete plan[k]; });
+  const stare = poradi.filter(function (k) { return plan[k] && !igRozpracovana_(plan[k]); }).reverse(); // nejstarší první
+  const dlouhy = function () { return JSON.stringify(plan).length > IG_PLAN_ZNAKU; };
+  for (let i = 0; i < stare.length && dlouhy(); i++) {
+    ['kroky', 'stavIg', 'stavIgPribeh', 'kontrola', 'vypadek', 'pokusy', 'zacatek'].forEach(function (k) { delete plan[stare[i]][k]; });
+  }
+  for (let i = 0; i < stare.length && dlouhy(); i++) delete plan[stare[i]];
 }
 
 /** Akce reelNaplanovat: reel na Instagram v daný čas (ms) – jen reel s videem na Disku a s popiskem.
@@ -2919,20 +2942,36 @@ function naplanujReel_(id, kdy, oznacit, popisek, pribeh) {
   const vlastni = !!text && text !== String(reel.popisek).trim();
   const plan = upravPlan_(function (p) {
     const z = p[id];
-    if (z && (z.stav === 'nahrava' || z.stav === 'zverejnuji')) throw new Error('Reel se právě nahrává na Instagram.');
+    igLzeMenit_(z, 'Reel');
     if (z && z.stav === 'hotovo') throw new Error('Reel už na Instagramu je.');
-    p[id] = { kdy: t, stav: 'ceka', oznacit: ucty, upraveno: vlastni };
+    p[id] = igNovaPolozka_(z, { kdy: t, stav: 'ceka', oznacit: ucty, upraveno: vlastni });
     if (pribeh) p[id].pribeh = true;
   });
   if (vlastni) vlastnosti_().setProperty(IG_POPISEK + id, text); else vlastnosti_().deleteProperty(IG_POPISEK + id);
   return { plan: plan, popisky: igUpravenePopisky_() };
 }
 
+/** Plán jde změnit (čas, zrušit), jen dokud se nenahrává a nepracuje na něm jiný běh (Zveřejnit teď, spouštěč). */
+function igLzeMenit_(z, co) {
+  if (z && (z.stav === 'nahrava' || z.stav === 'zverejnuji')) throw new Error(co + ' se už nahrává na Instagram – změnit ani zrušit to teď nejde.');
+  if (z && z.bezi && z.bezi > Date.now()) throw new Error(co + ' se právě začíná nahrávat na Instagram – za chvíli uvidíš průběh.');
+}
+
+/** Nová položka plánu místo staré: když se stará po chybě už zkoušela zveřejnit, motor se nejdřív podívá, jestli přece
+ *  jen nevyšla (kontejner PUBLISHED) – jinak by mohl příspěvek vyjít dvakrát. */
+function igNovaPolozka_(stara, nova) {
+  const k = stara && stara.stav === 'chyba' ? stara.kontejner || stara.kontejnerOverit : '';
+  if (k) {
+    nova.kontejnerOverit = k;
+    if (stara.kontejnerPribeh || stara.kontejnerPribehOverit) nova.kontejnerPribehOverit = stara.kontejnerPribeh || stara.kontejnerPribehOverit;
+  }
+  return nova;
+}
+
 /** Akce reelZrusitPlan: zrušit naplánované zveřejnění (jen dokud se nenahrává). */
 function zrusPlanReelu_(id) {
   return { plan: upravPlan_(function (plan) {
-    const z = plan[id];
-    if (z && (z.stav === 'nahrava' || z.stav === 'zverejnuji')) throw new Error('Reel se už nahrává na Instagram – zrušit to nejde.');
+    igLzeMenit_(plan[id], 'Reel');
     delete plan[id];
   }), popisky: (vlastnosti_().deleteProperty(IG_POPISEK + id), igUpravenePopisky_()) };
 }
@@ -2948,6 +2987,8 @@ function overInstagram() {
 /** Spouštěč každých 10 minut (Michal ho přidá v editoru, jediný potřebný): nejdřív rychlé kontroly upozornění do iPhonu,
  *  pak Instagram (čekání na zpracování videa může trvat minuty). */
 function instagramKazdych10Min() {
+  // kdy spouštěč naposledy běžel – aplikace podle toho pozná „spouštěč neběží“ (naplánované by bez ní nevyšlo)
+  try { vlastnosti_().setProperty('IG_SPOUSTEC', String(Date.now())); } catch (chyba) { /* příště */ }
   try { upozorneniKontrola_(); } catch (chyba) { /* příště */ }
   try { zapisOtiskKlice_(); } catch (chyba) { /* příště */ }
   try {
@@ -2977,21 +3018,88 @@ function whoopNaPozadi_() {
   }
 }
 
-/** Obnova klíče a zveřejnění toho, co je na řadě – reel nebo plakát (jeden za běh, nejdřív nejstarší). */
+/** Druhy příspěvků na Instagram: vlastnost s plánem, platné id a zveřejnění jedné položky (krok automatu). */
+const IG_TYPY = {
+  reel: { vlastnost: 'REELY_PLAN', platneId: function (id) { return REELY_.platneId(id); }, zverejni: function (id, v) { return igZverejni_(id, v); } },
+  plakat: { vlastnost: 'PLAKATY_PLAN', platneId: function (id) { return PLAKAT_TYDEN.test(String(id)); }, zverejni: function (id, v) { return plakatZverejni_(id, v); } }
+};
+
+/** Položka je na řadě: zveřejňuje se, nebo nastal její čas (minuta rezerva na nepřesný spouštěč). */
+function igNaRade_(z, ted) { return !!z && (z.stav === 'nahrava' || z.stav === 'zverejnuji' || (z.stav === 'ceka' && (z.kdy || 0) <= ted + 60e3)); }
+
+/** Obnova klíče a zveřejnění toho, co je na řadě – reel nebo plakát (jeden za běh, nejdřív nejstarší). Položku, na které
+ *  zrovna pracuje aplikace (Zveřejnit teď), přeskočí a vezme další. */
 function instagramPlan_() {
   if (!vlastnosti_().getProperty('IG_TOKEN')) return;
   try { igObnovKlic_(); } catch (chyba) { /* zkusí se zítra */ }
   const ted = Date.now();
   const naRade = [];
-  [['REELY_PLAN', igZverejni_], ['PLAKATY_PLAN', plakatZverejni_]].forEach(function (x) {
-    const plan = nactiPlan_(x[0]);
-    Object.keys(plan).forEach(function (id) {
-      const z = plan[id];
-      if (z.stav === 'nahrava' || z.stav === 'zverejnuji' || (z.stav === 'ceka' && z.kdy <= ted + 60e3)) naRade.push({ kdy: z.kdy || 0, fn: x[1], id: id });
-    });
+  Object.keys(IG_TYPY).forEach(function (typ) {
+    const plan = nactiPlan_(IG_TYPY[typ].vlastnost);
+    Object.keys(plan).forEach(function (id) { if (igNaRade_(plan[id], ted)) naRade.push({ kdy: plan[id].kdy || 0, typ: typ, id: id }); });
   });
   naRade.sort(function (a, b) { return a.kdy - b.kdy; });
-  if (naRade.length) naRade[0].fn(naRade[0].id);
+  for (let i = 0; i < naRade.length; i++) {
+    if (IG_TYPY[naRade[i].typ].zverejni(naRade[i].id, { cekani: IG_CEKANI_MS }) !== 'obsazeno') break;
+  }
+}
+
+/**
+ * Akce igKrok { typ: 'reel' | 'plakat', id, ted?, znovu? } – aplikace posouvá zveřejnění sama, dokud je stránka otevřená
+ * (spouštěč každých 10 min zůstává jako záloha): udělá tolik kroků, kolik se za ~20 s bezpečně stihne, a vrátí průběh.
+ * ted = Zveřejnit teď (naplánované nečeká na čas); znovu = Zkusit znovu po chybě nebo zaseknutí (nový kontejner – ten
+ * starý se předtím ověří, jestli přece jen nevyšel). Na položce pracuje vždy jen jeden běh (zámek bezi) – nic se nezdvojí.
+ */
+function igKrok_(d) {
+  const t = IG_TYPY[d && d.typ];
+  if (!t || !Object.prototype.hasOwnProperty.call(IG_TYPY, d.typ)) throw new Error('Neznámý druh příspěvku.');
+  const id = String(d.id || '');
+  if (!t.platneId(id)) throw new Error('Neplatný příspěvek.');
+  igKlic_();
+  if (!nactiPlan_(t.vlastnost)[id]) throw new Error('Příspěvek není v plánu – naplánuj ho znovu.');
+  if (d.ted || d.znovu) {
+    upravPlan_(function (plan) {
+      const z = plan[id];
+      const ted = Date.now();
+      if (!z || (z.bezi && z.bezi > ted)) return; // právě na něm pracuje jiný běh – jen ukázat průběh
+      if (z.stav === 'ceka') z.kdy = Math.min(z.kdy || ted, ted);
+      else if (d.znovu && z.stav !== 'hotovo') plan[id] = igZnovu_(z, ted);
+    }, t.vlastnost);
+  }
+  if (igNaRade_(nactiPlan_(t.vlastnost)[id], Date.now())) t.zverejni(id, { cekani: IG_KROK_MS });
+  return igPrehled_();
+}
+
+/** Zkusit znovu: položka od začátku (čeká, hned), stejné nastavení; starý kontejner jen k ověření, jestli nevyšel. */
+function igZnovu_(z, ted) {
+  const nova = { kdy: ted, stav: 'ceka', znovu: ted };
+  ['oznacit', 'upraveno', 'pribeh'].forEach(function (k) { if (z[k] !== undefined) nova[k] = z[k]; });
+  const k = z.kontejner || z.kontejnerOverit, kp = z.kontejnerPribeh || z.kontejnerPribehOverit;
+  if (k) nova.kontejnerOverit = k;
+  if (k && kp) nova.kontejnerPribehOverit = kp;
+  return nova;
+}
+
+/** Akce igStav (jen čtení, levné – vlastnosti skriptu) a výsledek igKrok: průběh zveřejňování pro aplikaci. */
+function igPrehled_() {
+  const vl = vlastnosti_();
+  return { ted: Date.now(), spoustec: Number(vl.getProperty('IG_SPOUSTEC') || 0), reely: nactiPlan_('REELY_PLAN'),
+    plakaty: nactiPlan_('PLAKATY_PLAN'), zverejneno: stavReelu_(), popiskyPlanu: igUpravenePopisky_() };
+}
+
+/** Zveřejňuje se, má brzy vyjít nebo právě skončilo – server pak obnovuje kopie reelů a plakátů při každé obnově. */
+function igAktivni_() {
+  const ted = Date.now();
+  return ['REELY_PLAN', 'PLAKATY_PLAN'].some(function (v) {
+    const plan = nactiPlan_(v);
+    return Object.keys(plan).some(function (id) {
+      const z = plan[id] || {};
+      if (z.stav === 'nahrava' || z.stav === 'zverejnuji') return true;
+      if (z.stav === 'ceka') return (z.kdy || 0) <= ted + IG_AKTIVNI_MS;
+      const konec = Math.max(Number(z.zverejneno) || 0, Number((z.kroky || {}).chyba) || 0, Number((z.kroky || {}).hotovo) || 0);
+      return konec > ted - IG_AKTIVNI_MS;
+    });
+  });
 }
 
 function igObnovKlic_() {
@@ -3009,120 +3117,235 @@ function igObnovKlic_() {
 }
 
 /** Jeden reel: kontejner (video z tajného odkazu) → zpracování → zveřejnění → odkaz na příspěvek; sdílení videa hned pryč.
- *  S plánem `pribeh` jde totéž video rovnou i do příběhu (nevyjde-li příběh, reel platí a důvod je v pribehChyba). */
-function igZverejni_(id) {
-  const reel = nactiReely_().reely.filter(function (r) { return r.id === id; })[0] || null;
-  const m = reel && /\/file\/d\/([^/?#]+)/.exec(reel.odkaz || '');
-  igPublikuj_({
-    vlastnost: 'REELY_PLAN', id: id, souborId: m ? m[1] : '', chybaSouboru: 'Video reelu na Disku není.', video: true,
-    chybaTitulek: 'Reel nevyšel na Instagramu', chybaText: (reel && reel.nazev ? reel.nazev + ' – ' : '') + 'důvod je v Asistentovi (Reely)',
-    hotovoTitulek: 'Reel je na Instagramu ✓', hotovoText: (reel && reel.nazev) || 'Reel',
-    kontejner: function (z, url) {
-      const parametry = { media_type: 'REELS', share_to_feed: 'true', caption: igPopisek_(id) || reel.popisek, video_url: url };
-      if (z.oznacit && z.oznacit.length) parametry.user_tags = JSON.stringify(z.oznacit.map(function (u) { return { username: u }; }));
-      return parametry;
+ *  S plánem `pribeh` jde totéž video rovnou i do příběhu (nevyjde-li příběh, reel platí a důvod je v pribehChyba).
+ *  volby.cekani = jak dlouho v tomhle běhu čekat na zpracování (spouštěč 4 min, akce z aplikace 20 s). */
+function igZverejni_(id, volby) {
+  // seznam reelů z Disku jen při zakládání kontejneru (soubor, popisek); pro název v upozornění stačí mezipaměť
+  let seznam = null;
+  const reel = function (cerstvy) {
+    if (!seznam || (cerstvy && !seznam.cerstvy)) {
+      const c = cerstvy ? null : nactiZCache_('reely:seznam');
+      seznam = c && Array.isArray(c.reely) ? { reely: c.reely } : { reely: nactiReely_().reely, cerstvy: true };
+    }
+    return seznam.reely.filter(function (r) { return r.id === id; })[0] || null;
+  };
+  const nazev = function () { const r = reel(false); return (r && r.nazev) || ''; };
+  return igPublikuj_({
+    vlastnost: 'REELY_PLAN', id: id, video: true, cekani: volby && volby.cekani,
+    priprav: function () {
+      const r = reel(true);
+      const m = r && /\/file\/d\/([^/?#]+)/.exec(r.odkaz || '');
+      if (!m) throw new Error('Video reelu na Disku není.');
+      return { souborId: m[1], pribehId: m[1],
+        kontejner: function (z, url) {
+          const parametry = { media_type: 'REELS', share_to_feed: 'true', caption: igPopisek_(id) || r.popisek, video_url: url };
+          if (z.oznacit && z.oznacit.length) parametry.user_tags = JSON.stringify(z.oznacit.map(function (u) { return { username: u }; }));
+          return parametry;
+        },
+        pribeh: function (url) { return { media_type: 'STORIES', video_url: url }; } };
     },
-    pribeh: function (url) { return { media_type: 'STORIES', video_url: url }; },
-    hotovo: function () { vlastnosti_().deleteProperty(IG_POPISEK + id); nastavStavReelu_(id, true); }
+    chyba: function () { return { titulek: 'Reel nevyšel na Instagramu', text: (nazev() ? nazev() + ' – ' : '') + 'důvod je v Asistentovi (Reely)' }; },
+    hotovo: function () { return { titulek: 'Reel je na Instagramu ✓', text: nazev() || 'Reel' }; },
+    poZverejneni: function () { vlastnosti_().deleteProperty(IG_POPISEK + id); nastavStavReelu_(id, true); }
   });
 }
 
 /**
- * Zveřejnění jedné položky plánu (reel nebo plakát) – stavový automat přes víc běhů spouštěče: kontejner (a příběh) ze
- * souborů na Disku s dočasným tajným odkazem → zpracování na Instagramu → zveřejnění → odkaz; sdílení hned po stažení pryč.
- * o = { vlastnost, id, souborId, pribehId?, chybaSouboru, video, chyba/hotovo Titulek+Text, kontejner(z, url), pribeh(url), hotovo() }
+ * Zveřejnění jedné položky plánu (reel nebo plakát) – stavový automat přes víc běhů (spouštěč každých 10 min i akce igKrok
+ * z aplikace). Na položce pracuje vždy jen jeden běh: zámek `bezi` (do kdy) v položce – druhý běh ji nechá být, takže se
+ * nic nezdvojí ani při Zveřejnit teď ze dvou zařízení naráz se spouštěčem.
+ * o = { vlastnost, id, video, cekani, priprav() → { souborId, pribehId?, kontejner(z, url), pribeh(url) },
+ *       chyba() / hotovo() → { titulek, text } (upozornění do iPhonu), poZverejneni() }
+ * Vrací 'obsazeno' (pracuje jiný běh), 'nic', 'pracuje' (pokračuje se příště), 'hotovo' nebo 'chyba'.
  */
 function igPublikuj_(o) {
+  const ted = Date.now();
+  const zamek = upravPlan_(function (plan) {
+    const z = plan[o.id];
+    if (!igRozpracovana_(z)) return 'nic';
+    if (z.bezi && z.bezi > ted) return 'obsazeno';
+    z.bezi = ted + IG_ZAMEK_MS;
+    return 'moje';
+  }, o.vlastnost);
+  if (zamek !== 'moje') return zamek;
+  try {
+    return igKroky_(o);
+  } finally {
+    try { upravPlan_(function (plan) { if (plan[o.id]) delete plan[o.id].bezi; }, o.vlastnost); } catch (e) { /* zámek vyprší sám */ }
+  }
+}
+
+/**
+ * Kroky zveřejnění pod zámkem položky: (ověření starého kontejneru po Zkusit znovu) → příprava (soubory na Disku dostanou
+ * dočasný tajný odkaz, Instagram dostane kontejner a příběh) → zpracování na Instagramu → zveřejnění → příběh → odkaz;
+ * sdílení hned po stažení pryč. Průběh s časy jde do položky (kroky, kontrola, stavIg) – aplikace ho ukazuje.
+ */
+function igKroky_(o) {
   let z = nactiPlan_(o.vlastnost)[o.id];
-  if (!z) return;
-  const nastav = function (zmena) { z = upravPlan_(function (plan) { plan[o.id] = Object.assign({}, plan[o.id], zmena); return plan[o.id]; }, o.vlastnost); };
-  const soubory = [];
+  // změna položky pod zámkem plánu; hodnota null pole smaže
+  const nastav = function (zmena) {
+    z = upravPlan_(function (plan) {
+      const x = Object.assign({}, plan[o.id]);
+      Object.keys(zmena).forEach(function (k) { if (zmena[k] === null) delete x[k]; else x[k] = zmena[k]; });
+      plan[o.id] = x;
+      return x;
+    }, o.vlastnost);
+  };
+  // nový krok průběhu s časem (aplikace z nich skládá kroky s časy)
+  const krok = function (nazev, zmena) {
+    const k = Object.assign({}, z.kroky);
+    k[nazev] = Date.now();
+    nastav(Object.assign({ kroky: k }, zmena || {}));
+  };
+  const upozorni = function (fn, tagy, priorita, odkaz) {
+    try { const u = fn(); upozorni_(u.titulek, u.text, tagy, priorita, odkaz); } catch (e) { /* bez upozornění */ }
+  };
   const chyba = function (text) {
-    nastav({ stav: 'chyba', chyba: String(text).slice(0, 150), kontejner: '', kontejnerPribeh: '' });
-    try { upozorni_(o.chybaTitulek, o.chybaText, ['warning'], 4); } catch (e) { /* bez upozornění */ }
+    // kontejner, který se už zkoušel zveřejnit, zůstává k ověření (Zkusit znovu nejdřív zjistí, jestli přece jen nevyšel)
+    const zkouselo = !!(z.kroky && z.kroky.zverejnuji);
+    krok('chyba', { stav: 'chyba', chyba: String(text).slice(0, 150), kontejner: zkouselo ? z.kontejner || '' : '',
+      kontejnerPribeh: zkouselo ? z.kontejnerPribeh || '' : '', vypadek: null });
+    upozorni(o.chyba, ['warning'], 4);
+    return 'chyba';
+  };
+  // soubory sdílené odkazem jen po dobu stahování Instagramem (id v položce; starší položky bez nich – podle souborů)
+  let soubory = null;
+  const sdilene = function () {
+    if (soubory) return soubory;
+    let ids = z.sdileno || [];
+    if (!z.sdileno && z.kontejner) {
+      try { const p = o.priprav(); ids = [p.souborId].concat(z.pribeh && p.pribehId && p.pribehId !== p.souborId ? [p.pribehId] : []); } catch (e) { ids = []; }
+    }
+    soubory = ids.map(function (id) { try { return DriveApp.getFileById(id); } catch (e) { return null; } }).filter(Boolean);
+    return soubory;
   };
   const skryj = function () {
-    soubory.forEach(function (f) { try { f.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE); } catch (e) { /* zkusí se příště */ } });
+    sdilene().forEach(function (f) { try { f.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE); } catch (e) { /* zkusí se příště */ } });
   };
   const vypadek = function (e) {
-    // výpadek při čekání nebo zveřejnění: zkusit příště, po IG_POKUSU pokusech chyba (zveřejnění se kontroluje stavem kontejneru)
+    // výpadek spojení při čekání nebo zveřejnění: zkusit příště, po IG_POKUSU pokusech chyba (zveřejnění hlídá stav kontejneru)
     const pokusy = (z.pokusy || 0) + 1;
-    if (pokusy >= IG_POKUSU) { skryj(); chyba(String((e && e.message) || e)); } else nastav({ pokusy: pokusy });
+    if (pokusy >= IG_POKUSU) { skryj(); return chyba(String((e && e.message) || e)); }
+    nastav({ pokusy: pokusy, vypadek: String((e && e.message) || e).slice(0, 120) });
+    return 'pracuje';
   };
-  if (!o.souborId) { chyba(o.chybaSouboru); return; }
-  const hlavni = DriveApp.getFileById(o.souborId);
-  soubory.push(hlavni);
-  const pribehSoubor = !z.pribeh ? null : o.pribehId && o.pribehId !== o.souborId ? DriveApp.getFileById(o.pribehId) : o.pribehId === '' ? null : hlavni;
-  if (pribehSoubor && pribehSoubor !== hlavni) soubory.push(pribehSoubor);
   const url = function (f) { return 'https://drive.usercontent.google.com/download?id=' + encodeURIComponent(f.getId()) + '&export=download&confirm=t'; };
-  let ucet;
-  if (!z.kontejner) {
+  let ucet = null;
+
+  // 0) Zkusit znovu / nový plán po chybě: starý kontejner přece jen vyšel → dokončit s ním; jinak ho zahodit (nikdy nevyšel)
+  if (z.kontejnerOverit) {
+    let s0 = null;
     try {
       ucet = igUcet_();
+      s0 = igVolej_(z.kontejnerOverit, 'get', { fields: 'status_code,status' });
+    } catch (e) {
+      // Instagram kontejner nezná (vypršel, smazaný) = nevyšel; jiná chyba (spojení, klíč) = zkusit příště
+      if (!/does not exist|Unsupported get request|nonexisting|Invalid parameter/i.test(String((e && e.message) || e))) return vypadek(e);
+    }
+    if (s0 && s0.status_code === 'PUBLISHED') {
+      nastav({ stav: 'zverejnuji', kontejner: z.kontejnerOverit, kontejnerPribeh: z.kontejnerPribehOverit || '', kontejnerOverit: null, kontejnerPribehOverit: null });
+    } else nastav({ kontejnerOverit: null, kontejnerPribehOverit: null });
+  }
+
+  // 1) Příprava: tajný odkaz na soubory a kontejner (u příběhu druhý) – nevyjde-li příběh, hlavní příspěvek platí
+  if (!z.kontejner) {
+    let p, hlavni, pribehSoubor;
+    try {
+      p = o.priprav();
+      hlavni = DriveApp.getFileById(p.souborId);
+      pribehSoubor = !z.pribeh ? null : p.pribehId === '' ? null : p.pribehId && p.pribehId !== p.souborId ? DriveApp.getFileById(p.pribehId) : hlavni;
+    } catch (e) {
+      return chyba(String((e && e.message) || e));
+    }
+    soubory = [hlavni].concat(pribehSoubor && pribehSoubor !== hlavni ? [pribehSoubor] : []);
+    try {
+      ucet = ucet || igUcet_();
+      krok('priprava', { stav: 'nahrava', zacatek: Date.now(), pokusy: 0, sdileno: soubory.map(function (f) { return f.getId(); }),
+        stavIg: null, stavIgPribeh: null, kontrola: null, vypadek: null, chyba: null, znovu: null });
       soubory.forEach(function (f) { f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); });
-      nastav({ stav: 'nahrava', zacatek: Date.now(), pokusy: 0 });
-      const k = igVolej_(ucet.id + '/media', 'post', o.kontejner(z, url(hlavni)));
-      // příběh: kontejner hned taky (stejný soubor u reelu, vlastní obrázek 9:16 u plakátu); nevyjde-li, hlavní příspěvek platí
+      const k = igVolej_(ucet.id + '/media', 'post', p.kontejner(z, url(hlavni)));
       let kp = '', pribehChyba = '';
       if (z.pribeh && pribehSoubor) {
-        try { kp = String(igVolej_(ucet.id + '/media', 'post', o.pribeh(url(pribehSoubor))).id); } catch (e) { pribehChyba = String((e && e.message) || e).slice(0, 150); }
+        try { kp = String(igVolej_(ucet.id + '/media', 'post', p.pribeh(url(pribehSoubor))).id); } catch (e) { pribehChyba = String((e && e.message) || e).slice(0, 150); }
       } else if (z.pribeh) pribehChyba = 'Obrázek pro příběh chybí.';
-      nastav({ kontejner: String(k.id), kontejnerPribeh: kp, pribehChyba: pribehChyba });
+      krok('zpracovani', { kontejner: String(k.id), kontejnerPribeh: kp, pribehChyba: pribehChyba });
     } catch (e) {
       skryj();
-      chyba(String((e && e.message) || e));
-      return;
+      return chyba(String((e && e.message) || e));
     }
   }
-  // Instagram soubory stáhne a zpracuje – obrázek hned, video desítky vteřin až minuty
+
+  // 2) Instagram soubory stáhne a zpracuje – obrázek hned, video desítky vteřin až minuty; každá kontrola se zapíše
   let s = null, sp = null;
   try {
     ucet = ucet || igUcet_();
-    const konec = Date.now() + IG_CEKANI_MS;
-    for (;;) {
+    const cekani = o.cekani || IG_CEKANI_MS, pauza = o.video ? 10000 : 3000;
+    const konec = Date.now() + cekani, kol = Math.max(1, Math.ceil(cekani / pauza));
+    for (let i = 0; ; i++) {
       if (!s || s.status_code === 'IN_PROGRESS') s = igVolej_(z.kontejner, 'get', { fields: 'status_code,status' });
       if (z.kontejnerPribeh && (!sp || sp.status_code === 'IN_PROGRESS')) sp = igVolej_(z.kontejnerPribeh, 'get', { fields: 'status_code,status' });
-      if ((s.status_code !== 'IN_PROGRESS' && (!sp || sp.status_code !== 'IN_PROGRESS')) || Date.now() > konec) break;
-      Utilities.sleep(o.video ? 10000 : 3000);
+      nastav({ kontrola: Date.now(), stavIg: String(s.status_code || ''), stavIgPribeh: sp ? String(sp.status_code || '') : null, vypadek: null });
+      if ((s.status_code !== 'IN_PROGRESS' && (!sp || sp.status_code !== 'IN_PROGRESS')) || Date.now() > konec || i + 1 >= kol) break;
+      Utilities.sleep(pauza);
     }
   } catch (e) {
-    vypadek(e);
-    return;
+    return vypadek(e);
   }
   const dlouho = Date.now() - (z.zacatek || 0) > 60 * 60e3;
   if (s.status_code === 'IN_PROGRESS') {
-    if (dlouho) { skryj(); chyba('Instagram ' + (o.video ? 'video' : 'obrázek') + ' nezpracoval ani za hodinu.'); }
-    return; // příště
+    if (dlouho) { skryj(); return chyba('Instagram ' + (o.video ? 'video' : 'obrázek') + ' nezpracoval ani za hodinu.'); }
+    return 'pracuje'; // příště
   }
-  if (sp && sp.status_code === 'IN_PROGRESS' && !dlouho) return; // příspěvek je hotový, příběh ještě ne – příště obojí
+  if (sp && sp.status_code === 'IN_PROGRESS' && !dlouho) return 'pracuje'; // příspěvek je hotový, příběh ještě ne – příště obojí
   skryj(); // Instagram soubory má (nebo je odmítl) – tajný odkaz pryč
-  if (s.status_code === 'ERROR' || s.status_code === 'EXPIRED') { chyba('Instagram ' + (o.video ? 'video' : 'obrázek') + ' odmítl: ' + (s.status || s.status_code)); return; }
+  if (s.status_code === 'ERROR' || s.status_code === 'EXPIRED') return chyba('Instagram ' + (o.video ? 'video' : 'obrázek') + ' odmítl: ' + (s.status || s.status_code));
+
+  // 3) Zveřejnění – jen kontejner, který ještě nevyšel (PUBLISHED = vyšel minule, jen se ztratila odpověď)
   let media = z.media || '';
+  if (s.status_code === 'PUBLISHED' && !media) media = igNajdiMedia_(ucet, z.zacatek || z.kdy || 0);
   if (s.status_code !== 'PUBLISHED' && !media) {
     try {
-      nastav({ stav: 'zverejnuji' });
+      krok('zverejnuji', { stav: 'zverejnuji' });
       media = String(igVolej_(ucet.id + '/media_publish', 'post', { creation_id: z.kontejner }).id);
       nastav({ media: media });
     } catch (e) {
-      vypadek(e);
-      return;
+      return vypadek(e);
     }
   }
-  // příběh až po příspěvku; jeho chyba příspěvek neruší
+  // 4) Příběh až po příspěvku; jeho chyba příspěvek neruší
   let mediaPribeh = z.mediaPribeh || '', pribehChyba = z.pribehChyba || '';
   if (z.kontejnerPribeh && !mediaPribeh && !pribehChyba) {
+    krok('pribeh');
     if (sp && sp.status_code === 'FINISHED') {
       try { mediaPribeh = String(igVolej_(ucet.id + '/media_publish', 'post', { creation_id: z.kontejnerPribeh }).id); } catch (e) { pribehChyba = String((e && e.message) || e).slice(0, 150); }
-    } else if (!(sp && sp.status_code === 'PUBLISHED')) {
+    } else if (sp && sp.status_code === 'PUBLISHED') {
+      mediaPribeh = 'zverejneno'; // vyšel minule, jen se ztratila odpověď
+    } else {
       pribehChyba = 'Instagram příběh odmítl: ' + (sp ? (sp.status || sp.status_code) : 'bez odpovědi');
     }
   }
+  // 5) Hotovo s odkazem na příspěvek
   let odkaz = '';
   if (media) { try { odkaz = String(igVolej_(media, 'get', { fields: 'permalink' }).permalink || ''); } catch (e) { odkaz = ''; } }
-  nastav({ stav: 'hotovo', media: media, odkaz: odkaz, zverejneno: Date.now(), kontejner: '', kontejnerPribeh: '', chyba: '',
-    mediaPribeh: mediaPribeh, pribehChyba: pribehChyba });
-  if (o.hotovo) o.hotovo(z);
-  try { upozorni_(o.hotovoTitulek, o.hotovoText + (pribehChyba ? ' (příběh nevyšel)' : mediaPribeh ? ' + příběh' : ''), ['white_check_mark'], 3, odkaz); } catch (e) { /* bez upozornění */ }
+  krok('hotovo', { stav: 'hotovo', media: media, odkaz: odkaz, zverejneno: Date.now(), kontejner: '', kontejnerPribeh: '', chyba: '',
+    mediaPribeh: mediaPribeh, pribehChyba: pribehChyba, stavIg: null, stavIgPribeh: null, vypadek: null, pokusy: null, sdileno: null });
+  if (o.poZverejneni) o.poZverejneni(z);
+  upozorni(function () { const u = o.hotovo(); return { titulek: u.titulek, text: u.text + (pribehChyba ? ' (příběh nevyšel)' : mediaPribeh ? ' + příběh' : '') }; },
+    ['white_check_mark'], 3, odkaz);
+  return 'hotovo';
+}
+
+/** Kontejner už vyšel, ale id příspěvku chybí (ztracená odpověď) → najít ho mezi posledními příspěvky účtu podle času. */
+function igNajdiMedia_(ucet, od) {
+  try {
+    const j = igVolej_(ucet.id + '/media', 'get', { fields: 'id,timestamp', limit: 5 });
+    const cas = function (m) { return Date.parse(String(m.timestamp || '').replace(/([+-]\d\d)(\d\d)$/, '$1:$2')) || 0; };
+    // nejnovější první → nejstarší z těch po začátku zveřejňování (5 min rezerva na hodiny)
+    const po = (Array.isArray(j.data) ? j.data : []).filter(function (m) { return cas(m) >= od - 5 * 60e3; });
+    return po.length ? String(po[po.length - 1].id) : '';
+  } catch (e) {
+    return '';
+  }
 }
 
 // ---------------------------------------------------------------- Plakáty: program víkendu FK Agro Vnorovy (z webu dorostu, 9. 10.)
@@ -3336,8 +3559,7 @@ function popisekPlakatuNaPozadi_() {
 /** Akce plakatObrazky: { tyden, prispevek, pribeh } jako data:image/jpeg;base64 – obrázky pro Instagram (staré do koše). */
 function plakatObrazky_(d) {
   const t = tydenPlakatu_(d.tyden);
-  const z = nactiPlan_('PLAKATY_PLAN')[t];
-  if (z && (z.stav === 'nahrava' || z.stav === 'zverejnuji')) throw new Error('Plakát se právě nahrává na Instagram.');
+  igLzeMenit_(nactiPlan_('PLAKATY_PLAN')[t], 'Plakát');
   const slozka = slozkaPlakatu_();
   const uloz = function (dataUrl, druh) {
     const m = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ''));
@@ -3367,9 +3589,9 @@ function plakatNaplanovat_(d) {
   if (!popisek) throw new Error('Plakát nemá popisek – bez něj ho na Instagram nepošlu.');
   return { plan: upravPlan_(function (p) {
     const z = p[t];
-    if (z && (z.stav === 'nahrava' || z.stav === 'zverejnuji')) throw new Error('Plakát se právě nahrává na Instagram.');
+    igLzeMenit_(z, 'Plakát');
     if (z && z.stav === 'hotovo') throw new Error('Plakát toho víkendu už na Instagramu je.');
-    p[t] = { kdy: kdy, stav: 'ceka', pribeh: !!d.pribeh };
+    p[t] = igNovaPolozka_(z, { kdy: kdy, stav: 'ceka', pribeh: !!d.pribeh });
   }, 'PLAKATY_PLAN') };
 }
 
@@ -3377,24 +3599,27 @@ function plakatNaplanovat_(d) {
 function plakatZrusitPlan_(d) {
   const t = tydenPlakatu_(d.tyden);
   return { plan: upravPlan_(function (plan) {
-    const z = plan[t];
-    if (z && (z.stav === 'nahrava' || z.stav === 'zverejnuji')) throw new Error('Plakát se už nahrává na Instagram – zrušit to nejde.');
+    igLzeMenit_(plan[t], 'Plakát');
     delete plan[t];
   }, 'PLAKATY_PLAN') };
 }
 
-/** Spouštěč: plakát víkendu t na Instagram – příspěvek s popiskem, příběh 9:16. */
-function plakatZverejni_(t) {
-  const slozka = slozkaPlakatu_();
-  const prispevek = souborPlakatu_(slozka, t + '_prispevek.jpg'), pribeh = souborPlakatu_(slozka, t + '_pribeh.jpg');
-  const popisek = (popiskyPlakatu_(nactiPlakaty_(slozka).data.popisky, popiskyClauda_(slozka))[t] || {}).text || '';
-  igPublikuj_({
-    vlastnost: 'PLAKATY_PLAN', id: t, souborId: prispevek ? prispevek.getId() : '', pribehId: pribeh ? pribeh.getId() : '',
-    chybaSouboru: 'Obrázek plakátu na Disku není – naplánuj znovu z aplikace.', video: false,
-    chybaTitulek: 'Plakát nevyšel na Instagramu', chybaText: 'Víkend ' + vikendText_(t) + ' – důvod je v Asistentovi (Plakáty)',
-    hotovoTitulek: 'Plakát je na Instagramu ✓', hotovoText: 'Víkend ' + vikendText_(t),
-    kontejner: function (z, url) { return { image_url: url, caption: popisek }; },
-    pribeh: function (url) { return { media_type: 'STORIES', image_url: url }; }
+/** Spouštěč a igKrok: plakát víkendu t na Instagram – příspěvek s popiskem, příběh 9:16. Soubory a popisek z Disku se
+ *  čtou jen při zakládání kontejneru (další kroky jen kontrolují stav na Instagramu). */
+function plakatZverejni_(t, volby) {
+  return igPublikuj_({
+    vlastnost: 'PLAKATY_PLAN', id: t, video: false, cekani: volby && volby.cekani,
+    priprav: function () {
+      const slozka = slozkaPlakatu_();
+      const prispevek = souborPlakatu_(slozka, t + '_prispevek.jpg'), pribeh = souborPlakatu_(slozka, t + '_pribeh.jpg');
+      if (!prispevek) throw new Error('Obrázek plakátu na Disku není – naplánuj znovu z aplikace.');
+      const popisek = (popiskyPlakatu_(nactiPlakaty_(slozka).data.popisky, popiskyClauda_(slozka))[t] || {}).text || '';
+      return { souborId: prispevek.getId(), pribehId: pribeh ? pribeh.getId() : '',
+        kontejner: function (z, url) { return { image_url: url, caption: popisek }; },
+        pribeh: function (url) { return { media_type: 'STORIES', image_url: url }; } };
+    },
+    chyba: function () { return { titulek: 'Plakát nevyšel na Instagramu', text: 'Víkend ' + vikendText_(t) + ' – důvod je v Asistentovi (Plakáty)' }; },
+    hotovo: function () { return { titulek: 'Plakát je na Instagramu ✓', text: 'Víkend ' + vikendText_(t) }; }
   });
 }
 
@@ -3455,11 +3680,13 @@ function oznacZmenu_(oblast) {
   } catch (chyba) { /* jen zrychlení */ }
 }
 
-/** Akce zmeny: { auto, zdravi } (ms). Zdraví i podle souborů, které Claude píše rovnou na Disk (diktát pití a jídla, režim). */
+/** Akce zmeny: { auto, zdravi } (ms). Zdraví i podle souborů, které Claude píše rovnou na Disk (diktát pití a jídla, režim).
+ *  instagramBezi: na Instagram se zveřejňuje, brzy má něco vyjít nebo právě vyšlo – server pak obnovuje kopie reelů
+ *  a plakátů při každé obnově (jinak jen po půl hodině a „vyjde …“ by u hotového příspěvku zůstalo). */
 function zmeny_() {
   const vl = vlastnosti_();
   return { auto: Number(vl.getProperty('AUTO_ZMENA') || 0),
-    zdravi: Math.max(Number(vl.getProperty('ZDRAVI_ZMENA') || 0), zmenaSouboruClauda_()) };
+    zdravi: Math.max(Number(vl.getProperty('ZDRAVI_ZMENA') || 0), zmenaSouboruClauda_()), instagramBezi: igAktivni_() };
 }
 
 /** Kdy Claude naposledy upravil ZDRAVI/PITI_JIDLO_CLAUDE.json nebo ZDRAVI_REZIM.json (id souborů v mezipaměti 6 h, výsledek 1 min). */

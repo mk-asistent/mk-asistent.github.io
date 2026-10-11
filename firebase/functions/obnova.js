@@ -12,10 +12,22 @@ const DAVKA = ['info', 'schranka', 'fotbal', 'reely', 'zmeny', 'plakaty'];
 // co se přes den mění málo: obnoví se jen po svém intervalu (minuty); po změně z aplikace (obnovHned s vse) vždy
 const INTERVALY_MIN = { info: 60, fotbal: 60, reely: 30, plakaty: 30 };
 
-/** Co se z dávky tentokrát přeskočí: pomalé věci, dokud je jejich kopie mladší než interval (vse = nic). */
-function coPreskocit(potvrzeno, ted, vse) {
+// když se na Instagram zveřejňuje (motor to hlásí ve značkách změn: zmeny.instagramBezi), reely a plakáty každou obnovu –
+// jinak by kopie u hotového příspěvku půl hodiny ukazovala „vyjde …“ (Michal 11. 10.)
+const PRI_INSTAGRAMU = ['reely', 'plakaty'];
+
+/** Co se z dávky tentokrát přeskočí: pomalé věci, dokud je jejich kopie mladší než interval (vse = nic).
+ *  instagramBezi (z minulé obnovy) = reely a plakáty nepřeskakovat. */
+function coPreskocit(potvrzeno, ted, vse, instagramBezi) {
   if (vse || !potvrzeno) return [];
-  return Object.keys(INTERVALY_MIN).filter((id) => potvrzeno[id] && ted - potvrzeno[id] < INTERVALY_MIN[id] * 60e3 - 90e3);
+  return Object.keys(INTERVALY_MIN).filter((id) => potvrzeno[id] && ted - potvrzeno[id] < INTERVALY_MIN[id] * 60e3 - 90e3 &&
+    !(instagramBezi && PRI_INSTAGRAMU.indexOf(id) >= 0));
+}
+
+/** Hlásí motor ve značkách změn, že se na Instagram zveřejňuje? (pro příští obnovu – uloží se do data/_stav) */
+function instagramBezi(data) {
+  const z = data && data.zmeny && data.zmeny.data;
+  return z && typeof z === 'object' ? !!z.instagramBezi : undefined;
 }
 const ADRESA_MOTORU = /^https:\/\/script\.google\.com\/macros\/(u\/\d+\/)?s\/[\w-]+\/exec$/;
 
@@ -129,4 +141,5 @@ async function obnov(pripojeni, moznosti) {
   return { kdy: ted, data, chyby };
 }
 
-module.exports = { volejMotor, pulnocPraha, mrizkaMesice, obnov, otisk, platnePripojeni, DAVKA, INTERVALY_MIN, coPreskocit, OBLASTI, platneOblasti };
+module.exports = { volejMotor, pulnocPraha, mrizkaMesice, obnov, otisk, platnePripojeni, DAVKA, INTERVALY_MIN, coPreskocit, OBLASTI, platneOblasti,
+  instagramBezi };

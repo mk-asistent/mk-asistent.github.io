@@ -1,7 +1,7 @@
 // Test obnovy bez sítě a Firebase: napodobený motor (fetch).  Spuštění: node test.js
 'use strict';
 const assert = require('assert');
-const { obnov, mrizkaMesice, pulnocPraha, volejMotor, otisk, platnePripojeni, coPreskocit, platneOblasti, OBLASTI } = require('./obnova');
+const { obnov, mrizkaMesice, pulnocPraha, volejMotor, otisk, platnePripojeni, coPreskocit, platneOblasti, OBLASTI, instagramBezi } = require('./obnova');
 
 let ok = 0;
 async function test(nazev, fn) {
@@ -72,6 +72,24 @@ function motor(odpovedi, zaznam) {
     const v = await obnov(P, { fetch: fetchFn, ted, preskocit: coPreskocit(potvrzeno, ted, false) });
     assert.ok(zaznam.indexOf('davka:schranka,reely,zmeny,plakaty') >= 0, zaznam.join(' | '));
     assert.ok(!v.data.info && !v.data.fotbal && v.data.reely && v.data.zmeny, 'přeskočené nejsou v datech (kopie zůstanou)');
+  });
+
+  await test('zveřejňuje se na Instagram (značka z motoru) → reely a plakáty každou obnovu, ne až po půl hodině', async () => {
+    const ted = Date.parse('2026-10-11T20:20:00+02:00');
+    const min = 60e3;
+    const potvrzeno = { info: ted - 20 * min, fotbal: ted - 50 * min, reely: ted - 10 * min, plakaty: ted - 10 * min };
+    assert.deepStrictEqual(coPreskocit(potvrzeno, ted, false), ['info', 'fotbal', 'reely', 'plakaty'], 'bez značky po intervalu');
+    assert.deepStrictEqual(coPreskocit(potvrzeno, ted, false, true), ['info', 'fotbal'], 'se značkou reely i plakáty hned');
+    // značka z dávky (data.zmeny) – uloží se do _stav pro příští obnovu; bez značek v dávce (částečná obnova) nic
+    assert.strictEqual(instagramBezi({ zmeny: { data: { auto: 0, zdravi: 0, instagramBezi: true } } }), true);
+    assert.strictEqual(instagramBezi({ zmeny: { data: { auto: 0, zdravi: 0 } } }), false, 'starší motor bez značky');
+    assert.strictEqual(instagramBezi({ reely: { data: {} } }), undefined);
+    const zaznam = [];
+    const fetchFn = motor((d) => (d.akce === 'davka' ? { ok: true, data: d.polozky.map((p) => ({ ok: true, data: p.akce === 'zmeny' ? { instagramBezi: true } : { co: p.akce } })) }
+      : { ok: true, data: {} }), zaznam);
+    const v = await obnov(P, { fetch: fetchFn, ted, preskocit: coPreskocit(potvrzeno, ted, false, true) });
+    assert.ok(zaznam.indexOf('davka:schranka,reely,zmeny,plakaty') >= 0, zaznam.join(' | '));
+    assert.strictEqual(instagramBezi(v.data), true);
   });
 
   await test('po změně z aplikace jen dotčené oblasti: poznámka → jen schránka (bez pošty a kalendáře), událost → kalendář', async () => {
