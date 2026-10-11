@@ -313,6 +313,39 @@ const motor = {
     if (!d.datum) delete autoData.terminy[d.id];
     return JSON.parse(JSON.stringify(autoData));
   },
+  // Knihovna (motor 2026-10-11.5, CLAUDE_SCHRANKA/KNIHOVNA): karty, index rešerší, můj stav, požadavky – testy data mění jako Claude
+  knihovna: () => Object.assign(JSON.parse(JSON.stringify(knihovnaTest)), { ted: Date.now() }),
+  knihovnaReserse: (d) => {
+    if (d.id !== RESERSE_TEST.id) throw new Error('Rešerše v knihovně není – obnov stránku.');
+    return JSON.parse(JSON.stringify(RESERSE_TEST));
+  },
+  knihovnaPridat: (d) => {
+    knihovnaVolani.push({ akce: 'knihovnaPridat', druh: d.druh, text: d.text });
+    const text = String(d.text || '').replace(/\s+/g, ' ').trim();
+    if (['film', 'serial', 'kniha', 'reserse'].indexOf(d.druh) < 0 || text.length < 2) throw new Error('Napiš název nebo téma.');
+    if (!knihovnaTest.pozadavky.some((x) => x.druh === d.druh && x.text.toLowerCase() === text.toLowerCase())) {
+      knihovnaTest.pozadavky.push({ id: 'p-20261011-1200-' + String(knihovnaVolani.length).padStart(2, '0'), druh: d.druh, text, kdy: new Date().toISOString() });
+    }
+    return motor.knihovna();
+  },
+  knihovnaMoje: (d) => {
+    knihovnaVolani.push({ akce: 'knihovnaMoje', id: d.id, stav: d.stav, hodnoceni: d.hodnoceni, poznamka: d.poznamka });
+    if (!knihovnaTest.karty.some((x) => x.id === d.id) && !knihovnaTest.reserse.some((x) => x.id === d.id)) throw new Error('Položka v knihovně není – obnov stránku.');
+    const x = Object.assign({}, knihovnaTest.moje[d.id]);
+    if (d.stav !== undefined) x.stav = d.stav || undefined;
+    if (d.hodnoceni !== undefined) x.hodnoceni = Number(d.hodnoceni) || undefined;
+    if (d.poznamka !== undefined) x.poznamka = String(d.poznamka || '').trim() || undefined;
+    Object.keys(x).forEach((k) => { if (x[k] === undefined) delete x[k]; });
+    if (Object.keys(x).length) knihovnaTest.moje[d.id] = x; else delete knihovnaTest.moje[d.id];
+    return motor.knihovna();
+  },
+  knihovnaZrusit: (d) => {
+    knihovnaVolani.push({ akce: 'knihovnaZrusit', id: d.id });
+    const i = knihovnaTest.pozadavky.findIndex((x) => x.id === d.id);
+    if (i < 0) throw new Error('Požadavek už není – obnov stránku.');
+    knihovnaTest.pozadavky.splice(i, 1);
+    return motor.knihovna();
+  },
   // dávka čtení jako v motoru: každá položka zvlášť ok / chyba
   davka: (d) => (d.polozky || []).map((p) => { try { volano.push(p); return { ok: true, data: motor[p.akce](p) }; } catch (e) { return { ok: false, chyba: e.message }; } }),
   stitky: () => JSON.parse(JSON.stringify(stitkyMotoru)),
@@ -417,6 +450,58 @@ const ZAPASY_PLAKAT = [
     { puvodniTermin: '2026-10-24 11:45', poznamka: 'Původní termín: 24.10.2026 11:45' }),
   zapasPlakat('pl-b1', 'B', '2026-10-25T14:30:00+01:00', 'Vnorovy B', 'Kozojídky', { puvodniTermin: '2026-10-24 14:30', poznamka: 'Původní termín: 24.10.2026 14:30' })
 ];
+
+// Knihovna: vymyšlené karty (film s plakátem a sérií, seriál s obrázkem, který nejde načíst, kniha), jedna rešerše
+const KNIHOVNA_VYCHOZI = () => ({
+  karty: [
+    { id: 'film-zkusebni-let', druh: 'film', nazev: 'Zkušební let', original: 'Test Flight', rok: 2020, delka: '120 min', zeme: 'Česko',
+      tvurci: [{ role: 'režie', jmena: ['Jana Testová'] }, { role: 'hrají', jmena: ['Karel Zkušební', 'Eva Pokusná'] }], zanry: ['drama', 'letecký'],
+      obrazek: { url: 'https://upload.wikimedia.org/test/plakat.png', zdroj: 'Wikipedie', popis: 'plakát' },
+      hodnoceni: [{ zdroj: 'ČSFD', hodnota: '80 %', url: 'https://www.csfd.cz/film/1-zkusebni-let/' }, { zdroj: 'IMDb', hodnota: '7,5/10', url: 'https://www.imdb.com/title/tt0000001/' }],
+      kratce: 'Pilotka testuje nové letadlo.', obsah: 'První odstavec děje.\n\nDruhý odstavec bez spoilerů.', proc: 'Krásné záběry z kokpitu.',
+      zajimavosti: ['Natáčelo se v hangáru.', 'Herečka sama pilotuje.'], skutecnost: 'Podle skutečné zkušební pilotky, jména jsou změněná.', oceneni: ['Cena za kameru (test)'],
+      serie: { nazev: 'Lety', poradi: 'Podle roku vydání.', dily: [{ nazev: 'Zkušební let', rok: 2020, delka: '120 min' },
+        { nazev: 'Druhý let', original: 'Second Flight', rok: 2023, delka: '115 min', pozn: 'prodloužená verze 140 min' }] },
+      kdeSledovat: { text: 'Na streamovací službě s dabingem.', overeno: '2026-10-11' },
+      souvisi: [{ id: 'reserse-letectvi', proc: 'jak letadla létají' }, { id: 'film-druhy-let', proc: 'pokračování' }],
+      stitky: ['letadla'], odkazy: [{ nazev: 'ČSFD', url: 'https://www.csfd.cz/film/1-zkusebni-let/' }], zdroje: [{ nazev: 'Wikipedie – test', url: 'https://cs.wikipedia.org/wiki/Test' }],
+      pripraveno: new Date(ted - 2 * H).toISOString() },
+    { id: 'serial-majak', druh: 'serial', nazev: 'Maják', roky: '2019–2022', obrazek: { url: 'https://upload.wikimedia.org/test/chybi.png' }, kratce: 'Správkyně majáku na ostrově.',
+      hodnoceni: [{ zdroj: 'ČSFD', hodnota: '84 %' }], pripraveno: new Date(ted - 9 * 24 * H).toISOString() },
+    { id: 'kniha-maly-princ', druh: 'kniha', nazev: 'Malý princ', rok: 1943, stran: 96, tvurci: [{ role: 'autor', jmena: ['Antoine de Saint-Exupéry'] }],
+      kratce: 'Pohádka pro dospělé.', pripraveno: new Date(ted - 20 * 24 * H).toISOString() }
+  ],
+  reserse: [{ id: 'reserse-letectvi', nazev: 'Jak létá letadlo', kratce: 'Křídlo vychyluje vzduch dolů – vzniká vztlak.', stitky: ['fyzika'],
+    pripraveno: new Date(ted - 30 * H).toISOString() }],
+  moje: { 'kniha-maly-princ': { stav: 'chci' } },
+  pozadavky: [],
+  chybne: []
+});
+const RESERSE_TEST = { id: 'reserse-letectvi', nazev: 'Jak létá letadlo', otazka: 'Proč letadlo nespadne?', kratce: 'Křídlo vychyluje vzduch dolů – vzniká vztlak.',
+  sekce: [{ nadpis: 'Vztlak', odstavce: ['Křídlo vychyluje proud vzduchu dolů.'], body: ['úhel náběhu', 'rychlost'] }, { nadpis: 'Motory', odstavce: ['Tah motorů drží rychlost.'] }],
+  pojmy: [{ pojem: 'Vztlak', vysvetleni: 'Síla kolmá na proud vzduchu.' }, { pojem: 'Úhel náběhu', vysvetleni: 'Sklon křídla proti proudu vzduchu.' }],
+  casovaOsa: [{ kdy: '1903', co: 'První řízený motorový let.' }, { kdy: '1969', co: 'První let velkého dopravního letadla.' }],
+  cisla: [{ hodnota: '900 km/h', co: 'cestovní rychlost dopravních letadel' }, { hodnota: '11 km', co: 'cestovní výška' }],
+  dalsiOtazky: ['Jak funguje vrtulník?', 'Proč letadla nelétají výš?'], souvisi: [{ id: 'film-zkusebni-let', proc: 'film o pilotce' }],
+  zdroje: [{ nazev: 'Encyklopedie – vztlak', url: 'https://example.com/vztlak' }], stitky: ['fyzika'], pripraveno: new Date(ted - 30 * H).toISOString() };
+let knihovnaTest = KNIHOVNA_VYCHOZI();
+const knihovnaVolani = [];
+/** Obrázky karet (upload.wikimedia.org: plakát jde, „chybi“ ne) a Wikipedie (shrnutí jen k „Interstellar (film)“) – nic ze sítě. */
+async function knihovnaSit(page, wiki) {
+  await page.route('https://upload.wikimedia.org/**', (route) => (/chybi/.test(route.request().url()) ? route.fulfill({ status: 404, body: '' })
+    : route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(MALA_FOTKA.split(',')[1], 'base64') })));
+  await page.route(/^https:\/\/(cs|en)\.wikipedia\.org\/api\/rest_v1\/page\/summary\//, (route) => {
+    const u = route.request().url();
+    if (wiki) wiki.push(decodeURIComponent(u.split('/summary/')[1]));
+    const film = /\/cs\.wikipedia\.org\/.*\/summary\/Interstellar_\(film\)$/.test(u);
+    route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify(film ? { type: 'standard', title: 'Interstellar', description: 'film z roku 2014', extract: 'Sci-fi film o cestě červí dírou.',
+        thumbnail: { source: 'https://upload.wikimedia.org/test/wiki.png' }, content_urls: { desktop: { page: 'https://cs.wikipedia.org/wiki/Interstellar_(film)' } } }
+        : { type: 'disambiguation', title: 'x', extract: '' }) });
+  });
+}
+/** Chyby stránky bez hlášky o obrázku, který záměrně nejde načíst (404 u „chybi.png“). */
+const chybyKnihovny = (chyby) => chyby.filter((t) => !/Failed to load resource/.test(t));
 
 // ---------------------------------------------------------------- napodobený Firebase (účet a kopie dat ze serveru)
 // Knihovny z gstatic nahradí malé moduly níž (page.route); přihlášení, databáze a funkce běží tady v testu
@@ -5233,13 +5318,311 @@ function vychoziVikendTestu() {
   });
 
   // ---------- telefon: menu zleva (klepnutí na jméno) vede i na Fotbal a Reely; klepnutí vedle menu zavře
+  // ---------- Knihovna (Michal 11. 10.: „přehled informací k filmu či knize … rešerše k různým věcem – mít svoji knihovnu“)
+  await test('Knihovna na PC: modul i data až po otevření stránky, záložky, karty s plakátem (líně, zástupná plocha), filtr stavu, hledání i v Hledat', async () => {
+    knihovnaTest = KNIHOVNA_VYCHOZI();
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      await knihovnaSit(page);
+      const pred = volano.length;
+      await page.goto(WEB);
+      await page.waitForSelector('#p-dnes .card');
+      await page.waitForTimeout(700);
+      jistota(!(await page.evaluate(() => performance.getEntriesByType('resource').some((e) => /\/js\/knihovna\.js/.test(e.name)))), 'knihovna.js se při startu nemá načítat');
+      jistota(!volano.slice(pred).some((d) => d.akce === 'knihovna'), 'knihovna se při startu nemá číst z motoru');
+      await page.click('#rail [data-cil="knihovna"]');
+      await page.waitForSelector('#p-knihovna .kn-karta');
+      jistota(volano.slice(pred).some((d) => d.akce === 'knihovna'), 'po otevření stránky se knihovna čte z motoru');
+      jistota(/Knihovna/.test(await page.textContent('#hlava h1')) && /filmy a seriály 2 · knihy 1 · rešerše 1/i.test(await page.textContent('#hlava p')), 'nadpis: ' + await page.textContent('#hlava'));
+      const zalozky = (await page.locator('#kn-zalozky .chip').allTextContents()).map((t) => t.replace(/\s+/g, ''));
+      jistota(zalozky.join('|') === 'Filmy2|Knihy1|Rešerše1', 'záložky: ' + zalozky.join('|'));
+      jistota(await page.locator('#p-knihovna .kn-karta').count() === 2, 'filmy i seriály');
+      // plakát: líně, poměr 2 : 3; obrázek, který nejde načíst, zmizí a zůstane iniciála
+      const img = '#p-knihovna [data-kn-karta="film-zkusebni-let"] .kn-obr img';
+      jistota(await page.getAttribute(img, 'loading') === 'lazy', 'obrázek líně');
+      await page.waitForFunction((s) => { const i = document.querySelector(s); return i && i.complete && i.naturalWidth > 0; }, img);
+      const obr = await page.evaluate(() => { const b = document.querySelector('#p-knihovna [data-kn-karta="film-zkusebni-let"] .kn-obr').getBoundingClientRect(); return b.height / b.width; });
+      jistota(Math.abs(obr - 1.5) < 0.02, 'plakát 2 : 3: ' + obr);
+      await page.waitForFunction(() => !document.querySelector('#p-knihovna [data-kn-karta="serial-majak"] .kn-obr img'));
+      jistota(await page.textContent('#p-knihovna [data-kn-karta="serial-majak"] .kn-obr b') === 'M', 'zástupná plocha s iniciálou');
+      jistota(/ČSFD\s*80 %/.test(await page.textContent('#p-knihovna [data-kn-karta="film-zkusebni-let"] .kn-hodn')), 'hodnocení na dlaždici');
+      jistota(/nové/.test(await page.textContent('#p-knihovna [data-kn-karta="film-zkusebni-let"]')), 'čerstvá karta je „nové“');
+      // filtr stavu (nic viděno) → prázdné s „Zrušit filtr“
+      await page.click('#kn-filtry [data-kn-filtr="hotovo"]');
+      await page.waitForSelector('#p-knihovna [data-kn-filtr-vse]');
+      await page.click('#p-knihovna [data-kn-filtr-vse]');
+      await page.waitForFunction(() => document.querySelectorAll('#p-knihovna .kn-karta').length === 2);
+      // knihy: můj stav „Chci číst“
+      await page.click('#kn-zalozky [data-kn-zalozka="knihy"]');
+      await page.waitForFunction(() => document.querySelectorAll('#p-knihovna .kn-karta').length === 1);
+      jistota(/Malý princ/.test(await page.textContent('#p-knihovna .kn-karta')) && /Chci číst/.test(await page.textContent('#p-knihovna .kn-karta')), 'kniha se stavem');
+      // hledání v knihovně (bez diakritiky, i autor); nic → nabídne přidat
+      await page.click('#kn-zalozky [data-kn-zalozka="filmy"]');
+      await page.fill('#kn-hledat', 'majak');
+      await page.waitForFunction(() => document.querySelectorAll('#p-knihovna .kn-karta').length === 1 && /Maják/.test(document.querySelector('#p-knihovna .kn-karta').textContent));
+      await page.fill('#kn-hledat', 'Interstellar');
+      await page.waitForSelector('#p-knihovna .prazdne [data-kn-pridat][data-kn-text="Interstellar"]');
+      await page.fill('#kn-hledat', '');
+      await page.waitForFunction(() => document.querySelectorAll('#p-knihovna .kn-karta').length === 2);
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_knihovna.png') });
+      // Hledat (Ctrl K) najde kartu i rešerši a otevře detail
+      await page.keyboard.press('Control+k');
+      await page.fill('[data-hledat-pole]', 'zkusebni');
+      await page.waitForSelector('#hledat-vysledky [data-h-knihovna="film-zkusebni-let"]');
+      await page.click('#hledat-vysledky [data-h-knihovna="film-zkusebni-let"]');
+      await page.waitForSelector('[data-panel="kn-d:film-zkusebni-let"].otevreny .kn-hlava');
+      jistota(!chybyKnihovny(chybyStranky).length, 'chyby stránky: ' + chybyKnihovny(chybyStranky).join(' | '));
+    } finally { await ctx.close(); }
+  });
+
+  await test('Knihovna: detail karty (hodnocení, tvůrci, série s pořadím, zajímavosti, kde sledovat, související), můj stav, hvězdy a poznámka do motoru, pravé tlačítko, vyjetá karta hodnocení', async () => {
+    knihovnaTest = KNIHOVNA_VYCHOZI();
+    knihovnaVolani.length = 0;
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3], 'light', PRAHA);
+    try {
+      await knihovnaSit(page);
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="knihovna"]');
+      await page.waitForSelector('#p-knihovna [data-kn-karta="film-zkusebni-let"]');
+      await page.click('#p-knihovna [data-kn-karta="film-zkusebni-let"] .kn-karta__otevri');
+      const P = '[data-panel="kn-d:film-zkusebni-let"]';
+      await page.waitForSelector(P + '.otevreny .kn-hlava');
+      const t = (await page.textContent(P)).replace(/\s+/g, ' ');
+      ['Test Flight', 'ČSFD 80 %', 'IMDb 7,5/10', 'Pilotka testuje nové letadlo.', 'Jana Testová', 'Karel Zkušební, Eva Pokusná', 'Druhý odstavec bez spoilerů.',
+        'Krásné záběry z kokpitu.', 'Doporučené pořadí: Podle roku vydání.', 'Second Flight · 2023 · 115 min', 'prodloužená verze 140 min', '2 díly · celkem 3 h 55 min',
+        'Herečka sama pilotuje.', 'Skutečnost vs. film', 'Cena za kameru (test)', 'Kde sledovat', 'ověřeno 11. 10. 2026', 'Jak létá letadlo', 'Druhy let', 'v knihovně zatím není',
+        'Připravil Claude'].forEach((x) => jistota(t.indexOf(x) >= 0, 'v detailu chybí „' + x + '“: ' + t.slice(0, 400)));
+      jistota(await page.getAttribute(P + ' .kn-hodnoceni a', 'href') === 'https://www.csfd.cz/film/1-zkusebni-let/' &&
+        await page.getAttribute(P + ' .kn-hodnoceni a', 'target') === '_blank', 'hodnocení je odkaz ven');
+      jistota(await page.locator(P + ' .kn-pata, ' + P + ' .kn-zdroje').count() === 2, 'pata a zdroje');
+      // můj stav, hvězdy, poznámka (uloží se sama po psaní)
+      await page.click(P + ' [data-kn-stav="hotovo"]');
+      await cekej(() => knihovnaVolani.some((v) => v.akce === 'knihovnaMoje' && v.stav === 'hotovo'), 5000, 'stav do motoru');
+      await page.waitForSelector(P + ' [data-kn-stav="hotovo"][aria-pressed="true"]');
+      await page.click(P + ' [data-kn-hvezdy="4"]');
+      await cekej(() => knihovnaVolani.some((v) => v.akce === 'knihovnaMoje' && v.hodnoceni === 4), 5000, 'hvězdy do motoru');
+      await page.waitForFunction((p) => document.querySelectorAll(p + ' .kn-hvezda.plna').length === 4, P);
+      await page.fill(P + ' [data-kn-poznamka]', 'Skvělé – znovu s dětmi.');
+      await cekej(() => knihovnaVolani.some((v) => v.akce === 'knihovnaMoje' && v.poznamka === 'Skvělé – znovu s dětmi.'), 5000, 'poznámka do motoru');
+      jistota(knihovnaTest.moje['film-zkusebni-let'].stav === 'hotovo' && knihovnaTest.moje['film-zkusebni-let'].hodnoceni === 4, 'motor má stav i hvězdy');
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_knihovna_detail.png') });
+      // související: rešerše se otevře nad detailem, Zpět vrátí detail
+      await page.click(P + ' .kn-souvisi [data-kn-otevri="reserse-letectvi"]');
+      await page.waitForSelector('[data-panel="kn-r:reserse-letectvi"].otevreny .kn-kratce--reserse');
+      await page.click('[data-panel="kn-r:reserse-letectvi"] [data-zavrit-panel]');
+      await page.waitForSelector('[data-panel="kn-r:reserse-letectvi"]', { state: 'detached' });
+      jistota(await page.locator(P).count() === 1, 'detail pod rešerší zůstal');
+      await page.click(P + ' [data-zavrit-panel]');
+      await page.waitForSelector(P, { state: 'detached' });
+      // dlaždice: Viděno a moje hvězdy
+      const dl = await page.textContent('#p-knihovna [data-kn-karta="film-zkusebni-let"]');
+      jistota(/Viděno/.test(dl) && /4\s*ČSFD/.test(dl), 'dlaždice po změně: ' + dl);
+      // vyjetá karta u hodnocení: všechna hodnocení s odkazy a moje poznámka
+      await page.hover('#p-knihovna [data-kn-karta="film-zkusebni-let"] .kn-hodn');
+      await page.waitForFunction(() => { const k = document.getElementById('bublina-karta'); return k && !k.hidden && k.classList.contains('videt') && k.dataset.druh === 'kn-hodnoceni'; });
+      const bk = await page.textContent('#bublina-karta');
+      jistota(/IMDb/.test(bk) && /7,5\/10/.test(bk) && /Skvělé – znovu s dětmi/.test(bk) && await page.locator('#bublina-karta .kn-bk-hodnoceni a').count() === 2, 'vyjetá karta: ' + bk);
+      await page.mouse.move(720, 12);
+      await page.waitForFunction(() => document.getElementById('bublina-karta').hidden);
+      // pravé tlačítko na dlaždici seriálu: stav, kopírovat, ČSFD
+      await page.click('#p-knihovna [data-kn-karta="serial-majak"] .kn-karta__nazev', { button: 'right' });
+      await page.waitForSelector('.nabidka.videt');
+      const nab = await page.locator('.nabidka [data-nabidka-i]').allTextContents();
+      jistota(nab.join('|') === 'Chci vidět|Rozkoukané|Viděno|Kopírovat název|Otevřít ČSFD', 'nabídka: ' + nab.join('|'));
+      await page.click('.nabidka [data-nabidka-i="0"]');
+      await cekej(() => knihovnaVolani.some((v) => v.akce === 'knihovnaMoje' && v.id === 'serial-majak' && v.stav === 'chci'), 5000, 'Chci vidět z nabídky');
+      await page.waitForFunction(() => /Chci vidět/.test(document.querySelector('#p-knihovna [data-kn-karta="serial-majak"]').textContent));
+      // filtr Chci vidět ukáže jen seriál
+      await page.click('#kn-filtry [data-kn-filtr="chci"]');
+      await page.waitForFunction(() => document.querySelectorAll('#p-knihovna .kn-karta').length === 1);
+      await page.click('#kn-filtry [data-kn-filtr="vse"]');
+      jistota(!chybyKnihovny(chybyStranky).length, 'chyby stránky: ' + chybyKnihovny(chybyStranky).join(' | '));
+    } finally { await ctx.close(); }
+  });
+
+  await test('Knihovna: „+ Přidat“ → hned „Claude připravuje…“ s časem a náhledem z Wikipedie, „už v knihovně je“, Zrušit a Vrátit, Claude kartu připraví → plná karta', async () => {
+    knihovnaTest = KNIHOVNA_VYCHOZI();
+    knihovnaVolani.length = 0;
+    const wiki = [];
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      await knihovnaSit(page, wiki);
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="knihovna"]');
+      await page.waitForSelector('#p-knihovna .kn-karta');
+      // „už v knihovně je“ při psaní
+      await page.click('#horni [data-kn-pridat]');
+      await page.waitForSelector('[data-panel="kn-pridat"].otevreny [data-kn-pridat-text]');
+      jistota(await page.getAttribute('[data-panel="kn-pridat"] [data-kn-druh="film"]', 'aria-pressed') === 'true', 'na záložce Filmy předvybraný film');
+      await page.fill('[data-panel="kn-pridat"] [data-kn-pridat-text]', 'Zkušební let');
+      await page.waitForFunction(() => /V knihovně už je „Zkušební let“ \(2020\)/.test(document.querySelector('[data-panel="kn-pridat"] [data-kn-pridat-uz]').textContent));
+      await page.click('[data-panel="kn-pridat"] [data-kn-druh="kniha"]');
+      jistota(await page.inputValue('[data-panel="kn-pridat"] [data-kn-pridat-text]') === 'Zkušební let', 'text zůstal po změně druhu');
+      jistota(/Název knihy/.test(await page.textContent('[data-panel="kn-pridat"] .label')), 'popisek pole podle druhu');
+      await page.click('[data-panel="kn-pridat"] [data-kn-druh="film"]');
+      await page.fill('[data-panel="kn-pridat"] [data-kn-pridat-text]', 'Interstellar');
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_knihovna_pridat.png') });
+      // pomalý motor: karta „Claude připravuje…“ je vidět hned, ještě před odpovědí
+      zpozdeniMotoru.knihovnaPridat = 1200;
+      await page.press('[data-panel="kn-pridat"] [data-kn-pridat-text]', 'Enter');
+      await page.waitForSelector('#p-knihovna .kn-karta--ceka', { timeout: 900 });
+      jistota(/Interstellar/.test(await page.textContent('#p-knihovna .kn-karta--ceka')) && /Claude připravuje/.test(await page.textContent('#p-knihovna .kn-karta--ceka')), 'čekající karta hned');
+      await cekej(() => knihovnaVolani.some((v) => v.akce === 'knihovnaPridat' && v.druh === 'film' && v.text === 'Interstellar'), 5000, 'požadavek do motoru');
+      delete zpozdeniMotoru.knihovnaPridat;
+      await page.waitForFunction(() => /Přidáno – Claude připraví kartu filmu/.test(document.getElementById('toast').textContent));
+      await page.waitForSelector('#p-knihovna .kn-karta--ceka[data-kn-ceka^="p-20261011-1200-"]');
+      const ceka = await page.textContent('#p-knihovna .kn-karta--ceka');
+      jistota(/film · zadáno \d{1,2}:\d{2}/.test(ceka), 'čas zadání: ' + ceka);
+      // náhled z Wikipedie (nejdřív česky „Interstellar (film)“): popis a obrázek
+      await page.waitForFunction(() => /Film z roku 2014/.test(document.querySelector('#p-knihovna .kn-karta--ceka').textContent));
+      jistota(wiki[0] === 'Interstellar_(film)', 'Wikipedie: ' + wiki.join(', '));
+      jistota(await page.locator('#p-knihovna .kn-karta--ceka .kn-obr img[src="https://upload.wikimedia.org/test/wiki.png"]').count() === 1, 'obrázek z Wikipedie');
+      // detail čekajícího: zadáno, z Wikipedie, Zrušit → Vrátit
+      await page.click('#p-knihovna .kn-karta--ceka .kn-karta__otevri');
+      const P = '.panel-kn-pozadavek';
+      await page.waitForSelector(P + '.otevreny .kn-wiki');
+      const pt = await page.textContent(P);
+      jistota(/Mezitím z Wikipedie/.test(pt) && /červí dírou/.test(pt) && /Zadáno/.test(pt) && /do půl hodiny/.test(pt), 'detail požadavku: ' + pt);
+      await page.click(P + ' [data-kn-zrusit]');
+      await cekej(() => knihovnaVolani.some((v) => v.akce === 'knihovnaZrusit'), 5000, 'zrušení do motoru');
+      await page.waitForFunction(() => !document.querySelector('#p-knihovna .kn-karta--ceka'));
+      await page.waitForFunction(() => /Požadavek zrušen/.test(document.getElementById('toast').textContent));
+      await page.click('#toast .toast__akce');
+      await page.waitForSelector('#p-knihovna .kn-karta--ceka');
+      await cekej(() => knihovnaTest.pozadavky.length === 1, 5000, 'Vrátit přidá znovu');
+      await page.waitForFunction(() => /Přidáno/.test(document.getElementById('toast').textContent)); // odpověď motoru je v aplikaci
+      // Claude připravil kartu (s "pozadavek") → po obnovení plná karta, čekající pryč
+      const pz = knihovnaTest.pozadavky[0];
+      knihovnaTest.karty.unshift({ id: 'film-interstellar', druh: 'film', nazev: 'Interstellar', rok: 2014, delka: '169 min', kratce: 'Výprava červí dírou.',
+        pozadavek: pz.id, pripraveno: new Date().toISOString() });
+      knihovnaTest.pozadavky = [];
+      await page.click('#horni [data-obnovit]');
+      await page.waitForSelector('#p-knihovna [data-kn-karta="film-interstellar"]');
+      await page.waitForFunction(() => !document.querySelector('#p-knihovna .kn-karta--ceka'));
+      jistota(/nové/.test(await page.textContent('#p-knihovna [data-kn-karta="film-interstellar"]')), 'nová karta je „nové“');
+      jistota(!chybyKnihovny(chybyStranky).length, 'chyby stránky: ' + chybyKnihovny(chybyStranky).join(' | '));
+    } finally { delete zpozdeniMotoru.knihovnaPridat; await ctx.close(); }
+  });
+
+  await test('Knihovna: čtečka rešerše – krátce, čísla, sekce, časová osa, rozbalovací pojmy, další otázka = nový požadavek, přečteno, zdroje', async () => {
+    knihovnaTest = KNIHOVNA_VYCHOZI();
+    knihovnaVolani.length = 0;
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3], 'dark');
+    try {
+      await knihovnaSit(page);
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="knihovna"]');
+      await page.click('#kn-zalozky [data-kn-zalozka="reserse"]');
+      await page.waitForSelector('#p-knihovna .kn-res');
+      jistota(/Jak létá letadlo/.test(await page.textContent('#p-knihovna .kn-reserse-seznam')) && /fyzika/.test(await page.textContent('#p-knihovna .kn-reserse-seznam')), 'seznam rešerší');
+      await page.click('#p-knihovna .kn-res');
+      const P = '[data-panel="kn-r:reserse-letectvi"]';
+      await page.waitForSelector(P + '.otevreny .kn-kratce--reserse');
+      const t = (await page.textContent(P)).replace(/\s+/g, ' ');
+      ['Proč letadlo nespadne?', 'Krátce', 'Křídlo vychyluje vzduch dolů', '900 km/h', 'cestovní výška', 'Vztlak', 'úhel náběhu', 'Motory', '1903', 'První řízený motorový let.',
+        'Jak funguje vrtulník?', 'Zdroje (1)', 'Zkušební let'].forEach((x) => jistota(t.indexOf(x) >= 0, 'v rešerši chybí „' + x + '“'));
+      jistota(await page.locator(P + ' .kn-osa li').count() === 2 && await page.locator(P + ' .kn-cisla > div').count() === 2, 'osa a čísla');
+      // pojmy rozbalovací
+      jistota(await page.locator(P + ' .kn-pojmy details[open]').count() === 0, 'pojmy zavřené');
+      await page.click(P + ' .kn-pojmy summary >> nth=0');
+      jistota(await page.locator(P + ' .kn-pojmy details[open]').count() === 1, 'pojem se rozbalí');
+      await page.waitForTimeout(350);
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_tmavy_knihovna_reserse.png') });
+      // přečteno
+      await page.click(P + ' [data-kn-stav="hotovo"]');
+      await cekej(() => knihovnaVolani.some((v) => v.akce === 'knihovnaMoje' && v.id === 'reserse-letectvi' && v.stav === 'hotovo'), 5000, 'přečteno do motoru');
+      // další otázka = nový požadavek na rešerši rovnou
+      await page.click(P + ' [data-kn-otazka="Jak funguje vrtulník?"]');
+      await cekej(() => knihovnaVolani.some((v) => v.akce === 'knihovnaPridat' && v.druh === 'reserse' && v.text === 'Jak funguje vrtulník?'), 5000, 'otázka do motoru');
+      await page.waitForFunction(() => /Přidáno – Claude připraví rešerši/.test(document.getElementById('toast').textContent));
+      await page.click(P + ' [data-zavrit-panel]');
+      await page.waitForSelector('#p-knihovna .kn-res--ceka');
+      jistota(/Jak funguje vrtulník\?/.test(await page.textContent('#p-knihovna .kn-res--ceka')) && /přečteno/.test(await page.textContent('#p-knihovna .kn-reserse-seznam')),
+        'čekající rešerše a přečteno v seznamu');
+      // podruhé se rešerše čte ze zařízení (bez motoru)
+      const pred = volano.filter((d) => d.akce === 'knihovnaReserse').length;
+      await page.click('#p-knihovna [data-kn-otevri="reserse-letectvi"]');
+      await page.waitForSelector(P + '.otevreny .kn-kratce--reserse');
+      jistota(volano.filter((d) => d.akce === 'knihovnaReserse').length === pred, 'rešerše podruhé bez motoru');
+      jistota(!chybyKnihovny(chybyStranky).length, 'chyby stránky: ' + chybyKnihovny(chybyStranky).join(' | '));
+    } finally { await ctx.close(); }
+  });
+
+  await test('Knihovna na telefonu (390 px, tmavý režim): z menu, dlaždice pod sebou, detail přes celou obrazovku, „+“ → Do knihovny, nic nepřetéká', async () => {
+    knihovnaTest = KNIHOVNA_VYCHOZI();
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0], 'dark');
+    try {
+      await knihovnaSit(page);
+      await page.goto(WEB);
+      await page.click('.hlava-ja [data-menu]');
+      await page.click('[data-panel="menu"] [data-menu-cil="knihovna"]');
+      await page.waitForSelector('#p-knihovna .kn-karta');
+      const r = await page.evaluate(() => {
+        const k = Array.from(document.querySelectorAll('#p-knihovna .kn-karta')).map((x) => x.getBoundingClientRect());
+        return { sirky: k.map((b) => Math.round(b.width)), pod: k.length > 1 && k[1].top >= k[0].bottom, preteka: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+      });
+      jistota(r.sirky.every((w) => w >= 340) && r.pod && r.preteka <= 0, 'telefon: ' + JSON.stringify(r));
+      jistota(await page.isVisible('#p-knihovna .kn-lista__pridat'), 'na telefonu „Přidat“ na stránce');
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_knihovna.png') });
+      await page.click('#p-knihovna [data-kn-karta="film-zkusebni-let"] .kn-karta__otevri');
+      const P = '[data-panel="kn-d:film-zkusebni-let"]';
+      await page.waitForSelector(P + '.otevreny .kn-hlava');
+      await page.waitForTimeout(350);
+      const d = await page.evaluate((p) => { const b = document.querySelector(p).getBoundingClientRect(); const t = document.querySelector(p + ' .panel-telo');
+        return { w: Math.round(b.width), preteka: t.scrollWidth - t.clientWidth }; }, P);
+      jistota(d.w === 390 && d.preteka <= 0, 'detail na telefonu: ' + JSON.stringify(d));
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_knihovna_detail.png') });
+      await page.click(P + ' [data-zavrit-panel]');
+      await page.waitForSelector(P, { state: 'detached' });
+      await page.click('#lista [data-rychle]');
+      await page.click('[data-panel="rychle"] [data-rychle-akce="knihovna"]');
+      await page.waitForSelector('[data-panel="kn-pridat"].otevreny [data-kn-pridat-text]');
+      jistota(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, 'okno přetéká');
+      jistota(!chybyKnihovny(chybyStranky).length, 'chyby stránky: ' + chybyKnihovny(chybyStranky).join(' | '));
+    } finally { await ctx.close(); }
+  });
+
+  await test('Knihovna v ukázkovém režimu: vymyšlené karty, čekající požadavek, detail a rešerše bez motoru (a bez Wikipedie)', async () => {
+    const ctx = await prohlizec.newContext({ viewport: { width: 1440, height: 900 } });
+    await ctx.addInitScript(() => localStorage.setItem('asistent.pripojeni', JSON.stringify({ demo: true })));
+    const page = await ctx.newPage();
+    const chyby = [], venku = [];
+    page.on('pageerror', (e) => chyby.push(e.message));
+    page.on('console', (m) => { if (m.type() === 'error') chyby.push(m.text()); });
+    page.on('request', (r) => { if (/wikipedia\.org|wikimedia\.org/.test(r.url())) venku.push(r.url()); });
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="knihovna"]');
+      await page.waitForSelector('#p-knihovna [data-kn-karta="film-expedice-polarka"]');
+      jistota(await page.locator('#p-knihovna .kn-karta').count() === 2, 'film a seriál z ukázky');
+      await page.click('#kn-zalozky [data-kn-zalozka="knihy"]');
+      await page.waitForSelector('#p-knihovna .kn-karta--ceka');
+      jistota(/Ukázková kniha o vesmíru/.test(await page.textContent('#p-knihovna .kn-karta--ceka')), 'čekající požadavek v ukázce');
+      await page.click('#p-knihovna [data-kn-karta="kniha-kroniky-udoli"] .kn-karta__otevri');
+      await page.waitForSelector('[data-panel="kn-d:kniha-kroniky-udoli"].otevreny .kn-serie');
+      jistota(/Doporučené pořadí/.test(await page.textContent('[data-panel="kn-d:kniha-kroniky-udoli"]')), 'série v ukázce');
+      await page.click('[data-panel="kn-d:kniha-kroniky-udoli"] [data-zavrit-panel]');
+      await page.click('#kn-zalozky [data-kn-zalozka="reserse"]');
+      await page.click('#p-knihovna [data-kn-otevri="reserse-proc-je-obloha-modra"]');
+      await page.waitForSelector('[data-panel="kn-r:reserse-proc-je-obloha-modra"].otevreny .kn-osa');
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(VYSTUP, 'ukazka_knihovna_reserse.png') });
+      jistota(!venku.length, 'ukázka nic neposílá ven: ' + venku.join(', '));
+      jistota(!chyby.length, 'chyby stránky: ' + chyby.join(' | '));
+    } finally { await ctx.close(); }
+  });
+
   await test('telefon: menu zleva se všemi sekcemi (Fotbal, Reely, Plakáty), zavření klepnutím vedle', async () => {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
     await page.goto(WEB);
     await page.click('.hlava-ja [data-menu]');
     await page.waitForSelector('[data-panel="menu"].otevreny');
     const sekce = await page.$$eval('[data-panel="menu"] [data-menu-cil]', (b) => b.map((x) => x.dataset.menuCil).join());
-    jistota(sekce === 'dnes,schranka,posta,kalendar,zdravi,fotbal,reely,plakaty,auto', 'sekce v menu: ' + sekce);
+    jistota(sekce === 'dnes,schranka,posta,kalendar,zdravi,fotbal,reely,plakaty,auto,knihovna', 'sekce v menu: ' + sekce);
     jistota(await page.locator('[data-panel="menu"] [data-menu-cil="dnes"][aria-current="page"]').count() === 1, 'aktivní sekce');
     await page.click('[data-panel="menu"] [data-menu-cil="fotbal"]');
     await page.waitForSelector('#p-fotbal:not([hidden]) .fotbal-stranka');

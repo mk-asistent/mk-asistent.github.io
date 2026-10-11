@@ -18,6 +18,7 @@ export const stav = {
   reely: null,              // hotové reely z fotbalu (REELY/reely.json přes motor) + které jsou na Instagramu
   auto: null,               // náklady a tankování z tabulky Google auta (přes motor)
   plakaty: null,            // plakát na víkend: ruční úpravy kol, nastavení, popisky, obrázky a plán na Instagram (přes motor)
+  knihovna: null,           // Knihovna: karty filmů a knih, index rešerší, můj stav a požadavky (js/knihovna.js, přes motor)
   stitkyGmailu: null,       // štítky Gmailu [{ nazev, neprectenych }]
   stitekPosty: '',          // vybraný štítek ('' = Doručená pošta)
   postaStitku: {},          // název štítku → { vlakna, nacita, chyba, kdy }

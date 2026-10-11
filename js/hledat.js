@@ -2,15 +2,16 @@
 // Enter nebo „Hledat v celé poště“ přes motor v celém Gmailu. Rozumí i českým filtrům:
 // od: komu: předmět: má:přílohu příloha: je:nepřečtené je:označené ve:odeslané po:1.10.2026 před:31.12.2026
 
-import { stav, prejdi } from './stav.js';
+import { stav, prejdi, umiMotor } from './stav.js';
 import { volej } from './api.js';
-import { esc, kdyKratce, prvniRadek, hhmm, dm, iniciala, odstin, pulnoc, rozdilDni } from './pomocne.js';
+import { esc, kdyKratce, prvniRadek, hhmm, dm, iniciala, odstin, pulnoc, rozdilDni, uloziste } from './pomocne.js';
 import { otevriPanel, zavriAPak, elementPanelu, jeOtevreny } from './panely.js';
 import { IKONY } from './ikony.js';
 import { vsechnyZpravy, otevriVlakno, otevriPsani, stavTag } from './posta.js';
 import { vsechnyPolozky, ukazPolozku, zamerZapis } from './schranka.js';
 import { vsechnyUdalosti, otevriUdalost } from './kalendar.js';
 import { otevriNastaveni } from './nastaveni.js';
+import { hledej as hledejVKnihovne } from './knihovna_data.js';
 
 const SIROKE = window.matchMedia('(min-width: 1000px)');
 const MAX_SKUPINA = 5;
@@ -23,8 +24,19 @@ const PRIKAZY = [
   ['Kalendář', 'měsíc, týden, seznam', 'kalendar', () => prejdi('kalendar')],
   ['Nová poznámka pro Clauda', '', 'plus', () => zamerZapis()],
   ['Nový e-mail', '', 'psat', () => otevriPsani('novy')],
-  ['Nastavení', 'pošta, kalendáře, vzhled', 'nastaveni', () => otevriNastaveni()]
+  ['Nastavení', 'pošta, kalendáře, vzhled', 'nastaveni', () => otevriNastaveni()],
+  // Knihovna (js/knihovna.js se načte až teď) – jen s motorem, který ji umí
+  ['Knihovna', 'filmy, seriály, knihy a rešerše', 'knihovna', () => prejdi('knihovna'), () => umiMotor('knihovna')],
+  ['Přidat do knihovny', 'film, seriál, kniha nebo otázka pro Clauda', 'plus', () => import('./knihovna.js').then((m) => m.otevriPridani()), () => umiMotor('knihovnaPridat')]
 ];
+
+// Knihovna: data stránky, nebo poslední uložená v zařízení (modul stránky nemusí být načtený) – rozebrat jednou za hledání
+let knihovnaHledani;
+function dataKnihovny() {
+  if (stav.knihovna) return stav.knihovna;
+  if (knihovnaHledani === undefined) { const v = uloziste.cti('asistent.data.knihovna'); knihovnaHledani = (v && v.data) || null; }
+  return knihovnaHledani;
+}
 
 // ---------------------------------------------------------------- český filtr → Gmail
 
@@ -110,8 +122,11 @@ function vysledkyHtml(dotaz) {
     return polozkaVysledku('data-h-udalost="' + esc(u.id) + '"', IKONY.kalendar, esc(u.nazev),
       esc(kdy + (u.celodenni ? '' : ' ' + hhmm(u.zacatek)) + (u.misto ? ' · ' + u.misto : '')));
   }));
+  // knihovna (karty a rešerše)
+  const knihovna = q && umiMotor('knihovna') ? hledejVKnihovne(dataKnihovny(), q, MAX_SKUPINA) : [];
+  h += skupinaHtml('Knihovna', knihovna.map((x) => polozkaVysledku('data-h-knihovna="' + esc(x.id) + '"', IKONY.knihovna, esc(x.nazev), esc(prvniRadek(x.pod, 90)))));
   // sekce a příkazy
-  const prikazy = PRIKAZY.map((p, i) => [p, i]).filter((x) => !q || odpovida(slova, x[0][0], x[0][1]));
+  const prikazy = PRIKAZY.map((p, i) => [p, i]).filter((x) => (!x[0][4] || x[0][4]()) && (!q || odpovida(slova, x[0][0], x[0][1])));
   h += skupinaHtml(q ? 'Přejít' : 'Přejít a vytvořit', prikazy.map((x) => polozkaVysledku('data-h-prikaz="' + x[1] + '"', IKONY[x[0][2]], esc(x[0][0]), esc(x[0][1]))));
   if (!h) h = '<li class="vysledky__info">Nic nenalezeno.</li>';
   return h;
@@ -122,6 +137,7 @@ function vysledkyHtml(dotaz) {
 export function otevriHledani() {
   if (jeOtevreny('hledat')) { const el = elementPanelu('hledat'); const i = el && el.querySelector('[data-hledat-pole]'); if (i) i.focus(); return; }
   stav.hledani = null;
+  knihovnaHledani = undefined;
   otevriPanel({
     id: 'hledat', trida: 'panel-okno panel-hledat', titul: 'Hledat',
     vykresli: () => '<label class="hledat-pole">' + IKONY.hledat +
@@ -167,6 +183,9 @@ export function klikHledat(el) {
   } else if (el.dataset.hUdalost) {
     const id = el.dataset.hUdalost;
     akce = () => otevriUdalost(id);
+  } else if (el.dataset.hKnihovna) {
+    const id = el.dataset.hKnihovna;
+    akce = () => { prejdi('knihovna'); import('./knihovna.js').then((m) => m.otevriPolozku(id)); };
   } else if (el.dataset.hPrikaz) {
     akce = PRIKAZY[Number(el.dataset.hPrikaz)][3];
   }
