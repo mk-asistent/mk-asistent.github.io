@@ -12,6 +12,11 @@
 // Modul načte app.js až na stránce Knihovna (import()) – start aplikace na něj nečeká. Čisté funkce: js/knihovna_data.js.
 // Historie: podstránka = vlastní záznam (pushState s adresou); panely (js/panely.js) dávají záznamy se stejnou adresou,
 // takže Zpět nejdřív zavře okno nad stránkou a teprve pak stránku. Odchod do jiné sekce adresu uklidí (mimoKnihovnu).
+// Záložky podstránky (Michal 12. 10. večer: „nedělej to jako prohlížení celé na jedné stránce s tak velkým rolováním … když
+// kliknu na té liště, ať se mi to zobrazí jen k té dané věci“): pás nahoře = role tablist, klepnutí ukáže jen ten panel (bez
+// posunu dolů), adresa #knihovna/<id>/<záložka> přes replaceState (Zpět vede rovnou na seznam, odkaz i znovunačtení otevře
+// tu záložku), šipky ←/→ přepínají záložky, v Zákulisí / Obsahu sekce po jedné (podzáložky, ↑/↓). Na jiné než první záložce
+// je hlavička zúžená (kn-st--kompakt) – obsah záložky má skoro celou výšku okna.
 
 import { stav, zmeneno, umiMotor, prejdi } from './stav.js';
 import { volej, jeDemo } from './api.js';
@@ -60,7 +65,10 @@ const k = {
   detail: null,           // id otevřené podstránky (karta nebo rešerše), null = seznam
   hloubka: 0,             // kolik záznamů historie nad seznamem (Zpět na seznam = history.go(-hloubka)); 0 = otevřeno odkazem
   odkud: null,            // sekce, ze které se podstránka otevřela (Hledat na Poště…) – Zpět prohlížeče tam vrátí
-  posunSeznamu: 0         // posun seznamu, když se otevřela podstránka (návrat bez historie)
+  posunSeznamu: 0,        // posun seznamu, když se otevřela podstránka (návrat bez historie)
+  oddil: '',              // vybraná záložka podstránky ('' = výchozí, první)
+  zalozky: [],            // záložky otevřené podstránky [[klíč, název]] (z knihovna_stranka.js)
+  pod: {}                 // vybraná sekce v Zákulisí / Obsahu: '<id>:<záložka>' → klíč sekce (jen v tomhle běhu)
 };
 
 // ---------------------------------------------------------------- data
@@ -335,7 +343,7 @@ function kartaHtml(x) {
   const d = stav.knihovna;
   const m = D.moje(d, x.id);
   const meta = D.metaKarty(x);
-  const prvni = (x.hodnoceni || [])[0];
+  const prvni = D.hodnoceniNaDlazdici((x.hodnoceni || [])[0]);
   const hodn = m.hodnoceni || prvni ? '<button type="button" class="kn-hodn" data-kn-otevri="' + esc(x.id) + '" data-kn-id="' + esc(x.id) + '"' + bubliny.karta('kn-hodnoceni') +
     ' aria-label="Hodnocení – ' + esc(x.nazev) + '">' + (m.hodnoceni ? '<span class="kn-hodn__ja">' + IKONY.hvezda + m.hodnoceni + '</span>' : '') +
     (prvni ? '<span class="kn-hodn__zdroj"><small>' + esc(prvni.zdroj) + '</small> ' + esc(prvni.hodnota) + '</span>' : '') + '</button>' : '';
@@ -397,25 +405,26 @@ export function otevriPolozku(id) {
   try { history.replaceState(Object.assign({}, history.state, { knPosun: posun }), ''); } catch (e) { /* nic */ }
   const hloubka = odjinud ? 1 : k.detail ? k.hloubka + 1 : 1;
   try { history.pushState({ kn: id, knHloubka: hloubka }, '', D.adresaPolozky(id)); } catch (e) { /* nic */ }
-  if (odjinud) { k.odkud = stav.pohled; k.detail = id; k.hloubka = hloubka; prejdi('knihovna'); }
-  ukaz(id, hloubka, 0, true);
+  if (odjinud) { k.odkud = stav.pohled; k.detail = id; k.hloubka = hloubka; k.oddil = ''; prejdi('knihovna'); }
+  ukaz(id, hloubka, 0, true, '');
 }
 
 /**
- * Ukáže podstránku id (null = seznam) a nastaví posun. Volá ji otevření, Zpět (popstate) a „← Knihovna“.
+ * Ukáže podstránku id (null = seznam) na záložce oddil ('' = výchozí) a nastaví posun. Volá ji otevření, Zpět (popstate) a „← Knihovna“.
  * zamer = fokus na nadpis (klávesnice a čtečka obrazovky začnou na nové stránce).
  */
-function ukaz(id, hloubka, posun, zamer) {
+function ukaz(id, hloubka, posun, zamer, oddil) {
   ulozPoznamkuHned(); // rozepsaná poznámka odcházející stránky se uloží
   k.detail = id || null;
   k.hloubka = id ? hloubka || 0 : 0;
+  k.oddil = id ? oddil || '' : '';
   if (!id) k.odkud = null;
   prekresliStranku(); // rešerši dočte vykresliPodstranku, knihovnu (odkaz před načtením) dotahni()
   zmeneno(); // nadpis okna, lišty
   const y = Math.max(0, Number(posun) || 0);
   window.scrollTo(0, y);
   // prohlížeč při kroku v historii posun obnovuje sám (podle svého) – vlastní hodnota až po něm
-  requestAnimationFrame(() => { if (k.detail === (id || null)) window.scrollTo(0, y); spehuj(); });
+  requestAnimationFrame(() => { if (k.detail === (id || null)) window.scrollTo(0, y); ukazAktivniVPasu(); });
   if (zamer && id) {
     const h = document.querySelector('#kn-stranka .kn-hero__nazev');
     if (h) h.focus({ preventScroll: true });
@@ -455,11 +464,16 @@ export function titulek() {
 /** Zpět / vpřed v prohlížeči (i gesto na iPhonu): adresa → podstránka nebo seznam. Zavření okna nad stránkou adresu nemění. */
 function poKrokuHistorie(e) {
   const id = D.idZAdresy(location.hash);
+  if (id && id === k.detail) {
+    const z = D.zalozkaZAdresy(location.hash);
+    if (z !== k.oddil) { k.oddil = z; aplikujZalozky(); }
+    return;
+  }
   if (id === (k.detail || '')) return;
   const s = (e && e.state) || {};
   if (id) {
     if (stav.pohled !== 'knihovna') prejdi('knihovna');
-    ukaz(id, s.knHloubka || 0, s.knPosun || 0);
+    ukaz(id, s.knHloubka || 0, s.knPosun || 0, false, D.zalozkaZAdresy(location.hash));
     return;
   }
   if (stav.pohled !== 'knihovna') return;
@@ -491,50 +505,139 @@ function vykresliPodstranku(el) {
     nastav(misto, h[c] || '');
     misto.hidden = !h[c];
   });
-  spehuj();
+  k.zalozky = h.zalozky || [];
+  aplikujZalozky();
 }
 
-/** Pás oddílů: který oddíl je zrovna nahoře (aria-current) – posun stránky i plynulý skok. */
-let spehNaplanovan = false;
-function spehuj() {
-  if (!k.detail || stav.pohled !== 'knihovna') return;
-  const nav = document.querySelector('#kn-stranka [data-kn-cast="nav"]');
-  if (!nav || nav.hidden) return;
-  const tlacitka = Array.from(nav.querySelectorAll('[data-kn-skoc]'));
-  if (!tlacitka.length) return;
-  const hranice = nav.getBoundingClientRect().bottom + 28;
-  let aktivni = '';
-  tlacitka.forEach((b) => { const s = document.getElementById(b.dataset.knSkoc); if (s && s.getBoundingClientRect().top <= hranice) aktivni = b.dataset.knSkoc; });
-  if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4 && window.scrollY > 0) aktivni = tlacitka[tlacitka.length - 1].dataset.knSkoc;
-  tlacitka.forEach((b) => {
-    const je = b.dataset.knSkoc === aktivni;
-    if (je === (b.getAttribute('aria-current') === 'true')) return;
-    if (je) {
-      b.setAttribute('aria-current', 'true');
-      // aktivní pilulka vidět i v úzkém pásu (telefon)
-      const pas = b.parentNode, l = b.offsetLeft - 16;
-      if (l < pas.scrollLeft || b.offsetLeft + b.offsetWidth > pas.scrollLeft + pas.clientWidth) pas.scrollTo({ left: Math.max(0, l), behavior: 'smooth' });
-    } else b.removeAttribute('aria-current');
+// ---------------------------------------------------------------- záložky podstránky (pás nahoře) a podzáložky (sekce po jedné)
+
+const strankaEl = () => document.getElementById('kn-stranka');
+/** Vybraná záložka (platná pro otevřenou stránku; '' = stránka bez záložek). */
+const aktivniZalozka = () => D.platnaZalozka(k.zalozky, k.oddil);
+/** Klíč záložky do adresy – výchozí (první) se nepíše. */
+function oddilDoAdresy() { const a = aktivniZalozka(); return a && k.zalozky.length > 1 && a !== k.zalozky[0][0] ? a : ''; }
+
+/**
+ * Vybranou záložku a sekce promítne do DOM (aria-selected, tabindex, hidden) – HTML se kvůli tomu nepřekresluje. Volá se po
+ * každém vykreslení podstránky (překreslené části přijdou o stav) i po přepnutí. Na jiné než první záložce zúžená hlavička.
+ */
+function aplikujZalozky() {
+  const el = strankaEl();
+  if (!el) return;
+  const aktivni = aktivniZalozka();
+  const vic = k.zalozky.length > 1;
+  el.classList.toggle('kn-st--kompakt', vic && aktivni !== k.zalozky[0][0]);
+  el.querySelectorAll('[data-kn-tab]').forEach((b) => {
+    const je = b.dataset.knTab === aktivni;
+    if (b.getAttribute('aria-selected') !== String(je)) b.setAttribute('aria-selected', String(je));
+    b.tabIndex = je ? 0 : -1;
+  });
+  el.querySelectorAll('[data-kn-panel]').forEach((p) => { const skryt = vic && p.dataset.knPanel !== aktivni; if (p.hidden !== skryt) p.hidden = skryt; });
+  el.querySelectorAll('[data-kn-cteni]').forEach((c) => aplikujPodzalozky(c));
+}
+
+/** Sekce v Zákulisí / Obsahu: vybraná (zapamatovaná pro kartu a záložku, jinak první) vidět, ostatní skryté. */
+function aplikujPodzalozky(cteni) {
+  const clanky = Array.from(cteni.querySelectorAll('[data-kn-podpanel]'));
+  if (!clanky.length) return '';
+  const ulozena = k.pod[k.detail + ':' + cteni.dataset.knCteni];
+  const aktivni = clanky.some((c) => c.dataset.knPodpanel === ulozena) ? ulozena : clanky[0].dataset.knPodpanel;
+  clanky.forEach((c) => { const skryt = c.dataset.knPodpanel !== aktivni; if (c.hidden !== skryt) c.hidden = skryt; });
+  cteni.querySelectorAll('[role="tab"][data-kn-pod]').forEach((b) => {
+    const je = b.dataset.knPod === aktivni;
+    if (b.getAttribute('aria-selected') !== String(je)) b.setAttribute('aria-selected', String(je));
+    b.tabIndex = je ? 0 : -1;
+  });
+  return aktivni;
+}
+
+/** Aktivní tlačítko v pásu, který se posouvá do strany (telefon, iPad), posunout do zorného pole – pás, ne stránku. */
+function ukazAktivniVPasu(seznam) {
+  const pasy = seznam ? [seznam] : Array.from(document.querySelectorAll('#kn-stranka .kn-oddily__pas, #kn-stranka .kn-cteni__nav'));
+  pasy.forEach((pas) => {
+    const b = pas.querySelector('[aria-selected="true"]');
+    if (!b || pas.scrollWidth <= pas.clientWidth + 1) return;
+    const l = b.offsetLeft - pas.offsetLeft;
+    if (l - 16 < pas.scrollLeft || l + b.offsetWidth + 28 > pas.scrollLeft + pas.clientWidth) {
+      pas.scrollTo({ left: Math.max(0, l - 16), behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    }
   });
 }
-window.addEventListener('scroll', () => {
-  if (spehNaplanovan || !k.detail) return;
-  spehNaplanovan = true;
-  requestAnimationFrame(() => { spehNaplanovan = false; spehuj(); });
-}, { passive: true });
 
-function skocNa(kotva) {
-  const s = document.getElementById(kotva);
-  if (!s) return;
-  const plynule = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  // pod lepkavý pás (na PC může mít dva řádky) – ne scrollIntoView, ten by nadpis oddílu schoval pod pás
-  const nav = document.querySelector('#kn-stranka [data-kn-cast="nav"]');
-  const vyska = nav && !nav.hidden ? nav.getBoundingClientRect().height : 0;
-  window.scrollTo({ top: Math.max(0, s.getBoundingClientRect().top + window.scrollY - vyska - 12), behavior: plynule ? 'smooth' : 'auto' });
+/**
+ * Přepne záložku: jen ten panel, adresa přes replaceState (Zpět vede na seznam), stránka se dolů neposouvá. Když byl pás
+ * přilepený nahoře (čtenář byl níž v dlouhém panelu), začne nový panel hned pod ním. fokus = klávesnice (fokus na záložku).
+ */
+function prepniZalozku(klic, fokus) {
+  const el = strankaEl();
+  if (!el || !k.detail || k.zalozky.length < 2) return;
+  const nova = D.platnaZalozka(k.zalozky, klic);
+  const nav = el.querySelector('[data-kn-cast="nav"]');
+  const telo = el.querySelector('[data-kn-cast="telo"]');
+  const navV = nav.getBoundingClientRect().height;
+  const bylPrilepeny = telo.getBoundingClientRect().top < navV + 2;
+  if (nova !== aktivniZalozka()) {
+    k.oddil = nova;
+    try { history.replaceState(history.state, '', D.adresaPolozky(k.detail, oddilDoAdresy())); } catch (e) { /* nic */ }
+    aplikujZalozky();
+  }
+  if (bylPrilepeny) {
+    const y = telo.getBoundingClientRect().top + window.scrollY - navV - 12;
+    if (window.scrollY > y) window.scrollTo(0, Math.max(0, y));
+  }
+  ukazAktivniVPasu(nav.querySelector('.kn-oddily__pas'));
+  if (fokus) { const b = el.querySelector('[data-kn-tab="' + CSS.escape(nova) + '"]'); if (b) b.focus({ preventScroll: true }); }
+}
+
+/** Přepne sekci v Zákulisí / Obsahu (seznam vlevo, na telefonu nahoře; „Další: …“ pod textem). */
+function prepniPodzalozku(cteni, klic, fokus) {
+  if (!cteni || !k.detail) return;
+  k.pod[k.detail + ':' + cteni.dataset.knCteni] = klic;
+  const aktivni = aplikujPodzalozky(cteni);
+  const nav = cteni.querySelector('.kn-cteni__nav');
+  if (nav) ukazAktivniVPasu(nav);
+  // „Další“ pod dlouhým textem: začátek nové sekce do zorného pole (pod lepkavý pás), seznam vlevo zůstane
+  const clanek = cteni.querySelector('[data-kn-podpanel="' + CSS.escape(aktivni) + '"]');
+  const pas = document.querySelector('#kn-stranka [data-kn-cast="nav"]');
+  const horni = (pas && !pas.hidden ? pas.getBoundingClientRect().height : 0) + 12;
+  if (clanek && clanek.getBoundingClientRect().top < horni) window.scrollTo(0, Math.max(0, clanek.getBoundingClientRect().top + window.scrollY - horni));
+  if (fokus) {
+    const b = cteni.querySelector('[role="tab"][data-kn-pod="' + CSS.escape(aktivni) + '"]');
+    if (b) b.focus({ preventScroll: true }); else if (clanek) clanek.focus({ preventScroll: true });
+  }
+}
+
+/** Šipky na záložkách a sekcích; ←/→ jinde na stránce (mimo pole, okna a nabídky) přepnou záložku. Vrací true, když klávesu vzala. */
+function klavesaZalozek(e) {
+  if (!k.detail || stav.pohled !== 'knihovna' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return false;
+  const t = e.target;
+  const smer = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -1, ArrowDown: 1, Home: 'prvni', End: 'posledni' }[e.key];
+  if (smer === undefined) return false;
+  // sekce (podzáložky): všechny šipky, Home, End
+  const pod = t && t.closest ? t.closest('.kn-cteni__nav [data-kn-pod]') : null;
+  if (pod) {
+    const cteni = pod.closest('[data-kn-cteni]');
+    const klice = Array.from(cteni.querySelectorAll('.kn-cteni__nav [data-kn-pod]')).map((b) => [b.dataset.knPod]);
+    e.preventDefault();
+    prepniPodzalozku(cteni, D.sousedniZalozka(klice, pod.dataset.knPod, smer), true);
+    return true;
+  }
+  const naZalozce = t && t.closest ? t.closest('[data-kn-tab]') : null;
+  if (!naZalozce) {
+    // jinde na stránce jen ←/→ – ne v poli, ne pod oknem, nabídkou nebo vyjetou kartou, ne mimo podstránku
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return false;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return false;
+    if (horniPanel() || document.querySelector('.okno-pozadi, .nabidka.videt')) return false;
+    if (t && t !== document.body && t.closest && !t.closest('#kn-stranka')) return false;
+  } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') return false;
+  if (k.zalozky.length < 2) return false;
+  e.preventDefault();
+  prepniZalozku(D.sousedniZalozka(k.zalozky, aktivniZalozka(), smer), !!naZalozce);
+  return true;
 }
 
 function kopirujOdkaz() {
-  const u = location.origin + location.pathname + D.adresaPolozky(k.detail);
+  const u = location.origin + location.pathname + D.adresaPolozky(k.detail, oddilDoAdresy());
   try {
     navigator.clipboard.writeText(u).then(() => toast('Odkaz zkopírovaný – otevře tuhle stránku i v jiném zařízení s Asistentem'),
       () => toast('Kopírování tady nejde.', true));
@@ -707,9 +810,11 @@ export function klikKnihovna(el) {
   }
   if (el.hasAttribute('data-kn-znovu')) { stav.chyby.knihovna = null; nactiKnihovnu(); zmeneno(); return true; }
   if (ds.knReserseZnovu) { delete k.reserse[ds.knReserseZnovu]; nactiReserisi(ds.knReserseZnovu); prekresliStranku(); return true; }
-  // podstránka: zpět na seznam, skok na oddíl, kopírovat odkaz, Podobné → požadavek pro Clauda jedním klepnutím
+  // podstránka: zpět na seznam, záložka, sekce, kopírovat odkaz, Podobné → požadavek pro Clauda jedním klepnutím
   if (el.hasAttribute('data-kn-zpet')) { naSeznam(); return true; }
-  if (ds.knSkoc) { skocNa(ds.knSkoc); return true; }
+  if (ds.knTab) { prepniZalozku(ds.knTab, false); return true; }
+  if (ds.knTabPrejdi) { prepniZalozku(ds.knTabPrejdi, false); const b = document.querySelector('#kn-stranka [data-kn-tab="' + CSS.escape(ds.knTabPrejdi) + '"]'); if (b) b.focus({ preventScroll: true }); return true; }
+  if (ds.knPod) { prepniPodzalozku(el.closest('[data-kn-cteni]'), ds.knPod, !el.matches('[role="tab"]')); return true; }
   if (el.hasAttribute('data-kn-kopirovat-odkaz')) { kopirujOdkaz(); return true; }
   if (el.hasAttribute('data-kn-podobne-pridat')) { if (ds.knDruh && ds.knText) pridej(ds.knDruh, ds.knText); return true; }
   if (el.hasAttribute('data-kn-pridat')) { otevriPridani(ds.knDruh, ds.knText); return true; } // i ze „Související“ – okno nad stránkou
@@ -769,6 +874,7 @@ export function klavesaKnihovna(e) {
   if (!t || !t.matches) return false;
   if (e.key === 'Enter' && t.matches('[data-kn-pridat-text]')) { e.preventDefault(); odeslatPridani(); return true; }
   if (e.key === 'Escape' && t.matches('[data-kn-hledat]') && t.value) { e.preventDefault(); t.value = ''; k.dotaz = ''; prekresliStranku(); return true; }
+  if (klavesaZalozek(e)) return true; // šipky: záložky a sekce podstránky
   // Esc na podstránce = zpět na seznam (jako dřív zavřel panel s kartou) – ne v poli, ne pod oknem nebo nabídkou (ta Esc vezme sama)
   if (e.key === 'Escape' && !e.defaultPrevented && k.detail && stav.pohled === 'knihovna' && !horniPanel() && !document.querySelector('.okno-pozadi') &&
     !(t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) { e.preventDefault(); naSeznam(); return true; }
@@ -838,6 +944,7 @@ bubliny.registruj('kn-hodnoceni', kartaHodnoceni);
 // stejné záložky ji zachová, nový odkaz ne – „← Knihovna“ pak seznam jen ukáže)
 if (stav.pohled === 'knihovna' && D.idZAdresy(location.hash)) {
   k.detail = D.idZAdresy(location.hash);
+  k.oddil = D.zalozkaZAdresy(location.hash);
   k.hloubka = (history.state && history.state.knHloubka) || 0;
 }
 window.addEventListener('popstate', poKrokuHistorie);

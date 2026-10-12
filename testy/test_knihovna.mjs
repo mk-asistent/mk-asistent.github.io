@@ -145,29 +145,73 @@ const ROZSIRENA = {
   podobne: [{ nazev: 'Maják', id: 'serial-majak' }, { nazev: 'Malý princ' }, { nazev: 'Interstellar', rok: 2014 }, { nazev: 'Nový tip', proc: 'proč' }, { proc: 'bez názvu' }]
 };
 
-test('adresa podstránky #knihovna/<id>: jen platné id, jinak nic', () => {
+test('adresa podstránky #knihovna/<id>[/<záložka>]: jen platné id a známá záložka, jinak nic; výchozí záložka bez adresy', () => {
   assert.strictEqual(D.adresaPolozky('film-oppenheimer'), '#knihovna/film-oppenheimer');
+  assert.strictEqual(D.adresaPolozky('film-oppenheimer', 'herci'), '#knihovna/film-oppenheimer/herci');
+  assert.strictEqual(D.adresaPolozky('film-oppenheimer', ''), '#knihovna/film-oppenheimer', 'výchozí záložka se nepíše');
+  assert.strictEqual(D.adresaPolozky('film-oppenheimer', 'nesmysl'), '#knihovna/film-oppenheimer', 'neznámá záložka se nepíše');
   assert.strictEqual(D.idZAdresy('#knihovna/film-oppenheimer'), 'film-oppenheimer');
-  assert.strictEqual(D.idZAdresy(D.adresaPolozky('reserse-manhattan')), 'reserse-manhattan');
-  ['', '#knihovna', '#knihovna/', '#posta', '#knihovna/Film X', '#knihovna/../moje', '#knihovna/a/b', '#knihovna/%E0%A4%A', '#knihovna/<script>'].forEach((h) =>
-    assert.strictEqual(D.idZAdresy(h), '', h));
+  assert.strictEqual(D.idZAdresy('#knihovna/film-oppenheimer/zakulisi'), 'film-oppenheimer');
+  assert.strictEqual(D.zalozkaZAdresy('#knihovna/film-oppenheimer/zakulisi'), 'zakulisi');
+  assert.strictEqual(D.zalozkaZAdresy('#knihovna/film-oppenheimer'), '');
+  assert.strictEqual(D.idZAdresy(D.adresaPolozky('reserse-manhattan', 'pojmy')), 'reserse-manhattan');
+  assert.strictEqual(D.zalozkaZAdresy(D.adresaPolozky('reserse-manhattan', 'pojmy')), 'pojmy');
+  ['', '#knihovna', '#knihovna/', '#posta', '#knihovna/Film X', '#knihovna/../moje', '#knihovna/a/b', '#knihovna/a/herci/x', '#knihovna/a/Herci', '#knihovna/%E0%A4%A',
+    '#knihovna/<script>', '#knihovna/a/<b>'].forEach((h) => {
+    assert.strictEqual(D.idZAdresy(h), '', h);
+    assert.strictEqual(D.zalozkaZAdresy(h), '', h);
+  });
 });
 
-test('oddíly do pásu: jen ty, které karta má, v pořadí stránky; kotvy sekcí podle id, jinak pořadí; krátké názvy', () => {
-  assert.deepStrictEqual(D.oddilyKarty(ROZSIRENA).map((o) => o[1]),
-    ['Přehled', 'Herci', 'Tvůrci', 'Fakta', 'Jak vznikal', 'Proč jsou některé scény…', 'Hudba', 'Série', 'Zajímavosti', 'Kde sledovat', 'Podobné']);
-  assert.deepStrictEqual(D.oddilyKarty(ROZSIRENA).filter((o) => /^kn-s-/.test(o[0])).map((o) => o[0]), ['kn-s-vznik', 'kn-s-2', 'kn-s-3']);
-  assert.deepStrictEqual(D.oddilyKarty({ druh: 'kniha', nazev: 'K', tvurci: [{ role: 'autor', jmena: ['A'] }], kdeSledovat: { text: 'knihovna' }, souvisi: [{ id: 'film-x' }] }).map((o) => o[1]),
-    ['Autor a tvůrci', 'Kde sehnat', 'Související'], 'kniha: tvůrci z rolí, Kde sehnat, jen související');
-  assert.deepStrictEqual(D.oddilyKarty({ druh: 'film', nazev: 'X', kratce: 'jen krátce' }), [], 'stará jednoduchá karta nemá pás');
-  assert.deepStrictEqual(D.oddilyReserse({ kratce: 'k', sekce: [{ nadpis: 'Vztlak', odstavce: ['x'] }], casovaOsa: [{ kdy: '1903', co: 'let' }], pojmy: [{ pojem: 'p' }],
-    dalsiOtazky: ['?'], zdroje: [{ nazev: 'z', url: 'https://example.com' }] }).map((o) => o[1]), ['Krátce', 'Vztlak', 'Časová osa', 'Pojmy', 'Další otázky', 'Zdroje']);
+test('záložky karty: jen ty, které karta má, v pořadí; názvy podle obsahu a druhu; sekce jako podzáložky (klíče podle id, jinak pořadí)', () => {
+  assert.deepStrictEqual(D.zalozkyKarty(ROZSIRENA), [['prehled', 'Přehled'], ['herci', 'Herci a tvůrci'], ['zakulisi', 'Zákulisí'], ['fakta', 'Fakta a zajímavosti'],
+    ['serie', 'Série'], ['kde', 'Kde sledovat'], ['podobne', 'Podobné']]);
+  assert.ok(D.zalozkyKarty(ROZSIRENA).length <= 7, 'nejvýš 7 záložek');
+  assert.deepStrictEqual(D.sekcePodzalozek(ROZSIRENA).map((s) => [s.klic, s.kratky]), [['kn-s-vznik', 'Jak vznikal'], ['kn-s-2', 'Proč jsou některé scény…'], ['kn-s-3', 'Hudba']]);
+  assert.strictEqual(D.sekcePodzalozek(ROZSIRENA)[0].nadpis, 'Jak vznikal: IMAX, 57 dní a výbuch bez počítače', 'celý nadpis zůstává');
+  assert.deepStrictEqual(D.sekcePodzalozek({ sekce: [{ id: 'a', nadpis: 'A' }, { id: 'a', nadpis: 'B' }] }).map((s) => s.klic), ['kn-s-a', 'kn-s-2-1'], 'stejné id → jiný klíč');
+  // kniha: Postavy a autor, Svět a autor, Kde sehnat; jen související
+  assert.deepStrictEqual(D.zalozkyKarty({ druh: 'kniha', nazev: 'K', obsah: 'o', postavy: [{ jmeno: 'Will' }], lide: [{ jmeno: 'A', role: 'autor' }], sekce: [{ nadpis: 'Svět' }],
+    kdeSledovat: { text: 'knihovna' }, souvisi: [{ id: 'film-x' }] }).map((z) => z.join(':')),
+    ['prehled:Přehled', 'postavy:Postavy a autor', 'zakulisi:Svět a autor', 'kde:Kde sehnat', 'podobne:Související']);
+  // starší karta: tvůrci jen z rolí (aspoň dvě role), zajímavosti bez faktů, odkazy bez „kde“
+  assert.deepStrictEqual(D.zalozkyKarty({ druh: 'film', nazev: 'X', tvurci: [{ role: 'režie', jmena: ['A'] }, { role: 'hrají', jmena: ['B'] }], zajimavosti: ['z'],
+    odkazy: [{ nazev: 'ČSFD', url: 'https://www.csfd.cz/' }] }).map((z) => z[1]), ['Tvůrci', 'Zajímavosti', 'Odkazy a zdroje']);
+  assert.deepStrictEqual(D.zalozkyKarty({ druh: 'kniha', nazev: 'K', tvurci: [{ role: 'autor', jmena: ['A'] }] }), [], 'jen autor (je v hlavičce) – žádná záložka');
+  assert.deepStrictEqual(D.zalozkyKarty({ druh: 'film', nazev: 'X', kratce: 'jen krátce' }), [], 'stará jednoduchá karta nemá pás');
+  assert.deepStrictEqual(D.zalozkyKarty({ druh: 'serial', nazev: 'S', serie: { dily: [{ nazev: '1. řada' }] } }).map((z) => z[1]), ['Řady a díly']);
+  // rešerše: Shrnutí (i jen s dalšími otázkami), Obsah, Časová osa, Pojmy, Zdroje
+  assert.deepStrictEqual(D.zalozkyReserse({ kratce: 'k', sekce: [{ nadpis: 'Vztlak', odstavce: ['x'] }], casovaOsa: [{ kdy: '1903', co: 'let' }], pojmy: [{ pojem: 'p' }],
+    dalsiOtazky: ['?'], zdroje: [{ nazev: 'z', url: 'https://example.com' }] }).map((z) => z[1]), ['Shrnutí', 'Obsah', 'Časová osa', 'Pojmy', 'Zdroje']);
+  assert.deepStrictEqual(D.zalozkyReserse({ dalsiOtazky: ['?'] }).map((z) => z[0]), ['shrnuti']);
   assert.strictEqual(D.kratkyNazev('Hudba: housle, tikání a 21 změn tempa'), 'Hudba');
   assert.strictEqual(D.kratkyNazev('Krátký'), 'Krátký');
   assert.strictEqual(D.kratkyNazev('a'.repeat(40)), 'a'.repeat(25) + '…', 'bez mezery natvrdo');
   assert.strictEqual(D.kotvaSekce({ id: 'Vznik' }, 0), 'kn-s-vznik');
   assert.strictEqual(D.kotvaSekce({ id: '"><img>' }, 4), 'kn-s-5');
 });
+
+test('záložky: platná (neznámá → první), sousední pro šipky dokola, Home / End', () => {
+  const z = D.zalozkyKarty(ROZSIRENA);
+  assert.strictEqual(D.platnaZalozka(z, 'zakulisi'), 'zakulisi');
+  assert.strictEqual(D.platnaZalozka(z, ''), 'prehled');
+  assert.strictEqual(D.platnaZalozka(z, 'pojmy'), 'prehled', 'záložka, kterou karta nemá → výchozí');
+  assert.strictEqual(D.platnaZalozka([], 'herci'), '');
+  assert.strictEqual(D.sousedniZalozka(z, 'prehled', 1), 'herci');
+  assert.strictEqual(D.sousedniZalozka(z, 'prehled', -1), 'podobne', 'dokola');
+  assert.strictEqual(D.sousedniZalozka(z, 'podobne', 1), 'prehled');
+  assert.strictEqual(D.sousedniZalozka(z, 'fakta', 'prvni'), 'prehled');
+  assert.strictEqual(D.sousedniZalozka(z, 'fakta', 'posledni'), 'podobne');
+  assert.strictEqual(D.sousedniZalozka(z, 'neni', 1), 'herci', 'neznámá jako první');
+});
+
+test('hodnocení na dlaždici krátce: zdroj bez závorky, první hodnota a „…“', () => {
+  assert.deepStrictEqual(D.hodnoceniNaDlazdici({ zdroj: 'ČSFD (1. · 2. · 3. díl)', hodnota: '81 % · 80 % · 76 %' }), { zdroj: 'ČSFD', hodnota: '81 % …' });
+  assert.deepStrictEqual(D.hodnoceniNaDlazdici({ zdroj: 'IMDb', hodnota: '8,3/10' }), { zdroj: 'IMDb', hodnota: '8,3/10' });
+  assert.deepStrictEqual(D.hodnoceniNaDlazdici({ zdroj: '(jen závorka)', hodnota: 5 }), { zdroj: '(jen závorka)', hodnota: '5' });
+  assert.strictEqual(D.hodnoceniNaDlazdici(null), null);
+});
+
 
 test('tvůrci bez „hrají“, když jsou herci zvlášť; hlavní tvůrce do hlavičky; herci v hledání', () => {
   assert.deepStrictEqual(D.tvurciBezHercu(ROZSIRENA).map((t) => t.role), ['režie a scénář', 'hudba']);

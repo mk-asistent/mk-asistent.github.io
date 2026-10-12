@@ -1,21 +1,27 @@
 // Knihovna – podstránka karty (film, seriál, kniha) a čtečka rešerše jako celá stránka (Michal 12. 10.: „u těch filmů bych
 // chtěl mít více informací … ať je to pro mě zajímavé … i něco o hercích … do několika různých sekcí … jako klasickou stránku,
-// ne jen pás vpravo“). Tady se jen skládá HTML z dat – stav, adresu #knihovna/<id>, historii a ovládání má js/knihovna.js
-// (tenhle soubor načte s sebou, start aplikace na něj nečeká). Vzhled Fixtrack (skill osobni-vzhled), knihovna.css.
-// Stránka má pět částí, které se překreslují zvlášť (rozepsaná poznámka se nepřepíše, obrázky se nenačítají znovu):
+// ne jen pás vpravo“; večer: „udělej to přes celou stránku … nedělej to jako prohlížení celé na jedné stránce s tak velkým
+// rolováním … když kliknu na té liště, ať se mi to zobrazí jen k té dané věci“ → ZÁLOŽKY přes celou šířku).
+// Tady se jen skládá HTML z dat – stav, adresu #knihovna/<id>[/<záložka>], historii, přepínání záložek a klávesy má
+// js/knihovna.js (tenhle soubor načte s sebou, start aplikace na něj nečeká). Vzhled Fixtrack (skill osobni-vzhled), knihovna.css.
+// HTML nezávisí na tom, která záložka je otevřená (všechny panely jsou v něm) – vybranou záložku a podzáložku nastaví
+// knihovna.js přímo v DOM (hidden, aria-selected), takže přepnutí nic nepřekresluje a obrázky se nenačítají znovu.
+// Stránka má pět částí, které se překreslují zvlášť (rozepsaná poznámka se nepřepíše):
 //   lista – „← Knihovna“, kopírovat odkaz, ČSFD / Databáze knih
-//   hero  – plakát / obálka, název, originál, rok, žánry, délka, hlavní tvůrce, hodnocení jako dlaždice, krátce
-//   moje  – můj stav, hvězdy, poznámka
-//   nav   – lepkavý pás odkazů na oddíly (jen ty, které karta má; klepnutí = plynulý posun)
-//   telo  – oddíly: Přehled, Herci, Tvůrci, Postavy, Fakta, sekce, Série, Zajímavosti, Kde sledovat, Podobné, odkazy a zdroje
+//   hero  – rozmazané pozadí z plakátu, plakát / obálka, název, originál, rok, žánry, hlavní tvůrce, hodnocení, krátce
+//           (na jiné než první záložce zúžená na jeden řádek – třída kn-st--kompakt, knihovna.css)
+//   moje  – můj stav, hvězdy, poznámka (vpravo v hlavičce)
+//   nav   – lepkavý pás záložek (role tablist; jen ty, které karta má)
+//   telo  – panely záložek (role tabpanel) + pata
 
 import { esc, odstin, dm, tvar, velkePrvni, trvani, iniciala as inicialyJmena } from './pomocne.js';
 import { IKONY } from './ikony.js';
 import { kostra, chybaHtml } from './ui.js';
 import * as D from './knihovna_data.js';
 
-const PRAZDNE = { lista: '', hero: '', moje: '', nav: '', telo: '' };
+const PRAZDNE = { lista: '', hero: '', moje: '', nav: '', telo: '', zalozky: [] };
 const ven = (u) => ' href="' + esc(u) + '" target="_blank" rel="noopener noreferrer"';
+const PRVNI_FAKTA = 4; // nejdůležitější fakta na Přehledu (všechna jsou v záložce Fakta)
 
 // ---------------------------------------------------------------- drobnosti
 
@@ -35,26 +41,39 @@ export function obrazekHtml(url, nazev, trida, chybne) {
 /** Kulatá fotka člověka (Wikimedia Commons) s pevným rozměrem, jinak iniciály; pod ní drobně zdroj fotky s odkazem. */
 function fotoHtml(o, chybne) {
   const u = D.fotoUrl(o.foto);
-  const img = u && !(chybne && chybne.has(u)) ? '<img src="' + esc(u) + '" alt="" width="76" height="76" loading="lazy" decoding="async" referrerpolicy="no-referrer">' : '';
+  const img = u && !(chybne && chybne.has(u)) ? '<img src="' + esc(u) + '" alt="" width="96" height="96" loading="lazy" decoding="async" referrerpolicy="no-referrer">' : '';
   const stranka = img && D.bezpecnaUrl(o.fotoStranka);
   return '<span class="kn-osoba__foto"><span class="kn-foto" style="--h:' + odstin(o.jmeno) + '" aria-hidden="true"><b>' + esc(inicialyJmena(o.jmeno)) + '</b>' + img + '</span>' +
     (img ? (stranka ? '<a class="kn-foto__zdroj"' + ven(stranka) + '>Foto: Wikimedia Commons</a>' : '<small class="kn-foto__zdroj">Foto: Wikimedia Commons</small>') : '') + '</span>';
 }
 
-/** Oddíl stránky s kotvou (pás nahoře na něj skočí). */
-function oddil(kotva, nadpis, obsah, trida) {
+/** Blok (bílá karta) s nadpisem uvnitř panelu záložky; prázdný obsah = nic. */
+function blok(nadpis, obsah, trida, pocet) {
   if (!obsah) return '';
-  return '<section class="kn-sekce' + (trida ? ' ' + trida : '') + '" id="' + esc(kotva) + '" aria-labelledby="' + esc(kotva) + '-h">' +
-    '<h2 class="kn-sekce__nadpis" id="' + esc(kotva) + '-h">' + esc(nadpis) + '</h2>' + obsah + '</section>';
+  return '<section class="kn-blok' + (trida ? ' ' + trida : '') + '">' + (nadpis ? '<h2 class="kn-blok__nadpis">' + esc(nadpis) +
+    (pocet ? '<small class="cisla">' + pocet + '</small>' : '') + '</h2>' : '') + obsah + '</section>';
 }
 const podnadpis = (t) => '<h3 class="kn-podnadpis">' + esc(t) + '</h3>';
 const body = (a, trida) => ((a || []).length ? '<ul class="kn-body' + (trida ? ' ' + trida : '') + '">' + a.map((b) => '<li>' + esc(b) + '</li>').join('') + '</ul>' : '');
 
-/** Lepkavý pás odkazů na oddíly (až od dvou oddílů – jeden nemá smysl). */
-function navHtml(oddily) {
-  if (oddily.length < 2) return '';
-  return '<nav class="kn-oddily" aria-label="Oddíly stránky"><div class="kn-oddily__pas">' +
-    oddily.map((o) => '<button type="button" class="kn-oddily__btn" data-kn-skoc="' + esc(o[0]) + '">' + esc(o[1]) + '</button>').join('') + '</div></nav>';
+/** Panel záložky (role tabpanel; hidden nastaví knihovna.js podle vybrané záložky). Jediný panel (bez pásu) je jen obal. */
+function panel(klic, obsah, sPasem) {
+  return '<div class="kn-panel kn-panel--' + esc(klic) + '" data-kn-panel="' + esc(klic) + '"' + (sPasem ? ' id="kn-panel-' + esc(klic) + '" role="tabpanel" aria-labelledby="kn-tab-' +
+    esc(klic) + '" tabindex="-1"' : '') + '>' + obsah + '</div>';
+}
+
+const IKONA_ZALOZKY = { prehled: 'prehled', herci: 'lide', postavy: 'lide', zakulisi: 'foto', fakta: 'info', serie: 'tabulka', kde: 'prehrat', podobne: 'srdce',
+  shrnuti: 'prehled', obsah: 'knihovna', osa: 'cas', pojmy: 'otazka', zdroje: 'odkaz' };
+
+/** Pás záložek (až od dvou – jedna nemá smysl). Klíč = část adresy #knihovna/<id>/<klíč>. */
+function navHtml(zalozky, kniha) {
+  if (zalozky.length < 2) return '';
+  return '<nav class="kn-oddily" aria-label="Části stránky"><div class="kn-oddily__pas" role="tablist" aria-label="Části stránky">' +
+    zalozky.map((z) => {
+      const ikona = IKONY[z[0] === 'kde' && kniha ? 'knihovna' : z[0] === 'zakulisi' && kniha ? 'misto' : IKONA_ZALOZKY[z[0]]] || '';
+      return '<button type="button" class="kn-oddily__btn" role="tab" id="kn-tab-' + esc(z[0]) + '" aria-controls="kn-panel-' + esc(z[0]) + '" aria-selected="false" tabindex="-1" data-kn-tab="' +
+        esc(z[0]) + '">' + ikona + '<span>' + esc(z[1]) + '</span></button>';
+    }).join('') + '</div></nav>';
 }
 
 /** Horní lišta podstránky: zpět na seznam, kopírovat odkaz, otevřít databázi. */
@@ -78,6 +97,14 @@ function hodnoceniHtml(hodnoceni) {
     return u ? '<a class="' + trida + '"' + ven(u) + ' aria-label="' + esc(h.zdroj + ' ' + h.hodnota + ' – otevřít') + '">' + obsah + '<i class="kn-sipka">' + IKONY.sipka + '</i></a>'
       : '<span class="' + trida + '">' + obsah + '</span>';
   }).join('') + '</div>';
+}
+
+/** Rozmazané pozadí hlavičky z plakátu (jen obrázek, který jde načíst). Adresa je stejná jako u plakátu (prohlížeč ji vezme
+ *  z mezipaměti) – v CSS v uvozovkách (bezpecnaUrl uvozovky ani zpětné lomítko nepustí, závorky v názvu souboru nevadí). */
+function pozadiHtml(url, chybne) {
+  const u = D.bezpecnaUrl(url);
+  if (!u || (chybne && chybne.has(u))) return '';
+  return '<div class="kn-hero__pozadi" aria-hidden="true"><i style="background-image:url(' + esc('"' + u + '"') + ')"></i></div>';
 }
 
 /** Můj stav (segment – klepnutí na zvolený ho zruší), hvězdy 1–5 (klepnutí na zvolenou je zruší), poznámka (uloží se sama). */
@@ -106,15 +133,17 @@ function pataHtml(x) {
     ((x.stitky || []).length ? '<span class="kn-pata__stitky">' + x.stitky.map((s) => '<span class="tag tag--seda">' + esc(s) + '</span>').join('') + '</span>' : '') + '</footer>';
 }
 
-/** Odkazy (čipy) a zdroje (rozbalovací seznam; u rešerše rozbalený – je to její oddíl Zdroje). */
-function odkazyHtml(odkazy, zdroje, rozbalene) {
+/** Odkazy (čipy). */
+function odkazyHtml(odkazy) {
   const o = (odkazy || []).filter((x) => D.bezpecnaUrl(x.url));
-  const z = (zdroje || []).filter((x) => D.bezpecnaUrl(x.url));
-  if (!o.length && !z.length) return '';
-  return '<div class="kn-zaver">' + (o.length ? '<div class="kn-odkazy">' + o.map((x) => '<a class="chip"' + ven(x.url) + '>' + esc(x.nazev) + IKONY.odkaz + '</a>').join('') + '</div>' : '') +
-    (z.length ? '<details class="kn-zdroje"' + (rozbalene ? ' open' : '') + '><summary>Zdroje (' + z.length + ')</summary><ol>' + z.map((x) => '<li><a' + ven(x.url) + '>' + esc(x.nazev) + '</a></li>').join('') + '</ol></details>' : '') +
-    '</div>';
+  return o.length ? '<div class="kn-odkazy">' + o.map((x) => '<a class="chip"' + ven(x.url) + '>' + esc(x.nazev) + IKONY.odkaz + '</a>').join('') + '</div>' : '';
 }
+/** Zdroje jako číslovaný seznam (na širokém ve sloupcích). */
+function zdrojeHtml(zdroje) {
+  const z = (zdroje || []).filter((x) => D.bezpecnaUrl(x.url));
+  return z.length ? '<ol class="kn-zdroje">' + z.map((x) => '<li><a' + ven(x.url) + '>' + esc(x.nazev) + IKONY.odkaz + '</a></li>').join('') + '</ol>' : '';
+}
+const pocetZdroju = (zdroje) => (zdroje || []).filter((x) => D.bezpecnaUrl(x.url)).length;
 
 /** Související položky (v knihovně → podstránka, jinak „Přidat“ = okno s předvyplněným názvem). */
 function souvisiHtml(data, x) {
@@ -129,16 +158,55 @@ function souvisiHtml(data, x) {
     .join('') + '</div>';
 }
 
-/** Text sekce: odstavce (čitelná šířka) a body. */
-function textSekceHtml(s) {
-  return '<div class="kn-text">' + (s.odstavce || []).map((o) => odstavce(o)).join('') + body(s.body) + '</div>';
+/** Dlaždice faktů / čísel (KPI jako ve Fixtracku); delší hodnota menším písmem. */
+function faktaHtml(fakta, trida) {
+  return '<div class="kn-fakta' + (trida ? ' ' + trida : '') + '">' + fakta.map((f) => '<div class="kn-fakt' + (String(f.hodnota).length > 16 ? ' kn-fakt--dlouhy' : '') + '"><small>' +
+    esc(f.co) + '</small><b class="cisla">' + esc(f.hodnota) + '</b></div>').join('') + '</div>';
+}
+
+/** Odkaz na jinou záložku („Všechna fakta →“). */
+const naZalozku = (klic, text) => '<button type="button" class="kn-dal" data-kn-tab-prejdi="' + esc(klic) + '"><span>' + esc(text) + '</span>' + IKONY.vpravo + '</button>';
+
+/**
+ * Čtení sekcí po jedné (Zákulisí karty, Obsah rešerše): na PC svislý seznam nadpisů vlevo a vybraná sekce vpravo, na telefonu
+ * vodorovný výběr nahoře. Klíč seznamu = klíč záložky (knihovna.js si pamatuje vybranou sekci pro každou kartu).
+ */
+function cteniHtml(klicZalozky, sekce, popisek) {
+  if (!sekce.length) return '';
+  const vic = sekce.length > 1;
+  const nav = vic ? '<div class="kn-cteni__nav" role="tablist" aria-orientation="vertical" aria-label="' + esc(popisek) + '">' + sekce.map((s, i) =>
+    '<button type="button" class="kn-cteni__btn" role="tab" id="kn-ptab-' + esc(s.klic) + '" aria-controls="kn-pp-' + esc(s.klic) + '" aria-selected="false" tabindex="-1" data-kn-pod="' +
+      esc(s.klic) + '"><span class="kn-cteni__c cisla">' + (i + 1) + '</span><span class="kn-cteni__plny">' + esc(s.nadpis) + '</span><span class="kn-cteni__kratky">' +
+      esc(s.kratky) + '</span></button>').join('') + '</div>' : '';
+  const clanky = sekce.map((s, i) => {
+    const o = s.s.odstavce || [], b = s.s.body || [];
+    const delka = o.join(' ').length;
+    const text = o.length ? '<div class="kn-text' + (!b.length && delka > 900 ? ' kn-text--dva' : '') + '">' + o.map((t) => odstavce(t)).join('') + '</div>' : '';
+    const vkostce = b.length ? '<aside class="kn-vkostce"><p class="kn-podnadpis">' + (o.length ? 'V kostce' : 'Body') + '</p>' + body(b) + '</aside>' : '';
+    const pred = i > 0 ? sekce[i - 1] : null, dalsi = i < sekce.length - 1 ? sekce[i + 1] : null;
+    return '<article class="kn-cteni__clanek" id="kn-pp-' + esc(s.klic) + '" data-kn-podpanel="' + esc(s.klic) + '"' + (vic ? ' role="tabpanel" aria-labelledby="kn-ptab-' + esc(s.klic) + '" tabindex="-1"' : '') + '>' +
+      (vic ? '<p class="kn-cteni__poradi cisla">' + (i + 1) + ' / ' + sekce.length + '</p>' : '') +
+      '<h2 class="kn-cteni__nadpis">' + esc(s.nadpis) + '</h2>' +
+      '<div class="kn-cteni__telo' + (text && vkostce ? ' kn-cteni__telo--dva' : '') + '">' + text + vkostce + '</div>' +
+      (vic ? '<div class="kn-cteni__dalsi">' + (pred ? '<button type="button" class="kn-dal kn-dal--zpet" data-kn-pod="' + esc(pred.klic) + '">' + IKONY.vlevo + '<span>' + esc(pred.kratky) + '</span></button>' : '<span></span>') +
+        (dalsi ? '<button type="button" class="kn-dal" data-kn-pod="' + esc(dalsi.klic) + '"><span>Další: ' + esc(dalsi.kratky) + '</span>' + IKONY.vpravo + '</button>' : '') + '</div>' : '') +
+      '</article>';
+  }).join('');
+  return '<section class="kn-blok kn-cteni' + (vic ? '' : ' kn-cteni--jedna') + '" data-kn-cteni="' + esc(klicZalozky) + '">' + nav + '<div class="kn-cteni__obsah">' + clanky + '</div></section>';
+}
+
+/** Lidé (herci, lidé za kamerou): karta s fotkou, jménem, rolí a textem. */
+function lideHtml(lide, chybne, popis) {
+  return '<ul class="kn-lide">' + lide.map((h) => '<li class="kn-osoba"><div class="kn-osoba__hlava">' + fotoHtml(h, chybne) +
+    '<div class="kn-osoba__jmeno"><b>' + esc(h.jmeno) + '</b>' + (popis(h) ? '<small>' + esc(popis(h)) + '</small>' : '') + '</div></div>' +
+    (h.o ? '<p class="kn-osoba__o">' + esc(h.o) + '</p>' : '') + '</li>').join('') + '</ul>';
 }
 
 // ---------------------------------------------------------------- karta (film, seriál, kniha)
 
 /**
  * Části podstránky karty. ctx = { data (knihovna), chybne (Set obrázků, které nejdou načíst) }.
- * Vrací { lista, hero, moje, nav, telo, titul }.
+ * Vrací { lista, hero, moje, nav, telo, titul, zalozky }.
  */
 export function kartaCasti(x, ctx) {
   const data = ctx.data, chybne = ctx.chybne;
@@ -147,8 +215,8 @@ export function kartaCasti(x, ctx) {
   const kniha = !video;
   const meta = [D.DRUHY[x.druh], D.rokKarty(x), kniha && x.stran ? x.stran + ' stran' : x.delka, x.zeme].filter(Boolean);
   const tvurce = D.hlavniTvurce(x);
-  // hlavička: na telefonu plakát a název vedle sebe, žánry, hodnocení a „krátce“ pod nimi přes celou šířku
-  const hero = '<header class="kn-hero" data-oblast="knihovna">' +
+  // hlavička: na PC plakát | název, meta, hodnocení, krátce | (Moje vedle, js/knihovna.js); na telefonu plakát a název vedle sebe
+  const hero = pozadiHtml(x.obrazek && x.obrazek.url, chybne) + '<header class="kn-hero" data-oblast="knihovna">' +
     obrazekHtml(x.obrazek && x.obrazek.url, x.nazev, 'kn-obr--hero', chybne) +
     '<div class="kn-hero__text"><div class="kn-hero__hlava">' +
       '<p class="kn-hero__druh">' + esc(meta.join(' · ')) + '</p>' +
@@ -161,83 +229,79 @@ export function kartaCasti(x, ctx) {
         (x.kratce ? '<p class="kn-hero__kratce">' + esc(x.kratce) + '</p>' : '') +
     '</div></div></header>';
 
-  let telo = '';
-  // Přehled: o čem to je (čitelná šířka) + tmavá karta „Proč to stojí za to“ vedle, citáty pod tím
-  const citaty = (x.citaty || []).length ? '<div class="kn-citaty">' + x.citaty.map((c) => '<figure class="kn-citat"><blockquote>' + esc(c.text) + '</blockquote>' +
-    (c.kdo ? '<figcaption>' + esc(c.kdo) + '</figcaption>' : '') + '</figure>').join('') + '</div>' : '';
-  if (x.obsah || x.proc || citaty) {
-    telo += oddil('kn-o-prehled', 'Přehled', '<div class="kn-prehled' + (x.obsah && x.proc ? ' kn-prehled--dva' : '') + '">' +
-      (x.obsah ? '<div class="kn-text">' + podnadpis(video ? 'O čem to je' : 'O čem kniha je') + odstavce(x.obsah) + '</div>' : '') +
-      (x.proc ? '<aside class="kn-proc">' + '<p class="kn-proc__nadpis">' + IKONY.hvezda + '<span>Proč to stojí za to</span></p>' + odstavce(x.proc) + '</aside>' : '') +
-      '</div>' + citaty);
+  const zalozky = D.zalozkyKarty(x);
+  const panely = {
+    // Přehled: o čem to je (čitelná šířka) | tmavá karta Proč + citáty | nejdůležitější fakta; na užším pod sebou
+    prehled: () => {
+      const citaty = (x.citaty || []).length ? '<div class="kn-citaty">' + x.citaty.map((c) => '<figure class="kn-citat"><blockquote>' + esc(c.text) + '</blockquote>' +
+        (c.kdo ? '<figcaption>' + esc(c.kdo) + '</figcaption>' : '') + '</figure>').join('') + '</div>' : '';
+      const fakta = (x.fakta || []).slice(0, PRVNI_FAKTA);
+      const vic = (x.fakta || []).length > PRVNI_FAKTA || (x.zajimavosti || []).length || x.skutecnost || (x.oceneni || []).length;
+      return '<div class="kn-prehled">' +
+        (x.obsah ? blok(video ? 'O čem to je' : 'O čem kniha je', '<div class="kn-text">' + odstavce(x.obsah) + '</div>', 'kn-p-obsah') : '') +
+        (x.proc || citaty ? '<div class="kn-p-proc">' + (x.proc ? '<aside class="kn-proc"><p class="kn-proc__nadpis">' + IKONY.hvezda + '<span>Proč to stojí za to</span></p>' +
+          odstavce(x.proc) + '</aside>' : '') + citaty + '</div>' : '') +
+        (fakta.length ? blok('V číslech', faktaHtml(fakta, 'kn-fakta--prehled') + (vic ? naZalozku('fakta', 'Všechna fakta a zajímavosti') : ''), 'kn-p-fakta') : '') +
+        '</div>';
+    },
+    // Herci (u knih Postavy) a lidé za kamerou jako druhá skupina; starší karta jen se seznamem rolí
+    herci: () => lidePanel(),
+    postavy: () => lidePanel(),
+    // Zákulisí (u knih Svět a autor): sekce od Clauda po jedné
+    zakulisi: () => cteniHtml('zakulisi', D.sekcePodzalozek(x), kniha ? 'Svět a autor' : 'Zákulisí'),
+    // Fakta a zajímavosti: dlaždice čísel | zajímavosti, skutečnost vs. film, ocenění
+    fakta: () => '<div class="kn-fakta-panel">' +
+      ((x.fakta || []).length ? blok('V číslech', faktaHtml(x.fakta), 'kn-fp-cisla') : '') +
+      ((x.zajimavosti || []).length ? blok('Zajímavosti', '<ol class="kn-zajimavosti">' + x.zajimavosti.map((z, i) => '<li><span class="kn-zajimavosti__c cisla">' + (i + 1) + '</span><p>' + esc(z) +
+        '</p></li>').join('') + '</ol>', 'kn-fp-zaj', x.zajimavosti.length) : '') +
+      (x.skutecnost ? blok('Skutečnost vs. ' + (video ? 'film' : 'kniha'), '<div class="kn-text">' + odstavce(x.skutecnost) + '</div>', 'kn-fp-skut') : '') +
+      ((x.oceneni || []).length ? blok('Ocenění', body(x.oceneni, 'kn-body--oceneni'), 'kn-fp-oceneni') : '') + '</div>',
+    serie: () => blok('Série' + (x.serie.nazev ? ' · ' + x.serie.nazev : ''), serieHtml(x.serie, kniha), 'kn-serie-blok'),
+    // Kde sledovat / sehnat, odkazy, zdroje
+    kde: () => '<div class="kn-kde-panel">' +
+      (x.kdeSledovat && x.kdeSledovat.text ? blok(video ? 'Kde sledovat' : 'Kde sehnat', '<div class="kn-kde"><span class="kn-kde__ikona">' + (video ? IKONY.prehrat : IKONY.knihovna) + '</span><div>' +
+        '<p>' + esc(x.kdeSledovat.text) + '</p>' +
+        (x.kdeSledovat.overeno ? '<p class="kn-overeno">' + IKONY.fajfka + '<span>ověřeno ' + esc(datumZIso(x.kdeSledovat.overeno)) + '</span></p>' : '') + '</div></div>', 'kn-kp-kde') : '') +
+      blok('Odkazy', odkazyHtml(x.odkazy), 'kn-kp-odkazy') +
+      blok('Zdroje', zdrojeHtml(x.zdroje), 'kn-kp-zdroje', pocetZdroju(x.zdroje)) + '</div>',
+    // Podobné (tipy) a související (v knihovně)
+    podobne: () => {
+      const pod = podobneHtml(data, x, chybne);
+      return '<div class="kn-podobne-panel">' + blok('Podobné', pod, 'kn-pp-podobne') + blok('Související', souvisiHtml(data, x), 'kn-pp-souvisi') + '</div>';
+    }
+  };
+  function lidePanel() {
+    const tvurci = D.tvurciBezHercu(x);
+    const herci = (x.herci || []).length ? blok('Herci', lideHtml(x.herci, chybne, (h) => (h.postava ? 'jako ' + h.postava : '')), 'kn-lp-herci', x.herci.length) : '';
+    const postavy = (x.postavy || []).length ? blok('Postavy', '<ul class="kn-postavy">' + x.postavy.map((p) => '<li class="kn-postava"><span class="kn-postava__znak" style="--h:' +
+      odstin(p.jmeno) + '" aria-hidden="true">' + esc(inicialyJmena(p.jmeno)) + '</span><span><b>' + esc(p.jmeno) + '</b>' + (p.o ? '<small>' + esc(p.o) + '</small>' : '') + '</span></li>').join('') +
+      '</ul>', 'kn-lp-postavy', x.postavy.length) : '';
+    const lide = (x.lide || []).length ? lideHtml(x.lide, chybne, (h) => h.role || '')
+      : tvurci.length ? '<dl class="kn-tvurci">' + tvurci.map((t) => '<div><dt>' + esc(velkePrvni(t.role)) + '</dt><dd>' + esc((t.jmena || []).join(', ')) + '</dd></div>').join('') + '</dl>' : '';
+    const zaKamerou = blok(kniha ? 'Autor a tvůrci' : 'Lidé za kamerou', lide, 'kn-lp-lide', (x.lide || []).length);
+    return '<div class="kn-lide-panel">' + (kniha ? postavy + zaKamerou + herci : herci + postavy + zaKamerou) + '</div>';
   }
-  // Herci
-  if ((x.herci || []).length) {
-    telo += oddil('kn-o-herci', 'Herci', '<ul class="kn-lide">' + x.herci.map((h) => '<li class="kn-osoba">' + fotoHtml(h, chybne) +
-      '<div class="kn-osoba__text"><b>' + esc(h.jmeno) + '</b>' + (h.postava ? '<small>jako ' + esc(h.postava) + '</small>' : '') +
-      (h.o ? '<p>' + esc(h.o) + '</p>' : '') + '</div></li>').join('') + '</ul>');
-  }
-  // Tvůrci: lidé za kamerou s fotkou, jinak seznam rolí (starší karty)
-  const tvurci = D.tvurciBezHercu(x);
-  if ((x.lide || []).length || tvurci.length) {
-    const lide = (x.lide || []).length ? '<ul class="kn-lide">' + x.lide.map((h) => '<li class="kn-osoba">' + fotoHtml(h, chybne) +
-      '<div class="kn-osoba__text"><b>' + esc(h.jmeno) + '</b>' + (h.role ? '<small>' + esc(h.role) + '</small>' : '') + (h.o ? '<p>' + esc(h.o) + '</p>' : '') + '</div></li>').join('') + '</ul>' : '';
-    const role = !lide && tvurci.length ? '<dl class="kn-tvurci">' + tvurci.map((t) => '<div><dt>' + esc(velkePrvni(t.role)) + '</dt><dd>' + esc((t.jmena || []).join(', ')) + '</dd></div>').join('') + '</dl>' : '';
-    telo += oddil('kn-o-tvurci', kniha ? 'Autor a tvůrci' : 'Lidé za kamerou', lide + role);
-  }
-  // Postavy (knihy)
-  if ((x.postavy || []).length) {
-    telo += oddil('kn-o-postavy', 'Postavy', '<ul class="kn-postavy">' + x.postavy.map((p) => '<li class="kn-postava"><span class="kn-postava__znak" style="--h:' + odstin(p.jmeno) + '" aria-hidden="true">' +
-      esc(inicialyJmena(p.jmeno)) + '</span><span><b>' + esc(p.jmeno) + '</b>' + (p.o ? '<small>' + esc(p.o) + '</small>' : '') + '</span></li>').join('') + '</ul>');
-  }
-  // Fakta: dlaždice čísel (KPI jako ve Fixtracku)
-  if ((x.fakta || []).length) {
-    // delší hodnota („IMAX 65 mm a 65 mm, část černobíle“) menším písmem – velké číslo jen u krátkých
-    telo += oddil('kn-o-fakta', 'Fakta', '<div class="kn-fakta">' + x.fakta.map((f) => '<div class="kn-fakt' + (String(f.hodnota).length > 16 ? ' kn-fakt--dlouhy' : '') + '"><small>' +
-      esc(f.co) + '</small><b class="cisla">' + esc(f.hodnota) + '</b></div>').join('') + '</div>');
-  }
-  // Sekce od Clauda (vznik, hudba, historické pozadí…)
-  (x.sekce || []).forEach((s, i) => {
-    if (s && (s.nadpis || (s.odstavce || []).length || (s.body || []).length)) telo += oddil(D.kotvaSekce(s, i), s.nadpis || 'Sekce ' + (i + 1), textSekceHtml(s), 'kn-sekce--text');
-  });
-  // Série
-  if (x.serie && ((x.serie.dily || []).length || x.serie.poradi)) telo += oddil('kn-o-serie', 'Série' + (x.serie.nazev ? ' · ' + x.serie.nazev : ''), serieHtml(x.serie, kniha));
-  // Zajímavosti, skutečnost vs. film, ocenění
-  if ((x.zajimavosti || []).length || x.skutecnost || (x.oceneni || []).length) {
-    telo += oddil('kn-o-zajimavosti', 'Zajímavosti',
-      ((x.zajimavosti || []).length ? '<ol class="kn-zajimavosti">' + x.zajimavosti.map((z, i) => '<li><span class="kn-zajimavosti__c cisla">' + (i + 1) + '</span><p>' + esc(z) + '</p></li>').join('') + '</ol>' : '') +
-      (x.skutecnost ? '<div class="kn-skutecnost">' + podnadpis('Skutečnost vs. ' + (video ? 'film' : 'kniha')) + '<div class="kn-text">' + odstavce(x.skutecnost) + '</div></div>' : '') +
-      ((x.oceneni || []).length ? '<div class="kn-oceneni-blok">' + podnadpis('Ocenění') + body(x.oceneni, 'kn-body--oceneni') + '</div>' : ''));
-  }
-  // Kde sledovat / sehnat
-  if (x.kdeSledovat && x.kdeSledovat.text) {
-    telo += oddil('kn-o-kde', video ? 'Kde sledovat' : 'Kde sehnat', '<div class="kn-kde"><span class="kn-kde__ikona">' + (video ? IKONY.prehrat : IKONY.knihovna) + '</span><div>' +
-      '<p>' + esc(x.kdeSledovat.text) + '</p>' +
-      (x.kdeSledovat.overeno ? '<p class="kn-overeno">' + IKONY.fajfka + '<span>ověřeno ' + esc(datumZIso(x.kdeSledovat.overeno)) + '</span></p>' : '') + '</div></div>');
-  }
-  // Podobné (tipy) a související (v knihovně)
-  const pod = podobneHtml(data, x, chybne);
-  const souv = souvisiHtml(data, x);
-  if (pod || souv) telo += oddil('kn-o-podobne', pod ? 'Podobné' : 'Související', pod + (pod && souv ? podnadpis('Související') : '') + souv);
-  telo += odkazyHtml(x.odkazy, x.zdroje) + pataHtml(x);
 
-  const zalozka = { filmy: 'Filmy a seriály', knihy: 'Knihy' }[D.zalozkaDruhu(x.druh)];
-  return { lista: listaHtml(zalozka, D.odkazDatabaze(x)), hero, moje: mojeHtml(x.id, x.druh, m, true), nav: navHtml(D.oddilyKarty(x)), telo, titul: x.nazev };
+  // jen jedna nebo žádná záložka (starší jednoduchá karta): obsah bez pásu
+  const telo = zalozky.map((z) => panel(z[0], panely[z[0]](), zalozky.length > 1)).join('') + pataHtml(x);
+  const zalozkaSeznamu = { filmy: 'Filmy a seriály', knihy: 'Knihy' }[D.zalozkaDruhu(x.druh)];
+  return { lista: listaHtml(zalozkaSeznamu, D.odkazDatabaze(x)), hero, moje: mojeHtml(x.id, x.druh, m, true), nav: navHtml(zalozky, kniha), telo, titul: x.nazev, zalozky };
 }
 
 function serieHtml(s, kniha) {
   const dily = s.dily || [];
   const celkem = D.celkemMinut(dily);
   const maDelku = dily.some((d) => d.delka), maPozn = dily.some((d) => d.pozn);
-  return (s.poradi ? '<p class="kn-poradi">' + IKONY.info + '<span><b>Doporučené pořadí:</b> ' + esc(s.poradi) + '</span></p>' : '') +
-    (dily.length ? '<div class="kn-tabulka-obal"><table class="kn-tabulka"><thead><tr><th scope="col">#</th><th scope="col">' + (kniha ? 'Díl' : 'Název') + '</th>' +
+  const tabulka = dily.length ? '<div class="kn-tabulka-obal"><table class="kn-tabulka"><thead><tr><th scope="col">#</th><th scope="col">' + (kniha ? 'Díl' : 'Název') + '</th>' +
       '<th scope="col">Rok</th>' + (maDelku ? '<th scope="col">Délka</th>' : '') + (maPozn ? '<th scope="col">Poznámka</th>' : '') + '</tr></thead><tbody>' +
       dily.map((d, i) => '<tr><td class="kn-tabulka__c cisla">' + (i + 1) + '</td><td class="kn-tabulka__nazev"><b>' + esc(d.nazev) + '</b>' +
         (d.original && d.original !== d.nazev ? '<small>' + esc(d.original) + '</small>' : '') + '</td>' +
         '<td class="cisla" data-popisek="Rok">' + esc(d.rok || '') + '</td>' + (maDelku ? '<td class="cisla" data-popisek="Délka">' + esc(d.delka || '') + '</td>' : '') +
         (maPozn ? '<td class="kn-tabulka__pozn" data-popisek="Poznámka">' + esc(d.pozn || '') + '</td>' : '') + '</tr>').join('') +
-      '</tbody></table></div>' : '') +
-    (celkem ? '<p class="kn-serie__celkem">' + dily.length + ' ' + tvar(dily.length, 'díl', 'díly', 'dílů') + ' · celkem ' + esc(trvani(celkem * 60e3)) + '</p>' : '');
+      '</tbody></table></div>' +
+      (celkem ? '<p class="kn-serie__celkem">' + dily.length + ' ' + tvar(dily.length, 'díl', 'díly', 'dílů') + ' · celkem ' + esc(trvani(celkem * 60e3)) + '</p>' : '') : '';
+  const poradi = s.poradi ? '<aside class="kn-poradi">' + IKONY.info + '<span><b>Doporučené pořadí:</b> ' + esc(s.poradi) + '</span></aside>' : '';
+  return '<div class="kn-serie' + (tabulka && poradi ? ' kn-serie--dva' : '') + '">' + (tabulka ? '<div class="kn-serie__dily">' + tabulka + '</div>' : '') + poradi + '</div>';
 }
 
 /** Podobné tipy: s kartou v knihovně → otevřít, čeká → „Claude připravuje…“, jinak Přidat jedním klepnutím. */
@@ -263,7 +327,7 @@ function podobneHtml(data, x, chybne) {
 
 /**
  * Části čtečky rešerše: idx = položka z indexu (název, krátce – je hned), r = { data, nacita, chyba } (celá z motoru).
- * Dokud se celá nenačte, ukáže hlavičku z indexu a kostru.
+ * Dokud se celá nenačte, ukáže hlavičku z indexu, krátce a kostru (bez záložek).
  */
 export function reserseCasti(idx, r, ctx) {
   const x = (r && r.data) || idx;
@@ -279,33 +343,29 @@ export function reserseCasti(idx, r, ctx) {
     '</div></div></header>';
   const casti = { lista: listaHtml('Rešerše', null), hero, moje: mojeHtml(idx.id, 'reserse', m, false), titul: x.nazev };
   if (!r || !r.data) {
-    return Object.assign({}, PRAZDNE, casti, { telo: (x.kratce ? oddil('kn-o-kratce', 'Krátce', '<div class="kn-kratce"><div class="kn-text">' + odstavce(x.kratce) + '</div></div>') : '') +
+    return Object.assign({}, PRAZDNE, casti, { telo: (x.kratce ? blok('Krátce', '<div class="kn-kratce"><div class="kn-text">' + odstavce(x.kratce) + '</div></div>') : '') +
       '<section class="card">' + (r && r.chyba ? chybaHtml(r.chyba, 'data-kn-reserse-znovu="' + esc(idx.id) + '"') : kostra(8)) + '</section>' });
   }
-  let telo = '';
-  if (x.kratce || (x.cisla || []).length) {
-    telo += oddil('kn-o-kratce', 'Krátce', (x.kratce ? '<div class="kn-kratce"><div class="kn-text">' + odstavce(x.kratce) + '</div></div>' : '') +
-      ((x.cisla || []).length ? '<div class="kn-fakta kn-cisla">' + x.cisla.map((c) => '<div class="kn-fakt"><b class="cisla">' + esc(c.hodnota) + '</b><small>' + esc(c.co || '') + '</small></div>').join('') + '</div>' : ''));
-  }
-  (x.sekce || []).forEach((s, i) => {
-    if (s && (s.nadpis || (s.odstavce || []).length || (s.body || []).length)) telo += oddil(D.kotvaSekce(s, i), s.nadpis || 'Sekce ' + (i + 1), textSekceHtml(s), 'kn-sekce--text');
-  });
-  if ((x.casovaOsa || []).length) {
-    telo += oddil('kn-o-osa', 'Časová osa', '<ol class="kn-osa">' + x.casovaOsa.map((c) => '<li><b class="cisla">' + esc(c.kdy) + '</b><span>' + esc(c.co) + '</span></li>').join('') + '</ol>');
-  }
-  if ((x.pojmy || []).length) {
-    telo += oddil('kn-o-pojmy', 'Pojmy', '<div class="kn-pojmy">' + x.pojmy.map((p) => '<details><summary>' + esc(p.pojem) + '</summary><p>' + esc(p.vysvetleni || '') + '</p></details>').join('') + '</div>');
-  }
-  if ((x.dalsiOtazky || []).length) {
-    telo += oddil('kn-o-otazky', 'Další otázky', '<p class="kn-napoveda">Klepnutím pošleš otázku Claudovi – připraví k ní novou rešerši.</p><div class="kn-otazky">' +
-      x.dalsiOtazky.map((q) => '<button type="button" class="kn-otazky__polozka" data-kn-otazka="' + esc(q) + '">' + IKONY.otazka + '<span>' + esc(q) + '</span>' +
-        '<em>' + IKONY.plus + 'Zeptat se</em></button>').join('') + '</div>');
-  }
-  const souv = souvisiHtml(ctx.data, x);
-  const zdroje = odkazyHtml([], x.zdroje, true);
-  if (souv || zdroje) telo += oddil('kn-o-zdroje', 'Zdroje', zdroje + (souv ? podnadpis('Související') + souv : ''));
-  telo += pataHtml(x);
-  return Object.assign({}, casti, { nav: navHtml(D.oddilyReserse(x)), telo });
+  const zalozky = D.zalozkyReserse(x);
+  const panely = {
+    // Shrnutí: krátce + výrazná čísla | další otázky (klepnutí = nová rešerše)
+    shrnuti: () => '<div class="kn-shrnuti">' +
+      (x.kratce || (x.cisla || []).length ? blok('Krátce', (x.kratce ? '<div class="kn-kratce"><div class="kn-text">' + odstavce(x.kratce) + '</div></div>' : '') +
+        ((x.cisla || []).length ? '<div class="kn-fakta kn-cisla">' + x.cisla.map((c) => '<div class="kn-fakt"><b class="cisla">' + esc(c.hodnota) + '</b><small>' + esc(c.co || '') +
+          '</small></div>').join('') + '</div>' : '') +
+        (D.sekcePodzalozek(x).length ? naZalozku('obsah', 'Číst celé po částech') : ''), 'kn-sh-kratce') : '') +
+      ((x.dalsiOtazky || []).length ? blok('Další otázky', '<p class="kn-napoveda">Klepnutím pošleš otázku Claudovi – připraví k ní novou rešerši.</p><div class="kn-otazky">' +
+        x.dalsiOtazky.map((q) => '<button type="button" class="kn-otazky__polozka" data-kn-otazka="' + esc(q) + '">' + IKONY.otazka + '<span>' + esc(q) + '</span>' +
+          '<em>' + IKONY.plus + 'Zeptat se</em></button>').join('') + '</div>', 'kn-sh-otazky') : '') + '</div>',
+    obsah: () => cteniHtml('obsah', D.sekcePodzalozek(x), 'Obsah rešerše'),
+    osa: () => blok('Časová osa', '<ol class="kn-osa">' + x.casovaOsa.map((c) => '<li><b class="cisla">' + esc(c.kdy) + '</b><span>' + esc(c.co) + '</span></li>').join('') + '</ol>',
+      'kn-osa-blok', x.casovaOsa.length),
+    pojmy: () => blok('Pojmy', '<dl class="kn-pojmy">' + x.pojmy.map((p) => '<div><dt>' + esc(p.pojem) + '</dt><dd>' + esc(p.vysvetleni || '') + '</dd></div>').join('') + '</dl>',
+      'kn-pojmy-blok', x.pojmy.length),
+    zdroje: () => '<div class="kn-kde-panel">' + blok('Zdroje', zdrojeHtml(x.zdroje), 'kn-kp-zdroje', pocetZdroju(x.zdroje)) + blok('Související', souvisiHtml(ctx.data, x), 'kn-kp-souvisi') + '</div>'
+  };
+  const telo = zalozky.map((z) => panel(z[0], panely[z[0]](), zalozky.length > 1)).join('') + pataHtml(x);
+  return Object.assign({}, casti, { nav: navHtml(zalozky, false), telo, zalozky });
 }
 
 // ---------------------------------------------------------------- karta, která v knihovně (zatím) není

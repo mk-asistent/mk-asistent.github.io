@@ -137,6 +137,15 @@ export function celkemMinut(dily) {
 /** Druh podle id („kniha-maly-princ“ → kniha); neznámý → film. */
 export function druhZId(id) { const m = /^(film|serial|kniha|reserse)-/.exec(String(id || '')); return m ? m[1] : 'film'; }
 
+/** Hodnocení na dlaždici seznamu krátce, ať se vejde na řádek: „ČSFD (1. · 2. · 3. díl)“ + „81 % · 80 % · 76 %“ → „ČSFD“ + „81 % …“
+ *  (všechna hodnocení celá ukáže vyjetá karta). */
+export function hodnoceniNaDlazdici(h) {
+  if (!h) return null;
+  const zdroj = String(h.zdroj || '').replace(/\s*\([^)]*\)\s*$/, '').trim() || String(h.zdroj || '');
+  const casti = String(h.hodnota == null ? '' : h.hodnota).split(/\s+·\s+/);
+  return { zdroj, hodnota: casti[0] + (casti.length > 1 ? ' …' : '') };
+}
+
 /** První hodnocení na dlaždici („ČSFD 88 %“) – nebo ''. */
 export function hodnoceniKratce(x) { const h = (x && x.hodnoceni && x.hodnoceni[0]) || null; return h ? h.zdroj + ' ' + h.hodnota : ''; }
 
@@ -187,28 +196,37 @@ export function uzJe(data, druh, text) {
 }
 
 // ---------------------------------------------------------------- podstránka karty a rešerše (Michal 12. 10.: „klasická stránka,
-// ne jen pás vpravo … víc informací v několika sekcích“). Adresa #knihovna/<id> – sdílený odkaz, Zpět prohlížeče i gesto.
+// ne jen pás vpravo … víc informací v několika sekcích“; večer: „nedělej to jako prohlížení celé na jedné stránce s tak velkým
+// rolováním … když kliknu na té liště, ať se mi to zobrazí jen k té dané věci“ → záložky). Adresa #knihovna/<id>[/<záložka>] –
+// sdílený odkaz, Zpět prohlížeče i gesto; výchozí záložka (Přehled, u rešerše Shrnutí) se do adresy nepíše.
 
 const ID_POLOZKY = /^[a-z0-9][a-z0-9-]{0,119}$/;
-/** „#knihovna/film-oppenheimer“ → „film-oppenheimer“; jiná adresa (nebo neplatné id) → ''. */
-export function idZAdresy(hash) {
-  const m = /^#knihovna\/([^/?#]+)$/.exec(String(hash || ''));
+/** Klíče záložek, které smí být v adrese (karta i rešerše). */
+export const KLICE_ZALOZEK = ['prehled', 'herci', 'postavy', 'zakulisi', 'fakta', 'serie', 'kde', 'podobne', 'shrnuti', 'obsah', 'osa', 'pojmy', 'zdroje'];
+const ADRESA = /^#knihovna\/([^/?#]+)(?:\/([a-z]+))?$/;
+function castiAdresy(hash) {
+  const m = ADRESA.exec(String(hash || ''));
   let id = '';
   try { id = m ? decodeURIComponent(m[1]) : ''; } catch (e) { id = ''; }
-  return ID_POLOZKY.test(id) ? id : '';
+  if (!ID_POLOZKY.test(id) || (m[2] && KLICE_ZALOZEK.indexOf(m[2]) < 0)) return { id: '', zalozka: '' };
+  return { id, zalozka: m[2] || '' };
 }
-/** Adresa podstránky karty nebo rešerše. */
-export function adresaPolozky(id) { return '#knihovna/' + id; }
+/** „#knihovna/film-oppenheimer“ i „#knihovna/film-oppenheimer/herci“ → „film-oppenheimer“; jiná adresa (neplatné id, neznámá záložka) → ''. */
+export function idZAdresy(hash) { return castiAdresy(hash).id; }
+/** „#knihovna/film-oppenheimer/herci“ → „herci“; bez záložky (výchozí) nebo jiná adresa → ''. */
+export function zalozkaZAdresy(hash) { return castiAdresy(hash).zalozka; }
+/** Adresa podstránky karty nebo rešerše, se záložkou (výchozí = bez ní). */
+export function adresaPolozky(id, zalozka) { return '#knihovna/' + id + (zalozka && KLICE_ZALOZEK.indexOf(zalozka) >= 0 ? '/' + zalozka : ''); }
 
 /** Fotka člověka jen z Wikimedia Commons (upload.wikimedia.org, volné licence – skill osobni-knihovna), jinak ''. */
 export function fotoUrl(u) { const s = bezpecnaUrl(u); return /^https:\/\/upload\.wikimedia\.org\//i.test(s) ? s : ''; }
 
-/** Kotva sekce na stránce: „kn-s-<id>“ (id jen a–z, 0–9, pomlčky), jinak podle pořadí. */
+/** Klíč sekce (podzáložka Zákulisí / Obsahu): „kn-s-<id>“ (id jen a–z, 0–9, pomlčky), jinak podle pořadí. */
 export function kotvaSekce(s, i) { const id = String((s && s.id) || '').toLowerCase(); return 'kn-s-' + (/^[a-z0-9][a-z0-9-]{0,39}$/.test(id) ? id : String(i + 1)); }
 
 const plne = (a) => Array.isArray(a) && a.length > 0;
 
-/** Krátký název oddílu do pásu: „Jak vznikal: IMAX, 57 dní…“ → „Jak vznikal“; dlouhý zkrátit na slovo a „…“ (celý nadpis je u oddílu). */
+/** Krátký název sekce (podzáložky na telefonu): „Jak vznikal: IMAX, 57 dní…“ → „Jak vznikal“; dlouhý zkrátit na slovo a „…“. */
 export function kratkyNazev(t, max) {
   const m = max || 26;
   let s = String(t || '').replace(/\s+/g, ' ').trim();
@@ -221,38 +239,76 @@ export function kratkyNazev(t, max) {
 }
 const textSekce = (s) => s && (s.nadpis || plne(s.odstavce) || plne(s.body));
 
-/**
- * Oddíly podstránky karty v pořadí, jen ty, které karta má: [[kotva, název do pásu]]. Pás odkazů nahoře je skládá stejně jako
- * stránku (Přehled · Herci · Tvůrci · Postavy · Fakta · <nadpisy sekcí> · Série · Zajímavosti · Kde sledovat · Podobné).
- */
-export function oddilyKarty(x) {
-  if (!x) return [];
-  const kniha = x.druh === 'kniha';
+/** Sekce s textem (podzáložky Zákulisí karty / Obsahu rešerše): [{ klic, nadpis, kratky, s }] – prázdné vynechá, klíče unikátní. */
+export function sekcePodzalozek(x) {
+  const videno = {};
   const o = [];
-  if (x.obsah || x.proc || plne(x.citaty)) o.push(['kn-o-prehled', 'Přehled']);
-  if (plne(x.herci)) o.push(['kn-o-herci', 'Herci']);
-  if (plne(x.lide) || plne(tvurciBezHercu(x))) o.push(['kn-o-tvurci', kniha ? 'Autor a tvůrci' : 'Tvůrci']);
-  if (plne(x.postavy)) o.push(['kn-o-postavy', 'Postavy']);
-  if (plne(x.fakta)) o.push(['kn-o-fakta', 'Fakta']);
-  (x.sekce || []).forEach((s, i) => { if (textSekce(s)) o.push([kotvaSekce(s, i), kratkyNazev(s.nadpis) || 'Sekce ' + (i + 1)]); });
-  if (x.serie && (plne(x.serie.dily) || x.serie.poradi)) o.push(['kn-o-serie', 'Série']);
-  if (plne(x.zajimavosti) || x.skutecnost || plne(x.oceneni)) o.push(['kn-o-zajimavosti', 'Zajímavosti']);
-  if (x.kdeSledovat && x.kdeSledovat.text) o.push(['kn-o-kde', kniha ? 'Kde sehnat' : 'Kde sledovat']);
-  if (plne(x.podobne) || plne(x.souvisi)) o.push(['kn-o-podobne', plne(x.podobne) ? 'Podobné' : 'Související']);
+  ((x && x.sekce) || []).forEach((s, i) => {
+    if (!textSekce(s)) return;
+    let klic = kotvaSekce(s, i);
+    if (videno[klic]) klic = 'kn-s-' + (i + 1) + '-' + o.length; // dvě sekce se stejným id
+    videno[klic] = true;
+    const nadpis = s.nadpis || 'Sekce ' + (i + 1);
+    o.push({ klic, nadpis, kratky: kratkyNazev(nadpis), s });
+  });
   return o;
 }
 
-/** Oddíly čtečky rešerše: [[kotva, název]] – sekce, časová osa, pojmy, další otázky, zdroje. */
-export function oddilyReserse(r) {
+/** Lidé na záložce Herci / Postavy: kdo tam je (herci, postavy, lidé za kamerou, nebo seznam rolí ze starší karty). */
+function lideKarty(x) {
+  const tvurci = tvurciBezHercu(x);
+  return { herci: plne(x.herci), postavy: plne(x.postavy), lide: plne(x.lide), role: !plne(x.lide) && tvurci.length >= 2 };
+}
+
+/**
+ * Záložky podstránky karty v pořadí, jen ty, které karta má: [[klíč, název]]. Rozumně málo (nejvýš 7), ať se pás vejde:
+ * Přehled · Herci (u knih Postavy; i s lidmi za kamerou) · Zákulisí (u knih Svět a autor; všechny sekce jako podzáložky) ·
+ * Fakta a zajímavosti · Série · Kde sledovat (+ odkazy a zdroje) · Podobné (+ související).
+ */
+export function zalozkyKarty(x) {
+  if (!x) return [];
+  const kniha = x.druh === 'kniha';
+  const z = [];
+  if (x.obsah || x.proc || plne(x.citaty) || plne(x.fakta)) z.push(['prehled', 'Přehled']);
+  const l = lideKarty(x);
+  const zaKamerou = l.lide || l.role;
+  if (kniha && (l.postavy || zaKamerou)) z.push(['postavy', l.postavy ? (zaKamerou ? 'Postavy a autor' : 'Postavy') : 'Autor a tvůrci']);
+  else if (!kniha && (l.herci || l.postavy || zaKamerou)) z.push(['herci', l.herci ? (zaKamerou ? 'Herci a tvůrci' : 'Herci') : l.postavy ? 'Postavy' : 'Tvůrci']);
+  if (sekcePodzalozek(x).length) z.push(['zakulisi', kniha ? 'Svět a autor' : 'Zákulisí']);
+  const zaj = plne(x.zajimavosti) || x.skutecnost || plne(x.oceneni);
+  if (plne(x.fakta) || zaj) z.push(['fakta', plne(x.fakta) ? (zaj ? 'Fakta a zajímavosti' : 'Fakta') : 'Zajímavosti']);
+  if (x.serie && (plne(x.serie.dily) || x.serie.poradi)) z.push(['serie', x.druh === 'serial' ? 'Řady a díly' : 'Série']);
+  const kde = x.kdeSledovat && x.kdeSledovat.text;
+  if (kde || plne(x.odkazy) || plne(x.zdroje)) z.push(['kde', kde ? (kniha ? 'Kde sehnat' : 'Kde sledovat') : 'Odkazy a zdroje']);
+  if (plne(x.podobne) || plne(x.souvisi)) z.push(['podobne', plne(x.podobne) ? 'Podobné' : 'Související']);
+  return z;
+}
+
+/** Záložky rešerše: Shrnutí (krátce, čísla, další otázky) · Obsah (sekce jako podzáložky) · Časová osa · Pojmy · Zdroje. */
+export function zalozkyReserse(r) {
   if (!r) return [];
-  const o = [];
-  if (r.kratce || plne(r.cisla)) o.push(['kn-o-kratce', 'Krátce']);
-  (r.sekce || []).forEach((s, i) => { if (textSekce(s)) o.push([kotvaSekce(s, i), kratkyNazev(s.nadpis) || 'Sekce ' + (i + 1)]); });
-  if (plne(r.casovaOsa)) o.push(['kn-o-osa', 'Časová osa']);
-  if (plne(r.pojmy)) o.push(['kn-o-pojmy', 'Pojmy']);
-  if (plne(r.dalsiOtazky)) o.push(['kn-o-otazky', 'Další otázky']);
-  if (plne(r.zdroje) || plne(r.souvisi)) o.push(['kn-o-zdroje', 'Zdroje']);
-  return o;
+  const z = [];
+  if (r.kratce || plne(r.cisla) || plne(r.dalsiOtazky)) z.push(['shrnuti', 'Shrnutí']);
+  if (sekcePodzalozek(r).length) z.push(['obsah', 'Obsah']);
+  if (plne(r.casovaOsa)) z.push(['osa', 'Časová osa']);
+  if (plne(r.pojmy)) z.push(['pojmy', 'Pojmy']);
+  if (plne(r.zdroje) || plne(r.souvisi)) z.push(['zdroje', 'Zdroje']);
+  return z;
+}
+
+/** Platná záložka: klíč, když ho stránka má, jinak první (výchozí). '' = stránka bez záložek. */
+export function platnaZalozka(zalozky, klic) {
+  if (!zalozky || !zalozky.length) return '';
+  return zalozky.some((z) => z[0] === klic) ? klic : zalozky[0][0];
+}
+
+/** Sousední záložka pro klávesy: smer +1 / -1 (dokola), 'prvni', 'posledni'. */
+export function sousedniZalozka(zalozky, klic, smer) {
+  if (!zalozky || !zalozky.length) return '';
+  if (smer === 'prvni') return zalozky[0][0];
+  if (smer === 'posledni') return zalozky[zalozky.length - 1][0];
+  const i = Math.max(0, zalozky.findIndex((z) => z[0] === klic));
+  return zalozky[(i + (smer < 0 ? -1 : 1) + zalozky.length) % zalozky.length][0];
 }
 
 /** Tvůrci bez role „hrají“, když má karta herce zvlášť (jinak by se jména opakovala). */
