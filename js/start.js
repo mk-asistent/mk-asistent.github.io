@@ -11,7 +11,7 @@
   try {
     var cti = function (k) { var v = localStorage.getItem(k); return v == null ? null : JSON.parse(v); };
     var s = cti('asistent.data.snimek'), p = cti('asistent.pripojeni');
-    var pohled = cti('asistent.pohled') || 'dnes';
+    var pohled = /^#knihovna\//.test(location.hash) ? 'knihovna' : cti('asistent.pohled') || 'dnes'; // odkaz na kartu knihovny
     var d = new Date();
     var den = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
     var rozlozeni = matchMedia('(max-width: 759px)').matches ? 'telefon' : matchMedia('(min-width: 1180px)').matches ? 'pc' : 'ipad';

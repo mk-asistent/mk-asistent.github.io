@@ -64,6 +64,8 @@ function start() {
   reely.nactiZUloziste();
   plakaty.nactiZUloziste();
   auto.nactiZUloziste();
+  // odkaz na kartu nebo rešerši knihovny (#knihovna/<id> – sdílený, znovunačtení) otevře stránku Knihovna, modul pak kartu
+  if (/^#knihovna\//.test(location.hash)) stav.pohled = 'knihovna';
   if (!SEKCE.some((s) => s[0] === stav.pohled)) stav.pohled = 'dnes';
   kal.pripravGesta($('p-kalendar'));
   priZmene(vykresli);
@@ -240,6 +242,7 @@ function vykresli() {
   if (stav.pohled === 'kalendar') dochazka.dotahni();
   if (stav.pohled === 'plakaty') plakaty.dotahni();
   if (stav.pohled === 'knihovna' && knihovnaModul) knihovnaModul.dotahni();
+  else if (knihovnaModul) knihovnaModul.mimoKnihovnu(); // jiná sekce: podstránka karty zavřená, adresa bez #knihovna/…
   const p = pocty();
   document.querySelectorAll('[data-pohled]').forEach((el) => { el.hidden = el.dataset.pohled !== stav.pohled; });
   // levý pás: celý jen na Dnes (nebo připnutý), jinde úzký s ikonami – víc místa na práci
@@ -421,7 +424,8 @@ function vykresliHorni(p) {
 function vykresliHlavu(p) {
   const titul = SEKCE.find((s) => s[0] === stav.pohled)[1];
   // titulek okna (záložka prohlížeče, přepínání oken): „Přehled · Asistent“
-  if (document.title !== titul + ' · Asistent') document.title = titul + ' · Asistent';
+  const nazevOkna = (stav.pohled === 'knihovna' && knihovnaModul && knihovnaModul.titulek()) || titul; // podstránka: „Oppenheimer · Knihovna“
+  if (document.title !== nazevOkna + ' · Asistent') document.title = nazevOkna + ' · Asistent';
   let pod = '';
   if (stav.pohled === 'dnes') {
     pod = esc(velkePrvni(datumDlouhe(Date.now())));
@@ -1124,6 +1128,8 @@ function vykresliKnihovnu(el) {
   nastavHtml(el, '<section class="card">' + (chyba ? chybaHtml({ message: 'Knihovna se nenačetla – zkontroluj připojení.' }, 'data-kn-modul-znovu') : kostra(5)) + '</section>');
   if (!chyba) knihovna();
 }
+/** Klepnutí na Knihovnu (pás, menu), když je otevřená podstránka karty: zpět na seznam (jako „← Knihovna“). */
+function naSeznamKnihovny(cil) { return cil === 'knihovna' && stav.pohled === 'knihovna' && !!knihovnaModul && knihovnaModul.naSeznam(); }
 function klikKnihovna(el) {
   if (knihovnaModul) return knihovnaModul.klikKnihovna(el);
   if (el.hasAttribute('data-kn-modul-znovu')) { stav.chyby.knihovnaModul = null; knihovna(); zmeneno(); return true; }
@@ -1142,7 +1148,7 @@ document.addEventListener('click', (e) => {
   if (el.closest('#rail')) sbalRail();
   if (el.hasAttribute('data-zavrit-panel')) { zavriPanel(); return; }
   if (el.hasAttribute('data-menu')) { otevriMenu(); return; }
-  if (el.dataset.menuCil) { const cil = el.dataset.menuCil; zavriAPak(() => { prejdi(cil); zmeneno(); }); return; }
+  if (el.dataset.menuCil) { const cil = el.dataset.menuCil; zavriAPak(() => { if (!naSeznamKnihovny(cil)) prejdi(cil); zmeneno(); }); return; }
   if (el.hasAttribute('data-menu-nastaveni')) { zavriAPak(() => nast.otevriNastaveni()); return; }
   if (el.hasAttribute('data-rychle')) { otevriRychle(); return; }
   if (el.dataset.rychleAkce) { const akce = el.dataset.rychleAkce; zavriAPak(() => rychlaAkce(akce)); return; }
@@ -1155,6 +1161,7 @@ document.addEventListener('click', (e) => {
     if (el.dataset.filtrPosty) { stav.filtrPosty = el.dataset.filtrPosty; stav.kategoriePosty = el.dataset.kategoriePosty || 'primarni'; stav.stitekPosty = ''; }
     if (el.dataset.filtrPosty === 'hori') ukazUctyHoricich(horici());
     if (el.dataset.filtrSchranky) { stav.filtrSchranky = el.dataset.filtrSchranky; }
+    if (naSeznamKnihovny(el.dataset.cil)) return;
     prejdi(el.dataset.cil);
     zmeneno();
     return;

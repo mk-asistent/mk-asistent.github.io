@@ -11,7 +11,7 @@
 //
 // VERZE = otisk obsahu souborů aplikace: po každé změně `node testy/sw_verze.js --zapsat` (testy jinak selžou).
 
-const VERZE = 'asistent-15c6d184aaca';
+const VERZE = 'asistent-46c47da96ecc';
 const SOUBORY = [
   './', 'index.html', 'app.css', 'manifest.webmanifest',
   'js/start.js', 'js/app.js', 'js/krouzky.js', 'js/api.js', 'js/pomocne.js', 'js/stav.js', 'js/ui.js', 'js/ikony.js', 'js/panely.js',
@@ -21,7 +21,7 @@ const SOUBORY = [
   'js/wedos.js', // WEDOS – pracovní schránka přímo
   'js/bubliny.js', // bubliny a vyjeté karty (místo textových title)
   'js/ig.js', 'js/ig_prubeh.js', // průběh zveřejňování na Instagram (reely, plakáty)
-  'js/knihovna.js', 'js/knihovna_data.js', 'knihovna.css', // Knihovna (filmy, knihy, rešerše) – knihovna.js se načte až na své stránce
+  'js/knihovna.js', 'js/knihovna_stranka.js', 'js/knihovna_data.js', 'knihovna.css', // Knihovna (filmy, knihy, rešerše) – knihovna.js a knihovna_stranka.js se načtou až na své stránce
   'ikony/ikona-192.png', 'ikony/apple-touch-icon.png'
 ];
 

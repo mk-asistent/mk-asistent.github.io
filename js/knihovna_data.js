@@ -28,11 +28,12 @@ export const bezDiakritiky = (s) => String(s == null ? '' : s).normalize('NFD').
 /** Slova dotazu bez diakritiky (hledá se, až když jsou všechna). */
 export const slova = (dotaz) => bezDiakritiky(dotaz).split(/\s+/).filter(Boolean);
 
-/** Text karty nebo rešerše, ve kterém se hledá: názvy, tvůrci, žánry, štítky, krátce. */
+/** Text karty nebo rešerše, ve kterém se hledá: názvy, tvůrci, herci a lidé za kamerou, žánry, štítky, krátce. */
 export function textPolozky(x) {
   if (!x) return '';
   const tvurci = (x.tvurci || []).map((t) => (t.jmena || []).join(' ')).join(' ');
-  return bezDiakritiky([x.nazev, x.original, x.roky || x.rok, tvurci, (x.zanry || []).join(' '), (x.stitky || []).join(' '), x.kratce,
+  const lide = (x.herci || []).concat(x.lide || []).map((h) => h && h.jmeno).join(' ');
+  return bezDiakritiky([x.nazev, x.original, x.roky || x.rok, tvurci, lide, (x.zanry || []).join(' '), (x.stitky || []).join(' '), x.kratce,
     x.serie && x.serie.nazev].filter(Boolean).join(' '));
 }
 export function odpovida(x, s) { if (!s || !s.length) return true; const t = textPolozky(x); return s.every((w) => t.indexOf(w) >= 0); }
@@ -183,6 +184,106 @@ export function uzJe(data, druh, text) {
   const z = zalozkaDruhu(druh);
   if (z === 'reserse') return reserse(data).find((x) => bezDiakritiky(x.nazev) === t) || null;
   return karty(data).find((x) => zalozkaDruhu(x.druh) === z && [x.nazev, x.original].some((n) => n && bezDiakritiky(n) === t)) || null;
+}
+
+// ---------------------------------------------------------------- podstránka karty a rešerše (Michal 12. 10.: „klasická stránka,
+// ne jen pás vpravo … víc informací v několika sekcích“). Adresa #knihovna/<id> – sdílený odkaz, Zpět prohlížeče i gesto.
+
+const ID_POLOZKY = /^[a-z0-9][a-z0-9-]{0,119}$/;
+/** „#knihovna/film-oppenheimer“ → „film-oppenheimer“; jiná adresa (nebo neplatné id) → ''. */
+export function idZAdresy(hash) {
+  const m = /^#knihovna\/([^/?#]+)$/.exec(String(hash || ''));
+  let id = '';
+  try { id = m ? decodeURIComponent(m[1]) : ''; } catch (e) { id = ''; }
+  return ID_POLOZKY.test(id) ? id : '';
+}
+/** Adresa podstránky karty nebo rešerše. */
+export function adresaPolozky(id) { return '#knihovna/' + id; }
+
+/** Fotka člověka jen z Wikimedia Commons (upload.wikimedia.org, volné licence – skill osobni-knihovna), jinak ''. */
+export function fotoUrl(u) { const s = bezpecnaUrl(u); return /^https:\/\/upload\.wikimedia\.org\//i.test(s) ? s : ''; }
+
+/** Kotva sekce na stránce: „kn-s-<id>“ (id jen a–z, 0–9, pomlčky), jinak podle pořadí. */
+export function kotvaSekce(s, i) { const id = String((s && s.id) || '').toLowerCase(); return 'kn-s-' + (/^[a-z0-9][a-z0-9-]{0,39}$/.test(id) ? id : String(i + 1)); }
+
+const plne = (a) => Array.isArray(a) && a.length > 0;
+
+/** Krátký název oddílu do pásu: „Jak vznikal: IMAX, 57 dní…“ → „Jak vznikal“; dlouhý zkrátit na slovo a „…“ (celý nadpis je u oddílu). */
+export function kratkyNazev(t, max) {
+  const m = max || 26;
+  let s = String(t || '').replace(/\s+/g, ' ').trim();
+  const pred = s.split(/\s*:\s/)[0];
+  if (pred.length >= 3 && pred.length < s.length) s = pred;
+  if (s.length <= m) return s;
+  const rez = s.slice(0, m - 1);
+  const mezera = rez.lastIndexOf(' ');
+  return (mezera > m / 2 ? rez.slice(0, mezera) : rez).replace(/[\s,;:–-]+$/, '') + '…';
+}
+const textSekce = (s) => s && (s.nadpis || plne(s.odstavce) || plne(s.body));
+
+/**
+ * Oddíly podstránky karty v pořadí, jen ty, které karta má: [[kotva, název do pásu]]. Pás odkazů nahoře je skládá stejně jako
+ * stránku (Přehled · Herci · Tvůrci · Postavy · Fakta · <nadpisy sekcí> · Série · Zajímavosti · Kde sledovat · Podobné).
+ */
+export function oddilyKarty(x) {
+  if (!x) return [];
+  const kniha = x.druh === 'kniha';
+  const o = [];
+  if (x.obsah || x.proc || plne(x.citaty)) o.push(['kn-o-prehled', 'Přehled']);
+  if (plne(x.herci)) o.push(['kn-o-herci', 'Herci']);
+  if (plne(x.lide) || plne(tvurciBezHercu(x))) o.push(['kn-o-tvurci', kniha ? 'Autor a tvůrci' : 'Tvůrci']);
+  if (plne(x.postavy)) o.push(['kn-o-postavy', 'Postavy']);
+  if (plne(x.fakta)) o.push(['kn-o-fakta', 'Fakta']);
+  (x.sekce || []).forEach((s, i) => { if (textSekce(s)) o.push([kotvaSekce(s, i), kratkyNazev(s.nadpis) || 'Sekce ' + (i + 1)]); });
+  if (x.serie && (plne(x.serie.dily) || x.serie.poradi)) o.push(['kn-o-serie', 'Série']);
+  if (plne(x.zajimavosti) || x.skutecnost || plne(x.oceneni)) o.push(['kn-o-zajimavosti', 'Zajímavosti']);
+  if (x.kdeSledovat && x.kdeSledovat.text) o.push(['kn-o-kde', kniha ? 'Kde sehnat' : 'Kde sledovat']);
+  if (plne(x.podobne) || plne(x.souvisi)) o.push(['kn-o-podobne', plne(x.podobne) ? 'Podobné' : 'Související']);
+  return o;
+}
+
+/** Oddíly čtečky rešerše: [[kotva, název]] – sekce, časová osa, pojmy, další otázky, zdroje. */
+export function oddilyReserse(r) {
+  if (!r) return [];
+  const o = [];
+  if (r.kratce || plne(r.cisla)) o.push(['kn-o-kratce', 'Krátce']);
+  (r.sekce || []).forEach((s, i) => { if (textSekce(s)) o.push([kotvaSekce(s, i), kratkyNazev(s.nadpis) || 'Sekce ' + (i + 1)]); });
+  if (plne(r.casovaOsa)) o.push(['kn-o-osa', 'Časová osa']);
+  if (plne(r.pojmy)) o.push(['kn-o-pojmy', 'Pojmy']);
+  if (plne(r.dalsiOtazky)) o.push(['kn-o-otazky', 'Další otázky']);
+  if (plne(r.zdroje) || plne(r.souvisi)) o.push(['kn-o-zdroje', 'Zdroje']);
+  return o;
+}
+
+/** Tvůrci bez role „hrají“, když má karta herce zvlášť (jinak by se jména opakovala). */
+export function tvurciBezHercu(x) {
+  const t = (x && x.tvurci) || [];
+  return plne(x && x.herci) ? t.filter((r) => !/^(hraj|herc|obsazen)/i.test(String(r.role || ''))) : t;
+}
+
+/** Hlavní tvůrce do hlavičky: „Režie Christopher Nolan“, u knihy „Autor …“ (první role, nejvýš 2 jména). */
+export function hlavniTvurce(x) {
+  const t = tvurciBezHercu(x)[0];
+  if (!t || !plne(t.jmena)) return '';
+  const role = String(t.role || '');
+  return (role.charAt(0).toUpperCase() + role.slice(1)) + ' ' + t.jmena.slice(0, 2).join(', ') + (t.jmena.length > 2 ? ' a další' : '');
+}
+
+/**
+ * Podobné tipy s vazbou na knihovnu: [{ nazev, rok, proc, druh, id (karta, která v knihovně je), ceka (čekající požadavek) }].
+ * Karta se najde podle id, jinak podle názvu ve stejné záložce; jinak čekající požadavek se stejným textem; jinak nic → tlačítko
+ * „Přidat do knihovny“ (druh podle id tipu, jinak podle karty, u které je).
+ */
+export function podobne(data, x) {
+  return ((x && x.podobne) || []).filter((p) => p && p.nazev).map((p) => {
+    const druh = p.id ? druhZId(p.id) : x.druh === 'kniha' ? 'kniha' : x.druh === 'serial' ? 'serial' : 'film';
+    const n = p.id ? najdi(data, p.id) : null;
+    const karta = n ? n.x : uzJe(data, druh, p.nazev);
+    const t = bezDiakritiky(p.nazev).trim();
+    const ceka = karta ? null : pozadavky(data).find((q) => zalozkaDruhu(q.druh) === zalozkaDruhu(druh) && bezDiakritiky(q.text).trim() === t) || null;
+    return { nazev: p.nazev, rok: p.rok || null, proc: p.proc || '', druh, id: karta ? karta.id : '', obrazek: karta && karta.obrazek ? karta.obrazek.url || '' : '',
+      ceka: ceka ? ceka.id : '' };
+  });
 }
 
 // ---------------------------------------------------------------- náhled z Wikipedie u čekajícího požadavku

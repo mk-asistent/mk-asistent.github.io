@@ -185,7 +185,7 @@ export function klikHledat(el) {
     akce = () => otevriUdalost(id);
   } else if (el.dataset.hKnihovna) {
     const id = el.dataset.hKnihovna;
-    akce = () => { prejdi('knihovna'); import('./knihovna.js').then((m) => m.otevriPolozku(id)); };
+    akce = () => { import('./knihovna.js').then((m) => m.otevriPolozku(id)); }; // podstránka #knihovna/<id>, Zpět vrátí sem
   } else if (el.dataset.hPrikaz) {
     akce = PRIKAZY[Number(el.dataset.hPrikaz)][3];
   }

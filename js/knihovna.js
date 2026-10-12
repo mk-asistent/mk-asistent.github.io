@@ -1,24 +1,28 @@
 // Knihovna (Michal 11. 10.: „přidat něco jako přehled informací k filmu či knize … jednoduché přehledné informace, co se
 // dají získat na internetu … to stejné další stránku s rešerší k různým věcem – chtěl bych se tak vzdělávat a mít takovou
 // svoji knihovnu“). Záložky Filmy (filmy i seriály) · Knihy · Rešerše; dlaždice s plakátem / obálkou (bez obrázku zástupná
-// plocha s iniciálou), detail karty (hodnocení, tvůrci, obsah bez spoilerů, série a pořadí, zajímavosti, kde sledovat,
-// související, zdroje), čtečka rešerše a můj stav, hvězdy a poznámka. „+“ = požadavek pro Clauda: karta se hned ukáže
-// jako „Claude připravuje…“ (u filmu a knihy s náhledem z Wikipedie) a plná je, až ji Claude připraví (úloha schránky
-// 7–22 h po 30 min).
+// plocha s iniciálou). Karta a rešerše jsou od 12. 10. podstránka (Michal: „jako klasickou stránku, ne jen pás vpravo“ – HTML
+// v js/knihovna_stranka.js): adresa #knihovna/<id>, Zpět prohlížeče / gesto vrátí seznam se zachovaným posunem a filtrem,
+// související karta otevře další podstránku (Zpět vrátí předchozí), odkaz funguje i po znovunačtení. Můj stav, hvězdy a
+// poznámka. „+“ = požadavek pro Clauda: karta se hned ukáže jako „Claude připravuje…“ (u filmu a knihy s náhledem
+// z Wikipedie) a plná je, až ji Claude připraví (úloha schránky 7–22 h po 30 min).
 // Data: motor (knihovna, knihovnaReserse, knihovnaPridat, knihovnaMoje, knihovnaZrusit → CLAUDE_SCHRANKA/KNIHOVNA, formát
 // ve skillu osobni-knihovna); v zařízení asistent.data.knihovna (rychlý start, bez sítě). Kopie na serveru (Firebase)
 // knihovna nemá – čte se z motoru, jen když je stránka otevřená; jiná zařízení se dozví o změně ze značky změn (zmeny).
 // Modul načte app.js až na stránce Knihovna (import()) – start aplikace na něj nečeká. Čisté funkce: js/knihovna_data.js.
+// Historie: podstránka = vlastní záznam (pushState s adresou); panely (js/panely.js) dávají záznamy se stejnou adresou,
+// takže Zpět nejdřív zavře okno nad stránkou a teprve pak stránku. Odchod do jiné sekce adresu uklidí (mimoKnihovnu).
 
 import { stav, zmeneno, umiMotor, prejdi } from './stav.js';
 import { volej, jeDemo } from './api.js';
-import { esc, uloziste, kdyKratce, odstin, tvar, dm, hhmm, datumDlouhe, velkePrvni, trvani } from './pomocne.js';
+import { esc, uloziste, kdyKratce, tvar, dm, hhmm, datumDlouhe, velkePrvni } from './pomocne.js';
 import { IKONY } from './ikony.js';
 import { toast, toastAkce, kostra, chybaHtml, segment } from './ui.js';
-import { otevriPanel, zavriPanel, obnovPanel, elementPanelu, jeOtevreny, zavriAPak } from './panely.js';
+import { otevriPanel, zavriPanel, obnovPanel, elementPanelu, jeOtevreny, zavriAPak, horniPanel } from './panely.js';
 import * as nabidka from './nabidka.js';
 import * as bubliny from './bubliny.js';
 import * as D from './knihovna_data.js';
+import * as S from './knihovna_stranka.js';
 
 const ULOZISTE = 'asistent.data.knihovna';                  // poslední odpověď motoru
 const ULOZISTE_RESERSI = 'asistent.data.knihovna.reserse';  // naposledy otevřené rešerše (čtečka i bez sítě)
@@ -52,7 +56,11 @@ const k = {
   fronta: Promise.resolve(),
   poznamka: null,         // { id, text, casovac } rozepsaná poznámka
   pridat: { druh: 'film', text: '' },
-  hlidani: 0
+  hlidani: 0,
+  detail: null,           // id otevřené podstránky (karta nebo rešerše), null = seznam
+  hloubka: 0,             // kolik záznamů historie nad seznamem (Zpět na seznam = history.go(-hloubka)); 0 = otevřeno odkazem
+  odkud: null,            // sekce, ze které se podstránka otevřela (Hledat na Poště…) – Zpět prohlížeče tam vrátí
+  posunSeznamu: 0         // posun seznamu, když se otevřela podstránka (návrat bez historie)
 };
 
 // ---------------------------------------------------------------- data
@@ -181,12 +189,15 @@ function stavPoznamky(id, text) {
 function pridej(druh, text) {
   const pred = new Set(D.pozadavky(stav.knihovna).map((p) => p.id));
   const docasny = { id: 'p-tmp-' + Date.now().toString(36), druh, text, kdy: new Date().toISOString(), docasny: true };
-  k.zalozka = D.zalozkaDruhu(druh);
-  k.dotaz = '';
-  const pole = document.getElementById('kn-hledat');
-  if (pole) pole.value = '';
-  ulozVolby();
-  if (stav.pohled !== 'knihovna') prejdi('knihovna');
+  // z podstránky (Podobné, další otázka rešerše, „+“ nahoře) se zůstává na ní – seznam si drží záložku a filtr
+  if (!(stav.pohled === 'knihovna' && k.detail)) {
+    k.zalozka = D.zalozkaDruhu(druh);
+    k.dotaz = '';
+    const pole = document.getElementById('kn-hledat');
+    if (pole) pole.value = '';
+    ulozVolby();
+    if (stav.pohled !== 'knihovna') prejdi('knihovna');
+  }
   return zapis('knihovnaPridat', { druh, text }, (d) => Object.assign({ karty: [], reserse: [], moje: {} }, d, { pozadavky: D.pozadavky(d).concat(docasny) }))
     .then((d) => {
       if (!d) { otevriPridani(druh, text); return null; } // nepovedlo se – text zůstane v okně
@@ -221,21 +232,34 @@ export function vykresliKnihovnu(el) {
     nastav(el, '<section class="card"><div class="prazdne prazdne--velke"><i class="kruh kruh--knihovna">' + IKONY.knihovna + '</i>' +
       '<b>Knihovnu umí až nová verze motoru</b><span>Nasaď Novou verzi motoru – návod je v Nastavení → Připojení.</span>' +
       '<button type="button" class="btn btn--ghost" data-otevri-nastaveni="pripojeni">Nastavení připojení</button></div></section>');
+    document.documentElement.classList.remove('kn-podstranka');
     return;
   }
   if (!el.querySelector('#kn-obsah')) {
     posledni.delete(el); // místo hlášky o starém motoru stránka – hláška se příště musí zase zapsat
-    el.innerHTML = '<div class="kn-lista">' +
+    el.innerHTML = '<div class="kn-seznam" id="kn-seznam"><div class="kn-lista">' +
         '<div class="kn-lista__zalozky" id="kn-zalozky"></div>' +
         '<label class="kn-hledat">' + IKONY.hledat + '<input type="search" id="kn-hledat" data-kn-hledat placeholder="Hledat v knihovně…" autocomplete="off" ' +
           'spellcheck="false" enterkeyhint="search" aria-label="Hledat v knihovně"></label>' +
         '<button type="button" class="btn btn--primary kn-lista__pridat" data-kn-pridat>' + IKONY.plus + '<span>Přidat</span></button>' +
-      '</div><div class="kn-filtry" id="kn-filtry"></div><div class="kn-obsah" id="kn-obsah"></div>';
+      '</div><div class="kn-filtry" id="kn-filtry"></div><div class="kn-obsah" id="kn-obsah"></div></div>' +
+      // podstránka karty / rešerše: části se překreslují zvlášť (js/knihovna_stranka.js)
+      '<article class="kn-st" id="kn-stranka" hidden>' +
+        '<div class="kn-st__lista" data-kn-cast="lista"></div>' +
+        '<div class="kn-st__vrch"><div class="kn-st__hero" data-kn-cast="hero"></div><div class="kn-st__moje" data-kn-cast="moje"></div></div>' +
+        '<div class="kn-st__nav" data-kn-cast="nav"></div>' +
+        '<div class="kn-st__telo" data-kn-cast="telo"></div>' +
+      '</article>';
     el.querySelector('#kn-hledat').value = k.dotaz;
   }
+  const seznam = el.querySelector('#kn-seznam'), stranka = el.querySelector('#kn-stranka');
+  seznam.hidden = !!k.detail;
+  stranka.hidden = !k.detail;
+  document.documentElement.classList.toggle('kn-podstranka', !!k.detail);
   nastav(el.querySelector('#kn-zalozky'), zalozkyHtml());
   nastav(el.querySelector('#kn-filtry'), filtryHtml());
   nastav(el.querySelector('#kn-obsah'), obsahHtml());
+  vykresliPodstranku(stranka);
 }
 
 /** Překreslit jen stránku (psaní do hledání, záložky, filtry) – bez celé aplikace. */
@@ -303,15 +327,9 @@ function prazdneHtml(z, d) {
     '<button type="button" class="btn btn--primary" data-kn-pridat data-kn-druh="' + t[2] + '">' + IKONY.plus + '<span>' + t[3] + '</span></button></div></section>';
 }
 
-/** Plakát / obálka s pevným poměrem 2 : 3 (nic neposkočí); pod ním zástupná plocha s iniciálou – vidět, dokud se obrázek
- *  nenačte, a místo obrázku, který nejde načíst (posluchač chyby níž ho odebere). */
-function obrazekHtml(url, nazev, trida) {
-  const u = D.bezpecnaUrl(url);
-  const img = u && !k.chybneObrazky.has(u) ? '<img src="' + esc(u) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">' : '';
-  return '<span class="kn-obr ' + (trida || '') + '" style="--h:' + odstin(nazev) + '" aria-hidden="true"><b>' + esc(D.iniciala(nazev)) + '</b>' + img + '</span>';
-}
-
 function stavTag(druh, st) { return st ? '<span class="tag ' + TRIDA_STAVU[st] + '">' + esc(D.nazevStavu(druh, st)) + '</span>' : ''; }
+
+const obrazekHtml = (url, nazev, trida) => S.obrazekHtml(url, nazev, trida, k.chybneObrazky);
 
 function kartaHtml(x) {
   const d = stav.knihovna;
@@ -363,151 +381,164 @@ function cekajiciRadekHtml(p) {
     IKONY.vpravo + '</button></li>';
 }
 
-// ---------------------------------------------------------------- detail karty
+// ---------------------------------------------------------------- podstránka karty a rešerše (#knihovna/<id>)
 
-/** Otevře kartu nebo rešerši podle id (i z hledání a ze „Související“ – nový panel nad předchozím, Zpět vrátí). */
+/**
+ * Otevře kartu nebo rešerši jako podstránku (z dlaždice, Hledat, Související, Podobné…): nový záznam v historii s adresou
+ * #knihovna/<id>, takže Zpět prohlížeče / gesto vrátí, odkud se přišlo (seznam se zachovaným posunem, předchozí kartu).
+ */
 export function otevriPolozku(id) {
-  const n = D.najdi(stav.knihovna, id);
-  if (!n) {
-    if (!k.nacteno) nactiKnihovnu().then(() => { if (D.najdi(stav.knihovna, id)) otevriPolozku(id); });
-    else toast('V knihovně to není – obnov stránku.', true);
+  if (!D.idZAdresy(D.adresaPolozky(id))) return;
+  const odjinud = stav.pohled !== 'knihovna';
+  if (!odjinud && k.detail === id) { window.scrollTo(0, 0); return; }
+  // posun stránky, ze které se odchází, do jejího záznamu v historii (Zpět ho vrátí)
+  const posun = odjinud ? 0 : window.scrollY;
+  if (!odjinud && !k.detail) k.posunSeznamu = posun;
+  try { history.replaceState(Object.assign({}, history.state, { knPosun: posun }), ''); } catch (e) { /* nic */ }
+  const hloubka = odjinud ? 1 : k.detail ? k.hloubka + 1 : 1;
+  try { history.pushState({ kn: id, knHloubka: hloubka }, '', D.adresaPolozky(id)); } catch (e) { /* nic */ }
+  if (odjinud) { k.odkud = stav.pohled; k.detail = id; k.hloubka = hloubka; prejdi('knihovna'); }
+  ukaz(id, hloubka, 0, true);
+}
+
+/**
+ * Ukáže podstránku id (null = seznam) a nastaví posun. Volá ji otevření, Zpět (popstate) a „← Knihovna“.
+ * zamer = fokus na nadpis (klávesnice a čtečka obrazovky začnou na nové stránce).
+ */
+function ukaz(id, hloubka, posun, zamer) {
+  ulozPoznamkuHned(); // rozepsaná poznámka odcházející stránky se uloží
+  k.detail = id || null;
+  k.hloubka = id ? hloubka || 0 : 0;
+  if (!id) k.odkud = null;
+  prekresliStranku(); // rešerši dočte vykresliPodstranku, knihovnu (odkaz před načtením) dotahni()
+  zmeneno(); // nadpis okna, lišty
+  const y = Math.max(0, Number(posun) || 0);
+  window.scrollTo(0, y);
+  // prohlížeč při kroku v historii posun obnovuje sám (podle svého) – vlastní hodnota až po něm
+  requestAnimationFrame(() => { if (k.detail === (id || null)) window.scrollTo(0, y); spehuj(); });
+  if (zamer && id) {
+    const h = document.querySelector('#kn-stranka .kn-hero__nazev');
+    if (h) h.focus({ preventScroll: true });
+  }
+}
+
+/** „← Knihovna“ (i klepnutí na Knihovnu v menu, když je otevřená podstránka): zpět na seznam. Vrací true, když něco udělala. */
+export function naSeznam() {
+  if (!k.detail) return false;
+  // podstránky otevřené ze seznamu: zpátky historií (seznam si pamatuje posun ve svém záznamu)
+  if (k.hloubka > 0 && !k.odkud) {
+    try { history.go(-k.hloubka); return true; } catch (e) { /* níž bez historie */ }
+  }
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* nic */ }
+  ukaz(null, 0, k.posunSeznamu);
+  return true;
+}
+
+/** Odchod z Knihovny do jiné sekce: podstránka zavřená, adresa bez #knihovna (znovunačtení otevře tu sekci, ne kartu). */
+export function mimoKnihovnu() {
+  if (!k.detail && !D.idZAdresy(location.hash)) return;
+  ulozPoznamkuHned();
+  k.detail = null;
+  k.hloubka = 0;
+  k.odkud = null;
+  document.documentElement.classList.remove('kn-podstranka');
+  if (D.idZAdresy(location.hash)) { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* nic */ } }
+}
+
+/** Název do titulku okna („Oppenheimer · Knihovna · Asistent“) – jen na podstránce. */
+export function titulek() {
+  if (!k.detail) return '';
+  const n = D.najdi(stav.knihovna, k.detail);
+  return (n ? n.x.nazev + ' · ' : '') + 'Knihovna';
+}
+
+/** Zpět / vpřed v prohlížeči (i gesto na iPhonu): adresa → podstránka nebo seznam. Zavření okna nad stránkou adresu nemění. */
+function poKrokuHistorie(e) {
+  const id = D.idZAdresy(location.hash);
+  if (id === (k.detail || '')) return;
+  const s = (e && e.state) || {};
+  if (id) {
+    if (stav.pohled !== 'knihovna') prejdi('knihovna');
+    ukaz(id, s.knHloubka || 0, s.knPosun || 0);
     return;
   }
-  if (n.typ === 'reserse') { otevriReserisi(id); return; }
-  const pid = 'kn-d:' + id;
-  if (jeOtevreny(pid)) { obnovPanel(pid); return; }
-  otevriPanel({
-    id: pid, trida: 'panel-bocni panel-knihovna', titul: () => ((D.najdi(stav.knihovna, id) || {}).x || {}).nazev || 'Knihovna',
-    vpravo: () => {
-      const x = (D.najdi(stav.knihovna, id) || {}).x;
-      const o = x ? D.odkazDatabaze(x) : null;
-      return o && o.url ? '<a class="btn btn--ikona" href="' + esc(o.url) + '" target="_blank" rel="noopener noreferrer" aria-label="Otevřít ' + esc(o.nazev) + '">' + IKONY.odkaz + '</a>' : '';
-    },
-    vykresli: () => detailHtml(id),
-    poOtevreni: (el) => { hlidejPoznamku(el); el.focus({ preventScroll: true }); },
-    priZavreni: ulozPoznamkuHned
-  });
+  if (stav.pohled !== 'knihovna') return;
+  const odkud = k.odkud;
+  ukaz(null, 0, s.knPosun != null ? s.knPosun : k.posunSeznamu);
+  // podstránka otevřená z jiné sekce (Hledat na Poště) → Zpět vrátí tam
+  if (odkud && odkud !== 'knihovna') { prejdi(odkud); zmeneno(); }
 }
 
-function hlidejPoznamku(el) {
-  el.addEventListener('focusout', (e) => { if (e.target.matches && e.target.matches('[data-kn-poznamka]')) ulozPoznamkuHned(); });
-}
-
-const odstavce = (t) => String(t || '').split(/\n{2,}/).map((s) => s.trim()).filter(Boolean).map((s) => '<p>' + esc(s).replace(/\n/g, '<br>') + '</p>').join('');
-const oddil = (nadpis, obsah, trida) => (obsah ? '<section class="kn-oddil' + (trida ? ' ' + trida : '') + '"><h4>' + nadpis + '</h4>' + obsah + '</section>' : '');
-/** „2026-10-11“ → „11. 10. 2026“ */
-function datumZIso(s) { const t = D.cas(s); return t ? dm(t) + ' ' + new Date(t).getFullYear() : String(s || ''); }
-
-function detailHtml(id) {
+/** Části podstránky do jejich míst; část s rozepsanou poznámkou (fokus v poli) se nepřepisuje. */
+function vykresliPodstranku(el) {
+  const casti = ['lista', 'hero', 'moje', 'nav', 'telo'];
+  if (!k.detail) {
+    casti.forEach((c) => nastav(el.querySelector('[data-kn-cast="' + c + '"]'), ''));
+    return;
+  }
   const d = stav.knihovna;
-  const n = D.najdi(d, id);
-  if (!n || n.typ !== 'karta') return '<div class="prazdne">Karta už v knihovně není.</div>';
-  const x = n.x, m = D.moje(d, id);
-  const video = x.druh !== 'kniha';
-  const hlava = [D.DRUHY[x.druh], D.rokKarty(x), x.druh === 'kniha' && x.stran ? x.stran + ' stran' : x.delka, x.zeme].filter(Boolean).join(' · ');
-  const hodnoceni = (x.hodnoceni || []).map((h) => {
-    const u = D.bezpecnaUrl(h.url);
-    const obsah = '<small>' + esc(h.zdroj) + '</small> <b class="cisla">' + esc(h.hodnota) + '</b>';
-    return u ? '<a class="kn-hodnoceni__polozka" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + obsah + IKONY.odkaz + '</a>'
-      : '<span class="kn-hodnoceni__polozka">' + obsah + '</span>';
-  }).join('');
-  let h = '<article class="kn-detail" data-oblast="knihovna">' +
-    '<header class="kn-hlava">' + obrazekHtml(x.obrazek && x.obrazek.url, x.nazev, 'kn-obr--detail') +
-      '<div class="kn-hlava__text"><p class="kn-hlava__druh">' + esc(hlava) + '</p><h3>' + esc(x.nazev) + '</h3>' +
-        (x.original && x.original !== x.nazev ? '<p class="kn-hlava__orig">' + esc(x.original) + '</p>' : '') +
-        (hodnoceni ? '<div class="kn-hodnoceni">' + hodnoceni + '</div>' : '') +
-        ((x.zanry || []).length ? '<div class="kn-zanry">' + x.zanry.map((z) => '<span class="tag tag--seda">' + esc(z) + '</span>').join('') + '</div>' : '') +
-      '</div></header>' +
-    (x.kratce ? '<p class="kn-kratce">' + esc(x.kratce) + '</p>' : '') +
-    mojeHtml(x.id, x.druh, m, true);
-  if ((x.tvurci || []).length) {
-    h += oddil('Tvůrci', '<dl class="kn-tvurci">' + x.tvurci.map((t) => '<div><dt>' + esc(velkePrvni(t.role)) + '</dt><dd>' + esc(t.jmena.join(', ')) + '</dd></div>').join('') + '</dl>');
-  }
-  h += oddil(video ? 'O čem to je' : 'O čem kniha je', odstavce(x.obsah));
-  h += oddil('Proč to stojí za to', odstavce(x.proc), 'kn-oddil--proc');
-  if (x.serie) h += serieHtml(x.serie);
-  h += oddil('Zajímavosti', (x.zajimavosti || []).length ? '<ul class="kn-body">' + x.zajimavosti.map((z) => '<li>' + esc(z) + '</li>').join('') + '</ul>' : '');
-  h += oddil('Skutečnost vs. ' + (video ? 'film' : 'kniha'), odstavce(x.skutecnost));
-  h += oddil('Ocenění', (x.oceneni || []).length ? '<ul class="kn-body kn-body--oceneni">' + x.oceneni.map((z) => '<li>' + esc(z) + '</li>').join('') + '</ul>' : '');
-  if (x.kdeSledovat) {
-    h += oddil(video ? 'Kde sledovat' : 'Kde sehnat', '<p>' + esc(x.kdeSledovat.text) + '</p>' +
-      (x.kdeSledovat.overeno ? '<p class="kn-overeno">' + IKONY.fajfka + '<span>ověřeno ' + esc(datumZIso(x.kdeSledovat.overeno)) + '</span></p>' : ''));
-  }
-  h += souvisiHtml(x);
-  h += odkazyHtml(x.odkazy, x.zdroje);
-  h += pataHtml(x);
-  return h + '</article>';
-}
-
-function serieHtml(s) {
-  const celkem = D.celkemMinut(s.dily);
-  const dily = (s.dily || []).map((dil, i) => '<li><span class="kn-serie__c cisla">' + (i + 1) + '</span><span class="kn-serie__text"><b>' + esc(dil.nazev) + '</b>' +
-    '<small>' + esc([dil.original && dil.original !== dil.nazev ? dil.original : '', dil.rok, dil.delka].filter(Boolean).join(' · ')) + '</small>' +
-    (dil.pozn ? '<em>' + esc(dil.pozn) + '</em>' : '') + '</span></li>').join('');
-  return oddil('Série' + (s.nazev ? ' · ' + esc(s.nazev) : ''),
-    (s.poradi ? '<p class="kn-poradi">' + IKONY.info + '<span><b>Doporučené pořadí:</b> ' + esc(s.poradi) + '</span></p>' : '') +
-    (dily ? '<ol class="kn-serie">' + dily + '</ol>' : '') +
-    (celkem ? '<p class="kn-serie__celkem">' + (s.dily.length) + ' ' + tvar(s.dily.length, 'díl', 'díly', 'dílů') + ' · celkem ' + esc(trvani(celkem * 60e3)) + '</p>' : ''));
-}
-
-function souvisiHtml(x) {
-  const s = D.souvisejici(stav.knihovna, x);
-  if (!s.length) return '';
-  return oddil('Související', '<div class="kn-souvisi">' + s.map((o) => (o.existuje
-    ? '<button type="button" class="kn-souvisi__polozka" data-kn-otevri="' + esc(o.id) + '"><span class="kn-souvisi__ikona">' + IKONY.knihovna + '</span>' +
-      '<span><b>' + esc(o.nazev) + '</b>' + (o.proc ? '<small>' + esc(o.proc) + '</small>' : '') + '</span>' + IKONY.vpravo + '</button>'
-    : '<div class="kn-souvisi__polozka kn-souvisi__polozka--neni"><span class="kn-souvisi__ikona">' + IKONY.plus + '</span>' +
-      '<span><b>' + esc(velkePrvni(o.nazev)) + '</b><small>' + esc((o.proc ? o.proc + ' · ' : '') + 'v knihovně zatím není') + '</small></span>' +
-      '<button type="button" class="btn btn--ghost btn--sm" data-kn-pridat data-kn-druh="' + esc(D.druhZId(o.id)) + '" data-kn-text="' + esc(velkePrvni(o.nazev)) + '">Přidat</button></div>'))
-    .join('') + '</div>');
-}
-
-function odkazyHtml(odkazy, zdroje) {
-  const o = (odkazy || []).filter((x) => D.bezpecnaUrl(x.url));
-  const z = (zdroje || []).filter((x) => D.bezpecnaUrl(x.url));
-  if (!o.length && !z.length) return '';
-  return oddil('Odkazy a zdroje', (o.length ? '<div class="kn-odkazy">' + o.map((x) => '<a class="chip" href="' + esc(x.url) + '" target="_blank" rel="noopener noreferrer">' +
-      esc(x.nazev) + IKONY.odkaz + '</a>').join('') + '</div>' : '') +
-    (z.length ? '<details class="kn-zdroje"><summary>Zdroje (' + z.length + ')</summary><ol>' + z.map((x) => '<li><a href="' + esc(x.url) + '" target="_blank" rel="noopener noreferrer">' +
-      esc(x.nazev) + '</a></li>').join('') + '</ol></details>' : ''));
-}
-
-function pataHtml(x) {
-  const t = D.cas(x.pripraveno);
-  return '<footer class="kn-pata">' + IKONY.claude + '<span>Připravil Claude' + (t ? ' ' + esc(dm(t) + ' ' + new Date(t).getFullYear()) : '') + '</span>' +
-    ((x.stitky || []).length ? '<span class="kn-pata__stitky">' + x.stitky.map((s) => '<span class="tag tag--seda">' + esc(s) + '</span>').join('') + '</span>' : '') + '</footer>';
-}
-
-/** Můj stav (segment – klepnutí na zvolený ho zruší), hvězdy 1–5 (klepnutí na zvolenou je zruší), poznámka (uloží se sama). */
-function mojeHtml(id, druh, m, hvezdy) {
-  const poznamka = m.poznamka || '';
-  return '<section class="kn-moje" aria-label="Můj stav">' +
-    '<div class="kn-moje__radek"><div class="segment" role="group" aria-label="Můj stav">' + D.nazvyStavu(druh)
-      .filter((s) => druh !== 'reserse' || s[0] === 'hotovo')
-      .map((s) => '<button type="button" class="chip" data-kn-stav="' + s[0] + '" data-kn-id="' + esc(id) + '" aria-pressed="' + (m.stav === s[0]) + '">' +
-        (m.stav === s[0] ? IKONY.fajfka : '') + esc(s[1]) + '</button>').join('') + '</div>' +
-    (hvezdy ? '<div class="kn-hvezdy" role="group" aria-label="Moje hodnocení">' + [1, 2, 3, 4, 5].map((i) => '<button type="button" class="kn-hvezda' +
-      (m.hodnoceni >= i ? ' plna' : '') + '" data-kn-hvezdy="' + i + '" data-kn-id="' + esc(id) + '" aria-pressed="' + (m.hodnoceni === i) + '" aria-label="' + i + ' z 5">' +
-      IKONY.hvezda + '</button>').join('') + '</div>' : '') + '</div>' +
-    '<label class="kn-poznamka"><span class="label">Moje poznámka</span>' +
-      '<textarea class="field" rows="2" maxlength="2000" data-kn-poznamka="' + esc(id) + '" placeholder="' + (druh === 'reserse' ? 'Co si chci zapamatovat…' :
-        'Co se mi líbilo, s kým se dívat, komu doporučit…') + '">' + (poznamka.charAt(0) === '\n' ? '\n' : '') + esc(poznamka) + '</textarea>' +
-      '<small class="kn-poznamka__stav" data-kn-poznamka-stav="' + esc(id) + '" aria-live="polite"></small></label>' +
-  '</section>';
-}
-
-// ---------------------------------------------------------------- čtečka rešerše
-
-function otevriReserisi(id) {
-  const pid = 'kn-r:' + id;
-  if (jeOtevreny(pid)) { obnovPanel(pid); return; }
-  otevriPanel({
-    id: pid, trida: 'panel-bocni panel-knihovna panel-kn-reserse', titul: () => ((D.najdi(stav.knihovna, id) || {}).x || {}).nazev || 'Rešerše',
-    vykresli: () => reserseHtml(id),
-    poOtevreni: (el) => { hlidejPoznamku(el); el.focus({ preventScroll: true }); },
-    priZavreni: ulozPoznamkuHned
+  const n = D.najdi(d, k.detail);
+  // celá rešerše z motoru (index má jen název a krátce); po chybě až na „Zkusit znovu“, ne při každém překreslení
+  if (n && n.typ === 'reserse' && !(k.reserse[k.detail] || {}).chyba) nactiReserisi(k.detail);
+  const ctx = { data: d, chybne: k.chybneObrazky };
+  const h = !n ? S.chybiCasti(!d || stav.nacita.knihovna || (!k.nacteno && !stav.chyby.knihovna), k.detail)
+    : n.typ === 'reserse' ? S.reserseCasti(n.x, k.reserse[k.detail], ctx) : S.kartaCasti(n.x, ctx);
+  const a = document.activeElement;
+  casti.forEach((c) => {
+    const misto = el.querySelector('[data-kn-cast="' + c + '"]');
+    if (!misto) return;
+    if (a && misto.contains(a) && a.matches('textarea, input')) return;
+    nastav(misto, h[c] || '');
+    misto.hidden = !h[c];
   });
-  nactiReserisi(id);
+  spehuj();
+}
+
+/** Pás oddílů: který oddíl je zrovna nahoře (aria-current) – posun stránky i plynulý skok. */
+let spehNaplanovan = false;
+function spehuj() {
+  if (!k.detail || stav.pohled !== 'knihovna') return;
+  const nav = document.querySelector('#kn-stranka [data-kn-cast="nav"]');
+  if (!nav || nav.hidden) return;
+  const tlacitka = Array.from(nav.querySelectorAll('[data-kn-skoc]'));
+  if (!tlacitka.length) return;
+  const hranice = nav.getBoundingClientRect().bottom + 28;
+  let aktivni = '';
+  tlacitka.forEach((b) => { const s = document.getElementById(b.dataset.knSkoc); if (s && s.getBoundingClientRect().top <= hranice) aktivni = b.dataset.knSkoc; });
+  if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4 && window.scrollY > 0) aktivni = tlacitka[tlacitka.length - 1].dataset.knSkoc;
+  tlacitka.forEach((b) => {
+    const je = b.dataset.knSkoc === aktivni;
+    if (je === (b.getAttribute('aria-current') === 'true')) return;
+    if (je) {
+      b.setAttribute('aria-current', 'true');
+      // aktivní pilulka vidět i v úzkém pásu (telefon)
+      const pas = b.parentNode, l = b.offsetLeft - 16;
+      if (l < pas.scrollLeft || b.offsetLeft + b.offsetWidth > pas.scrollLeft + pas.clientWidth) pas.scrollTo({ left: Math.max(0, l), behavior: 'smooth' });
+    } else b.removeAttribute('aria-current');
+  });
+}
+window.addEventListener('scroll', () => {
+  if (spehNaplanovan || !k.detail) return;
+  spehNaplanovan = true;
+  requestAnimationFrame(() => { spehNaplanovan = false; spehuj(); });
+}, { passive: true });
+
+function skocNa(kotva) {
+  const s = document.getElementById(kotva);
+  if (!s) return;
+  const plynule = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // pod lepkavý pás (na PC může mít dva řádky) – ne scrollIntoView, ten by nadpis oddílu schoval pod pás
+  const nav = document.querySelector('#kn-stranka [data-kn-cast="nav"]');
+  const vyska = nav && !nav.hidden ? nav.getBoundingClientRect().height : 0;
+  window.scrollTo({ top: Math.max(0, s.getBoundingClientRect().top + window.scrollY - vyska - 12), behavior: plynule ? 'smooth' : 'auto' });
+}
+
+function kopirujOdkaz() {
+  const u = location.origin + location.pathname + D.adresaPolozky(k.detail);
+  try {
+    navigator.clipboard.writeText(u).then(() => toast('Odkaz zkopírovaný – otevře tuhle stránku i v jiném zařízení s Asistentem'),
+      () => toast('Kopírování tady nejde.', true));
+  } catch (e) { toast('Kopírování tady nejde.', true); }
 }
 
 /** Celá rešerše z motoru – jen když ji zařízení nemá, nebo ji Claude mezitím přepsal (jiné „připraveno“ v indexu). */
@@ -519,7 +550,7 @@ function nactiReserisi(id) {
   volej('knihovnaReserse', { id })
     .then((data) => { k.reserse[id] = { data, kdy: Date.now() }; ulozReserse(); })
     .catch((e) => { k.reserse[id] = Object.assign({}, k.reserse[id], { nacita: false, chyba: e }); })
-    .then(() => { if (jeOtevreny('kn-r:' + id)) obnovPanel('kn-r:' + id); });
+    .then(() => { if (k.detail === id) prekresliStranku(); });
 }
 
 function ulozReserse() {
@@ -527,41 +558,6 @@ function ulozReserse() {
   const o = {};
   ids.forEach((id) => { o[id] = { data: k.reserse[id].data, kdy: k.reserse[id].kdy }; });
   if (!uloziste.pis(ULOZISTE_RESERSI, o)) uloziste.smaz(ULOZISTE_RESERSI);
-}
-
-function reserseHtml(id) {
-  const r = k.reserse[id] || {};
-  const x = r.data;
-  if (!x) {
-    return r.chyba ? chybaHtml(r.chyba, 'data-kn-reserse-znovu="' + esc(id) + '"') : kostra(8);
-  }
-  const m = D.moje(stav.knihovna, id);
-  const t = D.cas(x.pripraveno);
-  let h = '<article class="kn-detail kn-reserse" data-oblast="knihovna">' +
-    '<p class="kn-hlava__druh">Rešerše' + (t ? ' · ' + esc(dm(t) + ' ' + new Date(t).getFullYear()) : '') + '</p><h3 class="kn-reserse__nazev">' + esc(x.nazev) + '</h3>' +
-    (x.otazka ? '<p class="kn-otazka">' + IKONY.otazka + '<span>' + esc(x.otazka) + '</span></p>' : '') +
-    (x.kratce ? '<div class="kn-kratce kn-kratce--reserse"><b>Krátce</b>' + odstavce(x.kratce) + '</div>' : '') +
-    ((x.cisla || []).length ? '<div class="kn-cisla">' + x.cisla.map((c) => '<div><b class="cisla">' + esc(c.hodnota) + '</b><small>' + esc(c.co || '') + '</small></div>').join('') + '</div>' : '');
-  (x.sekce || []).forEach((s) => {
-    h += oddil(esc(s.nadpis || ''), (s.odstavce || []).map((o) => odstavce(o)).join('') +
-      ((s.body || []).length ? '<ul class="kn-body">' + s.body.map((b) => '<li>' + esc(b) + '</li>').join('') + '</ul>' : ''));
-  });
-  if ((x.casovaOsa || []).length) {
-    h += oddil('Časová osa', '<ol class="kn-osa">' + x.casovaOsa.map((c) => '<li><b class="cisla">' + esc(c.kdy) + '</b><span>' + esc(c.co) + '</span></li>').join('') + '</ol>');
-  }
-  if ((x.pojmy || []).length) {
-    h += oddil('Pojmy', '<div class="kn-pojmy">' + x.pojmy.map((p) => '<details><summary>' + esc(p.pojem) + '</summary><p>' + esc(p.vysvetleni || '') + '</p></details>').join('') + '</div>');
-  }
-  if ((x.dalsiOtazky || []).length) {
-    h += oddil('Další otázky', '<p class="kn-napoveda">Klepnutím pošleš otázku Claudovi – připraví k ní novou rešerši.</p><div class="kn-otazky">' +
-      x.dalsiOtazky.map((q) => '<button type="button" class="kn-otazky__polozka" data-kn-otazka="' + esc(q) + '">' + IKONY.otazka + '<span>' + esc(q) + '</span>' +
-        '<em>' + IKONY.plus + 'Zeptat se</em></button>').join('') + '</div>');
-  }
-  h += mojeHtml(id, 'reserse', m, false);
-  h += souvisiHtml(x);
-  h += odkazyHtml([], x.zdroje);
-  h += pataHtml(x);
-  return h + '</article>';
 }
 
 // ---------------------------------------------------------------- čekající požadavek
@@ -710,8 +706,13 @@ export function klikKnihovna(el) {
     return true;
   }
   if (el.hasAttribute('data-kn-znovu')) { stav.chyby.knihovna = null; nactiKnihovnu(); zmeneno(); return true; }
-  if (ds.knReserseZnovu) { delete k.reserse[ds.knReserseZnovu]; nactiReserisi(ds.knReserseZnovu); obnovPanel('kn-r:' + ds.knReserseZnovu); return true; }
-  if (el.hasAttribute('data-kn-pridat')) { otevriPridani(ds.knDruh, ds.knText); return true; } // i ze „Související“ – okno nad detailem
+  if (ds.knReserseZnovu) { delete k.reserse[ds.knReserseZnovu]; nactiReserisi(ds.knReserseZnovu); prekresliStranku(); return true; }
+  // podstránka: zpět na seznam, skok na oddíl, kopírovat odkaz, Podobné → požadavek pro Clauda jedním klepnutím
+  if (el.hasAttribute('data-kn-zpet')) { naSeznam(); return true; }
+  if (ds.knSkoc) { skocNa(ds.knSkoc); return true; }
+  if (el.hasAttribute('data-kn-kopirovat-odkaz')) { kopirujOdkaz(); return true; }
+  if (el.hasAttribute('data-kn-podobne-pridat')) { if (ds.knDruh && ds.knText) pridej(ds.knDruh, ds.knText); return true; }
+  if (el.hasAttribute('data-kn-pridat')) { otevriPridani(ds.knDruh, ds.knText); return true; } // i ze „Související“ – okno nad stránkou
   if (ds.knDruh && el.closest('[data-panel="kn-pridat"]')) {
     const pole = el.closest('[data-panel="kn-pridat"]').querySelector('[data-kn-pridat-text]');
     k.pridat = { druh: ds.knDruh, text: pole ? pole.value : k.pridat.text };
@@ -768,10 +769,14 @@ export function klavesaKnihovna(e) {
   if (!t || !t.matches) return false;
   if (e.key === 'Enter' && t.matches('[data-kn-pridat-text]')) { e.preventDefault(); odeslatPridani(); return true; }
   if (e.key === 'Escape' && t.matches('[data-kn-hledat]') && t.value) { e.preventDefault(); t.value = ''; k.dotaz = ''; prekresliStranku(); return true; }
+  // Esc na podstránce = zpět na seznam (jako dřív zavřel panel s kartou) – ne v poli, ne pod oknem nebo nabídkou (ta Esc vezme sama)
+  if (e.key === 'Escape' && !e.defaultPrevented && k.detail && stav.pohled === 'knihovna' && !horniPanel() && !document.querySelector('.okno-pozadi') &&
+    !(t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) { e.preventDefault(); naSeznam(); return true; }
   return false;
 }
 
-// pravé tlačítko / podržení na dlaždici: můj stav, kopírovat název, otevřít ČSFD (Databázi knih); u čekajícího Zrušit
+// pravé tlačítko / podržení na dlaždici (i na tipu v Podobných, který v knihovně je): můj stav, kopírovat název, otevřít ČSFD
+// (Databázi knih); u čekajícího Zrušit
 function nabidkaKnihovny(cil) {
   const li = cil.closest && cil.closest('#p-knihovna [data-kn-karta], #p-knihovna [data-kn-ceka]');
   if (!li) return null;
@@ -829,10 +834,23 @@ function kartaHodnoceni(el) {
 nactiZUloziste();
 nabidka.pripoj(nabidkaKnihovny);
 bubliny.registruj('kn-hodnoceni', kartaHodnoceni);
-// obrázek, který nejde načíst (adresa zmizela, bez sítě): pryč – zůstane zástupná plocha s iniciálou, příště se nezkouší
+// odkaz na kartu (#knihovna/<id>) při startu – app.js kvůli němu otevřel stránku Knihovna; hloubka z historie (znovunačtení
+// stejné záložky ji zachová, nový odkaz ne – „← Knihovna“ pak seznam jen ukáže)
+if (stav.pohled === 'knihovna' && D.idZAdresy(location.hash)) {
+  k.detail = D.idZAdresy(location.hash);
+  k.hloubka = (history.state && history.state.knHloubka) || 0;
+}
+window.addEventListener('popstate', poKrokuHistorie);
+// rozepsaná poznámka na podstránce se uloží i při odchodu z pole
+document.addEventListener('focusout', (e) => { if (e.target && e.target.matches && e.target.matches('[data-kn-poznamka]')) ulozPoznamkuHned(); });
+// obrázek, který nejde načíst (adresa zmizela, bez sítě): pryč – zůstane zástupná plocha s iniciálou (u fotky herce i bez
+// popisku zdroje), příště se nezkouší
 document.addEventListener('error', (e) => {
   const t = e.target;
-  if (!t || t.tagName !== 'IMG' || !t.parentNode || !t.parentNode.classList || !t.parentNode.classList.contains('kn-obr')) return;
+  const obal = t && t.tagName === 'IMG' && t.parentNode && t.parentNode.classList ? t.parentNode : null;
+  if (!obal || !(obal.classList.contains('kn-obr') || obal.classList.contains('kn-foto'))) return;
   k.chybneObrazky.add(t.getAttribute('src'));
+  const zdroj = obal.classList.contains('kn-foto') && obal.parentNode ? obal.parentNode.querySelector('.kn-foto__zdroj') : null;
+  if (zdroj) zdroj.remove();
   t.remove();
 }, true);

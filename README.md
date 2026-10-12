@@ -509,15 +509,22 @@ a „rešerše k různým věcem – chtěl bych se tak vzdělávat a mít svoji
 menu) se záložkami **Filmy** (filmy i seriály) · **Knihy** · **Rešerše**:
 - **Dlaždice** s plakátem / obálkou (poměr 2 : 3, načítá se líně; bez obrázku nebo když nejde načíst, zástupná plocha
   s iniciálou), název, rok, krátce, první hodnocení a můj stav (Chci vidět / Rozkoukané / Viděno, u knih Chci číst / Čtu /
-  Přečteno). Filtr podle stavu, hledání v knihovně (bez diakritiky – název, původní název, tvůrci, štítky) a i v Hledat (Ctrl K).
+  Přečteno). Filtr podle stavu, hledání v knihovně (bez diakritiky – název, původní název, tvůrci, herci, štítky) a i v Hledat (Ctrl K).
   Pravé tlačítko / podržení = stav, Kopírovat název, Otevřít ČSFD (u knih Databázi knih); u hodnocení vyjede karta se všemi
   hodnoceními a mojí poznámkou.
-- **Detail karty** (panel vpravo, na telefonu celá obrazovka): hodnocení s odkazy, tvůrci, žánry, délka, krátce, o čem to je
-  (bez spoilerů), proč to stojí za to, série s díly a doporučeným pořadím (i celková délka), zajímavosti, skutečnost vs. film,
-  ocenění, kde sledovat („ověřeno …“), související (otevře se nad detailem; co v knihovně není, jde rovnou přidat), odkazy
-  a zdroje. Můj stav, hvězdy 1–5 a poznámka (uloží se sama chvíli po psaní).
-- **Čtečka rešerše:** otázka, krátce zvýrazněně, výrazná čísla, sekce, časová osa, pojmy (rozbalovací), další otázky
-  (klepnutí = rovnou nový požadavek na rešerši), zdroje; Přečteno. Celá rešerše se čte až při otevření, posledních 8 i bez sítě.
+- **Stránka karty** (od 12. 10. – Michal: „víc informací … i o hercích … v několika sekcích … jako klasickou stránku, ne jen
+  pás vpravo“): adresa `#knihovna/<id>` (odkaz jde zkopírovat a funguje i po znovunačtení), Zpět prohlížeče / gesto vrátí seznam
+  se zachovaným posunem a filtrem, „← Knihovna“ nahoře, Esc. Hlavička s velkým plakátem, názvem, originálem, rokem, délkou,
+  hlavním tvůrcem, žánry a hodnocením jako dlaždice (s odkazy), vedle karta **Moje** (stav, hvězdy 1–5, poznámka – uloží se sama).
+  Pod tím **lepkavý pás oddílů** (Přehled · Herci · Tvůrci · Postavy · Fakta · sekce · Série · Zajímavosti · Kde sledovat ·
+  Podobné – jen ty, které karta má; klepnutí = plynulý posun, pás ukazuje, kde jsem). Oddíly: o čem to je (bez spoilerů) a tmavá
+  karta Proč to stojí za to, citáty, **herci** a lidé za kamerou s kulatou fotkou z Wikimedia Commons („Foto: Wikimedia Commons“
+  s odkazem; bez volné fotky iniciály), postavy (knihy), fakta jako dlaždice, sekce od Clauda (vznik, hudba, svět příběhu…),
+  série jako tabulka dílů s doporučeným pořadím a celkovou délkou, zajímavosti, skutečnost vs. film, ocenění, kde sledovat
+  („ověřeno …“), **podobné** (co v knihovně je, otevře se jako další stránka – Zpět vrátí; co ne, přidá se jedním klepnutím jako
+  požadavek pro Clauda), související, odkazy a zdroje. Na PC široká, na telefonu jeden sloupec. HTML `js/knihovna_stranka.js`.
+- **Rešerše** jako stejná stránka: otázka, krátce zvýrazněně, výrazná čísla, sekce, časová osa, pojmy (rozbalovací), další
+  otázky (klepnutí = rovnou nový požadavek na rešerši), zdroje; Přečteno. Celá rešerše se čte až při otevření, posledních 8 i bez sítě.
 - **Přidat** („+ Přidat do knihovny“ nahoře, na telefonu na stránce a v „+“ → Do knihovny): film / seriál / kniha / rešerše
   a název nebo otázka. Karta se hned ukáže jako **„Claude připravuje…“** s časem zadání (u filmu, seriálu a knihy i s náhledem
   z Wikipedie – shrnutí přes REST API Wikipedie, v CSP jen `cs.wikipedia.org` a `en.wikipedia.org`); Vrátit / Zrušit požadavek.
@@ -530,8 +537,10 @@ zámkem. Požadavek = záznam v `moje.json` + pokyn pro Clauda v `NOVE/…_<id>_
 jakmile existuje karta s `"pozadavek": "<id>"`. Motor: akce `knihovna`, `knihovnaReserse`, `knihovnaPridat`, `knihovnaMoje`,
 `knihovnaZrusit` (rozebrané soubory si pamatuje podle času úpravy; neplatný JSON karty se jen vynechá a aplikace ho nahlásí).
 Kopii na serveru (Firebase) knihovna nemá – čte se z motoru, jen když je stránka otevřená, a v zařízení se drží pro okamžitý
-start; ostatní zařízení se o změně dozví ze značky `zmeny.knihovna`. Modul `js/knihovna.js` se stáhne a spustí až na stránce
-Knihovna (start aplikace na něj nečeká), čisté funkce `js/knihovna_data.js`, vzhled `knihovna.css`.
+start; ostatní zařízení se o změně dozví ze značky `zmeny.knihovna`. Moduly `js/knihovna.js` a `js/knihovna_stranka.js` se
+stáhnou a spustí až na stránce Knihovna (start aplikace na ně nečeká), čisté funkce `js/knihovna_data.js`, vzhled `knihovna.css`.
+Rozšířená pole karet (herci, lide, postavy, fakta, sekce, citaty, podobne) motor propouští od verze `2026-10-12.1` – starší motor
+je zahodí (stránka pak ukáže jen základní kartu).
 
 ## Nasazení motoru
 

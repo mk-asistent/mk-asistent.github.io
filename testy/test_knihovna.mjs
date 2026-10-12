@@ -132,4 +132,69 @@ test('náhled z Wikipedie: adresy (film, kniha, cs pak en), otázky ne, jen čl�
   assert.strictEqual(D.zWiki({ type: 'standard', title: 'X', extract: 'a'.repeat(900) }).text.length, 600);
 });
 
+// ---------------------------------------------------------------- podstránka karty (12. 10.)
+
+const ROZSIRENA = {
+  id: 'film-zkusebni-let', druh: 'film', nazev: 'Zkušební let', obsah: 'Děj.', proc: 'Proč.',
+  tvurci: [{ role: 'režie a scénář', jmena: ['Jana Testová'] }, { role: 'hrají', jmena: ['Karel Zkušební', 'Eva Pokusná'] }, { role: 'hudba', jmena: ['A', 'B', 'C'] }],
+  herci: [{ jmeno: 'Karel Zkušební', postava: 'pilot' }], lide: [{ jmeno: 'Jana Testová', role: 'režie' }],
+  fakta: [{ co: 'Rozpočet', hodnota: '1 mil.' }],
+  sekce: [{ id: 'vznik', nadpis: 'Jak vznikal: IMAX, 57 dní a výbuch bez počítače', odstavce: ['a'] }, { nadpis: 'Proč jsou některé scény černobílé a jiné barevné', body: ['b'] },
+    { id: 'ŠPATNĚ!', nadpis: 'Hudba', odstavce: ['c'] }, { nadpis: '', odstavce: [] }],
+  serie: { dily: [{ nazev: 'Díl 1' }] }, zajimavosti: ['z'], kdeSledovat: { text: 'Na streamu.' },
+  podobne: [{ nazev: 'Maják', id: 'serial-majak' }, { nazev: 'Malý princ' }, { nazev: 'Interstellar', rok: 2014 }, { nazev: 'Nový tip', proc: 'proč' }, { proc: 'bez názvu' }]
+};
+
+test('adresa podstránky #knihovna/<id>: jen platné id, jinak nic', () => {
+  assert.strictEqual(D.adresaPolozky('film-oppenheimer'), '#knihovna/film-oppenheimer');
+  assert.strictEqual(D.idZAdresy('#knihovna/film-oppenheimer'), 'film-oppenheimer');
+  assert.strictEqual(D.idZAdresy(D.adresaPolozky('reserse-manhattan')), 'reserse-manhattan');
+  ['', '#knihovna', '#knihovna/', '#posta', '#knihovna/Film X', '#knihovna/../moje', '#knihovna/a/b', '#knihovna/%E0%A4%A', '#knihovna/<script>'].forEach((h) =>
+    assert.strictEqual(D.idZAdresy(h), '', h));
+});
+
+test('oddíly do pásu: jen ty, které karta má, v pořadí stránky; kotvy sekcí podle id, jinak pořadí; krátké názvy', () => {
+  assert.deepStrictEqual(D.oddilyKarty(ROZSIRENA).map((o) => o[1]),
+    ['Přehled', 'Herci', 'Tvůrci', 'Fakta', 'Jak vznikal', 'Proč jsou některé scény…', 'Hudba', 'Série', 'Zajímavosti', 'Kde sledovat', 'Podobné']);
+  assert.deepStrictEqual(D.oddilyKarty(ROZSIRENA).filter((o) => /^kn-s-/.test(o[0])).map((o) => o[0]), ['kn-s-vznik', 'kn-s-2', 'kn-s-3']);
+  assert.deepStrictEqual(D.oddilyKarty({ druh: 'kniha', nazev: 'K', tvurci: [{ role: 'autor', jmena: ['A'] }], kdeSledovat: { text: 'knihovna' }, souvisi: [{ id: 'film-x' }] }).map((o) => o[1]),
+    ['Autor a tvůrci', 'Kde sehnat', 'Související'], 'kniha: tvůrci z rolí, Kde sehnat, jen související');
+  assert.deepStrictEqual(D.oddilyKarty({ druh: 'film', nazev: 'X', kratce: 'jen krátce' }), [], 'stará jednoduchá karta nemá pás');
+  assert.deepStrictEqual(D.oddilyReserse({ kratce: 'k', sekce: [{ nadpis: 'Vztlak', odstavce: ['x'] }], casovaOsa: [{ kdy: '1903', co: 'let' }], pojmy: [{ pojem: 'p' }],
+    dalsiOtazky: ['?'], zdroje: [{ nazev: 'z', url: 'https://example.com' }] }).map((o) => o[1]), ['Krátce', 'Vztlak', 'Časová osa', 'Pojmy', 'Další otázky', 'Zdroje']);
+  assert.strictEqual(D.kratkyNazev('Hudba: housle, tikání a 21 změn tempa'), 'Hudba');
+  assert.strictEqual(D.kratkyNazev('Krátký'), 'Krátký');
+  assert.strictEqual(D.kratkyNazev('a'.repeat(40)), 'a'.repeat(25) + '…', 'bez mezery natvrdo');
+  assert.strictEqual(D.kotvaSekce({ id: 'Vznik' }, 0), 'kn-s-vznik');
+  assert.strictEqual(D.kotvaSekce({ id: '"><img>' }, 4), 'kn-s-5');
+});
+
+test('tvůrci bez „hrají“, když jsou herci zvlášť; hlavní tvůrce do hlavičky; herci v hledání', () => {
+  assert.deepStrictEqual(D.tvurciBezHercu(ROZSIRENA).map((t) => t.role), ['režie a scénář', 'hudba']);
+  assert.strictEqual(D.tvurciBezHercu({ tvurci: [{ role: 'hrají', jmena: ['X'] }] }).length, 1, 'bez herců zůstanou');
+  assert.strictEqual(D.hlavniTvurce(ROZSIRENA), 'Režie a scénář Jana Testová');
+  assert.strictEqual(D.hlavniTvurce({ tvurci: [{ role: 'hudba', jmena: ['A', 'B', 'C'] }] }), 'Hudba A, B a další');
+  assert.strictEqual(D.hlavniTvurce({}), '');
+  assert.deepStrictEqual(D.kartyZalozky({ karty: [ROZSIRENA] }, 'filmy', 'vse', 'zkusebni karel').map((x) => x.id), ['film-zkusebni-let']);
+});
+
+test('podobné: karta v knihovně podle id i názvu, čekající požadavek, jinak Přidat se správným druhem', () => {
+  const data = Object.assign({}, DATA, { pozadavky: DATA.pozadavky.concat([{ id: 'p-20261012-1000-xy', druh: 'film', text: 'interstellar', kdy: '2026-10-12T10:00:00+02:00' }]) });
+  const p = D.podobne(data, ROZSIRENA);
+  assert.deepStrictEqual(p.map((o) => [o.nazev, o.id, o.ceka, o.druh]), [
+    ['Maják', 'serial-majak', '', 'serial'],
+    ['Malý princ', '', '', 'film'],                       // kniha stejného jména je v jiné části – film se přidat dá
+    ['Interstellar', '', 'p-20261011-2210-ab', 'film'],   // první čekající se stejným textem (bez ohledu na velikost)
+    ['Nový tip', '', '', 'film']]);
+  assert.strictEqual(D.podobne(data, { druh: 'kniha', podobne: [{ nazev: 'Malý princ' }] })[0].id, 'kniha-maly-princ', 'u knihy podle názvu v Knihách');
+  assert.strictEqual(D.podobne(data, { druh: 'serial', podobne: [{ nazev: 'Černobyl' }] })[0].ceka, 'p-20261011-2220-ef', 'seriál čeká');
+  assert.deepStrictEqual(D.podobne(data, null), []);
+});
+
+test('fotky lidí jen z Wikimedia Commons (upload.wikimedia.org)', () => {
+  assert.strictEqual(D.fotoUrl('https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/X.jpg/330px-X.jpg'), 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/X.jpg/330px-X.jpg');
+  ['http://upload.wikimedia.org/x.jpg', 'https://example.com/x.jpg', 'https://upload.wikimedia.org.zly.cz/x.jpg', 'javascript:alert(1)', '', null].forEach((u) =>
+    assert.strictEqual(D.fotoUrl(u), '', String(u)));
+});
+
 console.log('\n' + ok + ' testů prošlo' + (process.exitCode ? ', některé SELHALY' : ''));
