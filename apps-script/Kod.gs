@@ -42,7 +42,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-11.5';
+const VERZE = '2026-10-12.1';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -7617,7 +7617,7 @@ const KNIHOVNA_ = (function () {
   function odkazy(x, max) {
     return pole(x, max, function (o) {
       const u = obj(o) ? url(o.url) : '';
-      return u ? { nazev: radek(o.nazev, 120) || u.replace(/^https?:\/\/(www\.)?/i, '').split(/[/?#]/)[0], url: u } : null;
+      return u ? { nazev: radek(o.nazev, 200) || u.replace(/^https?:\/\/(www\.)?/i, '').split(/[/?#]/)[0], url: u } : null;
     });
   }
   function souvisi(x) {
@@ -7625,6 +7625,26 @@ const KNIHOVNA_ = (function () {
   }
   function stitky(x) { return pole(x, 12, function (s) { return radek(s, 40); }); }
   function pozadavek(x) { return ID_POZADAVKU.test(String(x || '')) ? String(x) : ''; }
+  /** Fotka člověka jen z Wikimedia Commons (upload.wikimedia.org – volné licence, skill osobni-knihovna), jinak ''. */
+  function foto(x) { const u = url(x); return /^https:\/\/upload\.wikimedia\.org\//i.test(u) ? u : ''; }
+  /** Herec / člověk za kamerou: jméno, postava nebo role, pár vět „o“, fotka s odkazem na stránku souboru (autor, licence). */
+  function osoba(x, pole2) {
+    if (!obj(x) || !radek(x.jmeno, 80)) return null;
+    const o = { jmeno: radek(x.jmeno, 80) };
+    o[pole2] = radek(x[pole2], 120);
+    o.o = txt(x.o, 700);
+    o.foto = foto(x.foto);
+    o.fotoStranka = o.foto ? url(x.fotoStranka) : '';
+    return bezPrazdnych(o);
+  }
+  /** Oddíl textu (sekce karty i rešerše): nadpis, odstavce (nejvýš maxZnaku každý), body; id jen a–z, 0–9 a pomlčky (kotva na stránce). */
+  function oddil(s, maxOdstavcu, maxBodu, maxZnaku) {
+    if (!obj(s)) return null;
+    const id = radek(s.id, 40).toLowerCase();
+    const x = bezPrazdnych({ id: /^[a-z0-9][a-z0-9-]{0,39}$/.test(id) ? id : '', nadpis: radek(s.nadpis, 160),
+      odstavce: pole(s.odstavce, maxOdstavcu, function (o) { return txt(o, maxZnaku); }), body: pole(s.body, maxBodu, function (b) { return txt(b, 600); }) });
+    return x.nadpis || x.odstavce || x.body ? x : null;
+  }
   /** id z obsahu, jinak z názvu souboru (film-oppenheimer.json → film-oppenheimer). */
   function idZ(d, nazevSouboru) {
     const zeSouboru = String(nazevSouboru || '').replace(/\.json$/i, '').toLowerCase();
@@ -7656,7 +7676,7 @@ const KNIHOVNA_ = (function () {
         return jmena.length && radek(t.role, 40) ? { role: radek(t.role, 40), jmena: jmena } : null;
       }),
       zanry: pole(d.zanry, 8, function (z) { return radek(z, 40); }),
-      delka: radek(d.delka, 60), stran: Number.isInteger(stran) && stran > 0 && stran < 100000 ? stran : null, zeme: radek(d.zeme, 120),
+      delka: radek(d.delka, 120), stran: Number.isInteger(stran) && stran > 0 && stran < 100000 ? stran : null, zeme: radek(d.zeme, 120),
       obrazek: obrazek,
       hodnoceni: pole(d.hodnoceni, 6, function (h) {
         return obj(h) && radek(h.zdroj, 40) && radek(h.hodnota, 30) ? bezPrazdnych({ zdroj: radek(h.zdroj, 40), hodnota: radek(h.hodnota, 30), url: url(h.url) }) : null;
@@ -7665,7 +7685,19 @@ const KNIHOVNA_ = (function () {
       zajimavosti: pole(d.zajimavosti, 12, function (z) { return txt(z, 600); }),
       skutecnost: txt(d.skutecnost, 1500), oceneni: pole(d.oceneni, 10, function (z) { return radek(z, 200); }),
       serie: serie && (serie.dily || serie.poradi) ? serie : null, kdeSledovat: kde,
-      souvisi: souvisi(d.souvisi), stitky: stitky(d.stitky), odkazy: odkazy(d.odkazy, 10), zdroje: odkazy(d.zdroje, 10),
+      souvisi: souvisi(d.souvisi), stitky: stitky(d.stitky), odkazy: odkazy(d.odkazy, 15), zdroje: odkazy(d.zdroje, 30),
+      // rozšířená karta (12. 10. – stránka s oddíly): herci, lidé za kamerou, postavy, fakta, sekce, citáty, podobné tipy
+      herci: pole(d.herci, 12, function (h) { return osoba(h, 'postava'); }),
+      lide: pole(d.lide, 8, function (h) { return osoba(h, 'role'); }),
+      postavy: pole(d.postavy, 14, function (p) { return obj(p) && radek(p.jmeno, 80) ? bezPrazdnych({ jmeno: radek(p.jmeno, 80), o: txt(p.o, 500) }) : null; }),
+      fakta: pole(d.fakta, 10, function (f) { return obj(f) && radek(f.co, 60) && radek(f.hodnota, 60) ? { co: radek(f.co, 60), hodnota: radek(f.hodnota, 60) } : null; }),
+      sekce: pole(d.sekce, 8, function (s) { return oddil(s, 8, 12, 1200); }),
+      citaty: pole(d.citaty, 3, function (c) { return obj(c) && radek(c.text, 200) ? bezPrazdnych({ text: radek(c.text, 200), kdo: radek(c.kdo, 120) }) : null; }),
+      podobne: pole(d.podobne, 6, function (p) {
+        if (!obj(p) || !radek(p.nazev, 200)) return null;
+        const id = radek(p.id, 120);
+        return bezPrazdnych({ nazev: radek(p.nazev, 200), rok: rok(p.rok), proc: radek(p.proc, 300), id: ID.test(id) ? id : '' });
+      }),
       pozadavek: pozadavek(d.pozadavek), pripraveno: radek(d.pripraveno, 40)
     });
   }
@@ -7678,17 +7710,12 @@ const KNIHOVNA_ = (function () {
     if (!id || !nazev) return null;
     return bezPrazdnych({
       id: id, nazev: nazev, otazka: txt(d.otazka, 600), kratce: txt(d.kratce, 1200),
-      sekce: pole(d.sekce, 12, function (s) {
-        if (!obj(s)) return null;
-        const x = bezPrazdnych({ nadpis: radek(s.nadpis, 160), odstavce: pole(s.odstavce, 12, function (o) { return txt(o, 2500); }),
-          body: pole(s.body, 20, function (b) { return txt(b, 600); }) });
-        return x.nadpis || x.odstavce || x.body ? x : null;
-      }),
+      sekce: pole(d.sekce, 12, function (s) { return oddil(s, 12, 20, 2500); }),
       pojmy: pole(d.pojmy, 30, function (p) { return obj(p) && radek(p.pojem, 80) ? bezPrazdnych({ pojem: radek(p.pojem, 80), vysvetleni: txt(p.vysvetleni, 600) }) : null; }),
       casovaOsa: pole(d.casovaOsa, 40, function (x) { return obj(x) && radek(x.kdy, 40) && txt(x.co, 400) ? { kdy: radek(x.kdy, 40), co: txt(x.co, 400) } : null; }),
       cisla: pole(d.cisla, 8, function (x) { return obj(x) && radek(x.hodnota, 30) ? bezPrazdnych({ hodnota: radek(x.hodnota, 30), co: radek(x.co, 160) }) : null; }),
       dalsiOtazky: pole(d.dalsiOtazky, 10, function (q) { return radek(q, MAX_TEXTU); }),
-      souvisi: souvisi(d.souvisi), zdroje: odkazy(d.zdroje, 12), stitky: stitky(d.stitky),
+      souvisi: souvisi(d.souvisi), zdroje: odkazy(d.zdroje, 30), stitky: stitky(d.stitky),
       pozadavek: pozadavek(d.pozadavek), pripraveno: radek(d.pripraveno, 40)
     });
   }
@@ -7814,7 +7841,8 @@ function jsonKnihovny_(slozka, nazev) {
  */
 function rozeberKnihovnu_(soubory, druh, fn) {
   const cache = CacheService.getScriptCache();
-  const klice = soubory.map(function (f) { return 'kn:' + druh + ':' + f.getId() + ':' + f.getLastUpdated().getTime(); });
+  // „kn2“ = rozbor s rozšířenou kartou (12. 10.): karty rozebrané starším motorem (bez herců, sekcí…) se z mezipaměti nevezmou
+  const klice = soubory.map(function (f) { return 'kn2:' + druh + ':' + f.getId() + ':' + f.getLastUpdated().getTime(); });
   let ulozene = {};
   try { ulozene = klice.length ? cache.getAll(klice) || {} : {}; } catch (chyba) { ulozene = {}; }
   const nove = {}, polozky = [], chybne = [], videno = {};

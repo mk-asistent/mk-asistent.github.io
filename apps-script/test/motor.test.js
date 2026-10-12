@@ -3758,7 +3758,7 @@ test('knihovna: bez složky prázdná (nic nezaloží), info hlásí akce, čten
   assert.ok(cteni.indexOf('knihovna') >= 0 && cteni.indexOf('knihovnaReserse') >= 0 && cteni.indexOf('knihovnaPridat') < 0, 'čtení vs. zápis');
   const d = p.volej('davka', { polozky: [{ akce: 'info' }, { akce: 'knihovna' }] });
   assert.strictEqual(d.data[1].ok, true, d.data[1].chyba);
-  assert.strictEqual(p.volej('info').data.verze, '2026-10-11.5');
+  assert.strictEqual(p.volej('info').data.verze, '2026-10-12.1');
 });
 
 test('knihovna: karty a rešerše z Disku – jen známá pole, adresy jen http(s), rešerše v seznamu jen index; neplatný JSON a karta bez názvu nic nerozbijí', () => {
@@ -3792,6 +3792,66 @@ test('knihovna: karty a rešerše z Disku – jen známá pole, adresy jen http(
   assert.strictEqual(karta('nesmysl'), null);
   assert.strictEqual(karta({ id: 'Film X', druh: 'film', nazev: 'X' }, 'Neplatne Jmeno.json'), null, 'bez platného id');
   assert.strictEqual(karta({ nazev: 'X' }, 'serial-x.json').druh, 'serial', 'druh z id');
+});
+
+test('knihovna: rozšířená karta (12. 10.) – herci, lidé za kamerou, postavy, fakta, sekce, citáty, podobné; fotky jen z Wikimedia Commons, délky omezené', () => {
+  const p = prostredi();
+  const rozsirena = Object.assign({}, KARTA_TEST, {
+    herci: [
+      { jmeno: 'Karel Zkušební', postava: 'Pilot', o: 'Znáš ho z jiných filmů.', foto: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Karel.jpg/330px-Karel.jpg',
+        fotoStranka: 'https://commons.wikimedia.org/wiki/File:Karel.jpg', navic: 'pryč' },
+      { jmeno: 'Eva Pokusná', postava: 'Pilotka', foto: 'https://example.com/cizi.jpg', fotoStranka: 'https://commons.wikimedia.org/wiki/File:Eva.jpg' },
+      { jmeno: 'Bez fotky', o: 'x'.repeat(2000) }, { postava: 'bez jména' }, 'nesmysl'
+    ],
+    lide: [{ jmeno: 'Jana Testová', role: 'režie a scénář', o: 'Druhý celovečerní film.', foto: 'javascript:alert(1)' }],
+    postavy: [{ jmeno: 'Pilotka', o: 'Hlavní hrdinka.' }, { o: 'bez jména' }],
+    fakta: [{ co: 'Rozpočet', hodnota: '10 mil. Kč' }, { co: 'Natáčecích dní', hodnota: 40 }, { co: 'Bez hodnoty' }],
+    sekce: [{ id: 'Vznik', nadpis: 'Jak film vznikal', odstavce: ['Natáčelo se v létě.'], body: ['hangár', 'letiště'] }, { id: 'zlé id!', nadpis: 'Hudba', odstavce: ['Housle.'] },
+      { nadpis: '', odstavce: [] }],
+    citaty: [{ text: 'Letíme!', kdo: 'Pilotka' }, { text: 'Druhý' }, { text: 'Třetí' }, { text: 'Čtvrtý navíc' }],
+    podobne: [{ nazev: 'Druhý let', rok: 2023, proc: 'Pokračování.', id: 'film-druhy-let' }, { nazev: 'Mraky', rok: 'nevím', id: 'ŠPATNĚ' }, { proc: 'bez názvu' }]
+  });
+  knihovnaNaDisku(p, [['film-zkusebni-let.json', rozsirena]], []);
+  const k = json(p.volej('knihovna').data.karty[0]);
+  assert.deepStrictEqual(k.herci[0], { jmeno: 'Karel Zkušební', postava: 'Pilot', o: 'Znáš ho z jiných filmů.',
+    foto: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Karel.jpg/330px-Karel.jpg', fotoStranka: 'https://commons.wikimedia.org/wiki/File:Karel.jpg' });
+  assert.deepStrictEqual(k.herci[1], { jmeno: 'Eva Pokusná', postava: 'Pilotka' }, 'cizí fotka pryč (i se stránkou souboru)');
+  assert.strictEqual(k.herci[2].o.length, 700, 'text „o“ zkrácený');
+  assert.strictEqual(k.herci.length, 3, 'bez jména a nesmysly pryč');
+  assert.deepStrictEqual(k.lide, [{ jmeno: 'Jana Testová', role: 'režie a scénář', o: 'Druhý celovečerní film.' }], 'javascript: fotka pryč');
+  assert.deepStrictEqual(k.postavy, [{ jmeno: 'Pilotka', o: 'Hlavní hrdinka.' }]);
+  assert.deepStrictEqual(k.fakta, [{ co: 'Rozpočet', hodnota: '10 mil. Kč' }, { co: 'Natáčecích dní', hodnota: '40' }]);
+  assert.deepStrictEqual(k.sekce, [{ id: 'vznik', nadpis: 'Jak film vznikal', odstavce: ['Natáčelo se v létě.'], body: ['hangár', 'letiště'] },
+    { nadpis: 'Hudba', odstavce: ['Housle.'] }], 'id sekce jen jako kotva, prázdná sekce pryč');
+  assert.strictEqual(k.citaty.length, 3, 'nejvýš 3 citáty');
+  assert.deepStrictEqual(k.citaty[0], { text: 'Letíme!', kdo: 'Pilotka' });
+  assert.deepStrictEqual(k.podobne, [{ nazev: 'Druhý let', rok: 2023, proc: 'Pokračování.', id: 'film-druhy-let' }, { nazev: 'Mraky' }]);
+  // karta bez rozšíření je stejná jako dřív (nic navíc)
+  const karta = vm.runInContext('KNIHOVNA_.karta', p.ctx);
+  assert.ok(['herci', 'lide', 'postavy', 'fakta', 'sekce', 'citaty', 'podobne'].every((x) => !(x in karta(KARTA_TEST))));
+  // přebytečné položky a dlouhé texty: herci 12, lidé 8, postavy 14, fakta 10, sekce 8 × odstavce 8 × 1 200 znaků / body 12, citáty 3 × 200, podobné 6,
+  // zdroje 30 a odkazy 15 (název do 200 znaků)
+  const mnoho = (n, fn) => Array.from({ length: n }, (_, i) => fn(i));
+  const velka = karta({ id: 'film-velka', druh: 'film', nazev: 'Velká', herci: mnoho(15, (i) => ({ jmeno: 'H' + i })), lide: mnoho(10, (i) => ({ jmeno: 'L' + i })),
+    postavy: mnoho(20, (i) => ({ jmeno: 'P' + i })), fakta: mnoho(12, (i) => ({ co: 'F' + i, hodnota: String(i) })),
+    sekce: mnoho(10, (i) => ({ nadpis: 'S' + i, odstavce: mnoho(10, () => 'o'.repeat(3000)), body: mnoho(20, (j) => 'b' + j) })),
+    citaty: mnoho(5, () => ({ text: 'c'.repeat(500) })), podobne: mnoho(9, (i) => ({ nazev: 'T' + i })),
+    zdroje: mnoho(35, (i) => ({ nazev: 'Zdroj ' + i + ' ' + 'z'.repeat(170), url: 'https://example.com/' + i })), odkazy: mnoho(20, (i) => ({ nazev: 'O' + i, url: 'https://example.com/o' + i })) });
+  assert.deepStrictEqual([velka.herci.length, velka.lide.length, velka.postavy.length, velka.fakta.length, velka.sekce.length, velka.citaty.length, velka.podobne.length],
+    [12, 8, 14, 10, 8, 3, 6]);
+  assert.deepStrictEqual([velka.sekce[0].odstavce.length, velka.sekce[0].odstavce[0].length, velka.sekce[0].body.length, velka.citaty[0].text.length], [8, 1200, 12, 200]);
+  assert.deepStrictEqual([velka.zdroje.length, velka.odkazy.length, velka.zdroje[0].nazev.length], [30, 15, 178], 'rozšířené karty mají až ~25 zdrojů s dlouhými názvy');
+});
+
+test('knihovna: karta rozebraná starším motorem (stará mezipaměť „kn:“) se po nasazení nevezme – nový rozbor i s herci', () => {
+  const p = prostredi();
+  const disk = knihovnaNaDisku(p, [['film-zkusebni-let.json', Object.assign({}, KARTA_TEST, { herci: [{ jmeno: 'Karel Zkušební', postava: 'Pilot' }] })]], []);
+  const f = disk.pol.soubory[0];
+  // mezipaměť staršího motoru: stejný soubor a čas úpravy, ale karta bez herců
+  p.ctx.CacheService.getScriptCache().put('kn:p:' + f.getId() + ':' + f.getLastUpdated().getTime(), JSON.stringify({ id: 'film-zkusebni-let', druh: 'film', nazev: 'Stará' }));
+  const k = p.volej('knihovna').data.karty[0];
+  assert.strictEqual(k.nazev, 'Zkušební let');
+  assert.deepStrictEqual(json(k.herci), [{ jmeno: 'Karel Zkušební', postava: 'Pilot' }]);
 });
 
 test('knihovna: mezipaměť podle id a času úpravy – druhé čtení soubory nečte, změněnou kartu ano', () => {
