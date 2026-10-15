@@ -24,8 +24,8 @@ const PO_CHYBE = 60e3;    // motor neodpověděl: znovu za minutu
 const PRVNI_PO = 1200;    // první čtení chvíli po vykreslení (start aplikace má přednost)
 const STRANKY = ['dnes', 'reely', 'plakaty'];
 
-// Druhy příspěvků – registrují je reely.js a plakaty.js (bez kruhových importů):
-// typ 'reel' | 'plakat' → { klic: pole v igStav ('reely' | 'plakaty'), oblast: kopie na serveru, video, cil: stránka,
+// Druhy příspěvků – registrují je reely.js, pribehy.js a plakaty.js (bez kruhových importů):
+// typ 'reel' | 'plakat' | 'pribeh' (příběh z fotky) → { klic: pole v igStav ('reely' | 'plakaty' | 'pribehy'), oblast: kopie na serveru, video, cil: stránka,
 //   plan() → { id: položka } | null, nastav(plan, data) → true (uloženo v modulu) | false (modul data ještě nemá),
 //   nazev(id) → text, ucet() → '@účet' }
 const zdroje = {};
@@ -183,7 +183,7 @@ export function zverejnitTed(typ, id) {
   const zd = zdroje[typ];
   if (!zd || !umiMotor('igKrok')) return;
   const z = planTypu(typ)[id] || {};
-  potvrd('Zveřejnit hned?', { ikona: IKONY.instagram, ton: 'ok', text: zd.nazev(id) + ' – na ' + zd.ucet() + ' teď' + (z.pribeh ? ', i do příběhu' : '') +
+  potvrd('Zveřejnit hned?', { ikona: IKONY.instagram, ton: 'ok', text: zd.nazev(id) + ' – na ' + zd.ucet() + ' teď' + (z.jenPribeh ? ' jako příběh' : z.pribeh ? ', i do příběhu' : '') +
     ', bez čekání na naplánovaný čas.', ano: 'Zveřejnit teď', ne: 'Počkat' }).then((ano) => { if (ano) hned(typ, id, 'ted'); });
 }
 
@@ -204,9 +204,8 @@ registruj('ig', (el) => {
   const sh = P.souhrn(z, { ted, video: zd.video });
   const zas = P.zasek(z, ted, spoustec(), zd.video);
   const hotovo = z.stav === 'hotovo';
-  const nazev = hotovo ? 'Na Instagramu' : zas && zas.chyba ? 'Nepovedlo se' : P.ceka(z) ? 'Naplánováno' : sh.krok.nazev;
-  const veta = hotovo ? 'vyšlo ' + P.casKratce(sh.krok.cas || P.konec(z), ted) + (z.pribehChyba ? ' · příběh nevyšel' : z.mediaPribeh ? ' · i v příběhu' : '')
-    : zas ? zas.duvod : [sh.krok.popis, P.infoText(z, ted)].filter(Boolean).join(' · ');
+  const nazev = hotovo ? (z.jenPribeh ? 'Příběh vyšel' : 'Na Instagramu') : zas && zas.chyba ? 'Nepovedlo se' : P.ceka(z) ? 'Naplánováno' : sh.krok.nazev;
+  const veta = hotovo ? P.hotovoText(z, ted) : zas ? zas.duvod : [sh.krok.popis, P.infoText(z, ted)].filter(Boolean).join(' · ');
   return hlavaKarty('<span class="bk-ikona bk-ikona--ig">' + IKONY.instagram + '</span>', zd.nazev(id) + ' · ' + zd.ucet(), esc(nazev), esc(veta),
     hotovo ? '' : '<span class="bk-poradi cisla">' + sh.poradi + '/' + sh.celkem + '</span>') +
     '<div class="bk-oddil">' + P.krokyHtml(z, { ted, video: zd.video }) + '</div>';
@@ -249,9 +248,9 @@ export function kartaHtml() {
   const hotovo = x.z.stav === 'hotovo';
   // u chyby název kroku, který se nepovedl, do popisu – nahoře jasně „Nepovedlo se“
   const popis = zas ? (zas.chyba ? sh.krok.nazev + ': ' : '') + zas.duvod
-    : hotovo ? 'vyšlo ' + P.casKratce(sh.krok.cas || P.konec(x.z), ted) + (x.z.pribehChyba ? ' · příběh nevyšel' : x.z.mediaPribeh ? ' · i v příběhu' : '')
+    : hotovo ? P.hotovoText(x.z, ted)
       : [sh.krok.popis, P.infoText(x.z, ted)].filter(Boolean).join(' · ');
-  const nazevKroku = hotovo ? 'Na Instagramu' : zas && zas.chyba ? 'Nepovedlo se' : zas && zas.akce === 'ted' ? 'Zveřejnění nezačalo'
+  const nazevKroku = hotovo ? (x.z.jenPribeh ? 'Příběh vyšel' : 'Na Instagramu') : zas && zas.chyba ? 'Nepovedlo se' : zas && zas.akce === 'ted' ? 'Zveřejnění nezačalo'
     : zas ? 'Zaseklo se – ' + sh.krok.nazev.toLowerCase() : sh.krok.nazev;
   let akce = '';
   if (hotovo && /^https:\/\//.test(x.z.odkaz || '')) akce = '<a class="btn btn--ghost btn--sm" href="' + esc(x.z.odkaz) + '" target="_blank" rel="noopener noreferrer">' + IKONY.odkaz + '<span>Na Instagramu</span></a>';

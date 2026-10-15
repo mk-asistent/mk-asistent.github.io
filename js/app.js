@@ -20,6 +20,7 @@ import * as zdravi from './zdravi.js';
 import * as fotbal from './fotbal.js';
 import * as dochazka from './dochazka.js';
 import * as reely from './reely.js';
+import * as pribehy from './pribehy.js';
 import * as plakaty from './plakaty.js';
 import * as auto from './auto.js';
 import * as moje from './moje.js';
@@ -546,6 +547,8 @@ function otevriRychle() {
       (umiMotor('vaha') ? volba('vaha', IKONY.vaha, 'oranz', 'Váha', 'kg – zapíše se i s časem') : '') +
       (umiMotor('autoZapsat') ? volba('tankovani', IKONY.palivo, 'auto', 'Tankování', 'částka, cena za litr, km – do tabulky auta') : '') +
       (umiMotor('autoZapsat') ? volba('myti', IKONY.kapka, 'auto', 'Mytí auta', 'výdaj za myčku – částka jako minule, stačí Zapsat') : '') +
+      // příběh na Instagram z fotky z telefonu (js/pribehy.js) – fotku vybere až v okně příběhu
+      (pribehy.umi() ? volba('pribeh', IKONY.instagram, 'fialova', 'Příběh z fotky', 'na Instagram klubu, i se zmínkami účtů') : '') +
       // účtenka: popisek ke stálému poli pro fotku (js/auto.js – překreslení ho nesmaže) – klepnutí otevře nabídku iPhonu
       // (Fotky / Vyfotit / Soubory); po výběru se „+“ zavře a průběh je vidět v kartičce dole
       (umiMotor('autoUctenka') ? auto.popisekFotky('rychle__foto', '<i class="kruh kruh--auto">' + IKONY.foto + '</i><b>Účtenky</b>' +
@@ -563,6 +566,7 @@ function rychlaAkce(akce) {
   else if (akce === 'jidlo') zdravi.otevriJidlo();
   else if (akce === 'tankovani') auto.otevriZapis('tankovani');
   else if (akce === 'myti') auto.otevriRychlyVydaj(0);
+  else if (akce === 'pribeh') pribehy.otevriNovy();
   else if (akce === 'knihovna') knihovna((m) => m.otevriPridani());
 }
 

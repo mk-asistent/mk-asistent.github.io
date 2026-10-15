@@ -3,7 +3,8 @@
 // plakaty): { kdy, stav: ceka | nahrava | zverejnuji | hotovo | chyba, kroky: { priprava, zpracovani, zverejnuji, pribeh,
 // hotovo, chyba } (ms), kontrola (ms poslední kontroly na Instagramu), stavIg / stavIgPribeh (IN_PROGRESS, FINISHED…),
 // pokusy + vypadek (výpadek spojení), bezi (zámek běhu motoru do ms), kontejner, pribeh, pribehChyba, mediaPribeh, odkaz,
-// chyba, zverejneno }. Starší položky (motor před 11. 10.) kroky nemají – ukáže se jen stav.
+// chyba, zverejneno, jenPribeh (jen příběh bez příspěvku – od 15. 10.), zminkyChyba (zmínky v příběhu Instagram odmítl) }.
+// Starší položky (motor před 11. 10.) kroky nemají – ukáže se jen stav. Druh 'pribeh' = příběh z fotky (PRIBEHY_PLAN).
 
 import { esc, dm, hhmm, DNY_KR, pulnoc } from './pomocne.js';
 import { IKONY } from './ikony.js';
@@ -112,14 +113,15 @@ export function infoText(z, ted) {
 export function kroky(z, o) {
   const k = (z && z.kroky) || {};
   const ted = o.ted;
+  const jen = !!z.jenPribeh; // jen příběh (bez příspěvku): reel, plakát nebo fotka z telefonu
   const seznam = [
     { klic: 'plan', nazev: 'Naplánováno' },
     { klic: 'priprava', nazev: o.video ? 'Příprava videa' : 'Příprava obrázku' },
     { klic: 'zpracovani', nazev: 'Instagram zpracovává' },
-    { klic: 'zverejnuji', nazev: 'Zveřejnění příspěvku' }
+    { klic: 'zverejnuji', nazev: jen ? 'Zveřejnění příběhu' : 'Zveřejnění příspěvku' }
   ];
-  if (z.pribeh) seznam.push({ klic: 'pribeh', nazev: 'Příběh' });
-  seznam.push({ klic: 'hotovo', nazev: 'Na Instagramu' });
+  if (z.pribeh && !jen) seznam.push({ klic: 'pribeh', nazev: 'Příběh' });
+  seznam.push({ klic: 'hotovo', nazev: jen ? 'Příběh vyšel' : 'Na Instagramu' });
   const index = (klic) => seznam.findIndex((x) => x.klic === klic);
   // aktuální krok (u chyby ten, který se nepovedl = poslední začatý)
   let aktualni;
@@ -152,8 +154,34 @@ export function kroky(z, o) {
     if (x.klic === 'pribeh' && z.stav === 'hotovo') {
       if (z.pribehChyba) { krok.stav = 'varovani'; krok.popis = 'nevyšel: ' + z.pribehChyba; } else if (!z.mediaPribeh) krok.popis = '';
     }
+    // zmínky v příběhu Instagram odmítl – příběh vyšel bez nich (motor to zkusil znovu bez user_tags)
+    if (x.klic === 'hotovo' && z.stav === 'hotovo' && z.zminkyChyba) krok.popis = 'příběh bez zmínek – Instagram je odmítl';
+    if (x.klic === 'hotovo' && jen && z.stav === 'hotovo') krok.popis = (krok.popis ? krok.popis + ' · ' : '') + 'po 24 h z Instagramu zmizí';
     return krok;
   });
+}
+
+/** Text stavu hotové položky: „vyšlo 20:15 · i v příběhu“, u jen příběhu „příběh vyšel 20:15“ (s upozorněním na zmínky). */
+export function hotovoText(z, ted) {
+  const kdy = casKratce(Number((z.kroky || {}).hotovo) || konec(z), ted);
+  return (z.jenPribeh ? 'příběh vyšel ' + kdy : 'vyšlo ' + kdy + (z.pribehChyba ? ' · příběh nevyšel' : z.mediaPribeh ? ' · i v příběhu' : '')) +
+    (z.zminkyChyba ? ' · bez zmínek' : '');
+}
+
+// ---------------------------------------------------------------- účty k označení / zmínky (kontrola v aplikaci před odesláním)
+export const MAX_OZNACENI = 20; // jako motor (IG_MAX_OZNACENI) – Instagram označí nejvýš 20 lidí
+const JMENO_UCTU = /^[a-z0-9._]{1,30}$/i;
+
+/** „@dorost_agro, klub“ → { ucty: ['dorost_agro', 'klub'], chyba: '' } – jména bez @, malými písmeny, bez opakování; chyba
+ *  česky (neplatné jméno, víc než 20). Stejná pravidla jako motor (igOznacit_). */
+export function uctyKOznaceni(text) {
+  const ucty = [];
+  const casti = String(text || '').split(/[\s,;]+/).map((u) => u.trim().replace(/^@/, '')).filter(Boolean);
+  for (const u of casti) {
+    if (!JMENO_UCTU.test(u)) return { ucty, chyba: 'Neplatné jméno účtu: „' + u + '“ – jen písmena bez diakritiky, číslice, tečka a podtržítko.' };
+    if (ucty.indexOf(u.toLowerCase()) < 0) ucty.push(u.toLowerCase());
+  }
+  return ucty.length > MAX_OZNACENI ? { ucty, chyba: 'Označit jde nejvýš ' + MAX_OZNACENI + ' účtů.' } : { ucty, chyba: '' };
 }
 
 /** Krátký souhrn pro Přehled: aktuální krok (název + popis), pořadí z celku a stav. */
