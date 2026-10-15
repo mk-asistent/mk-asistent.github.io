@@ -216,10 +216,11 @@ export function vykresliUvod(poPripojeni) {
 
 // ---------------------------------------------------------------- informace z motoru
 
-export function nactiInfo() {
+/** znovu = přímo z motoru, ne z kopie na serveru (po nasazení nové verze motoru – zkontrolujZmeny v app.js). */
+export function nactiInfo(znovu) {
   if (stav.nacita.info) return Promise.resolve();
   stav.nacita.info = true;
-  return volej('info')
+  return volej('info', znovu ? { znovu: true } : undefined)
     .then((info) => { stav.info = info; stav.chyby.info = null; uloziste.pis('asistent.info', info); })
     .catch((e) => { stav.chyby.info = e; })
     .then(() => { stav.nacita.info = false; zmeneno(); if (jeOtevreny('nastaveni')) obnovPanel('nastaveni'); });

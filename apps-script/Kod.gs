@@ -43,7 +43,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-15.4';
+const VERZE = '2026-10-16.1';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -4276,7 +4276,8 @@ function oznacZmenu_(oblast) {
  *  a plakátů při každé obnově (jinak jen po půl hodině a „vyjde …“ by u hotového příspěvku zůstalo). */
 function zmeny_() {
   const vl = vlastnosti_();
-  return { auto: Number(vl.getProperty('AUTO_ZMENA') || 0),
+  // verze motoru: aplikace po nasazení nové verze sama načte nový seznam akcí (bez Obnovit – Michal 15. 10.)
+  return { verze: VERZE, auto: Number(vl.getProperty('AUTO_ZMENA') || 0),
     zdravi: Math.max(Number(vl.getProperty('ZDRAVI_ZMENA') || 0), zmenaSouboruClauda_()), instagramBezi: igAktivni_(),
     knihovna: Math.max(Number(vl.getProperty('KNIHOVNA_ZMENA') || 0), zmenaKnihovny_()) };
 }

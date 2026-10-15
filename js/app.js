@@ -165,6 +165,8 @@ function stara(klic, minut) {
 function zkontrolujZmeny() {
   if (!umiMotor('zmeny') || !ucet.zapnuty()) return;
   volej('zmeny').then((z) => {
+    // nová verze motoru (nasazení) → nový seznam akcí hned, ne až po hodině nebo po Obnovit
+    if (z && z.verze && stav.info && stav.info.verze && z.verze !== stav.info.verze) nast.nactiInfo(true);
     auto.zkontrolujZmenu(z && z.auto);
     zdravi.zkontrolujZmenu(z && z.zdravi);
     if (knihovnaModul) knihovnaModul.zkontrolujZmenu(z && z.knihovna); // Knihovna: jen když je načtená

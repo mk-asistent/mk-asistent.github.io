@@ -1112,8 +1112,9 @@ button.zapas-hlava:hover { background: var(--bg-soft); }
    (Michal 15. 10.: „lépe uspořádáno … jen to, co čeká na Instagram … seznam víc vlevo a Instagram vpravo jako okno vedle“).
    Lišta Nevydané · Zveřejněné · Vše (+ týmy, Nový příběh); na PC (≥ 1000 px) vlevo seznam malých karet v mřížce, vpravo
    detail vybraného (náhled videa malý – video se otevře klepnutím na Disku, popisek k úpravě, návrhy od Clauda, Instagram);
-   na telefonu a iPadu na výšku jen seznam, detail v okně. Šířka stránky omezená, karty nikdy přes celou šířku. */
-.pohled-reely { max-width: 1480px; }
+   na telefonu a iPadu na výšku jen seznam, detail v okně. Stránka přes celou šířku (systém šířek, --sirka-stranky), karty
+   nikdy přes celou šířku – řádek se vyplní dalšími kartami. */
+.pohled-reely { max-width: var(--sirka-stranky); }
 .reely-stranka { display: flex; flex-direction: column; gap: 16px; }
 .reely-lista { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
 .reely-lista > .segment { min-width: 0; }
@@ -1122,6 +1123,7 @@ button.zapas-hlava:hover { background: var(--bg-soft); }
 .reely-sloupec { min-width: 0; display: flex; flex-direction: column; gap: 18px; }
 @media (min-width: 1000px) {
     .reely-rozvrzeni--detail { grid-template-columns: minmax(0, 1fr) minmax(400px, 540px); }
+    @media (min-width: 1800px) { .reely-rozvrzeni--detail { grid-template-columns: minmax(0, 1fr) minmax(460px, 600px); } }
     /* detail vpravo zůstává na očích při posouvání seznamu (vlastní posuvník, když je delší než okno) */
     .reely-detail { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; overscroll-behavior: contain; padding: 16px; }
 }

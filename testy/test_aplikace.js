@@ -4917,8 +4917,9 @@ function vychoziVikendTestu() {
               nahled: Math.round(box('#p-reely .reely-detail .reel__nahled').width), karty, sekce: document.querySelectorAll('#p-reely .reely-sekce').length,
               prekryv: document.documentElement.scrollWidth - document.documentElement.clientWidth };
           });
-          jistota(r.detailLeft >= r.sloupecRight && r.detail >= 380 && r.detail <= 560 && r.nahled <= 360 && Math.max(...r.karty) <= 600 && r.sloupec >= 300 &&
-            r.prekryv <= 0 && r.sekce === 2, sirka + '×' + vyska + ': ' + JSON.stringify(r));
+          // stránka přes celou šířku (systém šířek, 15. 10.) – na 1920 px detail až 600 px, karty pořád nejvýš 460 px
+          jistota(r.detailLeft >= r.sloupecRight && r.detail >= 380 && r.detail <= (sirka >= 1800 ? 610 : 560) && r.nahled <= 360 && Math.max(...r.karty) <= 600 && r.sloupec >= 300 &&
+            r.stranka >= 0.85 * (sirka - 80) && r.prekryv <= 0 && r.sekce === 2, sirka + '×' + vyska + ': ' + JSON.stringify(r));
           await page.waitForTimeout(200);
           await page.screenshot({ path: path.join(VYSTUP, 'pc_reely_' + sirka + '_' + motiv + '.png') });
           jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
@@ -6542,7 +6543,7 @@ function vychoziVikendTestu() {
       await cekejVeStrance(p2, () => !document.getElementById('kn-panel-prehled').hidden && document.querySelector('#kn-stranka [data-kn-tab="prehled"]').getAttribute('aria-selected') === 'true');
       await p2.goto('about:blank');
       await p2.goto(WEB + '#knihovna/film-neni');
-      await p2.waitForFunction(() => /Tohle v knihovně není/.test(document.querySelector('#kn-stranka').textContent));
+      await p2.waitForFunction(() => /Tohle v knihovně není/.test((document.querySelector('#kn-stranka') || {}).textContent || ''));
       await p2.click('#kn-stranka .prazdne [data-kn-zpet]');
       await seznamKnihovny(p2);
       jistota(!chybyKnihovny(chybyStranky).length, 'chyby stránky: ' + chybyKnihovny(chybyStranky).join(' | '));
@@ -6564,7 +6565,7 @@ function vychoziVikendTestu() {
       await page.waitForSelector('[data-panel="kn-pridat"].otevreny [data-kn-pridat-text]');
       jistota(await page.getAttribute('[data-panel="kn-pridat"] [data-kn-druh="film"]', 'aria-pressed') === 'true', 'na záložce Filmy předvybraný film');
       await page.fill('[data-panel="kn-pridat"] [data-kn-pridat-text]', 'Zkušební let');
-      await page.waitForFunction(() => /V knihovně už je „Zkušební let“ \(2020\)/.test(document.querySelector('[data-panel="kn-pridat"] [data-kn-pridat-uz]').textContent));
+      await page.waitForFunction(() => /V knihovně už je „Zkušební let“ \(2020\)/.test((document.querySelector('[data-panel="kn-pridat"] [data-kn-pridat-uz]') || {}).textContent || ''));
       await page.click('[data-panel="kn-pridat"] [data-kn-druh="kniha"]');
       jistota(await page.inputValue('[data-panel="kn-pridat"] [data-kn-pridat-text]') === 'Zkušební let', 'text zůstal po změně druhu');
       jistota(/Název knihy/.test(await page.textContent('[data-panel="kn-pridat"] .label')), 'popisek pole podle druhu');
@@ -6579,12 +6580,12 @@ function vychoziVikendTestu() {
       jistota(/Interstellar/.test(await page.textContent('#p-knihovna .kn-karta--ceka')) && /Claude připravuje/.test(await page.textContent('#p-knihovna .kn-karta--ceka')), 'čekající karta hned');
       await cekej(() => knihovnaVolani.some((v) => v.akce === 'knihovnaPridat' && v.druh === 'film' && v.text === 'Interstellar'), 5000, 'požadavek do motoru');
       delete zpozdeniMotoru.knihovnaPridat;
-      await page.waitForFunction(() => /Přidáno – Claude připraví kartu filmu/.test(document.getElementById('toast').textContent));
+      await page.waitForFunction(() => /Přidáno – Claude připraví kartu filmu/.test((document.getElementById('toast') || {}).textContent || ''));
       await page.waitForSelector('#p-knihovna .kn-karta--ceka[data-kn-ceka^="p-20261011-1200-"]');
       const ceka = await page.textContent('#p-knihovna .kn-karta--ceka');
       jistota(/film · zadáno \d{1,2}:\d{2}/.test(ceka), 'čas zadání: ' + ceka);
       // náhled z Wikipedie (nejdřív česky „Interstellar (film)“): popis a obrázek
-      await page.waitForFunction(() => /Film z roku 2014/.test(document.querySelector('#p-knihovna .kn-karta--ceka').textContent));
+      await page.waitForFunction(() => /Film z roku 2014/.test((document.querySelector('#p-knihovna .kn-karta--ceka') || {}).textContent || ''));
       jistota(wiki[0] === 'Interstellar_(film)', 'Wikipedie: ' + wiki.join(', '));
       jistota(await page.locator('#p-knihovna .kn-karta--ceka .kn-obr img[src="https://upload.wikimedia.org/test/wiki.png"]').count() === 1, 'obrázek z Wikipedie');
       // detail čekajícího: zadáno, z Wikipedie, Zrušit → Vrátit
@@ -6596,11 +6597,11 @@ function vychoziVikendTestu() {
       await page.click(P + ' [data-kn-zrusit]');
       await cekej(() => knihovnaVolani.some((v) => v.akce === 'knihovnaZrusit'), 5000, 'zrušení do motoru');
       await page.waitForFunction(() => !document.querySelector('#p-knihovna .kn-karta--ceka'));
-      await page.waitForFunction(() => /Požadavek zrušen/.test(document.getElementById('toast').textContent));
+      await page.waitForFunction(() => /Požadavek zrušen/.test((document.getElementById('toast') || {}).textContent || ''));
       await page.click('#toast .toast__akce');
       await page.waitForSelector('#p-knihovna .kn-karta--ceka');
       await cekej(() => knihovnaTest.pozadavky.length === 1, 5000, 'Vrátit přidá znovu');
-      await page.waitForFunction(() => /Přidáno/.test(document.getElementById('toast').textContent)); // odpověď motoru je v aplikaci
+      await page.waitForFunction(() => /Přidáno/.test((document.getElementById('toast') || {}).textContent || '')); // odpověď motoru je v aplikaci
       // Claude připravil kartu (s "pozadavek") → po obnovení plná karta, čekající pryč
       const pz = knihovnaTest.pozadavky[0];
       knihovnaTest.karty.unshift({ id: 'film-interstellar', druh: 'film', nazev: 'Interstellar', rok: 2014, delka: '169 min', kratce: 'Výprava červí dírou.',
@@ -6670,7 +6671,7 @@ function vychoziVikendTestu() {
       await naZalozce(page, 'reserse-letectvi', 'shrnuti', 'shrnuti');
       await page.click(STRANKA + ' [data-kn-otazka="Jak funguje vrtulník?"]');
       await cekej(() => knihovnaVolani.some((v) => v.akce === 'knihovnaPridat' && v.druh === 'reserse' && v.text === 'Jak funguje vrtulník?'), 5000, 'otázka do motoru');
-      await page.waitForFunction(() => /Přidáno – Claude připraví rešerši/.test(document.getElementById('toast').textContent));
+      await page.waitForFunction(() => /Přidáno – Claude připraví rešerši/.test((document.getElementById('toast') || {}).textContent || ''));
       jistota(await page.evaluate(() => location.hash) === '#knihovna/reserse-letectvi', 'zůstávám na rešerši');
       await page.click(STRANKA + ' [data-kn-zpet]');
       await page.waitForSelector('#p-knihovna .kn-res--ceka');

@@ -1440,6 +1440,8 @@ test('zdraví: WHOOP stahuje spouštěč na pozadí (nejvýš 1× za 30 min) –
   const po = p.whoop.volani.length;
   assert.ok(po > 0, 'spouštěč stáhl WHOOP');
   const znacka = p.volej('zmeny').data.zdravi;
+  // verze motoru ve značkách změn – aplikace po nasazení sama načte nový seznam akcí
+  assert.ok(/^\d{4}-\d{2}-\d{2}\.\d+$/.test(p.volej('zmeny').data.verze), 'zmeny.verze: ' + p.volej('zmeny').data.verze);
   assert.ok(znacka >= Date.parse('2026-10-02T06:00:00Z'), 'nová data z WHOOP → značka změny zdraví');
   p.nastavCas(Date.parse('2026-10-02T06:10:00Z'));
   p.ctx.instagramKazdych10Min();
@@ -4174,7 +4176,10 @@ test('značky změn: zápis k autu ji posune, čtení ne', () => {
   const p = prostredi();
   tabulkaAuta(p);
   p.vlastnosti.set('AUTO_TABULKA', TAB_AUTO);
-  assert.deepStrictEqual(json(p.volej('zmeny').data), { auto: 0, zdravi: 0, instagramBezi: false, knihovna: 0 });
+  const z0 = json(p.volej('zmeny').data);
+  assert.ok(typeof z0.verze === 'string' && z0.verze.length > 0, 'verze motoru ve značkách');
+  delete z0.verze;
+  assert.deepStrictEqual(z0, { auto: 0, zdravi: 0, instagramBezi: false, knihovna: 0 });
   p.nastavCas(Date.parse('2026-10-05T21:00:00+02:00'));
   p.volej('auto');
   assert.strictEqual(p.volej('zmeny').data.auto, 0, 'čtení značku nemění');

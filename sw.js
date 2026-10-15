@@ -11,7 +11,7 @@
 //
 // VERZE = otisk obsahu souborů aplikace: po každé změně `node testy/sw_verze.js --zapsat` (testy jinak selžou).
 
-const VERZE = 'asistent-9dc9871e6d74';
+const VERZE = 'asistent-ef6d5f448099';
 const SOUBORY = [
   './', 'index.html', 'app.css', 'manifest.webmanifest',
   'js/start.js', 'js/app.js', 'js/krouzky.js', 'js/api.js', 'js/pomocne.js', 'js/stav.js', 'js/ui.js', 'js/ikony.js', 'js/panely.js',
