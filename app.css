@@ -45,6 +45,13 @@
     --rail-w: 76px;
     --mezera: 16px;
     --lista-h: 76px;
+    /* šířky stránek na PC (systém popsaný v sekci „rozvržení“ u .pohled) */
+    --sirka-stranky: 2200px;        /* strop obsahu stránky – jen ultraširoký monitor, jinak stránka vyplní místo vedle pásu */
+    --sirka-cteci-stranky: 900px;   /* čtecí stránka o jednom sloupci (.pohled-uzky) */
+    --sirka-bloku: 800px;           /* čtecí blok s nadpisem a kartami (detail e-mailu) – vystředěný v širší ploše */
+    --sirka-cteni: 68ch;            /* řádek souvislého textu, ~75 znaků (tělo e-mailu, popis) */
+    --sirka-okna: 720px;            /* okno uprostřed (Nastavení) */
+    --sloupec-min: 320px;           /* nejužší sloupec mřížky karet (.mrizka-karet) – užší místo = o sloupec méně */
     /* mobilní vzor PriorAuth: černá lišta, limetková aktivní položka a karta „Další krok“ */
     --lista-pozadi: #121614;
     --limetka: #d5ee5e;
@@ -187,8 +194,22 @@ svg { flex: none; width: 1.25em; height: 1.25em; } /* výchozí velikost – kon
 .rail { display: none; }
 .hlavni { min-width: 0; }
 main { padding: 4px var(--mezera) calc(var(--lista-h) + env(safe-area-inset-bottom) + 28px); }
-.pohled { display: flex; flex-direction: column; gap: 16px; }
-.pohled-uzky { max-width: 900px; }
+/* ---------- šířka stránek na PC (Michal 15. 10.: „problém s tou šířkou stránky je stejně jako na reelu i u auta“ – náhled
+   plakátu byl obří, Knihovna dřív jen úzký pruh). Zásada: šířku obrazovky využít víc sloupci / mřížkou, ne zvětšováním
+   jednoho prvku; nic přerostlého (obrázek, graf, karta, tlačítko přes celou šířku, prázdná obří plocha) a nic jako úzký
+   pruh uprostřed s prázdnem; souvislý text nejvýš ~75 znaků na řádek. Telefon beze změny (jeden sloupec, nic nepřetéká).
+   Systém (proměnné v :root nahoře):
+   - .pohled = pracovní stránka: vyplní místo vedle pásu (strop --sirka-stranky jen pro ultraširoký monitor), obsah se
+     dělí do sloupců / mřížky a sloupců přibývá s šířkou (Přehled 2 → 3, Schránka seznam + přehled ve dvou sloupcích,
+     Pošta seznam + čtení, Kalendář, Zdraví, Knihovna…);
+   - .pohled-uzky = čtecí stránka o jednom sloupci (--sirka-cteci-stranky) – jen kde obsah na víc sloupců není;
+   - čtecí blok uvnitř širší plochy (detail e-mailu) nejvýš --sirka-bloku, vystředěný; souvislý text --sirka-cteni;
+   - .mrizka-karet = karty v řádcích, sloupec nejméně --sloupec-min (Kalendář → Seznam: dny vedle sebe);
+   - okno uprostřed --sirka-okna (Nastavení); obrázky a grafy mají vlastní strop ve svém bloku (plakát 720 px).
+   Hlídá test „šířka stránek na PC…“ v testy/test_aplikace.js (1920 / 1500 / 1280 px a telefon). */
+.pohled { display: flex; flex-direction: column; gap: 16px; max-width: var(--sirka-stranky); }
+.pohled-uzky { max-width: var(--sirka-cteci-stranky); }
+.mrizka-karet { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--sloupec-min)), 1fr)); gap: 14px; align-items: start; }
 
 /* horní lišta (iPad, PC): hledání vlevo, akce vpravo */
 .horni { display: none; }
@@ -359,8 +380,13 @@ main { padding: 4px var(--mezera) calc(var(--lista-h) + env(safe-area-inset-bott
     .dnes-mrizka > section, .dnes-vpravo > section { break-inside: avoid; margin: 0 0 16px; }
     .dl-pozornost .dlazdice__telo { max-height: 560px; }
 }
-@media (min-width: 1700px) {
+/* šířka stránek (15. 10.): třetí sloupec už od 1600 px (dřív 1700 – mezi tím byly dvě karty po ~680 px), čtvrtý na
+   ultraširokém monitoru – karta nikdy širší než ~650 px */
+@media (min-width: 1600px) {
     .dnes-mrizka { columns: 3; }
+}
+@media (min-width: 2300px) {
+    .dnes-mrizka { columns: 4; }
 }
 
 /* výstrahy ČHMÚ nahoře na Dnes – jen když nějaká platí */
@@ -1417,8 +1443,10 @@ li.aktivni > .radek { background: var(--sand); box-shadow: inset 3px 0 0 var(--a
 
 /* ---------- Schránka – celá stránka (Michal 9. 10.: „stránka schránka je taková prázdná … zkus ji nějak vyplnit“):
    vlevo zápis, filtry a seznam, vpravo přehled (týden v číslech + Claude, Moje poznámky, termíny, nápady na později).
-   Od 1180 px dva sloupce, užší pod sebou: iPad na výšku karty po dvou, telefon jeden sloupec pod seznamem. */
-#p-schranka.pohled-uzky { max-width: 1480px; }
+   Od 1180 px dva sloupce, užší pod sebou: iPad na výšku karty po dvou, telefon jeden sloupec pod seznamem.
+   Šířka stránek (15. 10.): stránka přes celou šířku vedle pásu (dřív strop 1480 px → na 1920 px 300 px prázdna vpravo
+   a seznam 1090 px); od 1480 px je přehled vpravo ve dvou sloupcích (týden + moje poznámky, termíny + nápady) a seznam
+   s ním dělí místo napůl – žádný řádek seznamu přes celou obrazovku. */
 .schranka-mrizka { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .schranka-hlavni { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .schranka-bok { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 16px; align-items: start; min-width: 0; }
@@ -1426,7 +1454,10 @@ li.aktivni > .radek { background: var(--sand); box-shadow: inset 3px 0 0 var(--a
     .schranka-mrizka { grid-template-columns: minmax(0, 1fr) 330px; gap: 20px; }
     .schranka-bok { display: flex; flex-direction: column; align-items: stretch; }
 }
-@media (min-width: 1500px) { .schranka-mrizka { grid-template-columns: minmax(0, 1fr) 370px; } }
+@media (min-width: 1480px) {
+    .schranka-mrizka { grid-template-columns: minmax(0, 1fr) minmax(640px, 1fr); }
+    .schranka-bok { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
 /* prázdný seznam: kroužek s ikonou, nadpis a věta */
 .prazdne--velke { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 30px 20px 32px; text-align: center; }
 .prazdne--velke .kruh { width: 46px; height: 46px; margin-bottom: 6px; }
@@ -1665,7 +1696,11 @@ li.vybrany > .radek-posta, li.vybrany > .radek-posta:hover { background: var(--a
 .posta-prace-prazdna > div > b { display: block; font-size: 14.5px; }
 .posta-prace-prazdna p { margin: 4px 0 10px; font-size: 13px; line-height: 1.5; color: var(--text-soft); }
 @media (min-width: 1000px) {
-    .posta-rozlozeni { display: grid; grid-template-columns: minmax(320px, 400px) minmax(0, 1fr); gap: 16px; align-items: start; }
+    /* šířka stránek (15. 10.): seznam a čtení si dělí místo 2 : 3 (dřív seznam pevně 400 px a e-mail 1 380 px přes celou
+       plochu – text, Další krok i tlačítka Odpovědět / Všem / Přeposlat roztažené); čtení je vystředěný blok
+       --sirka-bloku a souvislý text --sirka-cteni (~75 znaků) */
+    .posta-rozlozeni { display: grid; grid-template-columns: minmax(380px, 2fr) minmax(0, 3fr); gap: 16px; align-items: start; }
+    .detail-telo > .vlakno, .detail-paticka > .vlakno-akce { max-width: var(--sirka-bloku); margin-inline: auto; }
     /* výška detailu = od jeho horního okraje po spodek okna (--posta-detail-nahore měří js/posta.js – nad ním jsou lišta,
        nadpis, záložky, skupiny a filtry; s pevnými 210 px byla patička s Odpovědět pod okrajem okna) */
     .posta-detail {
@@ -1694,7 +1729,7 @@ li.vybrany > .radek-posta, li.vybrany > .radek-posta:hover { background: var(--a
 .zprava-obrazky { display: flex; align-items: center; gap: 8px; margin: 0 10px 8px; padding: 7px 11px; border-radius: var(--radius); background: var(--sand); font-size: 12.5px; color: var(--muted); }
 .zprava-obrazky svg { width: 16px; height: 16px; }
 .zprava-obrazky .odkaz { margin-left: auto; }
-.zprava-text { padding: 2px 14px 14px; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.zprava-text { max-width: calc(var(--sirka-cteni) + 28px); padding: 2px 14px 14px; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .prilohy { list-style: none; margin: 0; padding: 0 12px 12px; display: flex; flex-wrap: wrap; gap: 8px; }
 .prilohy li { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-soft); font-size: 12.5px; }
 .prilohy svg { width: 14px; height: 14px; color: var(--muted); }
@@ -2129,7 +2164,7 @@ input.field[type="date"], input.field[type="time"] { min-width: 0; }
 .kroky li + li { margin-top: 3px; }
 code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; padding: 1px 5px; border-radius: 5px; background: var(--sand); word-break: break-all; }
 @media (min-width: 760px) {
-    .panel.panel-okno.panel-nastaveni { width: min(720px, 94vw); height: min(84vh, 760px); }
+    .panel.panel-okno.panel-nastaveni { width: min(var(--sirka-okna), 94vw); height: min(84vh, 760px); }
     .panel-nastaveni .nast-zalozky { top: -14px; margin: 0 -20px; padding: 12px 20px; }
 }
 .nast { display: flex; flex-direction: column; gap: 14px; padding-top: 12px; }

@@ -650,7 +650,8 @@ function seznamHtml() {
     if (!mameData(od)) return '<div class="card">' + (chybaMesice(od) ? chybaHtml(chybaMesice(od), 'data-kal-znovu') : '<div class="prazdne">Načítám…</div>') + '</div>';
     return '<div class="card"><div class="prazdne">Příštích 30 dní nic v kalendáři.</div></div>';
   }
-  return h;
+  // dny jako karty v mřížce (app.css .mrizka-karet): na PC vedle sebe, ne každý den přes celou šířku; telefon pod sebou
+  return '<div class="kal-seznam-dny mrizka-karet">' + h + '</div>';
 }
 
 // ---------------------------------------------------------------- okno „Kalendáře a svátky“: co ukazovat, oblíbení lidé

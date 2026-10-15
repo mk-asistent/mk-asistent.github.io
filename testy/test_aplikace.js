@@ -2569,6 +2569,146 @@ function vychoziVikendTestu() {
     }
   });
 
+  // ---------- šířka stránek na PC (Michal 15. 10.: „problém s tou šířkou stránky … projdi všechny stránky“): šířku využít víc
+  // sloupci / mřížkou, ne zvětšováním jednoho prvku – nic přerostlého (karta, obrázek, tlačítko přes celou šířku), žádný úzký
+  // pruh s prázdnem vedle, souvislý text ~75 znaků; telefon beze změny (jeden sloupec, nic nepřetéká). Systém šířek: app.css
+  // u .pohled (--sirka-stranky, --sirka-bloku, --sirka-cteni, --sirka-okna, .mrizka-karet).
+  /** Rozměry aktivní stránky: místo vedle pásu, kam sahá obsah, nejširší karta / obrázek / tlačítko, přetečení do strany. */
+  const MER_SIRKY = (sel) => {
+    const main = document.querySelector('main');
+    const cs = getComputedStyle(main);
+    const misto = Math.min(main.getBoundingClientRect().width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), 2200);
+    const pohled = Array.from(document.querySelectorAll('.pohled')).find((e) => e.getClientRects().length > 0);
+    const vidim = (e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+    const kusy = Array.from(pohled.querySelectorAll(sel || '.card')).filter(vidim).map((e) => e.getBoundingClientRect());
+    const nej = (s) => Array.from(pohled.querySelectorAll(s)).filter(vidim).reduce((m, e) => Math.max(m, e.getBoundingClientRect().width), 0);
+    return {
+      misto: Math.round(misto),
+      pohled: Math.round(pohled.getBoundingClientRect().width),
+      obsah: Math.round(Math.max(...kusy.map((b) => b.right)) - Math.min(...kusy.map((b) => b.left))),
+      sloupcu: new Set(kusy.map((b) => Math.round(b.left))).size,
+      karta: Math.round(Math.max(...kusy.map((b) => b.width))),
+      obrazek: Math.round(nej('img, svg, canvas, video, iframe')),
+      tlacitko: Math.round(nej('.btn, .dlazdice__pata')), // tlačítka akcí (řádky seznamů a výstraha ČHMÚ jsou celé řádky / pruhy)
+      pretok: document.documentElement.scrollWidth - document.documentElement.clientWidth
+    };
+  };
+  const SIRKY_PC = [{ nazev: 'pc-1920', sirka: 1920, vyska: 1080, dotyk: false }, { nazev: 'pc-1500', sirka: 1500, vyska: 850, dotyk: false },
+    { nazev: 'pc-1280', sirka: 1280, vyska: 800, dotyk: false }];
+  await test('šířka stránek na PC: Přehled, Schránka, Pošta, Kalendář, Nastavení – obsah využívá ≥ 80 % místa vedle pásu ve sloupcích, nic přerostlého, text ~75 znaků (1920 / 1500 / 1280 px, světlý i tmavý)', async () => {
+    const puvodni = motor.schranka;
+    motor.schranka = schrankaPlna(puvodni);
+    try {
+      for (const v of SIRKY_PC) {
+        for (const motiv of v.sirka === 1920 ? ['light', 'dark'] : ['light']) {
+          const kde = v.nazev + (motiv === 'dark' ? '-tmavy' : '') + ' ';
+          const { ctx, page, chybyStranky } = await novaStranka(prohlizec, v, motiv);
+          await page.goto(WEB);
+          await page.waitForSelector('#dl-tyden .agenda__u');
+          await page.waitForSelector('#dl-pozornost .seznam');
+          const vyuziva = (m, co) => jistota(m.pohled >= 0.8 * m.misto && m.obsah >= 0.8 * m.misto && m.pretok <= 0,
+            kde + co + ': obsah nevyužívá šířku vedle pásu – ' + JSON.stringify(m));
+          // Přehled: karty ve sloupcích (2, od 1600 px 3), žádná karta přes ~650 px, tlačítko nejvýš půl stránky
+          let m = await page.evaluate(MER_SIRKY, '.dnes-mrizka .card');
+          vyuziva(m, 'Přehled');
+          jistota(m.sloupcu === (v.sirka >= 1600 ? 3 : 2) && m.karta <= 660 && m.obrazek <= 660 && m.tlacitko <= m.misto / 2, kde + 'Přehled: ' + JSON.stringify(m));
+          // Schránka: seznam a přehled vedle sebe (od 1480 px přehled ve dvou sloupcích), seznam nejvýš ~polovina stránky
+          await page.click('#rail [data-cil="schranka"]');
+          await page.waitForSelector('#sb-moje .moje-polozka');
+          m = await page.evaluate(MER_SIRKY, '.schranka-hlavni > .card, #schranka-obsah .card, .schranka-bok > .card');
+          vyuziva(m, 'Schránka');
+          const sb = await page.evaluate(() => {
+            const b = (s) => document.querySelector(s).getBoundingClientRect();
+            const bok = Array.from(document.querySelectorAll('.schranka-bok > .card')).filter((e) => e.getClientRects().length).map((e) => e.getBoundingClientRect());
+            return { seznam: Math.round(b('.schranka-hlavni').width), bokSloupcu: new Set(bok.map((x) => Math.round(x.left))).size,
+              bokKarta: Math.round(Math.max(...bok.map((x) => x.width))) };
+          });
+          jistota(sb.bokSloupcu === (v.sirka >= 1480 ? 2 : 1) && sb.seznam <= Math.max(0.62 * m.misto, 820) && sb.bokKarta <= 520 && m.tlacitko <= m.misto / 2,
+            kde + 'Schránka: ' + JSON.stringify(sb) + ' ' + JSON.stringify(m));
+          // Pošta: seznam a čtení 2 : 3, čtení vystředěný blok ≤ 800 px, tlačítka v patičce ne přes celou šířku
+          await page.click('#rail [data-cil="posta"]');
+          await page.waitForSelector('#posta-seznam [data-vlakno="v1"]');
+          await page.click('#posta-seznam [data-vlakno="v1"]');
+          await page.waitForSelector('#posta-detail .detail-telo .vlakno .zprava');
+          m = await page.evaluate(MER_SIRKY, '#posta-seznam, #posta-detail');
+          vyuziva(m, 'Pošta');
+          const po = await page.evaluate(() => {
+            const b = (s) => { const e = document.querySelector(s); return e ? e.getBoundingClientRect() : null; };
+            const det = b('#posta-detail'), vl = b('#posta-detail .vlakno');
+            const text = document.querySelector('#posta-detail .zprava-text');
+            return { seznam: Math.round(b('#posta-seznam').width), detail: Math.round(det.width), vlakno: Math.round(vl.width),
+              stred: Math.round(Math.abs((vl.left + vl.right) / 2 - (det.left + det.right) / 2)),
+              tlacitka: Math.round(Math.max(...Array.from(document.querySelectorAll('#posta-detail .detail-paticka .btn')).map((e) => e.getBoundingClientRect().width))),
+              textEm: text ? Math.round(text.getBoundingClientRect().width / parseFloat(getComputedStyle(text).fontSize) * 10) / 10 : 0 };
+          });
+          jistota(po.seznam >= 380 && po.seznam <= 0.45 * m.misto + 1 && po.vlakno <= 801 && po.stred <= 2 && po.tlacitka <= 300 && po.textEm > 0 && po.textEm <= 40,
+            kde + 'Pošta: ' + JSON.stringify(po));
+          // Kalendář: měsíc přes šířku vedle pravého panelu; Seznam = dny jako karty v mřížce (ne každý den přes celou šířku)
+          await page.click('#rail [data-cil="kalendar"]');
+          await page.click('[data-kal-pohled="mesic"]');
+          await page.waitForSelector('.mesic-den.dnes');
+          m = await page.evaluate(MER_SIRKY, '.kal-hlavni > .card, .kal-boc > .card');
+          vyuziva(m, 'Kalendář – měsíc');
+          await page.click('[data-kal-pohled="seznam"]');
+          await page.waitForSelector('.kal-seznam-dny > .card');
+          m = await page.evaluate(MER_SIRKY, '.kal-seznam-dny > .card, .kal-boc > .card');
+          vyuziva(m, 'Kalendář – seznam');
+          const dny = await page.evaluate(MER_SIRKY, '.kal-seznam-dny > .card');
+          jistota(dny.sloupcu >= 2 && dny.karta <= 520, kde + 'Kalendář – seznam: ' + JSON.stringify(dny));
+          if (v.sirka === 1920) await page.screenshot({ path: path.join(VYSTUP, 'sirka_' + kde.trim() + '_kalendar_seznam.png') });
+          await page.click('[data-kal-pohled="mesic"]'); // výchozí zobrazení pro další testy (pamatuje se v zařízení)
+          // Nastavení: okno uprostřed, rozumně široké (ne přes celou obrazovku, ne úzký proužek)
+          await page.click('#rail [data-otevri-nastaveni]');
+          await page.waitForSelector('[data-panel="nastaveni"].otevreny .nast-zalozky');
+          await page.waitForTimeout(300);
+          const okno = await page.evaluate(() => { const b = document.querySelector('[data-panel="nastaveni"]').getBoundingClientRect(); return { w: Math.round(b.width), stred: Math.round(Math.abs(b.left + b.width / 2 - innerWidth / 2)) }; });
+          jistota(okno.w >= 600 && okno.w <= 760 && okno.stred <= 2, kde + 'Nastavení: ' + JSON.stringify(okno));
+          await page.keyboard.press('Escape');
+          await page.waitForSelector('[data-panel="nastaveni"]', { state: 'detached' });
+          jistota(!chybyStranky.length, kde + 'chyby stránky: ' + chybyStranky.join(' | '));
+          await ctx.close();
+        }
+      }
+    } finally {
+      motor.schranka = puvodni;
+      vycistiSchranku();
+    }
+  });
+
+  await test('šířka stránek na telefonu: Přehled, Schránka, Pošta, Kalendář (měsíc, týden, seznam pod sebou), Nastavení – nic nepřetéká do strany, karty v jednom sloupci', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
+    await page.goto(WEB);
+    await page.waitForSelector('.pozornost .pozor');
+    const kontrola = async (co, sel) => {
+      const m = await page.evaluate(MER_SIRKY, sel);
+      jistota(m.pretok <= 0 && m.sloupcu === 1 && m.karta <= 390, 'telefon ' + co + ': ' + JSON.stringify(m));
+    };
+    await kontrola('Přehled', '#p-dnes .card');
+    const jdi = (s) => page.click('#lista [data-cil="' + s + '"]');
+    await jdi('schranka');
+    await page.waitForSelector('#sb-tyden .sb-cisla');
+    await kontrola('Schránka', '#p-schranka .card');
+    await jdi('posta');
+    await page.waitForSelector('#posta-seznam [data-vlakno="v1"]');
+    await kontrola('Pošta', '#posta-seznam .card');
+    await jdi('kalendar');
+    for (const k of ['mesic', 'tyden', 'seznam']) {
+      await page.click('[data-kal-pohled="' + k + '"]');
+      await page.waitForSelector(k === 'seznam' ? '.kal-seznam-dny > .card' : k === 'mesic' ? '.mesic-den.dnes' : '.cas-mrizka');
+      await kontrola('Kalendář ' + k, k === 'seznam' ? '.kal-seznam-dny > .card' : '.kal-hlavni > .card');
+    }
+    await page.click('[data-kal-pohled="mesic"]');
+    await page.click('.hlava-ja [data-menu]');
+    await page.waitForSelector('[data-panel="menu"].otevreny [data-menu-nastaveni]');
+    await page.click('[data-panel="menu"] [data-menu-nastaveni]');
+    await page.waitForSelector('[data-panel="nastaveni"].otevreny .nast-zalozky');
+    const okno = await page.evaluate(() => { const p = document.querySelector('[data-panel="nastaveni"]'); const t = p.querySelector('.panel-telo');
+      return { w: Math.round(p.getBoundingClientRect().width), pretok: t.scrollWidth - t.clientWidth }; });
+    jistota(okno.w <= 390 && okno.pretok <= 1, 'telefon Nastavení: ' + JSON.stringify(okno));
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
   // ---------- Moje poznámky na Dnes (Michal 9. 10.: „poznámka sám pro sebe na později … na hlavní stránce pro mě“)
   await test('pc: Moje poznámky na Dnes – přidat Enterem, Hotovo s Vrátit, pravé tlačítko → Smazat a Vrátit, celý text, ⋯', async () => {
     try {
