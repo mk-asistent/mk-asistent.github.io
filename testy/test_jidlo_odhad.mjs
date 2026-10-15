@@ -363,6 +363,23 @@ test('den v textu jídla se nepočítá jako jídlo: „pátek: rohlík“, „8
   assert.strictEqual(o('v pátek ráno sem měl 3 rohlíky').polozky[0].g, 129);
 });
 
+test('chleba ve vajíčku (Michalův recept: menší krajíc, ½ vejce, 2 plátky šunky, sýr, olej) → ~14 g a ~220 kcal na krajíc', () => {
+  const r = o('2 chleby ve vajíčku se šunkou a sýrem');
+  assert.deepStrictEqual(nazvy(r), ['Chleba ve vajíčku se šunkou a sýrem']);
+  mezi(r.bilkoviny, 26, 30, 'bílkoviny 2 krajíce');
+  mezi(r.kcal, 420, 460, 'kcal 2 krajíce');
+  const c = o('chleba ve vajíčku');
+  assert.deepStrictEqual(nazvy(c), ['Chleba ve vajíčku se šunkou a sýrem']);
+  mezi(c.bilkoviny, 13, 15, 'jeden krajíc');
+  mezi(o('3 krajíce ve vajíčku').bilkoviny, 40, 44, '3 krajíce');
+  mezi(o('3 krajíce chleba ve vajíčku').bilkoviny, 40, 44, '3 krajíce chleba');
+  assert.deepStrictEqual(nazvy(o('3 krajíce ve vajíčku se šunkou a sýrem')), ['Chleba ve vajíčku se šunkou a sýrem']);
+  assert.deepStrictEqual(nazvy(o('2 krajíce s máslem')), ['Chléb', 'Máslo']);
+  mezi(o('vajíčkové chleby 4').bilkoviny, 54, 58, 'vajíčkové chleby 4');
+  // vejce samotná dál jako vejce
+  assert.deepStrictEqual(nazvy(o('3 vejce a chleba')), ['Vejce', 'Chléb']);
+});
+
 test('rychlost: 2000 odhadů (psaní po písmenech) pod 1 s', () => {
   const vzor = 'k obědu kuřecí prsa 200 g s rýží, 2 rohlíky se šunkou, kreatin a omega';
   const t0 = Date.now();

@@ -142,6 +142,11 @@ const JIDLA = [
   ['wrap', 'Wrap', 'wrap|burrit|quesadil', 250, 11, 220, { ks: 250 }],
   ['pita', 'Pita', 'pita$|pitu$|pity$|pitou$', 60, 9, 275, { ks: 60 }],
   ['chlebicek', 'Chlebíček', 'chlebic', 70, 8, 220, { ks: 70 }],
+  // Michalův recept (15. 10.): menší chleba (10–15 cm) ~30 g krajíc obalený ve vajíčku (6 vajec na 12 krajíců), smažený na oleji,
+  // navrch 2 plátky šunky a jemně nastrouhaný sýr → krajíc ~100 g, ~14 g bílkovin, ~220 kcal („se šunkou a sýrem“ je v ceně)
+  ['chleb_vejce', 'Chleba ve vajíčku se šunkou a sýrem', 'chleb|krajic|toust ve$|v$ vajic|vejc|vajec,vajickov chleb|krajic|toust,' +
+    'chleb|krajic|toust ve$|v$ vajic|vejc|vajec se$|s$ sunk a$ syr,chleb|krajic|toust ve$|v$ vajic|vejc|vajec se$|s$ syr a$ sunk,' +
+    'vajickov chleb|krajic|toust se$|s$ sunk a$ syr', 100, 14, 220, { ks: 100, pl: 100 }],
   ['croissant', 'Croissant', 'croissant|croisant|kroasan|krosan', 60, 8, 406, { ks: 60 }],
   ['loupak', 'Loupák', 'loupak|loupac', 60, 8, 340, { ks: 60 }],
   ['kolac', 'Koláč', 'kolac|kolack', 70, 7, 340, { ks: 70 }],
@@ -636,6 +641,16 @@ export function odhadniJidlo(text, doplnky = []) {
         i++;
       } else if (f && !posledni) i++;                     // „ze 3 vajec omeleta“ – přísady jako jídla
       else i = preskoc(i + 1, true);                      // „džus z pomerančů“, „smoothie z banánu“, „z pekárny“ – jen popis
+      continue;
+    }
+    // „3 krajíce ve vajíčku (se šunkou a sýrem)“ – krajíc bez slova chleba = Michalův chleba ve vajíčku
+    if (cekajici && cekajici.j === 'krajic' && (x.t === 've' || x.t === 'v') && tok[i + 1] && /^(vajic|vejc|vajec)/.test(tok[i + 1].t)) {
+      let k = i + 2;
+      const s = tok.slice(k, k + 4).map((q) => (q && q.druh === 's' ? q.t : ''));
+      if (/^(se|s)$/.test(s[0]) && s[2] === 'a' && ((/^sunk/.test(s[1]) && /^syr/.test(s[3])) || (/^syr/.test(s[1]) && /^sunk/.test(s[3])))) k += 4;
+      pridej(PODLE_ID.chleb_vejce, cekajici);
+      cekajici = null;
+      i = k;
       continue;
     }
     if (PREDLOZKY.has(x.t) || x.t === 'bez') { i = preskoc(i + 1, x.t === 'bez'); continue; }
