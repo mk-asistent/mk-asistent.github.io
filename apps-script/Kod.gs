@@ -42,7 +42,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-12.1';
+const VERZE = '2026-10-15.1';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -151,8 +151,9 @@ function vysledekRid_(rid) {
 }
 
 // co motor umí uvnitř akcí (aplikace podle toho ukáže nová tlačítka i u starší verze motoru je schová);
-// pitiJidloPresun = pitiJidlo s jak: 'presun' (přesun zápisu na jiný den) a zpětné dny s novým hodnocením od Clauda
-const SCHOPNOSTI = ['polozkaUpravy', 'polozkaTermin', 'pitiJidloPresun'];
+// pitiJidloPresun = pitiJidlo s jak: 'presun' (přesun zápisu na jiný den) a zpětné dny s novým hodnocením od Clauda;
+// plakatPlanPopisek = plakatNaplanovat bere popisek (drží se k plánu) a účty k označení (Michal 15. 10.: „jako u reelu“)
+const SCHOPNOSTI = ['polozkaUpravy', 'polozkaTermin', 'pitiJidloPresun', 'plakatPlanPopisek'];
 
 const AKCE = {
   info: function () {
@@ -3540,7 +3541,8 @@ function vikendText_(t) {
   return c[2] + '.' + (ne.getUTCMonth() + 1 === c[1] ? '' : ' ' + c[1] + '.') + '–' + ne.getUTCDate() + '. ' + (ne.getUTCMonth() + 1) + '. ' + ne.getUTCFullYear();
 }
 
-/** Popisky pro aplikaci: novější z ruční úpravy a Claudova; cekaNaClauda = požádáno o nový a ještě nepřišel. */
+/** Popisky pro aplikaci: novější z ruční úpravy a Claudova; cekaNaClauda = požádáno o nový a ještě nepřišel;
+ *  plan = popisek naplánovaného příspěvku (drží se k plánu – Claudův popisek, který přijde potom, ho sám nezmění). */
 function popiskyPlakatu_(rucne, claude) {
   const ven = {};
   Object.keys(rucne || {}).concat(Object.keys(claude || {})).forEach(function (t) {
@@ -3551,6 +3553,7 @@ function popiskyPlakatu_(rucne, claude) {
     ven[t] = { text: String(odClauda ? c.text : r.text || '').slice(0, 2200), zdroj: odClauda ? 'claude' : r.text ? 'rucne' : '',
       kdy: odClauda ? cKdy : rKdy, styl: String(r.styl || c.styl || ''), pozadano: Number(r.pozadano) || 0,
       cekaNaClauda: !!r.pozadano && Number(r.pozadano) > cKdy };
+    if (r.plan) { ven[t].plan = String(r.plan).slice(0, 2200); ven[t].planKdy = Number(r.planKdy) || 0; }
   });
   return ven;
 }
@@ -3647,13 +3650,17 @@ function plakatNastaveni_(d) {
   return { nastaveni: upravPlakaty_(function (data) { data.nastaveni = JSON.parse(json); return data.nastaveni; }) };
 }
 
-/** Akce plakatPopisekUlozit: popisek upravený ručně v aplikaci. */
+/** Akce plakatPopisekUlozit: popisek upravený ručně v aplikaci. U plakátu, který čeká na naplánovaný čas, se změní
+ *  i popisek plánu (v kartě je to jeden popisek); když se už nahrává nebo je venku, plán zůstane, jak byl. */
 function plakatPopisekUlozit_(d) {
   const t = tydenPlakatu_(d.tyden);
   const text = String(d.text == null ? '' : d.text).replace(/\r\n/g, '\n');
   if (text.length > 2200) throw new Error('Popisek je delší než 2 200 znaků – Instagram ho nevezme.');
+  const z = nactiPlan_('PLAKATY_PLAN')[t];
+  const doPlanu = !!text.trim() && !!z && z.stav === 'ceka' && !(z.bezi && z.bezi > Date.now());
   return { popisky: upravPlakaty_(function (data, slozka) {
     data.popisky[t] = Object.assign({}, data.popisky[t], { text: text, kdy: Date.now() });
+    if (doPlanu && data.popisky[t].plan) Object.assign(data.popisky[t], { plan: text.trim(), planKdy: Date.now() });
     return popiskyPlakatu_(data.popisky, popiskyClauda_(slozka));
   }) };
 }
@@ -3713,7 +3720,13 @@ function plakatObrazky_(d) {
   return { obrazky: obrazkyPlakatu_(slozka) };
 }
 
-/** Akce plakatNaplanovat: { tyden, kdy, pribeh } – příspěvek s popiskem (a příběh) na Instagram v daný čas. */
+/**
+ * Akce plakatNaplanovat: { tyden, kdy, pribeh, popisek?, oznacit? } – příspěvek s popiskem (a příběh) na Instagram v daný
+ * čas. popisek = text z okna plánu (Michal 15. 10.: „nastavím, kdy se má obrázek vložit jako příspěvek s nějakým
+ * popiskem“): drží se k plánu (plakaty.json popisky[t].plan) a zároveň je to popisek kola, takže ho ukáže i karta;
+ * Claudův popisek, který přijde potom, plán sám nezmění. Bez popisku (starší aplikace) platí popisek kola v okamžiku
+ * zveřejnění jako dřív. oznacit = účty k označení na obrázku (user_tags, nejvýš 5).
+ */
 function plakatNaplanovat_(d) {
   const t = tydenPlakatu_(d.tyden);
   igKlic_();
@@ -3722,23 +3735,59 @@ function plakatNaplanovat_(d) {
   const slozka = slozkaPlakatu_();
   if (!souborPlakatu_(slozka, t + '_prispevek.jpg')) throw new Error('Chybí obrázek plakátu – vyrob ho v aplikaci znovu.');
   if (d.pribeh && !souborPlakatu_(slozka, t + '_pribeh.jpg')) throw new Error('Chybí obrázek pro příběh.');
-  const popisek = (popiskyPlakatu_(nactiPlakaty_(slozka).data.popisky, popiskyClauda_(slozka))[t] || {}).text;
+  const vlastni = d.popisek == null ? '' : String(d.popisek).replace(/\r\n/g, '\n').trim();
+  if (vlastni.length > 2200) throw new Error('Popisek je delší než 2 200 znaků – Instagram ho nevezme.');
+  const ucty = igOznacit_(d.oznacit);
+  const ulozene = nactiPlakaty_(slozka).data.popisky;
+  const popisek = vlastni || (popiskyPlakatu_(ulozene, popiskyClauda_(slozka))[t] || {}).text;
   if (!popisek) throw new Error('Plakát nemá popisek – bez něj ho na Instagram nepošlu.');
-  return { plan: upravPlan_(function (p) {
+  const stary = nactiPlan_('PLAKATY_PLAN')[t];
+  igLzeMenit_(stary, 'Plakát');
+  if (stary && stary.stav === 'hotovo') throw new Error('Plakát toho víkendu už na Instagramu je.');
+  // popisek plánu dřív než plán – spouštěč, který plán vezme hned, už ho najde; bez popisku z okna se starý popisek plánu
+  // zahodí (platí popisek kola)
+  let popisky = null;
+  if (vlastni || (ulozene[t] && ulozene[t].plan)) {
+    popisky = upravPlakaty_(function (data, sl) {
+      const r = Object.assign({}, data.popisky[t]);
+      if (vlastni) {
+        const ted = Date.now();
+        if (String((popiskyPlakatu_(data.popisky, popiskyClauda_(sl))[t] || {}).text || '').trim() !== vlastni) Object.assign(r, { text: vlastni, kdy: ted });
+        Object.assign(r, { plan: vlastni, planKdy: ted });
+      } else {
+        delete r.plan;
+        delete r.planKdy;
+      }
+      data.popisky[t] = r;
+      return popiskyPlakatu_(data.popisky, popiskyClauda_(sl));
+    });
+  }
+  const plan = upravPlan_(function (p) {
     const z = p[t];
     igLzeMenit_(z, 'Plakát');
     if (z && z.stav === 'hotovo') throw new Error('Plakát toho víkendu už na Instagramu je.');
     p[t] = igNovaPolozka_(z, { kdy: kdy, stav: 'ceka', pribeh: !!d.pribeh });
-  }, 'PLAKATY_PLAN') };
+    if (ucty.length) p[t].oznacit = ucty;
+  }, 'PLAKATY_PLAN');
+  return popisky ? { plan: plan, popisky: popisky } : { plan: plan };
 }
 
-/** Akce plakatZrusitPlan (jen dokud se nenahrává). */
+/** Akce plakatZrusitPlan (jen dokud se nenahrává); popisek plánu pryč – popisek kola v kartě zůstává. */
 function plakatZrusitPlan_(d) {
   const t = tydenPlakatu_(d.tyden);
-  return { plan: upravPlan_(function (plan) {
-    igLzeMenit_(plan[t], 'Plakát');
-    delete plan[t];
-  }, 'PLAKATY_PLAN') };
+  const plan = upravPlan_(function (p) {
+    igLzeMenit_(p[t], 'Plakát');
+    delete p[t];
+  }, 'PLAKATY_PLAN');
+  const r = nactiPlakaty_(slozkaPlakatu_()).data.popisky[t];
+  if (!r || !r.plan) return { plan: plan };
+  return { plan: plan, popisky: upravPlakaty_(function (data, sl) {
+    const x = Object.assign({}, data.popisky[t]);
+    delete x.plan;
+    delete x.planKdy;
+    data.popisky[t] = x;
+    return popiskyPlakatu_(data.popisky, popiskyClauda_(sl));
+  }) };
 }
 
 /** Spouštěč a igKrok: plakát víkendu t na Instagram – příspěvek s popiskem, příběh 9:16. Soubory a popisek z Disku se
@@ -3750,9 +3799,19 @@ function plakatZverejni_(t, volby) {
       const slozka = slozkaPlakatu_();
       const prispevek = souborPlakatu_(slozka, t + '_prispevek.jpg'), pribeh = souborPlakatu_(slozka, t + '_pribeh.jpg');
       if (!prispevek) throw new Error('Obrázek plakátu na Disku není – naplánuj znovu z aplikace.');
-      const popisek = (popiskyPlakatu_(nactiPlakaty_(slozka).data.popisky, popiskyClauda_(slozka))[t] || {}).text || '';
+      const pop = popiskyPlakatu_(nactiPlakaty_(slozka).data.popisky, popiskyClauda_(slozka))[t] || {};
+      const popisek = pop.plan || pop.text || ''; // popisek z okna plánu má přednost
       return { souborId: prispevek.getId(), pribehId: pribeh ? pribeh.getId() : '',
-        kontejner: function (z, url) { return { image_url: url, caption: popisek }; },
+        kontejner: function (z, url) {
+          const parametry = { image_url: url, caption: popisek };
+          // označené účty: u fotky chce Instagram i místo (x, y od 0 do 1) – vedle sebe u spodního okraje plakátu
+          if (z.oznacit && z.oznacit.length) {
+            parametry.user_tags = JSON.stringify(z.oznacit.map(function (u, i) {
+              return { username: u, x: Math.round((i + 1) / (z.oznacit.length + 1) * 100) / 100, y: 0.9 };
+            }));
+          }
+          return parametry;
+        },
         pribeh: function (url) { return { media_type: 'STORIES', image_url: url }; } };
     },
     chyba: function () { return { titulek: 'Plakát nevyšel na Instagramu', text: 'Víkend ' + vikendText_(t) + ' – důvod je v Asistentovi (Plakáty)' }; },

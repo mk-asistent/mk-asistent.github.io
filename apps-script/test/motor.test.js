@@ -3335,6 +3335,58 @@ test('plakáty na Instagram: obrázky (JPEG), plán jen s popiskem a obrázky, s
   assert.deepStrictEqual(Object.keys(p.volej('plakatZrusitPlan', { tyden: '2026-10-24' }).data.plan), ['2026-10-17']);
 });
 
+test('plakáty na Instagram: popisek z okna plánu drží plán (pozdější Claudův ho nezmění), úprava v kartě mění i plán, označené účty na obrázku, zrušení', () => {
+  const p = prostredi();
+  plakatyFotbal(p);
+  p.vlastnosti.set('IG_TOKEN', 'testovaci-ig-klic');
+  p.vlastnosti.set('IG_TOKEN_OBNOVA', String(Date.now()));
+  p.nastavCas(Date.parse('2026-10-12T09:00:00+02:00'));
+  const za = Date.parse('2026-10-15T18:00:00+02:00');
+  assert.ok(p.volej('info').data.akce.indexOf('plakatPlanPopisek') >= 0, 'aplikace pozná, že motor popisek a označení bere');
+  p.volej('plakatObrazky', { tyden: '2026-10-17', prispevek: JPEG });
+  const plakaty = p.schranka.deti.PLAKATY;
+  plakaty.createFile('popisky_claude.json', JSON.stringify({ '2026-10-17': { text: 'Od Clauda', kdy: '2026-10-12T08:30:00+02:00' } }));
+  assert.ok(/Neplatné jméno/.test(p.volej('plakatNaplanovat', { tyden: '2026-10-17', kdy: za, popisek: 'x', oznacit: '@špatné jméno!' }).chyba));
+  assert.ok(/2 200/.test(p.volej('plakatNaplanovat', { tyden: '2026-10-17', kdy: za, popisek: 'x'.repeat(2201) }).chyba));
+  // popisek z okna (místo Claudova) = popisek plánu i kola (karta ho ukáže jako ruční)
+  let o = p.volej('plakatNaplanovat', { tyden: '2026-10-17', kdy: za, pribeh: false, popisek: '  Derby s Miloticemi!\r\n\r\n#fkagrovnorovy  ', oznacit: '@dorost_agro, FKMilotice' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.plan['2026-10-17']), { kdy: za, stav: 'ceka', pribeh: false, oznacit: ['dorost_agro', 'fkmilotice'] });
+  let pop = o.data.popisky['2026-10-17'];
+  assert.deepStrictEqual([pop.text, pop.zdroj, pop.plan], ['Derby s Miloticemi!\n\n#fkagrovnorovy', 'rucne', 'Derby s Miloticemi!\n\n#fkagrovnorovy']);
+  // Claude potom pošle nový popisek: karta ho dostane, plán drží ten z okna
+  p.nastavCas(Date.parse('2026-10-12T10:00:00+02:00'));
+  plakaty.soubory.find((f) => f.getName() === 'popisky_claude.json').setContent(JSON.stringify({ '2026-10-17': { text: 'Nový od Clauda', kdy: '2026-10-12T10:00:00+02:00' } }));
+  pop = p.volej('plakaty').data.popisky['2026-10-17'];
+  assert.deepStrictEqual([pop.text, pop.zdroj, pop.plan], ['Nový od Clauda', 'claude', 'Derby s Miloticemi!\n\n#fkagrovnorovy']);
+  // úprava v kartě, dokud plán čeká na čas = i popisek plánu
+  p.nastavCas(Date.parse('2026-10-12T11:00:00+02:00'));
+  pop = p.volej('plakatPopisekUlozit', { tyden: '2026-10-17', text: 'Derby! Přijďte.\n' }).data.popisky['2026-10-17'];
+  assert.deepStrictEqual([pop.text, pop.plan], ['Derby! Přijďte.\n', 'Derby! Přijďte.']);
+  // v čase: příspěvek s popiskem plánu a označenými účty (u fotky s místem x, y)
+  p.nastavCas(za + 60e3);
+  p.ig.stavy = ['FINISHED'];
+  p.ctx.instagramKazdych10Min();
+  const k = p.ig.volani.filter((v) => v.cesta === '17841400000/media');
+  assert.strictEqual(k.length, 1, 'bez příběhu jen příspěvek');
+  assert.strictEqual(k[0].telo.caption, 'Derby! Přijďte.');
+  assert.deepStrictEqual(JSON.parse(k[0].telo.user_tags), [{ username: 'dorost_agro', x: 0.33, y: 0.9 }, { username: 'fkmilotice', x: 0.67, y: 0.9 }]);
+  assert.strictEqual(JSON.parse(p.vlastnosti.get('PLAKATY_PLAN'))['2026-10-17'].stav, 'hotovo');
+  // po zveřejnění úprava popisku plán nemění
+  assert.strictEqual(p.volej('plakatPopisekUlozit', { tyden: '2026-10-17', text: 'Po zápase' }).data.popisky['2026-10-17'].plan, 'Derby! Přijďte.');
+  // stejný text jako popisek kola – štítek „ruční“ se nemění; zrušení smaže jen popisek plánu
+  p.volej('plakatObrazky', { tyden: '2026-10-24', prispevek: JPEG });
+  p.volej('plakatPopisekUlozit', { tyden: '2026-10-24', text: 'Neděle doma' });
+  o = p.volej('plakatNaplanovat', { tyden: '2026-10-24', kdy: za + 864e5, popisek: 'Neděle doma' });
+  assert.deepStrictEqual([o.data.popisky['2026-10-24'].plan, o.data.popisky['2026-10-24'].zdroj], ['Neděle doma', 'rucne']);
+  o = p.volej('plakatZrusitPlan', { tyden: '2026-10-24' });
+  assert.deepStrictEqual([o.data.plan['2026-10-24'], o.data.popisky['2026-10-24'].plan, o.data.popisky['2026-10-24'].text], [undefined, undefined, 'Neděle doma']);
+  // starší aplikace (bez popisku z okna): plán jako dřív, popisky se nepřepisují
+  o = p.volej('plakatNaplanovat', { tyden: '2026-10-24', kdy: za + 864e5 });
+  assert.deepStrictEqual(json(o.data.plan['2026-10-24']), { kdy: za + 864e5, stav: 'ceka', pribeh: false });
+  assert.strictEqual(o.data.popisky, undefined);
+});
+
 // ---- auto: tabulka Google (vymyšlená čísla – repo je veřejné)
 const TAB_AUTO = 'TABULKA-auta-1234567890abcd';
 function tabulkaAuta(p) {
@@ -3758,7 +3810,8 @@ test('knihovna: bez složky prázdná (nic nezaloží), info hlásí akce, čten
   assert.ok(cteni.indexOf('knihovna') >= 0 && cteni.indexOf('knihovnaReserse') >= 0 && cteni.indexOf('knihovnaPridat') < 0, 'čtení vs. zápis');
   const d = p.volej('davka', { polozky: [{ akce: 'info' }, { akce: 'knihovna' }] });
   assert.strictEqual(d.data[1].ok, true, d.data[1].chyba);
-  assert.strictEqual(p.volej('info').data.verze, '2026-10-12.1');
+  // info hlásí verzi z Kod.gs (ne pevné číslo – test nemá padat při každé nové verzi motoru)
+  assert.strictEqual(p.volej('info').data.verze, vm.runInContext('VERZE', p.ctx));
 });
 
 test('knihovna: karty a rešerše z Disku – jen známá pole, adresy jen http(s), rešerše v seznamu jen index; neplatný JSON a karta bez názvu nic nerozbijí', () => {
