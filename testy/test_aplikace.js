@@ -41,7 +41,7 @@ const KALENDARE = [{ id: 'g1', nazev: 'Osobní', barva: '#2f6bff', zdroj: 'googl
 const zapasFotbal = (tym, dni, h, domaci, hoste, vysledek) => ({ id: tym + dni, tym, zacatek: new Date(den(dni, h)).toISOString(), domaci, hoste,
   doma: /Vnorovy/.test(domaci), misto: '', vysledek, stav: vysledek ? 'odehrano' : 'naplanovano', url: '#' });
 const motor = {
-  info: () => ({ verze: 'test', akce: Object.keys(motor).concat(['polozkaUpravy', 'polozkaTermin', 'pitiJidloPresun']), ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false, podpisy: { osobni: 'Michal', pracovni: '' } },
+  info: () => ({ verze: 'test', akce: Object.keys(motor).concat(['polozkaUpravy', 'polozkaTermin', 'pitiJidloPresun', 'plakatPlanPopisek']), ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false, podpisy: { osobni: 'Michal', pracovni: '' } },
     kalendare: KALENDARE, skupinyHostu: [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@x.test', 'rodic2@x.test'] }], jmeniny: jmeninyOblibeni.slice(),
     pocasi: { misto: pocasiDomov ? pocasiDomov.misto : 'Veselí nad Moravou', domov: !!pocasiDomov } }),
   pocasiDomov: (d) => {
@@ -180,9 +180,11 @@ const motor = {
   },
   fotbal: () => ({ vKalendari: [], kalendar: null, data: { verze: 1, aktualizovano: new Date(ted).toISOString(), klub: 'FK Agro Vnorovy',
     tymy: [{ klic: 'A', nazev: 'A-tým', barva: '#2e7a4d' }, { klic: 'B', nazev: 'B-tým', barva: '#0f7c8c' }, { klic: 'dorost', nazev: 'Dorost', barva: '#a8620c' }],
-    zapasy: [zapasFotbal('A', -6, 16, 'FK Agro Vnorovy', 'TJ Lysovice', '1:3'), zapasFotbal('A', 2, 15, 'FK Šardice', 'FK Agro Vnorovy', ''),
+    // v testech plakátů jen zápasy s pevným datem: zápasy „za 2–3 dny“ by v týdnu před 17. nebo 24. 10. padly na plakát
+    // (15. 10. dorost doma s Těšany v neděli 18. 10. = druhá velká dlaždice, test „jediná velká dlaždice“ selhal)
+    zapasy: fotbalPlakat ? JSON.parse(JSON.stringify(ZAPASY_PLAKAT)) : [zapasFotbal('A', -6, 16, 'FK Agro Vnorovy', 'TJ Lysovice', '1:3'), zapasFotbal('A', 2, 15, 'FK Šardice', 'FK Agro Vnorovy', ''),
       zapasFotbal('B', -5, 15, 'Vnorovy B', 'Nová Lhota', '8:0'), zapasFotbal('dorost', -5, 10, 'FC Kyjov 1919', 'FK Agro Vnorovy', '4:1'),
-      zapasFotbal('dorost', 3, 12, 'FK Agro Vnorovy', 'TJ Sokol Těšany', '')].concat(fotbalPlakat ? JSON.parse(JSON.stringify(ZAPASY_PLAKAT)) : []),
+      zapasFotbal('dorost', 3, 12, 'FK Agro Vnorovy', 'TJ Sokol Těšany', '')],
     // tabulky a detail zápasu (vymyšlení hráči) – stránka Fotbal
     tabulky: { A: { celkem: [{ poradi: 1, klub: 'FK Šardice', z: 9, v: 8, r: 1, p: 0, skore: '30:8', body: 25 }, { poradi: 2, klub: 'FK Agro Vnorovy', z: 9, v: 3, r: 1, p: 5, skore: '16:20', body: 10 }],
       doma: [{ poradi: 1, klub: 'FK Agro Vnorovy', z: 4, v: 3, r: 0, p: 1, skore: '9:5', body: 9 }], venku: [], aktualizovano: new Date(ted).toISOString() } },
@@ -225,6 +227,9 @@ const motor = {
   },
   plakatPopisekUlozit: (d) => {
     plakatyData.popisky[d.tyden] = Object.assign({}, plakatyData.popisky[d.tyden], { text: String(d.text || ''), zdroj: d.text ? 'rucne' : '', kdy: Date.now(), cekaNaClauda: false });
+    // u plakátu, který čeká na čas, i popisek plánu (motor 2026-10-15.1)
+    const z = plakatyData.plan[d.tyden], pop = plakatyData.popisky[d.tyden];
+    if (z && z.stav === 'ceka' && pop.plan && String(d.text || '').trim()) Object.assign(pop, { plan: String(d.text).trim(), planKdy: Date.now() });
     return { popisky: JSON.parse(JSON.stringify(plakatyData.popisky)) };
   },
   plakatObrazky: (d) => {
@@ -232,13 +237,25 @@ const motor = {
     plakatyData.obrazky[d.tyden] = { prispevek: true, pribeh: !!d.pribeh, kdy: Date.now() };
     return { obrazky: JSON.parse(JSON.stringify(plakatyData.obrazky)) };
   },
+  // popisek z okna plánu se drží k plánu (popisky[t].plan) a je i popiskem kola; oznacit = účty na obrázku (motor 2026-10-15.1)
   plakatNaplanovat: (d) => {
     if (!plakatyData.obrazky[d.tyden]) throw new Error('Chybí obrázek plakátu – vyrob ho v aplikaci znovu.');
-    if (!(plakatyData.popisky[d.tyden] || {}).text) throw new Error('Plakát nemá popisek – bez něj ho na Instagram nepošlu.');
-    plakatyData.plan[d.tyden] = { kdy: d.kdy, stav: 'ceka', pribeh: !!d.pribeh };
-    return { plan: JSON.parse(JSON.stringify(plakatyData.plan)) };
+    const vlastni = String(d.popisek || '').trim();
+    if (!vlastni && !(plakatyData.popisky[d.tyden] || {}).text) throw new Error('Plakát nemá popisek – bez něj ho na Instagram nepošlu.');
+    const pop = plakatyData.popisky[d.tyden] = Object.assign({}, plakatyData.popisky[d.tyden]);
+    if (vlastni) {
+      if (String(pop.text || '').trim() !== vlastni) Object.assign(pop, { text: vlastni, zdroj: 'rucne', kdy: Date.now() });
+      Object.assign(pop, { plan: vlastni, planKdy: Date.now() });
+    } else { delete pop.plan; delete pop.planKdy; }
+    const oznacit = String(d.oznacit || '').split(/[\s,;]+/).filter(Boolean).map((u) => u.replace(/^@/, '').toLowerCase());
+    plakatyData.plan[d.tyden] = Object.assign({ kdy: d.kdy, stav: 'ceka', pribeh: !!d.pribeh }, oznacit.length ? { oznacit } : {});
+    return { plan: JSON.parse(JSON.stringify(plakatyData.plan)), popisky: JSON.parse(JSON.stringify(plakatyData.popisky)) };
   },
-  plakatZrusitPlan: (d) => { delete plakatyData.plan[d.tyden]; return { plan: JSON.parse(JSON.stringify(plakatyData.plan)) }; },
+  plakatZrusitPlan: (d) => {
+    delete plakatyData.plan[d.tyden];
+    if (plakatyData.popisky[d.tyden]) { delete plakatyData.popisky[d.tyden].plan; delete plakatyData.popisky[d.tyden].planKdy; }
+    return { plan: JSON.parse(JSON.stringify(plakatyData.plan)), popisky: JSON.parse(JSON.stringify(plakatyData.popisky)) };
+  },
   // průběh zveřejňování na Instagram (motor 2026-10-11.2): igStav jen čte, igKrok posune o fázi jako motor po krocích
   // (reel: ceka → zpracovává → hotovo; plakát – obrázek – rovnou hotovo); igZaseknuto = Instagram video pořád zpracovává
   igStav: () => igPrehled(),
@@ -438,8 +455,11 @@ let upozorneniStav = { zapnuto: false, tema: '' }, upozorneniOdeslano = 0;
 const plakatyData = { nastaveni: {}, kola: {}, popisky: {}, plan: {}, obrazky: {} };
 const plakatyIg = { nastaveno: true, ucet: 'fkagrovnorovy' };
 // zápasy na plakát 17.–18. a 24.–25. 10. 2026 jako ve FOTBAL.json (přeložené a s poznámkou svazu). Jen v testech plakátů –
-// pevná data by jinak měnila testy, které počítají s dneškem (doplňky v den zápasu áčka, další zápas).
+// pevná data by jinak měnila testy, které počítají s dneškem (doplňky v den zápasu áčka, další zápas). Testy plakátů mají
+// i pevné „teď“ v prohlížeči (pevnyCasPlakatu: pondělí 12. 10. 2026) – výchozí víkend a popisky nezávisí na dni spuštění.
 let fotbalPlakat = false;
+const TED_PLAKATU = new Date('2026-10-12T10:00:00+02:00');
+const pevnyCasPlakatu = (page) => page.clock.setSystemTime(TED_PLAKATU);
 const zapasPlakat = (id, tym, zacatek, domaci, hoste, navic) => Object.assign({ id, tym, zacatek, domaci, hoste, doma: /Vnorovy/.test(domaci), misto: '',
   vysledek: '', stav: 'naplanovano', url: '#' }, navic);
 const ZAPASY_PLAKAT = [
@@ -4590,10 +4610,11 @@ function vychoziVikendTestu() {
     fotbalPlakat = true;
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3], 'light', PRAHA);
     try {
+      await pevnyCasPlakatu(page); // pondělí 12. 10. – nejbližší víkend je 17.–18. 10. bez ohledu na den spuštění
       await page.goto(WEB);
       await page.click('#rail [data-cil="plakaty"]');
       await page.waitForSelector('#p-plakaty [data-pl-vyber]');
-      jistota(await page.inputValue('#p-plakaty [data-pl-vyber]') === vychoziVikendTestu(), 'výchozí víkend: ' + await page.inputValue('#p-plakaty [data-pl-vyber]'));
+      jistota(await page.inputValue('#p-plakaty [data-pl-vyber]') === '2026-10-17', 'výchozí víkend: ' + await page.inputValue('#p-plakaty [data-pl-vyber]'));
       await naVikend(page, '2026-10-17', 'MILOTICE');
       jistota(await page.$eval('#p-plakaty [data-pl-vyber]', (s) => s.selectedOptions[0].textContent) === '10. kolo · 17.–18. 10.', 'popisek kola');
       jistota(/podle rozlosování/.test(await page.textContent('#p-plakaty [data-pl-stav]')), 'štítek podle rozlosování');
@@ -4654,6 +4675,7 @@ function vychoziVikendTestu() {
     fotbalPlakat = true;
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3], 'light', PRAHA);
     try {
+      await pevnyCasPlakatu(page);
       await page.goto(WEB);
       await page.click('#rail [data-cil="plakaty"]');
       await page.waitForSelector('#p-plakaty [data-pl-vyber]');
@@ -4812,6 +4834,11 @@ function vychoziVikendTestu() {
       jistota(ctvrtek > Date.now() + 6 * 60e3 ? cekany === ctvrtek : (cekany - Date.now() >= 59 * 60e3 && cekany - Date.now() <= 66 * 60e3 && +m[5] % 5 === 0),
         'výchozí čas: ' + vychozi);
       jistota(await page.isChecked(O + '[data-pl-ig="pribeh"]'), 'i do příběhu zapnuté');
+      // popisek přímo v okně (jako u reelu): předvyplněný uloženým, jde upravit; účty k označení
+      jistota((await page.inputValue(O + '[data-pl-ig="popisek"]')).replace(/\r\n/g, '\n') === text, 'popisek v okně: ' + await page.inputValue(O + '[data-pl-ig="popisek"]'));
+      const text2 = text + '\n\nVstup zdarma!';
+      await page.fill(O + '[data-pl-ig="popisek"]', text2);
+      await page.fill(O + '[data-pl-ig="oznacit"]', '@dorost_agro');
       await page.waitForSelector(O + '.pl-nahled-pribeh', { timeout: 20000 });
       // příběh 1080 × 1920 → testy/vystup jako PNG
       const pribeh = await page.evaluate(() => new Promise((ok) => {
@@ -4832,15 +4859,38 @@ function vychoziVikendTestu() {
       jistota(obr && obr.tyden === '2026-10-17' && JSON.stringify(rozmerJpeg(jpegZDat(obr.prispevek))) === '[1440,1018]' &&
         JSON.stringify(rozmerJpeg(jpegZDat(obr.pribeh))) === '[1080,1920]', 'obrázky do motoru: ' + (obr ? JSON.stringify([rozmerJpeg(jpegZDat(obr.prispevek)), rozmerJpeg(jpegZDat(obr.pribeh))]) : 'nic'));
       jistota(plan && plan.tyden === '2026-10-17' && plan.pribeh === true && plan.kdy === cekany && nove.indexOf(obr) < nove.indexOf(plan), 'plán do motoru: ' + JSON.stringify(plan));
+      // popisek z okna: uložený i jako popisek kola (dřív než plán) a poslaný s plánem; označený účet
+      const ulozPop = nove.find((d) => d.akce === 'plakatPopisekUlozit');
+      jistota(ulozPop && ulozPop.text === text2 && nove.indexOf(ulozPop) < nove.indexOf(plan) && plan.popisek === text2 && plan.oznacit === '@dorost_agro',
+        'popisek s plánem: ' + JSON.stringify([ulozPop, plan.popisek, plan.oznacit]));
+      jistota(plakatyData.popisky['2026-10-17'].plan === text2 && JSON.stringify(plakatyData.plan['2026-10-17'].oznacit) === '["dorost_agro"]', 'v motoru: ' + JSON.stringify(plakatyData.popisky['2026-10-17']));
+      await page.waitForFunction((t) => document.querySelector('#p-plakaty [data-pl-popisek]').value === t, text2);
       const karta = (await page.textContent('#p-plakaty .pl-ig')).replace(/\s+/g, ' ');
-      jistota(/vyjde/.test(karta) && /i do příběhu/.test(karta) && /Změnit čas/.test(karta) && /Zrušit plán/.test(karta), 'karta po naplánování: ' + karta.slice(0, 200));
+      jistota(/vyjde/.test(karta) && /i do příběhu/.test(karta) && /označí @dorost_agro/.test(karta) && /Změnit čas \/ popisek/.test(karta) && /Zrušit plán/.test(karta) &&
+        /Kopírovat popisek/.test(karta) && /v plánu/.test(karta), 'karta po naplánování: ' + karta.slice(0, 300));
+      // Claude potom pošle nový popisek: plán drží ten z okna, karta nabídne „Použít nový“ (uloží ho i do plánu)
+      plakatyData.popisky['2026-10-17'] = Object.assign({}, plakatyData.popisky['2026-10-17'], { text: 'Nový popisek od Clauda ⚽', zdroj: 'claude', kdy: Date.now() + 1000 });
+      await page.click('#horni [data-obnovit]');
+      await page.waitForSelector('#p-plakaty [data-pl-novy-popisek]');
+      jistota((await page.inputValue('#p-plakaty [data-pl-popisek]')).replace(/\r\n/g, '\n') === text2, 'karta ukazuje popisek z plánu');
+      await page.click('#p-plakaty [data-pl-popisek-novy]');
+      await cekej(() => plakatyData.popisky['2026-10-17'].plan === 'Nový popisek od Clauda ⚽', 6000, 'nový popisek v plánu');
+      await page.waitForFunction(() => !document.querySelector('#p-plakaty [data-pl-novy-popisek]'));
+      // Změnit čas / popisek: okno s popiskem a účty z plánu
+      await page.click('#p-plakaty [data-pl-ig-naplanovat]');
+      await page.waitForSelector(O + '[data-pl-ig="popisek"]');
+      jistota(/Změnit plán/.test(await page.textContent(O + '.panel-titul')) && await page.inputValue(O + '[data-pl-ig="popisek"]') === 'Nový popisek od Clauda ⚽' &&
+        await page.inputValue(O + '[data-pl-ig="oznacit"]') === '@dorost_agro', 'okno změny plánu');
+      await page.click(O + '[data-zavrit-panel]');
+      await page.waitForSelector(O, { state: 'detached' });
       await page.waitForTimeout(300);
       await page.locator('#p-plakaty .pl-ig').screenshot({ path: path.join(VYSTUP, 'pc_plakat_instagram.png') });
       // zrušit plán
       await page.click('#p-plakaty [data-pl-ig-zrusit]');
       await page.click('.okno-pozadi [data-okno="ano"]');
-      await page.waitForFunction(() => !document.querySelector('#p-plakaty .pl-ig .tag--plan') && /Naplánovat na Instagram/.test(document.querySelector('#p-plakaty .pl-ig').textContent));
+      await page.waitForFunction(() => !document.querySelector('#p-plakaty .pl-ig .tag--plan') && document.querySelector('#p-plakaty .pl-ig [data-pl-ig-naplanovat]'));
       jistota(!plakatyData.plan['2026-10-17'] && volano.some((d) => d.akce === 'plakatZrusitPlan' && d.tyden === '2026-10-17'), 'plán zrušený');
+      jistota(!plakatyData.popisky['2026-10-17'].plan && plakatyData.popisky['2026-10-17'].text === 'Nový popisek od Clauda ⚽', 'popisek kola zůstal, popisek plánu pryč');
       jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     } finally {
       fotbalPlakat = false;
@@ -4889,6 +4939,7 @@ function vychoziVikendTestu() {
     fotbalPlakat = true;
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0], 'dark', PRAHA);
     try {
+      await pevnyCasPlakatu(page);
       await page.goto(WEB);
       await page.click('.hlava-ja [data-menu]');
       await page.click('[data-panel="menu"] [data-menu-cil="plakaty"]');
@@ -4920,6 +4971,215 @@ function vychoziVikendTestu() {
       await ctx.close();
     }
   });
+
+  // ---------- Plakáty na iPhonu (Michal 15. 10.: „na mobilu mi nejde stáhnout obrázek plakátu“): Safari pustí navigator.share
+  // jen hned v obsluze klepnutí → obrázek se chystá dopředu a klepnutí sdílí synchronně; bez sdílení (nebo když ho Safari
+  // odmítne) okno s obrázkem přes celou obrazovku – podržet prst → Přidat do Fotek. Sdílení je v testu napodobené (záznam
+  // souboru a události, ve které se zavolalo). WebKit, když je nainstalovaný (npx playwright install webkit), jinak Chromium
+  // s emulací iPhonu (user agent, 390 × 844, dotyk).
+  const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1';
+  let webkitProhlizec = null;
+  try { webkitProhlizec = await require('playwright').webkit.launch(); } catch (e) { webkitProhlizec = null; }
+  const iphoneJadro = webkitProhlizec ? 'WebKit' : 'Chromium jako iPhone – WebKit není nainstalovaný';
+  /** Stránka jako iPhone: sdileni = navigator.share / canShare (napodobené), klavesnice = napodobený visualViewport
+   *  (window.__klavesnice(výška) „otevře“ klávesnici, 0 ji zavře). */
+  async function iphoneStranka(motiv, sdileni, klavesnice) {
+    const v = await novaStranka(webkitProhlizec || prohlizec, VELIKOSTI[0], motiv, Object.assign({ userAgent: IPHONE_UA, deviceScaleFactor: 3 }, PRAHA));
+    await v.page.addInitScript((sdilet) => {
+      window.__sdileni = [];
+      window.__sdileniChyba = '';
+      const nastav = (jmeno, hodnota) => Object.defineProperty(Navigator.prototype, jmeno, { configurable: true, writable: true, value: hodnota });
+      if (!sdilet) { nastav('share', undefined); nastav('canShare', undefined); return; }
+      nastav('canShare', function (d) { return !!(d && d.files && d.files.length && Array.from(d.files).every((f) => f instanceof File)); });
+      nastav('share', function (d) {
+        const f = Array.from((d && d.files) || []);
+        // window.event = klepnutí, ve kterém se sdílení zavolalo (po await by tu žádná událost nebyla – Safari by sdílení odmítl)
+        window.__sdileni.push({ pocet: f.length, nazev: f[0] && f[0].name, typ: f[0] && f[0].type, velikost: f[0] && f[0].size, udalost: window.event ? window.event.type : '' });
+        return window.__sdileniChyba ? Promise.reject(new DOMException('Sdílení odmítnuto (test)', window.__sdileniChyba)) : Promise.resolve();
+      });
+    }, !!sdileni);
+    if (klavesnice) {
+      await v.page.addInitScript(() => {
+        const cil = new EventTarget();
+        let vyska = 0;
+        const vv = { get width() { return innerWidth; }, get height() { return vyska || innerHeight; }, offsetTop: 0, offsetLeft: 0, pageTop: 0, pageLeft: 0, scale: 1,
+          addEventListener: cil.addEventListener.bind(cil), removeEventListener: cil.removeEventListener.bind(cil), dispatchEvent: cil.dispatchEvent.bind(cil) };
+        Object.defineProperty(window, 'visualViewport', { configurable: true, get: () => vv });
+        window.__klavesnice = (h) => { vyska = h; cil.dispatchEvent(new Event('resize')); };
+      });
+    }
+    return v;
+  }
+  const naPlakatyTelefon = async (page) => {
+    await page.goto(WEB);
+    await page.click('.hlava-ja [data-menu]');
+    await page.click('[data-panel="menu"] [data-menu-cil="plakaty"]');
+    await page.waitForSelector('#p-plakaty .plakat-stage .poster .design');
+  };
+  const STAHNOUT = '#p-plakaty [data-pl-stahnout]', OBRAZEK = '[data-panel="plakat-obrazek"] ';
+
+  await test('Plakáty na iPhonu (' + iphoneJadro + '): obrázek připravený dopředu, Stáhnout = sdílení hned v klepnutí, po úpravě nový; odmítnuté sdílení → obrázek přes celou obrazovku (podržet prst → Přidat do Fotek)', async () => {
+    fotbalPlakat = true;
+    delete plakatyData.kola['2026-10-17'];
+    const { ctx, page, chybyStranky } = await iphoneStranka('light', true);
+    try {
+      await napodobHtml2canvas(page);
+      await pevnyCasPlakatu(page);
+      await naPlakatyTelefon(page);
+      jistota(await page.inputValue('#p-plakaty [data-pl-vyber]') === '2026-10-17', 'víkend');
+      // obrázek se nakreslí sám v klidu po otevření stránky
+      await page.waitForSelector(STAHNOUT + '[data-pripraveno="1"]', { timeout: 20000 });
+      jistota(await page.evaluate(() => (window.__h2c || []).length) === 1, 'nakreslený dopředu jednou');
+      await page.tap(STAHNOUT);
+      await page.waitForFunction(() => window.__sdileni.length === 1);
+      const sd = await page.evaluate(() => window.__sdileni[0]);
+      jistota(sd.pocet === 1 && sd.nazev === 'plakat_2026-10-17.jpg' && sd.typ === 'image/jpeg' && sd.velikost > 1000 && sd.udalost === 'click', 'sdílení: ' + JSON.stringify(sd));
+      jistota(await page.evaluate(() => window.__h2c.length) === 1 && !(await page.locator('[data-panel="plakat-obrazek"]').count()), 'bez nového kreslení a bez okna');
+      // úprava v editoru: připravený obrázek už neplatí – po chvíli klidu se nakreslí nový a sdílí se ten
+      await page.fill('#p-plakaty [data-pl-cesta="nadpis"]', 'PROGRAM VÍKENDU!');
+      await page.waitForFunction(() => window.__h2c.length === 2 && document.querySelector('#p-plakaty [data-pl-stahnout]').dataset.pripraveno === '1', null, { timeout: 20000 });
+      jistota(/PROGRAM VÍKENDU!/.test(await page.evaluate(() => window.__h2c[1].text)), 'nový obrázek z upraveného plakátu');
+      await page.tap(STAHNOUT);
+      await page.waitForFunction(() => window.__sdileni.length === 2);
+      jistota((await page.evaluate(() => window.__sdileni[1])).udalost === 'click', 'druhé sdílení v klepnutí');
+      // Safari sdílení odmítne → obrázek přes celou obrazovku s návodem; podržení prstu = nabídka iPhonu (aplikace ji nepřebírá)
+      await page.evaluate(() => { window.__sdileniChyba = 'NotAllowedError'; });
+      await page.tap(STAHNOUT);
+      await page.waitForSelector(OBRAZEK + 'img[data-pl-obrazek-img]');
+      await page.waitForFunction((s) => document.querySelector(s).naturalWidth > 0, OBRAZEK + 'img');
+      const okno = await page.evaluate((s) => {
+        const i = document.querySelector(s + 'img');
+        return { src: i.src.slice(0, 23), w: i.naturalWidth, h: i.naturalHeight, navod: document.querySelector(s + '.pl-obrazek__navod').textContent,
+          sdilet: !!document.querySelector(s + '[data-pl-obrazek-sdilet]'), stahnout: !!document.querySelector(s + 'a[download]'),
+          nabidka: i.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })), preteka: document.documentElement.scrollWidth - innerWidth };
+      }, OBRAZEK);
+      jistota(okno.src === 'data:image/jpeg;base64,' && okno.w === 2800 && okno.h === 1980 && /Podrž prst na obrázku → Přidat do Fotek/.test(okno.navod) &&
+        okno.sdilet && !okno.stahnout && okno.nabidka && okno.preteka <= 0, 'okno s obrázkem: ' + JSON.stringify(okno));
+      await page.waitForTimeout(350); // okno dojede zespodu
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_plakat_obrazek.png') });
+      await page.tap(OBRAZEK + '[data-zavrit-panel]');
+      await page.waitForSelector(OBRAZEK, { state: 'detached' });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      fotbalPlakat = false;
+      delete plakatyData.kola['2026-10-17'];
+      await ctx.close();
+    }
+  });
+
+  await test('Plakáty na iPhonu bez sdílení (' + iphoneJadro + ', tmavý režim): Stáhnout hned po otevření – obrázek přes celou obrazovku s návodem, nic se nestahuje', async () => {
+    fotbalPlakat = true;
+    const { ctx, page, chybyStranky } = await iphoneStranka('dark', false);
+    let stazeno = 0;
+    page.on('download', () => { stazeno++; });
+    try {
+      await napodobHtml2canvas(page);
+      await pevnyCasPlakatu(page);
+      await naPlakatyTelefon(page);
+      await page.tap(STAHNOUT); // obrázek se možná ještě kreslí – okno na něj počká
+      await page.waitForSelector(OBRAZEK + 'img[data-pl-obrazek-img]', { timeout: 20000 });
+      const okno = await page.evaluate((s) => ({ navod: document.querySelector(s + '.pl-obrazek__navod').textContent,
+        tlacitka: Array.from(document.querySelectorAll(s + '.panel-paticka .btn')).map((b) => b.textContent.trim()) }), OBRAZEK);
+      jistota(/Podrž prst na obrázku → Přidat do Fotek\./.test(okno.navod) && JSON.stringify(okno.tlacitka) === '["Zavřít"]', 'okno: ' + JSON.stringify(okno));
+      jistota(await page.evaluate(() => window.__h2c.length) === 1 && !stazeno, 'jeden obrázek, žádné stažení');
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_plakat_obrazek.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      fotbalPlakat = false;
+      await ctx.close();
+    }
+  });
+
+  for (const motiv of ['light', 'dark']) {
+    await test('Plakát na iPhonu (' + iphoneJadro + ', ' + (motiv === 'dark' ? 'tmavý' : 'světlý') + '): karta Instagram bez hledání (Stáhnout, Zveřejnit teď, Naplánovat, Kopírovat popisek), okno plánu se vejde, klávesnice nepřekryje Naplánovat' +
+      (motiv === 'light' ? ', příběh přes celou obrazovku a sdílení, plán s popiskem a označeným účtem' : ''), async () => {
+      fotbalPlakat = true;
+      delete plakatyData.kola['2026-10-17'];
+      delete plakatyData.plan['2026-10-17'];
+      plakatyData.popisky['2026-10-17'] = { text: 'Áčko hostí Milotice! ⚽\n\nV sobotu ve 14:30 na Agro Aréně.\n\n#fkagrovnorovy', zdroj: 'claude', kdy: Date.now() };
+      const { ctx, page, chybyStranky } = await iphoneStranka(motiv, true, true);
+      const T = motiv === 'dark' ? 'telefon_tmavy_' : 'telefon_';
+      try {
+        await napodobHtml2canvas(page);
+        await pevnyCasPlakatu(page);
+        await naPlakatyTelefon(page);
+        await page.waitForSelector('#p-plakaty .pl-ig [data-pl-ig-naplanovat]');
+        // bez posouvání: tlačítka nad plovoucí spodní lištou
+        const mimo = await page.evaluate(() => {
+          const spodek = document.getElementById('lista').getBoundingClientRect().top;
+          return ['[data-pl-stahnout]', '.pl-ig [data-pl-ig-hned]', '.pl-ig [data-pl-ig-naplanovat]', '.pl-ig [data-pl-kopirovat]'].filter((s) => {
+            const r = document.querySelector('#p-plakaty ' + s).getBoundingClientRect();
+            return !(r.top >= 0 && r.bottom <= spodek);
+          });
+        });
+        jistota(!mimo.length, 'na první obrazovce chybí: ' + mimo.join(', '));
+        await page.waitForTimeout(400);
+        await page.screenshot({ path: path.join(VYSTUP, T + 'plakat_karta_ig.png') });
+        await page.tap('#p-plakaty .pl-ig [data-pl-ig-naplanovat]');
+        const O = '[data-panel="plakat-ig"] ';
+        await page.waitForSelector(O + '[data-pl-ig="popisek"]');
+        jistota(/Áčko hostí Milotice/.test(await page.inputValue(O + '[data-pl-ig="popisek"]')) && await page.locator(O + '[data-pl-ig="oznacit"]').count() === 1, 'popisek od Clauda a označení v okně');
+        await page.waitForSelector(O + '.pl-nahled-pribeh', { timeout: 20000 });
+        const okno = await page.evaluate((s) => {
+          const el = document.querySelector(s.trim()), telo = el.querySelector('.panel-telo');
+          return { preteka: telo.scrollWidth - telo.clientWidth, sirka: Math.round(el.getBoundingClientRect().width), okno: innerWidth,
+            siroke: Array.from(el.querySelectorAll('*')).filter((x) => x.getBoundingClientRect().right > innerWidth + 1).map((x) => x.tagName + '.' + x.className).slice(0, 5) };
+        }, O);
+        jistota(okno.preteka <= 0 && okno.sirka <= okno.okno && !okno.siroke.length, 'okno plánu přetéká: ' + JSON.stringify(okno));
+        await page.screenshot({ path: path.join(VYSTUP, T + 'plakat_okno_planu.png') });
+        // klávesnice při psaní popisku: panel jen nad ní, tlačítko Naplánovat zůstane vidět
+        await page.focus(O + '[data-pl-ig="popisek"]');
+        await page.evaluate(() => window.__klavesnice(470));
+        await page.waitForFunction(() => document.documentElement.classList.contains('s-klavesnici'));
+        const tl = await page.evaluate((s) => { const r = document.querySelector(s + '[data-pl-ig-ulozit]').getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom)]; }, O);
+        jistota(tl[0] >= 0 && tl[1] <= 470, 'Naplánovat pod klávesnicí: ' + JSON.stringify(tl));
+        // pole, do kterého se píše, se posune do viditelné části (nad patičku)
+        await cekejVeStrance(page, (s) => {
+          const p = document.querySelector(s + '[data-pl-ig="popisek"]').getBoundingClientRect(), pat = document.querySelector(s + '.panel-paticka').getBoundingClientRect();
+          return p.top >= 0 && p.top + 40 < pat.top;
+        }, O);
+        await page.screenshot({ path: path.join(VYSTUP, T + 'plakat_okno_klavesnice.png') });
+        await page.evaluate(() => window.__klavesnice(0));
+        await page.waitForFunction(() => !document.documentElement.classList.contains('s-klavesnici'));
+        if (motiv === 'light') {
+          // náhled příběhu přes celou obrazovku – Sdílet / uložit pošle obrázek příběhu (hned v klepnutí)
+          await page.tap(O + '[data-pl-ig-ukaz="pribeh"]');
+          await page.waitForSelector(OBRAZEK + 'img[data-pl-obrazek-img]');
+          await page.waitForFunction((s) => document.querySelector(s).naturalWidth > 0, OBRAZEK + 'img');
+          const rozmer = await page.$eval(OBRAZEK + 'img', (i) => [i.naturalWidth, i.naturalHeight]);
+          jistota(/Obrázek příběhu/.test(await page.textContent(OBRAZEK + '.panel-titul')) && JSON.stringify(rozmer) === '[1080,1920]', 'příběh: ' + rozmer);
+          await page.waitForTimeout(350); // okno dojede zespodu
+          await page.screenshot({ path: path.join(VYSTUP, T + 'plakat_pribeh_obrazek.png') });
+          await page.tap(OBRAZEK + '[data-pl-obrazek-sdilet]');
+          await page.waitForFunction(() => window.__sdileni.length === 1);
+          const sd = await page.evaluate(() => window.__sdileni[0]);
+          jistota(sd.nazev === 'plakat_2026-10-17_pribeh.jpg' && sd.typ === 'image/jpeg' && sd.velikost > 1000 && sd.udalost === 'click', 'sdílení příběhu: ' + JSON.stringify(sd));
+          await page.tap(OBRAZEK + '[data-zavrit-panel]');
+          await page.waitForSelector(OBRAZEK, { state: 'detached' });
+          // naplánovat s upraveným popiskem a označeným účtem
+          await page.fill(O + '[data-pl-ig="oznacit"]', '@dorost_agro');
+          await page.fill(O + '[data-pl-ig="popisek"]', 'Derby s Miloticemi! ⚽');
+          await page.tap(O + '[data-pl-ig-ulozit]');
+          await page.waitForSelector('#p-plakaty .pl-ig .tag--plan');
+          const plan = volano.filter((d) => d.akce === 'plakatNaplanovat').pop();
+          jistota(plan && plan.popisek === 'Derby s Miloticemi! ⚽' && plan.oznacit === '@dorost_agro' && plan.pribeh === true, 'plán: ' + JSON.stringify(plan));
+          const karta = (await page.textContent('#p-plakaty .pl-ig')).replace(/\s+/g, ' ');
+          jistota(/označí @dorost_agro/.test(karta) && /Zveřejnit teď/.test(karta) && /Změnit čas \/ popisek/.test(karta) && /Zrušit plán/.test(karta), 'karta: ' + karta.slice(0, 300));
+          await page.waitForTimeout(300);
+          await page.screenshot({ path: path.join(VYSTUP, T + 'plakat_karta_naplanovano.png') });
+        }
+        jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      } finally {
+        fotbalPlakat = false;
+        delete plakatyData.plan['2026-10-17'];
+        delete plakatyData.popisky['2026-10-17'];
+        delete plakatyData.obrazky['2026-10-17'];
+        await ctx.close();
+      }
+    });
+  }
+  if (webkitProhlizec) await webkitProhlizec.close();
 
   await test('Plakáty v ukázkovém režimu: plakát z ukázkových zápasů, úprava, popisek od Clauda, naplánování (bez motoru)', async () => {
     const ctx = await prohlizec.newContext(Object.assign({ viewport: { width: 1440, height: 900 } }, PRAHA));

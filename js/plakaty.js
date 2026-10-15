@@ -1,7 +1,8 @@
 // Plakáty: program víkendu FK Agro Vnorovy na A3 – tvoření a tisk stejně jako stránka Plakáty na webu dorostu (náhled,
 // editor s uložením 700 ms po psaní, „Vrátit podle rozlosování“, tisk do PDF) a navíc obrázek ke stažení a Instagram:
 // příspěvek + příběh s popiskem od Clauda, zveřejnění v naplánovaný čas nebo hned (motor, jako u reelů; průběh s časy,
-// zaseknutí a Zkusit znovu ukazuje js/ig.js).
+// zaseknutí a Zkusit znovu ukazuje js/ig.js). Okno plánu jako u reelu: kdy, popisek (drží se k plánu), účty k označení,
+// příběh, náhled obrázků. Na iPhonu se obrázek ke stažení chystá dopředu a sdílí hned v klepnutí (oddíl „obrázek“).
 // Plakát podle rozlosování skládá js/plakat.js ze zápasů fotbal.cz (stav.fotbal) a mládeže (plakat_data.js); ruční úpravy
 // kol, nastavení, popisky, obrázky a plán drží motor (akce plakaty, plakatUlozit… → CLAUDE_SCHRANKA/PLAKATY).
 
@@ -9,15 +10,16 @@ import { stav, zmeneno, umiMotor, hooky, prejdi } from './stav.js';
 import { volej } from './api.js';
 import { esc, uloziste, dm, DNY_KR, terminDatum, pridejDny, isoDatum, hhmm, otevriOdkaz } from './pomocne.js';
 import { IKONY } from './ikony.js';
-import { toast, toastAkce, kostra, chybaHtml, potvrd, hlavickaKarty, segment, kopiruj } from './ui.js';
+import { toast, kostra, chybaHtml, potvrd, hlavickaKarty, segment, kopiruj } from './ui.js';
 import { pripoj as pripojNabidku } from './nabidka.js';
-import { otevriPanel, zavriPanel, obnovPanel, elementPanelu } from './panely.js';
+import { otevriPanel, zavriPanel, obnovPanel, elementPanelu, jeOtevreny } from './panely.js';
 import { LOGA } from './plakat_data.js';
 import * as P from './plakat.js';
 import * as ig_ from './ig.js'; // průběh zveřejňování (ig_ – „ig“ je níž okno plánu a stav Instagramu z motoru)
 
 const ULOZISTE = 'asistent.data.plakaty';
 const OTISKY = 'asistent.plakaty.otisky';   // víkend → otisk plakátu, ze kterého jsou obrázky na Instagramu (v tomhle zařízení)
+const OZNACIT = 'asistent.ig.oznacitPlakat'; // účty k označení, které Michal u plakátu napsal naposledy
 const CESTY = { znaky: 'plakat/znaky/', qr: 'plakat/qr/instagram.png' };
 // knihovna na obrázek z plakátu – stahuje se až při prvním stažení obrázku nebo plánu na Instagram. Je přímo v aplikaci
 // (html2canvas 1.4.1, MIT – bajtově stejná jako cdnjs i balíček npm, ověřeno 9. 10. 2026), ne z cizího serveru: v aplikaci
@@ -25,6 +27,7 @@ const CESTY = { znaky: 'plakat/znaky/', qr: 'plakat/qr/instagram.png' };
 const HTML2CANVAS = 'js/vendor/html2canvas.min.js';
 const PISMA = ['400 40px Anton', '700 20px "Roboto Condensed"', '600 20px "Roboto Condensed"'];
 const ULOZIT_PO = 700;        // ms po posledním písmenu (jako web dorostu)
+const PRIPRAVA_PO = 1500;     // ms klidu po otevření stránky / poslední změně plakátu, než se obrázek pro iPhone začne kreslit
 const SIRKA = 1400, VYSKA = 990;
 const NAZVY_TYMU = { A: 'A-tým', B: 'B-tým', dorost: 'Dorost' };
 const pauza = (ms) => new Promise((hotovo) => setTimeout(hotovo, ms));
@@ -228,7 +231,7 @@ export function vykresliPlakaty(el) {
     sledujVelikost(el.querySelector('.plakat-nahled'));
   }
   const vik = vikendy();
-  cast(el, 'lista', JSON.stringify([vik, p.sobota, p.upraveno, p.pracuje]), () => listaHtml(vik));
+  cast(el, 'lista', JSON.stringify([vik, p.sobota, p.upraveno, p.pracuje, sdiletObrazek() && !!hotovyObrazek()]), () => listaHtml(vik));
   if (p.nahledVerze !== p.plakatVerze) vykresliNahled();
   cast(el, 'editor', p.sobota + '|' + p.verzeEditoru + '|' + p.poznamky.join('§'), editorHtml);
   cast(el, 'ig', klicIg(), igHtml);
@@ -236,6 +239,7 @@ export function vykresliPlakaty(el) {
   cast(el, 'nastaveni', JSON.stringify([data().nastaveni, p.nast && p.nast.verze, vik]), nastaveniHtml);
   prizpusob();
   hlidejPopisek();
+  pripravObrazekDopredu();
 }
 
 /** Část stránky se přepíše, jen když se změnil její klíč – a ne pod rukama (rozepsané pole by zmizelo i s klávesnicí). */
@@ -259,7 +263,9 @@ function listaHtml(vik) {
     '</div>' +
     '<div class="plakaty-akce">' +
       (p.upraveno ? '<button type="button" class="btn btn--ghost" data-pl-vratit>' + IKONY.obnovit + '<span>Vrátit podle rozlosování</span></button>' : '') +
-      '<button type="button" class="btn btn--ghost" data-pl-stahnout' + (p.pracuje ? ' disabled' : '') + '>' + IKONY.stahnout + '<span>' +
+      // na iPhonu data-pripraveno = obrázek je nakreslený dopředu (klepnutí rovnou sdílí)
+      '<button type="button" class="btn btn--ghost" data-pl-stahnout' + (p.pracuje ? ' disabled' : '') +
+        (sdiletObrazek() ? ' data-pripraveno="' + (hotovyObrazek() ? 1 : 0) + '"' : '') + '>' + IKONY.stahnout + '<span>' +
         (p.pracuje === 'stahuji' ? 'Připravuji obrázek…' : 'Stáhnout obrázek') + '</span></button>' +
       '<button type="button" class="btn btn--primary" data-pl-tisk>' + IKONY.tisk + '<span>Vytisknout / PDF</span></button>' +
     '</div>';
@@ -437,6 +443,7 @@ function zmenPole(t) {
   const chybi = document.querySelector('#p-plakaty [data-pl-chybi]');
   if (chybi) chybi.innerHTML = chybiHtml();
   ulozPozdeji();
+  pripravObrazekDopredu(); // připravený obrázek už neplatí – nový se nakreslí, až se přestane psát
 }
 
 function pridej(kde) {
@@ -557,6 +564,12 @@ window.addEventListener('beforeprint', () => { if (stav.pohled === 'plakaty') do
 window.addEventListener('afterprint', () => document.documentElement.classList.remove('tisk-plakatu'));
 
 // ---------------------------------------------------------------- obrázek (html2canvas, načte se až při použití)
+// iPhone (Michal 15. 10.: „na mobilu mi nejde stáhnout obrázek plakátu“): obrázek se kreslil až po klepnutí (sekundy)
+// a Safari pak sdílení odmítlo – navigator.share smí jen hned v obsluze klepnutí (NotAllowedError, vypršelá aktivace);
+// v aplikaci na ploše nejde ani <a download>. Proto se na iPhonu obrázek kreslí dopředu (v klidu po otevření stránky
+// a po každé změně plakátu), klepnutí na Stáhnout zavolá sdílení synchronně s hotovým souborem (Uložit obrázek → Fotky)
+// a když sdílení nejde, ukáže obrázek přes celou obrazovku: podržet prst → Přidat do Fotek (to jde vždy).
+// Na PC a na Androidu běžné stažení jako dřív (obrázek až po klepnutí, knihovna se do té doby nestahuje).
 
 let knihovna = null;
 function nactiHtml2canvas() {
@@ -583,13 +596,15 @@ function obrazkyNacteny(uzel) {
 /**
  * Plakát jako plátno: neškálovaný uzel 1400 × 990 (náhled má transform: scale) v nulovém rámečku mimo zrak,
  * html2canvas ho vykreslí v kopii stránky. meritko 2 → 2 800 × 1 980 px (limit plátna v Safari je ~16 Mpx).
+ * plakat = podoba plakátu, ze které se kreslí (HTML se vezme hned – změna během kreslení ho nerozhodí).
  */
-async function vykresliPlatno(meritko) {
+async function vykresliPlatno(meritko, plakat) {
+  const html = P.plakatHtml(plakat || p.plakat, CESTY);
   const h2c = await nactiHtml2canvas();
   await pripravPisma();
   const hostitel = document.createElement('div');
   hostitel.className = 'plakat-export';
-  hostitel.innerHTML = '<div class="plakat poster">' + P.plakatHtml(p.plakat, CESTY) + '</div>';
+  hostitel.innerHTML = '<div class="plakat poster">' + html + '</div>';
   document.body.appendChild(hostitel);
   try {
     const uzel = hostitel.firstChild;
@@ -623,6 +638,26 @@ function zmensi(platno, sirka) {
 }
 
 const jeIos = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+/** iPhone a iPad: obrázek se sdílí (Uložit obrázek → Fotky) – stažení tam končí v Souborech a v aplikaci na ploše nejde. */
+const sdiletObrazek = () => jeIos();
+const jpegZPlatna = (platno, kvalita) => new Promise((ok, chyba) =>
+  platno.toBlob((b) => (b ? ok(b) : chyba(new Error('Obrázek se nepodařilo vytvořit.'))), 'image/jpeg', kvalita));
+const dataZBlobu = (blob) => new Promise((ok, chyba) => {
+  const r = new FileReader();
+  r.onload = () => ok(String(r.result));
+  r.onerror = () => chyba(new Error('Obrázek se nepodařilo načíst.'));
+  r.readAsDataURL(blob);
+});
+
+/** Soubor z data: adresy (obrázky z okna plánu) – synchronně, ať jde sdílet hned v klepnutí. */
+function souborZDat(data, nazev) {
+  const m = /^data:([^;,]+);base64,([A-Za-z0-9+/=]*)$/.exec(String(data || ''));
+  if (!m || typeof File !== 'function') return null;
+  const bin = atob(m[2]);
+  const b = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
+  return new File([b], nazev, { type: m[1] });
+}
 
 function stahni(blob, nazev) {
   const url = URL.createObjectURL(blob);
@@ -636,33 +671,146 @@ function stahni(blob, nazev) {
   setTimeout(() => URL.revokeObjectURL(url), 60e3);
 }
 
-async function stahniObrazek() {
-  if (p.pracuje || !p.plakat) return;
+// Obrázek plakátu (plátno 2 800 px + JPEG) – jednou na podobu plakátu: stažení, obrázky pro Instagram i okno s obrázkem
+// berou stejný. Kreslí se po jednom (dva html2canvas naráz by se o pomocný plakát v dokumentu přetahovaly).
+const obr = { klic: '', slib: null, hotovo: null, rada: Promise.resolve(), casovac: 0, ceka: '', chyba: '' };
+function klicObrazku() { return p.plakat ? p.sobota + '|' + P.otisk(JSON.stringify(p.plakat)) : ''; }
+/** Hotový obrázek aktuální podoby plakátu, jinak null (ještě se kreslí, nebo se plakát od té doby změnil). */
+function hotovyObrazek() { return obr.hotovo && obr.hotovo.klic === klicObrazku() ? obr.hotovo : null; }
+
+function obrazekPlakatu() {
+  const klic = klicObrazku();
+  if (!klic) return Promise.reject(new Error('Plakát ještě není načtený.'));
+  if (obr.hotovo && obr.hotovo.klic === klic) return Promise.resolve(obr.hotovo);
+  if (obr.slib && obr.klic === klic) return obr.slib;
+  const plakat = JSON.parse(JSON.stringify(p.plakat)), nazev = 'plakat_' + p.sobota + '.jpg';
+  obr.klic = klic;
+  const slib = obr.rada.then(async () => {
+    const platno = await vykresliPlatno(2, plakat);
+    const blob = await jpegZPlatna(platno, 0.92);
+    const hotovo = { klic, platno, blob, nazev, soubor: typeof File === 'function' ? new File([blob], nazev, { type: 'image/jpeg' }) : null };
+    if (obr.klic === klic) obr.hotovo = hotovo;
+    return hotovo;
+  });
+  obr.slib = slib;
+  obr.rada = slib.catch(() => null);
+  slib.then(() => { obr.chyba = ''; }, () => { obr.chyba = klic; }).then(() => {
+    if (obr.slib === slib) obr.slib = null;
+    if (sdiletObrazek()) zmeneno(); // tlačítko Stáhnout ví, že obrázek je připravený
+  });
+  return slib;
+}
+
+const naKlid = (fn) => (typeof window.requestIdleCallback === 'function' ? window.requestIdleCallback(fn, { timeout: 3000 }) : setTimeout(fn, 0));
+
+/** iPhone: obrázek nakreslit dopředu, až je chvíli klid (po otevření stránky, po změně plakátu) – při psaní v editoru se
+ *  čekání pokaždé posune. Volá se při každém překreslení stránky; nedělá nic, když je hotový nebo se kreslí. */
+function pripravObrazekDopredu() {
+  if (!sdiletObrazek() || !p.plakat || stav.pohled !== 'plakaty' || document.visibilityState !== 'visible') return;
+  const klic = klicObrazku();
+  if (hotovyObrazek() || (obr.slib && obr.klic === klic) || obr.ceka === klic || obr.chyba === klic) return;
+  clearTimeout(obr.casovac);
+  obr.ceka = klic;
+  obr.casovac = setTimeout(() => {
+    obr.casovac = 0;
+    obr.ceka = '';
+    naKlid(() => { if (stav.pohled === 'plakaty' && klicObrazku() === klic) obrazekPlakatu().catch(() => null); });
+  }, PRIPRAVA_PO);
+}
+
+/** Sdílení souboru hned v obsluze klepnutí (Safari ho po čekání odmítne). false = tady sdílet nejde; když sdílení selže
+ *  jinak než zrušením, zavolá se nahrada. */
+function lzeSdilet(soubor) {
+  if (!soubor || typeof navigator.share !== 'function' || typeof navigator.canShare !== 'function') return false;
+  try { return !!navigator.canShare({ files: [soubor] }); } catch (e) { return false; }
+}
+function sdilejHned(soubor, nahrada) {
+  if (!lzeSdilet(soubor)) return false;
+  let slib;
+  try { slib = navigator.share({ files: [soubor] }); } catch (e) { return false; }
+  Promise.resolve(slib).catch((e) => { if (!e || e.name !== 'AbortError') nahrada(e); });
+  return true;
+}
+
+/** Stáhnout obrázek (tlačítko i nabídka): iPhone – sdílet hotový obrázek, jinak okno s obrázkem; PC – stažení. */
+function stahniObrazek() {
+  if (!p.plakat) return;
+  if (!sdiletObrazek()) { stahniNaPc(); return; }
+  const h = hotovyObrazek();
+  if (h && sdilejHned(h.soubor, () => ukazObrazek({ druh: 'plakat' }))) return;
+  ukazObrazek({ druh: 'plakat' });
+}
+
+async function stahniNaPc() {
+  if (p.pracuje) return;
   p.pracuje = 'stahuji';
   zmeneno();
   try {
-    const platno = await vykresliPlatno(2);
-    const blob = await new Promise((ok, chyba) => platno.toBlob((b) => (b ? ok(b) : chyba(new Error('Obrázek se nepodařilo vytvořit.'))), 'image/jpeg', 0.92));
-    const nazev = 'plakat_' + p.sobota + '.jpg';
-    const soubor = typeof File === 'function' ? new File([blob], nazev, { type: 'image/jpeg' }) : null;
-    // iPhone a iPad: nabídka sdílení (Uložit obrázek do Fotek, Instagram…); stažení tam končí v Souborech
-    if (jeIos() && soubor && navigator.canShare && navigator.canShare({ files: [soubor] })) {
-      try {
-        await navigator.share({ files: [soubor] });
-      } catch (e) {
-        // po delším kreslení Safari sdílení bez nového klepnutí nepustí → tlačítko v oznámení
-        if (e && e.name !== 'AbortError') toastAkce('Obrázek plakátu je připravený', 'Uložit', () => navigator.share({ files: [soubor] }).catch(() => stahni(blob, nazev)));
-      }
-    } else {
-      stahni(blob, nazev);
-      toast('Obrázek plakátu stažený (' + nazev + ')');
-    }
+    const o = await obrazekPlakatu();
+    stahni(o.blob, o.nazev);
+    toast('Obrázek plakátu stažený (' + o.nazev + ')');
   } catch (e) {
     toast((e && e.message) || 'Obrázek se nepovedl.', true);
   } finally {
     p.pracuje = '';
     zmeneno();
   }
+}
+
+// okno s obrázkem přes celou obrazovku: na iPhonu podržet prst → Přidat do Fotek (jde vždy, i v aplikaci na ploše),
+// Sdílet, kde to jde; jinde Stáhnout. Otevře se po Stáhnout, když sdílení nejde, a klepnutím na náhled v okně plánu
+// (obrázek příspěvku i příběhu).
+let velky = null; // { druh: 'plakat' | 'prispevek' | 'pribeh', nazev, data (data: adresa), soubor, chyba }
+
+function ukazObrazek(o) {
+  const moje = { druh: o.druh, nazev: o.nazev || 'plakat_' + p.sobota + '.jpg', data: o.data || '', soubor: null, chyba: '' };
+  if (moje.data) moje.soubor = souborZDat(moje.data, moje.nazev);
+  velky = moje;
+  if (!moje.data) {
+    obrazekPlakatu().then((h) => dataZBlobu(h.blob).then((data) => {
+      if (velky !== moje) return;
+      Object.assign(moje, { data, soubor: h.soubor, nazev: h.nazev });
+      obnovPanel('plakat-obrazek');
+    })).catch((e) => {
+      if (velky !== moje) return;
+      moje.chyba = (e && e.message) || 'Obrázek se nepovedl.';
+      obnovPanel('plakat-obrazek');
+    });
+  }
+  if (jeOtevreny('plakat-obrazek')) { obnovPanel('plakat-obrazek'); return; }
+  otevriPanel({
+    id: 'plakat-obrazek', trida: 'panel-okno panel-obrazek',
+    titul: () => (velky && velky.druh === 'pribeh' ? 'Obrázek příběhu' : velky && velky.druh === 'prispevek' ? 'Obrázek příspěvku' : 'Obrázek plakátu'),
+    vykresli: obrazekHtml, paticka: patickaObrazku,
+    priZavreni: () => { velky = null; }
+  });
+}
+
+/** data: adresa JPEG (jen znaky base64, bez uvozovek) – rovnou do src a href; esc by u 2 MB textu zbytečně zdržel. */
+const jpegData = (u) => (u && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(u.data) ? u.data : '');
+
+function obrazekHtml() {
+  const u = velky;
+  if (!u) return '';
+  if (u.chyba) return '<p class="pruh pruh-varovani">' + esc(u.chyba) + '</p>';
+  if (!u.data) return '<div class="pl-obrazek pl-obrazek--ceka" role="status">' + kostra(1) + '<p>Připravuji obrázek…</p></div>';
+  const dotyk = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  const navod = jeIos() ? 'Podrž prst na obrázku → <b>Přidat do Fotek</b>' + (lzeSdilet(u.soubor) ? ' (nebo Sdílet → Uložit obrázek).' : '.')
+    : dotyk ? 'Podrž prst na obrázku → <b>Stáhnout obrázek</b>, nebo tlačítko Stáhnout.'
+    : 'Tlačítko Stáhnout, nebo pravým tlačítkem na obrázku → Uložit obrázek jako…';
+  const popis = u.druh === 'pribeh' ? 'Příběh 1080 × 1920' : u.druh === 'prispevek' ? 'Příspěvek na Instagram' : 'Plakát';
+  return '<div class="pl-obrazek' + (u.druh === 'pribeh' ? ' pl-obrazek--pribeh' : '') + '">' +
+    '<p class="pl-obrazek__navod">' + IKONY.stahnout + '<span>' + navod + '</span></p>' +
+    '<img src="' + jpegData(u) + '" alt="' + popis + '" data-pl-obrazek-img></div>';
+}
+
+function patickaObrazku() {
+  const u = velky;
+  const hotovo = !!(u && u.data && !u.chyba);
+  return '<div class="akce"><button type="button" class="btn btn--ghost" data-zavrit-panel>Zavřít</button>' +
+    (hotovo && lzeSdilet(u.soubor) ? '<button type="button" class="btn btn--plan" data-pl-obrazek-sdilet>' + IKONY.odeslat + '<span>Sdílet / uložit</span></button>' : '') +
+    (hotovo && !jeIos() ? '<a class="btn btn--plan" href="' + jpegData(u) + '" download="' + esc(u.nazev) + '">' + IKONY.stahnout + '<span>Stáhnout</span></a>' : '') +
+    '</div>';
 }
 
 // ---------------------------------------------------------------- Instagram: příspěvek (plakát) a příběh 1080 × 1920
@@ -688,8 +836,9 @@ function zalom(g, text, max) {
 }
 
 /** Příběh 9:16: plakát přes celou šířku na tmavém pozadí v barvách plakátu, nahoře PROGRAM VÍKENDU a datum, dole výzva
- *  a @účet. Texty jsou v bezpečné zóně (Instagram nahoře a dole překrývá asi 250 px). */
-function obrazekPribehu(plakat) {
+ *  a @účet. Texty jsou v bezpečné zóně (Instagram nahoře a dole překrývá asi 250 px). platno = obrázek plakátu,
+ *  d = podoba plakátu (texty), sobota = víkend. */
+function obrazekPribehu(plakat, d0, sobota) {
   const c = document.createElement('canvas');
   c.width = 1080;
   c.height = 1920;
@@ -709,11 +858,11 @@ function obrazekPribehu(plakat) {
   pisSRozestupem(g, 'FK AGRO VNOROVY', 540, 300, 11);
   g.font = '400 128px ' + ANTON;
   g.textAlign = 'center';
-  g.fillText(String(p.plakat.nadpis || n.nadpis).toUpperCase(), 540, 470, 1000); // čárka nad Í nesmí sáhnout na řádek nad ním
-  const d = P.datumPlakatu(p.sobota);
+  g.fillText(String(d0.nadpis || n.nadpis).toUpperCase(), 540, 470, 1000); // čárka nad Í nesmí sáhnout na řádek nad ním
+  const d = P.datumPlakatu(sobota);
   g.fillStyle = CERVENA;
   g.font = '400 84px ' + ANTON;
-  g.fillText((p.plakat.datum || d.datum) + ' ' + (p.plakat.mesic || d.mesic), 540, 566, 1000);
+  g.fillText((d0.datum || d.datum) + ' ' + (d0.mesic || d.mesic), 540, 566, 1000);
   // čára jako pod nadpisem plakátu: 38 % červená, zbytek bílá
   g.fillStyle = '#ffffff';
   g.fillRect(60, 598, 960, 8);
@@ -726,7 +875,7 @@ function obrazekPribehu(plakat) {
   g.fillStyle = '#ffffff';
   g.font = '400 66px ' + ANTON;
   g.textAlign = 'center';
-  const radky = zalom(g, String(p.plakat.vyzva || n.vyzva).toUpperCase(), 980).slice(0, 2);
+  const radky = zalom(g, String(d0.vyzva || n.vyzva).toUpperCase(), 980).slice(0, 2);
   radky.forEach((r, i) => g.fillText(r, 540, y + vyska + 108 + i * 76));
   g.fillStyle = CERVENA;
   g.font = '700 40px ' + TEXT;
@@ -734,14 +883,16 @@ function obrazekPribehu(plakat) {
   return c;
 }
 
-/** Obrázky pro Instagram: příspěvek 1440 px na šířku (poměr 1400 : 990 – Instagram bere 1,91 : 1 až 4 : 5) a příběh. */
+/** Obrázky pro Instagram: příspěvek 1440 px na šířku (poměr 1400 : 990 – Instagram bere 1,91 : 1 až 4 : 5) a příběh.
+ *  Z obrázku plakátu, který už je nakreslený (iPhone ho má připravený dopředu), jinak se nakreslí. */
 async function obrazkyProInstagram() {
-  const platno = await vykresliPlatno(2);
+  const plakat = JSON.parse(JSON.stringify(p.plakat)), sobota = p.sobota;
+  const o = await obrazekPlakatu();
   await pripravPisma(); // příběh kreslí texty písmem Anton
   return {
-    prispevek: zmensi(platno, 1440).toDataURL('image/jpeg', 0.9),
-    pribeh: obrazekPribehu(platno).toDataURL('image/jpeg', 0.9),
-    otisk: P.otisk(JSON.stringify(p.plakat))
+    prispevek: zmensi(o.platno, 1440).toDataURL('image/jpeg', 0.9),
+    pribeh: obrazekPribehu(o.platno, plakat, sobota).toDataURL('image/jpeg', 0.9),
+    otisk: P.otisk(JSON.stringify(plakat))
   };
 }
 
@@ -760,15 +911,27 @@ function vychoziCas(tyden) {
 
 function stitekPopisku(zdroj) {
   return zdroj === 'claude' ? '<span class="tag tag--fialova">' + IKONY.claude + 'od Clauda</span>'
-    : zdroj === 'rucne' ? '<span class="tag tag--warn">upraveno</span>' : '';
+    : zdroj === 'rucne' ? '<span class="tag tag--warn">upraveno</span>'
+    : zdroj === 'plan' ? '<span class="tag tag--plan">' + IKONY.kalendar + 'v plánu</span>' : '';
 }
+
+/** Popisek uložený v motoru: u plakátu v plánu ten z plánu (motor ho drží zvlášť – pozdější popisek od Clauda ho sám
+ *  nezmění), jinak popisek kola. */
+function ulozenyPopisek(s) {
+  const pop = data().popisky[s] || {};
+  return String(data().plan[s] && pop.plan ? pop.plan : pop.text || '');
+}
+/** Popisek, který půjde na Instagram: rozepsaný v kartě, jinak uložený. */
+const textPopisku = (s) => (s in p.popisek ? String(p.popisek[s]) : ulozenyPopisek(s));
+const ucty = (seznam) => (Array.isArray(seznam) ? seznam.map((u) => '@' + u).join(', ') : '');
 
 function stavPlanuHtml(plan) {
   if (!plan) return '';
   const kartaIg = ig_.stavKartaAtr('plakat', p.sobota); // najetí / klepnutí = kroky s časy
   if (plan.stav === 'ceka') {
     return '<span class="tag tag--plan"' + kartaIg + '>' + IKONY.kalendar + 'vyjde ' + esc(kdyPlan(plan.kdy)) + '</span>' +
-      (plan.pribeh ? '<span class="tag tag--seda">i do příběhu</span>' : '');
+      (plan.pribeh ? '<span class="tag tag--seda">i do příběhu</span>' : '') +
+      (plan.oznacit && plan.oznacit.length ? '<span class="tag tag--seda">označí ' + esc(ucty(plan.oznacit)) + '</span>' : '');
   }
   if (plan.stav === 'nahrava' || plan.stav === 'zverejnuji') return '<span class="tag tag--plan"' + kartaIg + '>' + IKONY.obnovit + 'zveřejňuje se na Instagram</span>';
   if (plan.stav === 'hotovo') {
@@ -785,6 +948,29 @@ function klicIg() {
     (uloziste.cti(OTISKY) || {})[s] === P.otisk(JSON.stringify(p.plakat || {})), ig_.klic('plakat', s), umiMotor('igKrok')]);
 }
 
+/** Tlačítka karty Instagram (Michal 15. 10.: na telefonu vidět hned, bez hledání – proto nad popiskem). */
+function akceIgHtml(plan, ig, text) {
+  const s = p.sobota;
+  let akce = '';
+  if (plan && plan.stav === 'hotovo') {
+    if (plan.odkaz) akce += '<a class="btn btn--ghost" href="' + esc(plan.odkaz) + '" target="_blank" rel="noopener noreferrer">' + IKONY.odkaz + '<span>Na Instagramu</span></a>';
+  } else if (!umiMotor('plakatNaplanovat') || !ig.nastaveno || (plan && (plan.stav === 'nahrava' || plan.stav === 'zverejnuji'))) {
+    akce = '';
+  } else if (plan && plan.stav === 'ceka') {
+    const ted = ig_.tlacitkoTedHtml('plakat', s);
+    akce += ted + '<button type="button" class="btn ' + (ted ? 'btn--ghost' : 'btn--plan') + '" data-pl-ig-naplanovat>' + IKONY.kalendar + '<span>Změnit čas / popisek</span></button>' +
+      '<button type="button" class="btn btn--ghost" data-pl-ig-zrusit>' + IKONY.zavrit + '<span>Zrušit plán</span></button>';
+  } else if (umiMotor('igKrok')) {
+    // Zveřejnit teď i Naplánovat otevřou stejné okno (popisek, označení, příběh, náhled) – liší se jen „Kdy“
+    akce += '<button type="button" class="btn btn--plan" data-pl-ig-hned>' + IKONY.odeslat + '<span>Zveřejnit teď</span></button>' +
+      '<button type="button" class="btn btn--ghost" data-pl-ig-naplanovat>' + IKONY.kalendar + '<span>Naplánovat</span></button>';
+  } else {
+    akce += '<button type="button" class="btn btn--plan" data-pl-ig-naplanovat>' + IKONY.kalendar + '<span>Naplánovat na Instagram</span></button>';
+  }
+  if (String(text).trim()) akce += '<button type="button" class="btn btn--ghost" data-pl-kopirovat>' + IKONY.kopirovat + '<span>Kopírovat popisek</span></button>';
+  return akce ? '<div class="pl-ig__akce">' + akce + '</div>' : '';
+}
+
 function igHtml() {
   const d = data(), s = p.sobota;
   const pop = d.popisky[s] || {};
@@ -792,23 +978,35 @@ function igHtml() {
   const ig = d.ig || {};
   const n = P.nastaveniPlakatu(nastaveni());
   const rucne = s in p.popisek;
-  const text = rucne ? p.popisek[s] : String(pop.text || '');
+  const text = textPopisku(s);
+  const vPlanu = !rucne && !!(plan && pop.plan);
   const styl = s in p.styl ? p.styl[s] : String(pop.styl || '');
   let h = hlavickaKarty(IKONY.instagram, 'Instagram', '@' + esc(ig.ucet || n.instagram)) + '<div class="pl-telo">';
   const stavHtml = stavPlanuHtml(plan);
   if (stavHtml) h += '<div class="pl-ig__stav">' + stavHtml + '</div>';
+  h += akceIgHtml(plan, ig, text); // tlačítka hned pod stavem – průběh s kroky je dlouhý
   // průběh s časy, zaseknutí a Zkusit znovu (js/ig.js); starší motor bez průběhu: jen chyba jako dřív
   const prubeh = plan ? ig_.prubehHtml('plakat', s, plan) : '';
   if (prubeh) h += prubeh;
   else if (plan && plan.stav === 'chyba') h += '<p class="pl-chyba">Na Instagram se nepodařilo: ' + esc(plan.chyba || 'neznámá chyba') + '</p>';
   if (!prubeh && plan && plan.stav === 'hotovo' && plan.pribehChyba) h += '<p class="pl-chyba">Příběh nevyšel: ' + esc(plan.pribehChyba) + ' (příspěvek platí)</p>';
+  if (umiMotor('plakatNaplanovat') && !ig.nastaveno && !(plan && plan.stav === 'hotovo')) {
+    h += '<p class="napoveda">Instagram není v motoru propojený (IG_TOKEN) – plánování půjde, až bude. Obrázek jde zatím stáhnout nahoře.</p>';
+  }
   // obrázky na Instagramu jsou ze starší podoby plakátu (jen víme-li to v tomhle zařízení)
   const otisk = (uloziste.cti(OTISKY) || {})[s];
   if (plan && plan.stav === 'ceka' && otisk && otisk !== P.otisk(JSON.stringify(p.plakat))) {
-    h += '<p class="pl-varovani">Plakát se od naplánování změnil – „Změnit čas“ nahraje jeho novou podobu.</p>';
+    h += '<p class="pl-varovani">Plakát se od naplánování změnil – „Změnit čas / popisek“ nahraje jeho novou podobu.</p>';
   }
-  h += '<div class="pl-ig__popisek"><span class="label">Popisek</span><span data-pl-popisek-stitek>' + (rucne ? stitekPopisku('rucne') : stitekPopisku(pop.zdroj)) + '</span></div>';
+  h += '<div class="pl-ig__popisek"><span class="label">Popisek</span><span data-pl-popisek-stitek>' +
+    stitekPopisku(rucne ? 'rucne' : vPlanu ? 'plan' : pop.zdroj) + '</span></div>';
   if (pop.cekaNaClauda) h += '<p class="pl-ceka" data-pl-ceka>' + IKONY.claude + '<span>Claude píše popisek… (do půl hodiny, když běží PC)</span></p>';
+  // Claude poslal popisek až po naplánování – plán drží ten svůj, nový jde použít jedním klepnutím
+  if (vPlanu && plan.stav === 'ceka' && pop.zdroj === 'claude' && String(pop.text || '').trim() && String(pop.text).trim() !== pop.plan &&
+      (Number(pop.kdy) || 0) > (Number(pop.planKdy) || 0)) {
+    h += '<div class="pl-ceka pl-novy-popisek" data-pl-novy-popisek>' + IKONY.claude + '<span>Claude mezitím napsal nový popisek – na Instagram zatím půjde ten z plánu.</span>' +
+      '<button type="button" class="btn btn--ghost btn--sm" data-pl-popisek-novy>Použít nový</button></div>';
+  }
   // <textarea> zahodí první odřádkování obsahu – když text začíná prázdným řádkem, přidat jedno navíc
   h += '<textarea class="odpoved" data-pl-popisek rows="8" placeholder="Popisek k příspěvku – napiš ho, nebo požádej Clauda (styl níž).">' +
     esc(/^\r?\n/.test(text) ? '\n' + text : text) + '</textarea>';
@@ -816,28 +1014,6 @@ function igHtml() {
     'placeholder="např. vtipně, derby, ať přijde hodně lidí" autocomplete="off"></label>' +
     '<button type="button" class="btn btn--ghost" data-pl-popisek-claude' + (p.igPracuje === 'popisek' ? ' disabled' : '') + '>' + IKONY.claude +
       '<span>' + (p.igPracuje === 'popisek' ? 'Posílám…' : 'Popisek od Clauda') + '</span></button></div>';
-  // naplánování (jako reely): příspěvek s popiskem a příběh v daný čas
-  let akce = '';
-  if (plan && plan.stav === 'hotovo') {
-    if (plan.odkaz) akce += '<a class="btn btn--ghost" href="' + esc(plan.odkaz) + '" target="_blank" rel="noopener noreferrer">' + IKONY.odkaz + '<span>Na Instagramu</span></a>';
-  } else if (!umiMotor('plakatNaplanovat')) {
-    akce = '';
-  } else if (!ig.nastaveno) {
-    h += '<p class="napoveda">Instagram není v motoru propojený (IG_TOKEN) – plánování půjde, až bude. Obrázek jde zatím stáhnout nahoře.</p>';
-  } else if (plan && (plan.stav === 'nahrava' || plan.stav === 'zverejnuji')) {
-    akce = '';
-  } else if (plan && plan.stav === 'ceka') {
-    const ted = ig_.tlacitkoTedHtml('plakat', s);
-    akce += ted + '<button type="button" class="btn ' + (ted ? 'btn--ghost' : 'btn--plan') + '" data-pl-ig-naplanovat>' + IKONY.kalendar + '<span>Změnit čas</span></button>' +
-      '<button type="button" class="btn btn--ghost" data-pl-ig-zrusit>' + IKONY.zavrit + '<span>Zrušit plán</span></button>';
-  } else if (umiMotor('igKrok')) {
-    // Zveřejnit teď i Naplánovat otevřou stejné okno (obrázky, příběh) – liší se jen „Kdy“
-    akce += '<button type="button" class="btn btn--plan" data-pl-ig-hned>' + IKONY.odeslat + '<span>Zveřejnit teď</span></button>' +
-      '<button type="button" class="btn btn--ghost" data-pl-ig-naplanovat>' + IKONY.kalendar + '<span>Naplánovat na Instagram</span></button>';
-  } else {
-    akce += '<button type="button" class="btn btn--plan" data-pl-ig-naplanovat>' + IKONY.kalendar + '<span>Naplánovat na Instagram</span></button>';
-  }
-  if (akce) h += '<div class="pl-ig__akce">' + akce + '</div>';
   return h + '</div>';
 }
 
@@ -868,6 +1044,16 @@ function ulozPopisekHned() {
   return p.fronta;
 }
 
+/** Nový popisek od Clauda (přišel po naplánování) do karty i do plánu. */
+function pouzijNovyPopisek() {
+  const s = p.sobota;
+  const pop = data().popisky[s] || {};
+  if (!pop.text) return;
+  p.popisek[s] = String(pop.text);
+  zmeneno();
+  ulozPopisekHned().then(() => toast('Nový popisek platí i pro plán'));
+}
+
 function pozadejClauda() {
   const tyden = p.sobota;
   if (!p.plakat || p.igPracuje) return;
@@ -894,84 +1080,136 @@ function hlidejPopisek() {
   }, 180e3);
 }
 
+// ---------------------------------------------------------------- okno Naplánovat / Zveřejnit na Instagram (jako u reelu)
+// Kdy (Naplánovat s datem a časem / Teď), účty k označení, i do příběhu, popisek (předvyplněný od Clauda nebo uložený,
+// jde upravit – uloží se jako popisek kola i k plánu) a náhled obrázků (klepnutí = obrázek přes celou obrazovku k uložení).
+
 function otevriPlan(hned) {
   if (!p.plakat) return;
   const tyden = p.sobota;
-  const pop = data().popisky[tyden] || {};
-  if (!String(tyden in p.popisek ? p.popisek[tyden] : pop.text || '').trim()) {
-    toast('Nejdřív popisek – napiš ho, nebo požádej Clauda.', true);
-    return;
-  }
-  p.ig = { tyden, kdy: doPole(vychoziCas(tyden)), pribeh: !(data().plan[tyden] && data().plan[tyden].pribeh === false), ukladam: false, nahled: null, chyba: '',
-    hned: !!hned && umiMotor('igKrok') };
+  const plan = data().plan[tyden];
+  const ceka = !!(plan && plan.stav === 'ceka');
+  p.ig = { tyden, kdy: doPole(vychoziCas(tyden)), pribeh: !(plan && plan.pribeh === false), popisek: textPopisku(tyden),
+    oznacit: ceka ? ucty(plan.oznacit) : String(uloziste.cti(OZNACIT) || ''),
+    ukladam: false, nahled: null, chyba: '', hned: !!hned && umiMotor('igKrok'), zmena: ceka };
   const moje = p.ig;
-  // obrázky se kreslí hned při otevření – v okně je vidět, co na Instagram půjde
+  // obrázky se kreslí hned při otevření – v okně je vidět, co na Instagram půjde (iPhone má plakát nakreslený dopředu)
   moje.obrazky = obrazkyProInstagram();
-  moje.obrazky.then((o) => { if (p.ig === moje) { moje.nahled = o; obnovPanel('plakat-ig'); } },
-    (e) => { if (p.ig === moje) { moje.chyba = e.message; obnovPanel('plakat-ig'); } });
+  moje.obrazky.then((o) => { if (p.ig === moje) { moje.nahled = o; obnovCastiPlanu(); } },
+    (e) => { if (p.ig === moje) { moje.chyba = e.message; obnovCastiPlanu(); } });
   otevriPanel({
-    id: 'plakat-ig', trida: 'panel-okno panel-formular', titul: () => (p.ig && p.ig.hned ? 'Zveřejnit na Instagram' : 'Naplánovat na Instagram'), vykresli: planHtml,
-    paticka: () => '<div class="akce"><button type="button" class="btn btn--ghost" data-zavrit-panel>Zrušit</button>' +
-      '<button type="button" class="btn btn--plan" data-pl-ig-ulozit' + (p.ig && (p.ig.ukladam || !p.ig.nahled) ? ' disabled' : '') + '>' +
-      (p.ig && p.ig.hned ? IKONY.odeslat : IKONY.kalendar) + '<span>' +
-      (p.ig && p.ig.ukladam ? 'Nahrávám…' : p.ig && !p.ig.nahled && !p.ig.chyba ? 'Připravuji obrázky…' : p.ig && p.ig.hned ? 'Zveřejnit teď' : 'Naplánovat') + '</span></button></div>',
-    poOtevreni: (el) => { const pole = el.querySelector('[data-pl-ig="kdy"]'); if (pole) pole.focus(); },
+    id: 'plakat-ig', trida: 'panel-okno panel-formular',
+    titul: () => (p.ig && p.ig.hned ? 'Zveřejnit na Instagram' : p.ig && p.ig.zmena ? 'Změnit plán na Instagram' : 'Naplánovat na Instagram'),
+    vykresli: planHtml, paticka: patickaPlanu,
+    // na telefonu nic nefokusovat – klávesnice ani výběr data by nemusely vyskočit hned při otevření
+    poOtevreni: (el) => {
+      const pole = !window.matchMedia('(pointer: coarse)').matches && el.querySelector('[data-pl-ig="kdy"]');
+      if (pole) pole.focus(); else el.focus({ preventScroll: true });
+    },
     priZavreni: () => { if (p.ig === moje) p.ig = null; }
   });
+}
+
+function napovedaPlanu(ig) {
+  const ucet = '@' + ((data().ig || {}).ucet || P.nastaveniPlakatu(nastaveni()).instagram);
+  return 'Plakát víkendu ' + esc(P.rozsahVikendu(ig.tyden)) + ' vyjde na ' + esc(ucet) + (ig.hned ? ' hned' : ' sám v zadaný čas (do 10 minut)') +
+    ' – příspěvek s popiskem' + (ig.pribeh ? ' a příběh' : '') + '.' + (ig.hned ? ' Průběh uvidíš v kartě Instagram.' : '');
+}
+
+function nahledPlanuHtml(ig) {
+  if (!ig.nahled) return ig.chyba ? '' : '<p class="napoveda">Připravuji obrázky z plakátu…</p>';
+  const obr1 = (druh, trida, popis, popisek) => '<figure><button type="button" class="pl-ig-nahled__btn" data-pl-ig-ukaz="' + druh + '" aria-label="' + popis + ' přes celou obrazovku">' +
+    '<img class="' + trida + '" src="' + ig.nahled[druh] + '" alt="' + popis + '"></button><figcaption>' + popisek + '</figcaption></figure>';
+  return obr1('prispevek', 'pl-nahled-prispevek', 'Příspěvek', 'Příspěvek 1440 px') + obr1('pribeh', 'pl-nahled-pribeh', 'Příběh', 'Příběh') +
+    '<p class="napoveda pl-ig-nahled__napoveda">Klepni na obrázek – zvětší se a jde uložit do Fotek.</p>';
 }
 
 function planHtml() {
   const ig = p.ig;
   if (!ig) return '';
-  const n = P.nastaveniPlakatu(nastaveni());
-  const ucet = '@' + ((data().ig || {}).ucet || n.instagram);
+  const pop = data().popisky[ig.tyden] || {};
   // Kdy: Naplánovat (čas) / Teď – jen s motorem, který umí igKrok (Zveřejnit teď)
   const volba = umiMotor('igKrok') ? '<div class="rp-kdy"><span class="label">Kdy</span>' +
     segment([['cas', 'Naplánovat'], ['ted', 'Teď']], ig.hned ? 'ted' : 'cas', 'data-pl-ig-kdy-volba', 'Kdy zveřejnit') + '</div>' : '';
+  // <textarea> zahodí první odřádkování obsahu – když popisek začíná prázdným řádkem, přidat jedno navíc
+  const text = /^\r?\n/.test(ig.popisek) ? '\n' + ig.popisek : ig.popisek;
+  const sPlanem = umiMotor('plakatPlanPopisek'); // motor drží popisek k plánu a umí označit účty (od 2026-10-15.1)
   return '<div class="formular">' +
-    '<p class="napoveda">Plakát víkendu ' + esc(P.rozsahVikendu(ig.tyden)) + ' vyjde na ' + esc(ucet) + (ig.hned ? ' hned' : ' sám v zadaný čas (do 10 minut)') +
-      ' – příspěvek s popiskem' + (ig.pribeh ? ' a příběh' : '') + '.' + (ig.hned ? ' Průběh uvidíš v kartě Instagram.' : '') + '</p>' + volba +
+    '<p class="napoveda" data-pl-ig-napoveda>' + napovedaPlanu(ig) + '</p>' + volba +
     (ig.hned ? '' : '<label><span class="label">' + (volba ? 'Datum a čas' : 'Kdy') + '</span><input class="field" type="datetime-local" data-pl-ig="kdy" value="' + esc(ig.kdy) + '"></label>') +
-    '<label class="pl-zaskrtnout"><input type="checkbox" data-pl-ig="pribeh"' + (ig.pribeh ? ' checked' : '') + '><span>i do příběhu (1080 × 1920)</span></label>' +
-    '<div class="pl-ig-nahled">' + (ig.nahled
-      ? '<figure><img class="pl-nahled-prispevek" src="' + ig.nahled.prispevek + '" alt="Příspěvek"><figcaption>Příspěvek 1440 px</figcaption></figure>' +
-        '<figure><img class="pl-nahled-pribeh" src="' + ig.nahled.pribeh + '" alt="Příběh"><figcaption>Příběh</figcaption></figure>'
-      : ig.chyba ? '' : '<p class="napoveda">Připravuji obrázky z plakátu…</p>') + '</div>' +
+    (sPlanem ? '<label><span class="label">Označit účty</span><input class="field" data-pl-ig="oznacit" value="' + esc(ig.oznacit) + '" placeholder="např. @dorost_agro" ' +
+      'autocomplete="off" autocapitalize="off" spellcheck="false"></label>' : '') +
+    '<label class="prepinac-radek"><span><b>I do příběhu</b><small>plakát 1080 × 1920 na tmavém pozadí i do příběhu (story)</small></span>' +
+      '<span class="prepinac"><input type="checkbox" data-pl-ig="pribeh"' + (ig.pribeh ? ' checked' : '') + '><span></span></span></label>' +
+    (pop.cekaNaClauda && !String(ig.popisek).trim() ? '<p class="pl-ceka">' + IKONY.claude + '<span>Claude píše popisek… (do půl hodiny, když běží PC) – nebo ho napiš sám.</span></p>' : '') +
+    '<label><span class="label">Popisek na Instagram</span><textarea class="odpoved pl-ig-popisek" data-pl-ig="popisek" rows="9" ' +
+      'placeholder="Popisek k příspěvku – napiš ho, nebo požádej Clauda v kartě Instagram.">' + esc(text) + '</textarea></label>' +
+    '<p class="napoveda">Popisek se uloží i v kartě Instagram' + (sPlanem ? ' a drží se k plánu – pozdější popisek od Clauda ho sám nezmění.' : '.') + '</p>' +
+    '<div class="pl-ig-nahled" data-pl-ig-nahled>' + nahledPlanuHtml(ig) + '</div>' +
     '<p class="pruh pruh-varovani" data-pl-ig-chyba' + (ig.chyba ? '' : ' hidden') + '>' + esc(ig.chyba) + '</p></div>';
+}
+
+function patickaPlanu() {
+  const ig = p.ig;
+  const popisek = !ig ? '' : ig.ukladam ? 'Nahrávám…' : !ig.nahled && !ig.chyba ? 'Připravuji obrázky…'
+    : ig.hned ? 'Zveřejnit teď' : ig.zmena ? 'Uložit změny' : 'Naplánovat';
+  return '<div class="akce"><button type="button" class="btn btn--ghost" data-zavrit-panel>Zrušit</button>' +
+    '<button type="button" class="btn btn--plan" data-pl-ig-ulozit' + (ig && (ig.ukladam || !ig.nahled) ? ' disabled' : '') + '>' +
+    (ig && ig.hned ? IKONY.odeslat : IKONY.kalendar) + '<span>' + popisek + '</span></button></div>';
+}
+
+/** Překreslí v okně plánu jen náhled, chybu a tlačítka – rozepsaný popisek (a klávesnice v telefonu) zůstane. */
+function obnovCastiPlanu() {
+  const el = elementPanelu('plakat-ig'), ig = p.ig;
+  if (!el || !ig) return;
+  const nahled = el.querySelector('[data-pl-ig-nahled]');
+  if (nahled) nahled.innerHTML = nahledPlanuHtml(ig);
+  const napoveda = el.querySelector('[data-pl-ig-napoveda]');
+  if (napoveda) napoveda.innerHTML = napovedaPlanu(ig);
+  const ch = el.querySelector('[data-pl-ig-chyba]');
+  if (ch) { ch.textContent = ig.chyba; ch.hidden = !ig.chyba; }
+  const paticka = el.querySelector('.panel-paticka');
+  if (paticka) paticka.innerHTML = patickaPlanu();
 }
 
 async function ulozPlan() {
   const ig = p.ig;
   if (!ig) return;
-  const ukaz = (t) => { ig.chyba = t; const el = elementPanelu('plakat-ig'); const ch = el && el.querySelector('[data-pl-ig-chyba]'); if (ch) { ch.textContent = t; ch.hidden = !t; } };
+  const ukaz = (t) => { ig.chyba = t; obnovCastiPlanu(); };
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(ig.kdy || '');
   if (!m && !ig.hned) { ukaz('Vyber datum a čas.'); return; }
+  const text = String(ig.popisek || '').replace(/\r\n/g, '\n').trim();
+  if (!text) { ukaz('Popisek je prázdný – napiš ho, nebo požádej Clauda v kartě Instagram.'); return; }
+  if (text.length > 2200) { ukaz('Popisek je delší než 2 200 znaků – Instagram ho nevezme.'); return; }
   let kdy = ig.hned ? Date.now() : new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])).getTime();
   if (!ig.hned && kdy < Date.now() - 60e3) { ukaz('Ten čas už byl – vyber pozdější.'); return; }
   ig.ukladam = true;
   ukaz('');
-  obnovPanel('plakat-ig');
   try {
+    // popisek z okna = popisek kola (karta ukáže totéž); uloží se jen změněný, ať zůstane štítek „od Clauda“
+    if (ig.tyden in p.popisek || text !== ulozenyPopisek(ig.tyden).trim()) p.popisek[ig.tyden] = text;
     await ulozPopisekHned();
     const o = await ig.obrazky;
     const v1 = await volej('plakatObrazky', { tyden: ig.tyden, prispevek: o.prispevek, pribeh: o.pribeh });
     if (v1 && v1.obrazky) data().obrazky = v1.obrazky;
     if (ig.hned) kdy = Date.now(); // obrázky se mezitím nahrávaly
-    const v2 = await volej('plakatNaplanovat', { tyden: ig.tyden, kdy, pribeh: !!ig.pribeh });
+    const sPlanem = umiMotor('plakatPlanPopisek');
+    const v2 = await volej('plakatNaplanovat', Object.assign({ tyden: ig.tyden, kdy, pribeh: !!ig.pribeh }, sPlanem ? { popisek: text, oznacit: ig.oznacit } : {}));
     if (v2 && v2.plan) data().plan = v2.plan;
+    if (v2 && v2.popisky) data().popisky = v2.popisky;
     ulozDoZarizeni();
     const otisky = uloziste.cti(OTISKY) || {};
     otisky[ig.tyden] = o.otisk;
     uloziste.pis(OTISKY, otisky);
+    if (sPlanem) uloziste.pis(OZNACIT, ig.oznacit);
     zavriPanel();
     toast(ig.hned ? 'Zveřejňuji na Instagram' + (ig.pribeh ? ' i s příběhem' : '') + ' – průběh vidíš v kartě Instagram'
-      : 'Naplánováno – vyjde ' + kdyPlan(kdy) + (ig.pribeh ? ' i s příběhem' : ''));
+      : (ig.zmena ? 'Plán změněný' : 'Naplánováno') + ' – vyjde ' + kdyPlan(kdy) + (ig.pribeh ? ' i s příběhem' : ''));
     zmeneno();
     if (ig.hned) ig_.hned('plakat', ig.tyden, 'ted');
   } catch (e) {
     if (p.ig !== ig) { toast(e.message, true); return; }
     ig.ukladam = false;
-    obnovPanel('plakat-ig');
     ukaz(e.message);
     toast(e.message, true);
   }
@@ -982,7 +1220,12 @@ function zrusPlan() {
   potvrd('Zrušit naplánované zveřejnění?', { text: 'Plakát víkendu ' + P.rozsahVikendu(tyden) + ' pak na Instagram nepůjde sám.', ano: 'Zrušit plán', ne: 'Nechat' }).then((ano) => {
     if (!ano) return;
     volej('plakatZrusitPlan', { tyden })
-      .then((v) => { data().plan = (v && v.plan) || {}; ulozDoZarizeni(); toast('Plán zrušený'); })
+      .then((v) => {
+        data().plan = (v && v.plan) || {};
+        if (v && v.popisky) data().popisky = v.popisky;
+        ulozDoZarizeni();
+        toast('Plán zrušený');
+      })
       .catch((e) => toast(e.message, true))
       .then(zmeneno);
   });
@@ -1003,6 +1246,18 @@ export function klikPlakaty(el) {
   if (el.dataset.plIgKdyVolba) { if (p.ig) { p.ig.hned = el.dataset.plIgKdyVolba === 'ted'; obnovPanel('plakat-ig'); } return true; }
   if (el.hasAttribute('data-pl-ig-ulozit')) { if (p.ig && !p.ig.ukladam) ulozPlan(); return true; }
   if (el.hasAttribute('data-pl-ig-zrusit')) { zrusPlan(); return true; }
+  if (el.hasAttribute('data-pl-kopirovat')) { kopiruj(textPopisku(p.sobota), 'Popisek zkopírovaný – vlož ho do Instagramu'); return true; }
+  if (el.hasAttribute('data-pl-popisek-novy')) { pouzijNovyPopisek(); return true; }
+  if (el.dataset.plIgUkaz) {
+    const druh = el.dataset.plIgUkaz;
+    if (p.ig && p.ig.nahled && p.ig.nahled[druh]) ukazObrazek({ druh, data: p.ig.nahled[druh], nazev: 'plakat_' + p.ig.tyden + '_' + druh + '.jpg' });
+    return true;
+  }
+  if (el.hasAttribute('data-pl-obrazek-sdilet')) {
+    // sdílení hned v klepnutí (Safari ho jinak nepustí); nevyjde-li, zůstává obrázek k podržení prstem
+    if (velky && !sdilejHned(velky.soubor, () => toast('Sdílení nevyšlo – podrž prst na obrázku a ulož ho.', true))) toast('Sdílení tu nejde – podrž prst na obrázku.', true);
+    return true;
+  }
   if (el.hasAttribute('data-pl-alias-pridat')) { pracovniNastaveni().aliasy.push(['', '']); nastaveniZmeneno(true); return true; }
   if (el.dataset.plAliasSmazat != null) { pracovniNastaveni().aliasy.splice(Number(el.dataset.plAliasSmazat), 1); nastaveniZmeneno(true); return true; }
   return false;
@@ -1020,7 +1275,7 @@ export function vstupPlakaty(e) {
   if (t.matches('[data-pl-ig]')) {
     if (p.ig) {
       p.ig[t.dataset.plIg] = t.type === 'checkbox' ? t.checked : t.value;
-      if (t.type === 'checkbox') obnovPanel('plakat-ig');
+      if (t.type === 'checkbox') obnovCastiPlanu(); // jen nápověda – rozepsaný popisek zůstane
     }
     return true;
   }
@@ -1044,7 +1299,7 @@ function nabidkaPlakatu(cil) {
   const s = p.sobota, d = data();
   const plan = d.plan[s] || null;
   const ig = d.ig || {};
-  const text = String(s in p.popisek ? p.popisek[s] : (d.popisky[s] || {}).text || '');
+  const text = textPopisku(s);
   const pol = [
     { ikona: IKONY.stahnout, text: 'Stáhnout obrázek', fn: stahniObrazek },
     { ikona: IKONY.tisk, text: 'Vytisknout / PDF', fn: tiskni }
@@ -1055,7 +1310,7 @@ function nabidkaPlakatu(cil) {
   } else if (umiMotor('plakatNaplanovat') && ig.nastaveno && !(plan && (plan.stav === 'nahrava' || plan.stav === 'zverejnuji'))) {
     if (plan && plan.stav === 'ceka') {
       if (umiMotor('igKrok')) pol.push({ ikona: IKONY.odeslat, text: 'Zveřejnit teď', oddel: true, fn: () => ig_.zverejnitTed('plakat', s) });
-      pol.push({ ikona: IKONY.kalendar, text: 'Změnit čas…', oddel: !umiMotor('igKrok'), fn: () => otevriPlan(false) });
+      pol.push({ ikona: IKONY.kalendar, text: 'Změnit čas / popisek…', oddel: !umiMotor('igKrok'), fn: () => otevriPlan(false) });
       pol.push({ ikona: IKONY.zavrit, text: 'Zrušit plán', fn: zrusPlan });
     } else {
       if (umiMotor('igKrok')) pol.push({ ikona: IKONY.odeslat, text: 'Zveřejnit teď…', oddel: true, fn: () => otevriPlan(true) });

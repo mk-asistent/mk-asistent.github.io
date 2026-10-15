@@ -91,6 +91,32 @@ function zavriHorni() {
 
 window.addEventListener('popstate', () => { if (zasobnik.length) zavriHorni(); });
 
+// Klávesnice v telefonu (iPhone, Android): okno přes celou obrazovku zůstává pod ní a tlačítko dole (Naplánovat, Uložit,
+// Odeslat) by schovala. Viditelná část stránky je visualViewport – když ji klávesnice zmenší, dostane <html> třídu
+// s-klavesnici a proměnné --vv-vyska / --vv-nahore a panel se v app.css zmenší jen na ni (patička zůstane nad klávesnicí).
+// Přiblížení prsty (scale > 1) se nepočítá.
+const vv = window.visualViewport;
+if (vv && typeof vv.addEventListener === 'function') {
+  const srovnej = () => {
+    const h = document.documentElement;
+    const klavesnice = (vv.scale || 1) < 1.01 && window.innerHeight - vv.height > 120;
+    const vyska = Math.round(vv.height) + 'px';
+    const zmena = klavesnice && h.style.getPropertyValue('--vv-vyska') !== vyska;
+    h.classList.toggle('s-klavesnici', klavesnice);
+    if (klavesnice) {
+      h.style.setProperty('--vv-vyska', vyska);
+      h.style.setProperty('--vv-nahore', Math.round(vv.offsetTop || 0) + 'px');
+    } else h.style.removeProperty('--vv-vyska');
+    // pole, do kterého se píše, po zmenšení panelu zase na očích (jinak by zůstalo pod patičkou)
+    const a = document.activeElement;
+    if (zmena && a && a.closest && a.closest('.panel') && a.matches('input, textarea, select')) {
+      requestAnimationFrame(() => { try { a.scrollIntoView({ block: 'nearest' }); } catch (e) { /* nic */ } });
+    }
+  };
+  vv.addEventListener('resize', srovnej);
+  vv.addEventListener('scroll', srovnej);
+}
+
 export function jeOtevreny(id) { return !!najdi(id); }
 export function horniPanel() { return zasobnik[zasobnik.length - 1] || null; }
 export function elementPanelu(id) { return elPanelu(id); }

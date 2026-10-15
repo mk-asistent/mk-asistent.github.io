@@ -262,8 +262,11 @@
 .pl-ceka svg { width: 16px; height: 16px; flex: none; }
 .pl-styl { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
 .pl-styl label { flex: 1; min-width: 0; }
-.pl-ig__akce { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.pl-ig__akce { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 14px; }   /* nad popiskem – na telefonu vidět hned */
 .pl-ig__akce .btn { border-radius: 999px; }
+.pl-ig .ig-prubeh { margin: 0 0 14px; }
+.pl-novy-popisek { flex-wrap: wrap; }
+.pl-novy-popisek span { flex: 1 1 200px; }
 .pl-chyba { margin: 0 0 8px; font-size: 12.5px; color: var(--danger); }
 .pl-ig-nahled { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; min-height: 60px; }
 .pl-ig-nahled figure { margin: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -271,6 +274,21 @@
 .pl-ig-nahled .pl-nahled-prispevek { width: 210px; height: auto; }
 .pl-ig-nahled .pl-nahled-pribeh { width: 84px; height: auto; }
 .pl-ig-nahled figcaption { font-size: 11.5px; color: var(--muted); }
+.pl-ig-nahled__btn { display: block; padding: 0; border: 0; background: none; cursor: zoom-in; border-radius: 8px; }
+.pl-ig-nahled__napoveda { flex-basis: 100%; margin: 0; }
+.pl-ig-popisek { min-height: 160px; line-height: 1.5; }
+
+/* obrázek přes celou obrazovku (iPhone: podržet prst → Přidat do Fotek; jinde Stáhnout) */
+.panel-obrazek .panel-telo { background: var(--surface); }
+.pl-obrazek { display: flex; flex-direction: column; align-items: center; gap: 12px; padding-top: 8px; }
+.pl-obrazek img { display: block; width: 100%; height: auto; max-height: 72vh; object-fit: contain; border-radius: 10px; border: 1px solid var(--line);
+  background: #fff; -webkit-touch-callout: default; -webkit-user-select: auto; user-select: auto; }
+.pl-obrazek--pribeh img { width: auto; max-width: 100%; }
+.pl-obrazek__navod { display: flex; align-items: flex-start; gap: 8px; align-self: stretch; margin: 0; padding: 10px 12px; border-radius: var(--radius);
+  background: var(--fialova-tint); color: var(--text); font-size: 14px; line-height: 1.45; }
+.pl-obrazek__navod svg { width: 17px; height: 17px; flex: none; margin-top: 1px; color: var(--fialova); }
+.pl-obrazek--ceka { align-items: stretch; color: var(--muted); font-size: 13.5px; }
+.pl-obrazek--ceka .kostra i { height: 190px; }
 .pl-zaskrtnout { display: flex !important; align-items: center; justify-content: flex-start; gap: 10px; font-size: 14px; font-weight: 550; cursor: pointer; }
 .pl-zaskrtnout input { width: 18px; height: 18px; margin: 0; accent-color: var(--fialova); }
 
@@ -292,6 +310,9 @@ details.plakaty-nastaveni[open] > summary .vpravo svg { transform: rotate(90deg)
   .pl-mrizka--3 > :first-child { grid-column: 1 / -1; }
   .pl-telo { padding: 6px 12px 14px; }
   .pl-styl { flex-direction: column; align-items: stretch; }
+  .plakaty-tisk-napoveda { display: none; }        /* tisk z telefonu skoro ne – karta Instagram tak vyjede výš */
+  .pl-ig__akce .btn { flex: 1 1 auto; justify-content: center; }
+  .pl-ig textarea.odpoved { min-height: 140px; }
 }
 
 /* ================================================================ 3) TISK – A3 na šířku

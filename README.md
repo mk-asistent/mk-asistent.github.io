@@ -426,8 +426,10 @@ FK Agro Vnorovy přenesená do aplikace – tvoření i tisk fungují stejně:
   doma, řádky mládeže, venku, v týdnu, patička – přidat a smazat, změna hned v náhledu, uložení 700 ms po psaní (motor).
   Přeložené zápasy a poznámky svazu z fotbal.cz ukáže editor nahoře („přeloženo z so 24. 10. 11:45 na ne 25. 10. 11:45“).
 - **Vytisknout / PDF**: A3, na šířku, okraje žádné, grafika na pozadí (`@page` 420 × 297 mm, tiskne se jen plakát).
-- **Stáhnout obrázek**: JPEG 2 800 px (html2canvas 1.4.1 v `js/vendor/` – načte se až při prvním obrázku, cizí skript do aplikace s klíčem nepouštíme; na iPhonu nabídka sdílení
-  → Uložit obrázek).
+- **Stáhnout obrázek**: JPEG 2 800 px (html2canvas 1.4.1 v `js/vendor/` – na PC se načte až při prvním obrázku, cizí skript
+  do aplikace s klíčem nepouštíme). **Na iPhonu** se obrázek připraví dopředu (v klidu po otevření stránky a po každé změně
+  plakátu) a klepnutí otevře nabídku sdílení hned → Uložit obrázek (Safari sdílení po delším kreslení odmítá, v aplikaci na
+  ploše nejde stahovat vůbec). Když sdílení nejde, ukáže se obrázek přes celou obrazovku: podržet prst → Přidat do Fotek.
 
 Odkud plakát je: zápasy **A-týmu, B-týmu a dorostu** z fotbal.cz (`stav.fotbal`, FOTBAL.json) – doma velké dlaždice, venku
 řádky „SO 14:30“, zápas v pátek před víkendem a po–čt po něm do bloku V TÝDNU; **mládež** (žáci, přípravky) z rozlosování
@@ -442,11 +444,15 @@ z Google Fonts (velikosti upravené tak, aby krabičky seděly na pixel jako na 
 hodně lidí“) a **Popisek od Clauda**: aplikace pošle souhrn víkendu z plakátu (domácí zápasy mužů a dorostu, hlavní zápas
 áčka, venku, tabulka), motor založí úkol v NOVE (`…_plak.md`) a Claude zapíše popisek do `PLAKATY/popisky_claude.json`
 („Claude píše popisek… do půl hodiny, když běží PC“); od víkendu v nastavení (`popiskyOd`) žádá motor sám v pondělí až
-sobotu. Popisek jde upravit ručně (štítek „upraveno“, uloží se 700 ms po psaní). **Naplánovat na Instagram**: datum a čas
-(výchozí čtvrtek před víkendem 18:00, když už prošel, za hodinu) a **i do příběhu** – aplikace vyrobí příspěvek (plakát
+sobotu. Popisek jde upravit ručně (štítek „upraveno“, uloží se 700 ms po psaní). Tlačítka karty jsou nad popiskem (na
+telefonu hned vidět): Zveřejnit teď, Naplánovat, Kopírovat popisek. **Naplánovat** otevře okno jako u reelu: datum a čas
+(výchozí čtvrtek před víkendem 18:00, když už prošel, za hodinu), **Označit účty**, **i do příběhu**, **popisek** (předvyplněný,
+jde upravit – uloží se i v kartě a drží se k plánu: popisek od Clauda, který přijde potom, plán sám nezmění, karta nabídne
+„Použít nový“) a náhled příspěvku i příběhu (klepnutí = obrázek přes celou obrazovku k uložení). Aplikace vyrobí příspěvek (plakát
 1440 px) a příběh 1080 × 1920 (plakát na tmavém pozadí, nahoře PROGRAM VÍKENDU a datum, dole výzva a @účet), nahraje je
 (`plakatObrazky`) a naplánuje (`plakatNaplanovat`); motor je zveřejní stejně jako reely (`PLAKATY_PLAN`, spouštěč
-`instagramKazdych10Min`) – nebo **Zveřejnit teď** (stejné okno, „Kdy: Teď“; u naplánovaného tlačítko v kartě). Stav: vyjde … /
+`instagramKazdych10Min`) – nebo **Zveřejnit teď** (stejné okno, „Kdy: Teď“; u naplánovaného tlačítko v kartě, vedle **Změnit
+čas / popisek** a Zrušit plán). Stav: vyjde … /
 zveřejňuje se / na Instagramu (odkaz; „příběh nevyšel: důvod“) / nepovedlo se; pod ním kroky s časy jako u reelů (průběh výš).
 
 **Nastavení plakátu** (sbalitelný oddíl na stránce): názvy týmů na plakátu, soutěže, nadpis, místo, výzva, druhý řádek

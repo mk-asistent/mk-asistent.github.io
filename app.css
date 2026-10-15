@@ -2024,6 +2024,9 @@ li.vybrany > .radek-posta, li.vybrany > .radek-posta:hover { background: var(--a
 .fmr.fmr--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .fmr.fmr--3 { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); }
 .prepinac-radek { display: flex !important; align-items: center; justify-content: space-between; gap: 12px; padding: 2px 0; font-size: 14px; font-weight: 550; }
+/* název a pod ním šedý popis (I do příběhu u reelu a plakátu, poloha v Nastavení) – dřív se slily do jednoho řádku */
+.prepinac-radek b, .prepinac-radek small { display: block; }
+.prepinac-radek small { margin-top: 2px; font-size: 12.5px; font-weight: 400; line-height: 1.35; color: var(--muted); }
 select.field { appearance: auto; }
 input.field[type="date"], input.field[type="time"] { min-width: 0; }
 .btn--nebezpeci { color: var(--danger); }
@@ -2094,6 +2097,11 @@ input.field[type="date"], input.field[type="time"] { min-width: 0; }
 .panel-telo { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 16px 20px; background: var(--bg); }
 .panel-psani .panel-telo, .panel-okno .panel-telo { background: var(--surface); }
 .panel-paticka { padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
+/* otevřená klávesnice v telefonu (js/panely.js): panel jen na viditelnou část nad ní – tlačítka v patičce zůstanou vidět */
+@media (max-width: 759px) {
+    html.s-klavesnici .panel { top: var(--vv-nahore, 0px); bottom: auto; height: var(--vv-vyska, 100%); }
+    html.s-klavesnici .panel-paticka { padding-bottom: 10px; }
+}
 @media (min-width: 760px) {
     .panel.panel-bocni { left: auto; width: min(560px, 92vw); border-left: 1px solid var(--line); box-shadow: var(--shadow-pop); }
     .panel.panel-okno {

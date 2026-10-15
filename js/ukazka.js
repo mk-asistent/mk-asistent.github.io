@@ -804,7 +804,9 @@ const akce = {
   },
   plakatPopisekUlozit: (d) => {
     const text = String(d.text || '');
-    plakatyUkazka.popisky[d.tyden] = Object.assign({}, plakatyUkazka.popisky[d.tyden], { text, zdroj: text ? 'rucne' : '', kdy: Date.now(), cekaNaClauda: false });
+    const pop = plakatyUkazka.popisky[d.tyden] = Object.assign({}, plakatyUkazka.popisky[d.tyden], { text, zdroj: text ? 'rucne' : '', kdy: Date.now(), cekaNaClauda: false });
+    const z = plakatyUkazka.plan[d.tyden];
+    if (z && z.stav === 'ceka' && pop.plan && text.trim()) Object.assign(pop, { plan: text.trim(), planKdy: Date.now() }); // i popisek plánu
     return { popisky: kopie(plakatyUkazka.popisky) };
   },
   plakatObrazky: (d) => {
@@ -812,13 +814,25 @@ const akce = {
     plakatyUkazka.obrazky[d.tyden] = { prispevek: true, pribeh: !!d.pribeh, kdy: Date.now() };
     return { obrazky: kopie(plakatyUkazka.obrazky) };
   },
+  // popisek z okna plánu se drží k plánu a je i popiskem kola; označené účty k plánu (nic nikam nejde)
   plakatNaplanovat: (d) => {
     if (!plakatyUkazka.obrazky[d.tyden]) throw new Error('Chybí obrázek plakátu – vyrob ho v aplikaci znovu.');
-    if (!(plakatyUkazka.popisky[d.tyden] || {}).text) throw new Error('Plakát nemá popisek – bez něj ho na Instagram nepošlu.');
-    plakatyUkazka.plan[d.tyden] = { kdy: Number(d.kdy), stav: 'ceka', pribeh: !!d.pribeh };
-    return { plan: kopie(plakatyUkazka.plan) };
+    const vlastni = String(d.popisek || '').trim();
+    if (!vlastni && !(plakatyUkazka.popisky[d.tyden] || {}).text) throw new Error('Plakát nemá popisek – bez něj ho na Instagram nepošlu.');
+    const pop = plakatyUkazka.popisky[d.tyden] = Object.assign({}, plakatyUkazka.popisky[d.tyden]);
+    if (vlastni) {
+      if (String(pop.text || '').trim() !== vlastni) Object.assign(pop, { text: vlastni, zdroj: 'rucne', kdy: Date.now() });
+      Object.assign(pop, { plan: vlastni, planKdy: Date.now() });
+    }
+    const oznacit = String(d.oznacit || '').split(/[\s,;]+/).filter(Boolean).map((u) => u.replace(/^@/, '').toLowerCase());
+    plakatyUkazka.plan[d.tyden] = Object.assign({ kdy: Number(d.kdy), stav: 'ceka', pribeh: !!d.pribeh }, oznacit.length ? { oznacit } : {});
+    return { plan: kopie(plakatyUkazka.plan), popisky: kopie(plakatyUkazka.popisky) };
   },
-  plakatZrusitPlan: (d) => { delete plakatyUkazka.plan[d.tyden]; return { plan: kopie(plakatyUkazka.plan) }; },
+  plakatZrusitPlan: (d) => {
+    delete plakatyUkazka.plan[d.tyden];
+    if (plakatyUkazka.popisky[d.tyden]) { delete plakatyUkazka.popisky[d.tyden].plan; delete plakatyUkazka.popisky[d.tyden].planKdy; }
+    return { plan: kopie(plakatyUkazka.plan), popisky: kopie(plakatyUkazka.popisky) };
+  },
   // průběh zveřejňování na Instagram (motor igStav / igKrok): v ukázce posune každý krok zveřejnění o fázi – nic nikam nejde
   igStav: () => igUkazka(),
   igKrok: (d) => {
