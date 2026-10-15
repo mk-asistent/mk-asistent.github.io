@@ -271,9 +271,10 @@ function prostredi() {
   // Instagram API (graph.instagram.com): účet, kontejner, stav zpracování, zveřejnění, odkaz, obnova klíče
   // kontejnery a příspěvky se číslují (reel + příběh, plakát + příběh); stav zpracování z fronty stavy (příběh: stavyPribehu)
   // publikovane: kontejner → příspěvek (zveřejněný kontejner hlásí PUBLISHED); ztratitZverejneni = kolik zveřejnění proběhne,
-  // ale odpověď se ztratí (HTTP 500); prispevky = poslední příspěvky účtu (GET …/media)
+  // ale odpověď se ztratí (HTTP 500); prispevky = poslední příspěvky účtu (GET …/media), pribehyUctu = příběhy za 24 h
+  // (GET …/stories); chybaZminek = Instagram odmítne příběh se zmínkami (user_tags u STORIES – přihlášení přes Instagram)
   const ig = { volani: [], stavy: ['IN_PROGRESS', 'FINISHED'], stavyPribehu: ['FINISHED'], chybaKontejneru: '', chybaPribehu: '', kontejneru: 0, medii: 0, pribehy: {},
-    publikovane: {}, ztratitZverejneni: 0, prispevky: [] };
+    publikovane: {}, ztratitZverejneni: 0, prispevky: [], pribehyUctu: [], chybaZminek: '' };
   const odpovedInstagram = (url, moznosti) => {
     const telo = moznosti.payload ? Object.fromEntries(new URLSearchParams(moznosti.payload)) : {};
     const cesta = url.replace(/^https:\/\/graph\.instagram\.com\/(v[\d.]+\/)?/, '').split('?')[0];
@@ -283,9 +284,11 @@ function prostredi() {
     if (cesta === 'refresh_access_token') return json({ access_token: 'obnoveny-klic', token_type: 'bearer', expires_in: 5184000 });
     if (cesta === 'me') return json({ user_id: '17841400000', username: 'fkagrovnorovy' });
     if (cesta === '17841400000/media' && (moznosti.method || 'get') === 'get') return json({ data: ig.prispevky });
+    if (cesta === '17841400000/stories') return json({ data: ig.pribehyUctu });
     if (cesta === '17841400000/media') {
       if (ig.chybaKontejneru) return json({ error: { message: ig.chybaKontejneru } }, 400);
       if (telo.media_type === 'STORIES' && ig.chybaPribehu) return json({ error: { message: ig.chybaPribehu } }, 400);
+      if (telo.media_type === 'STORIES' && telo.user_tags && ig.chybaZminek) return json({ error: { message: ig.chybaZminek, code: 1 } }, 500);
       const id = 'kontejner-' + (++ig.kontejneru);
       if (telo.media_type === 'STORIES') ig.pribehy[id] = true;
       return json({ id });
@@ -2404,7 +2407,9 @@ test('reely: seznam z REELY/reely.json, odkaz na video na Disku, skóre z FOTBAL
   const p = prostredi();
   let o = p.volej('reely');
   assert.strictEqual(o.ok, true, o.chyba);
-  assert.deepStrictEqual(json(o.data), { aktualizovano: '', reely: [], zverejneno: {}, plan: {}, popiskyPlanu: {}, instagram: { nastaveno: false, ucet: '' } }); // export ještě neproběhl
+  assert.deepStrictEqual(json(o.data), { aktualizovano: '', reely: [], zverejneno: {}, plan: {}, popiskyPlanu: {}, instagram: { nastaveno: false, ucet: '' },
+    pribehy: [], planPribehu: {} }); // export ještě neproběhl
+  assert.ok(!p.schranka.deti.REELY, 'čtení složku REELY nezakládá');
   const reely = p.schranka.createFolder('REELY');
   reely.createFile('reely.json', JSON.stringify({ verze: 1, aktualizovano: '2026-10-05T08:05:02+02:00', reely: [
     { id: 'reel_dorost_tesany', nazev: 'Vnorovy – Těšany', tym: 'dorost', tymy: ['dorost'], tymNazev: 'Dorost', datum_zapasu: '2026-10-04', vyrobeno: '2026-10-05T07:48',
@@ -3385,6 +3390,336 @@ test('plakáty na Instagram: popisek z okna plánu drží plán (pozdější Cla
   o = p.volej('plakatNaplanovat', { tyden: '2026-10-24', kdy: za + 864e5 });
   assert.deepStrictEqual(json(o.data.plan['2026-10-24']), { kdy: za + 864e5, stav: 'ceka', pribeh: false });
   assert.strictEqual(o.data.popisky, undefined);
+});
+
+// ---- reely 15. 10.: úprava popisku z aplikace, jen příběh, zmínky v příběhu, příběh z fotky (motor 2026-10-15.2)
+// Michal: „mít tam možnost opravit ten popisek … A dokážeme dělat i příběhy? A třeba i se zmínkami?“ – vše vymyšlené, nic ven
+
+test('reely: úprava popisku z aplikace – REELY/upravy.json (píše jen motor), upravený popisek s původním, Vrátit původní, export z PC ji nepřepíše', () => {
+  const p = prostredi();
+  reelyProInstagram(p);
+  const REELY = p.schranka.deti.REELY;
+  const reelyJson = REELY.soubory.find((f) => f.getName() === 'reely.json');
+  const puvodniJson = reelyJson.getBlob().getDataAsString();
+  assert.ok(p.volej('info').data.akce.indexOf('reelPopisekUlozit') >= 0 && p.volej('info').data.akce.indexOf('igJenPribeh') >= 0, 'aplikace pozná nové akce');
+  let o = p.volej('reelPopisekUlozit', { id: 'reel_dorost_tesany', text: 'Opravený popisek ⚽\r\n\r\n#fkagrovnorovy' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual([o.data.reel.popisek, o.data.reel.upraveno, o.data.reel.puvodni, o.data.reel.puvodniZmeneny],
+    ['Opravený popisek ⚽\n\n#fkagrovnorovy', true, 'Hattrick! ⚽⚽⚽\n\n#fkagrovnorovy', false]);
+  const upravy = REELY.soubory.find((f) => f.getName() === 'upravy.json');
+  assert.ok(upravy && JSON.parse(upravy.getBlob().getDataAsString()).reel_dorost_tesany.text === 'Opravený popisek ⚽\n\n#fkagrovnorovy', 'úprava v upravy.json');
+  assert.strictEqual(reelyJson.getBlob().getDataAsString(), puvodniJson, 'reely.json (píše exportér z PC) beze změny');
+  let r = p.volej('reely').data.reely.find((x) => x.id === 'reel_dorost_tesany');
+  assert.deepStrictEqual([r.popisek, r.upraveno, r.puvodni], ['Opravený popisek ⚽\n\n#fkagrovnorovy', true, 'Hattrick! ⚽⚽⚽\n\n#fkagrovnorovy'], 'i z mezipaměti');
+  assert.ok(!p.volej('reely').data.reely.find((x) => x.id === 'reel_bez_videa').upraveno, 'ostatní reely bez úpravy');
+  // exportér z PC zapíše nový reely.json s jiným popiskem – úprava zůstává, aplikace se dozví, že se popisek na PC změnil
+  const data = JSON.parse(puvodniJson);
+  data.reely[0].popisek = 'Nový popisek z PC';
+  reelyJson.setContent(JSON.stringify(data));
+  r = p.volej('reely', { znovu: true }).data.reely.find((x) => x.id === 'reel_dorost_tesany');
+  assert.deepStrictEqual([r.popisek, r.puvodni, r.puvodniZmeneny], ['Opravený popisek ⚽\n\n#fkagrovnorovy', 'Nový popisek z PC', true]);
+  // stejný text jako z PC = úprava pryč; Vrátit původní = pryč; chyby
+  o = p.volej('reelPopisekUlozit', { id: 'reel_dorost_tesany', text: '  Nový popisek z PC \n' });
+  assert.deepStrictEqual([o.data.reel.popisek, o.data.reel.upraveno], ['Nový popisek z PC', undefined]);
+  p.volej('reelPopisekUlozit', { id: 'reel_dorost_tesany', text: 'Zase jinak' });
+  o = p.volej('reelPopisekUlozit', { id: 'reel_dorost_tesany', vratit: true });
+  assert.deepStrictEqual([o.data.reel.popisek, o.data.reel.upraveno], ['Nový popisek z PC', undefined]);
+  assert.deepStrictEqual(JSON.parse(upravy.getBlob().getDataAsString()), {}, 'po Vrátit původní úprava pryč');
+  assert.ok(/2 200/.test(p.volej('reelPopisekUlozit', { id: 'reel_dorost_tesany', text: 'x'.repeat(2201) }).chyba));
+  assert.ok(/Neplatný/.test(p.volej('reelPopisekUlozit', { id: '../x', text: 'a' }).chyba));
+  assert.ok(/není v REELY/.test(p.volej('reelPopisekUlozit', { id: 'reel_neni', text: 'a' }).chyba));
+  // reel bez popisku z PC: Michal ho napíše v aplikaci → jde naplánovat
+  p.vlastnosti.set('IG_TOKEN', 'testovaci-ig-klic');
+  assert.ok(/popisek/.test(p.volej('reelNaplanovat', { id: 'reel_bez_popisku', kdy: Date.now() + 36e5 }).chyba));
+  p.volej('reelPopisekUlozit', { id: 'reel_bez_popisku', text: 'Popisek z aplikace' });
+  assert.strictEqual(p.volej('reelNaplanovat', { id: 'reel_bez_popisku', kdy: Date.now() + 36e5 }).ok, true);
+});
+
+test('reely: úprava popisku naplánovaného reelu změní i popisek plánu (spouštěč ho pošle), popisek z okna plánu je i úprava; po zveřejnění plán nemění', () => {
+  const p = prostredi();
+  igPripravit(p);
+  const T = Date.parse('2026-10-15T18:00:00+02:00');
+  p.nastavCas(T);
+  const za = T + 2 * 36e5;
+  assert.strictEqual(p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: za, pribeh: true }).ok, true);
+  let o = p.volej('reelPopisekUlozit', { id: 'reel_dorost_tesany', text: 'Upraveno po naplánování' });
+  assert.deepStrictEqual([json(o.data.popiskyPlanu), o.data.plan.reel_dorost_tesany.upraveno], [{ reel_dorost_tesany: 'Upraveno po naplánování' }, true]);
+  // popisek z okna plánu (Změnit čas / popisek) = popisek plánu i úprava – karta ukáže totéž
+  o = p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: za, pribeh: true, popisek: 'Z okna plánu' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  let r = p.volej('reely').data.reely.find((x) => x.id === 'reel_dorost_tesany');
+  assert.deepStrictEqual([r.popisek, r.upraveno, o.data.popisky.reel_dorost_tesany], ['Z okna plánu', true, 'Z okna plánu']);
+  assert.deepStrictEqual([o.data.reel.popisek, o.data.reel.upraveno], ['Z okna plánu', true], 'reel s úpravou i v odpovědi plánu');
+  // zrušení plánu: popisek plánu pryč, úprava zůstane
+  o = p.volej('reelZrusitPlan', { id: 'reel_dorost_tesany' });
+  assert.deepStrictEqual(json(o.data.popisky), {});
+  assert.strictEqual(p.volej('reely').data.reely.find((x) => x.id === 'reel_dorost_tesany').popisek, 'Z okna plánu');
+  // nový plán bez popisku z okna → spouštěč pošle Michalovu úpravu
+  p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: za });
+  p.volej('reelPopisekUlozit', { id: 'reel_dorost_tesany', text: 'Poslední verze\n#fkagrovnorovy' });
+  p.nastavCas(za + 60e3);
+  p.ig.stavy = ['FINISHED'];
+  p.ctx.instagramKazdych10Min();
+  const k = p.ig.volani.filter((v) => v.cesta === '17841400000/media');
+  assert.deepStrictEqual(k.map((x) => [x.telo.media_type, x.telo.caption]), [['REELS', 'Poslední verze\n#fkagrovnorovy']]);
+  assert.strictEqual(planReelu(p).stav, 'hotovo');
+  // po zveřejnění úprava popisku plán (ani popisek plánu) nemění
+  o = p.volej('reelPopisekUlozit', { id: 'reel_dorost_tesany', text: 'Po zveřejnění' });
+  assert.deepStrictEqual([json(o.data.popiskyPlanu), o.data.plan.reel_dorost_tesany.stav], [{}, 'hotovo']);
+  // běží zveřejnění (zámek) – úprava se uloží, plán zůstane
+  const p2 = prostredi();
+  igPripravit(p2);
+  p2.nastavCas(T);
+  p2.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: T + 36e5 });
+  const plan = JSON.parse(p2.vlastnosti.get('REELY_PLAN'));
+  plan.reel_dorost_tesany.bezi = T + 5 * 60e3;
+  p2.vlastnosti.set('REELY_PLAN', JSON.stringify(plan));
+  o = p2.volej('reelPopisekUlozit', { id: 'reel_dorost_tesany', text: 'Během nahrávání' });
+  assert.deepStrictEqual([o.data.reel.popisek, json(o.data.popiskyPlanu)], ['Během nahrávání', {}]);
+});
+
+test('popisky: vždy 2 návrhy od Clauda – reely (REELY/popisky_claude.json, žádost …_reel.md skrytá ve Schránce) i plakáty (varianty)', () => {
+  const p = prostredi();
+  reelyProInstagram(p);
+  const T = Date.parse('2026-10-15T18:00:00+02:00');
+  p.nastavCas(T);
+  let r = p.volej('reely').data.reely.find((x) => x.id === 'reel_dorost_tesany');
+  assert.deepStrictEqual([r.navrhy, r.cekaNaClauda], [undefined, undefined], 'bez návrhů nic navíc');
+  // požádat o nové návrhy: poznámka pro Clauda se zápasem a dosavadním popiskem, v aplikaci skrytá; reel „čeká na Clauda“
+  let o = p.volej('reelPopisekNavrhy', { id: 'reel_dorost_tesany', styl: 'hravě' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(o.data.reel.cekaNaClauda, true);
+  const pozn = p.schranka.deti.NOVE.soubory.find((f) => /_reel\.md$/.test(f.getName()));
+  const text = pozn.getBlob().getDataAsString();
+  assert.ok(/typ: reel-popisek/.test(text) && /2 varianty/.test(text) && /REELY\\popisky_claude\.json → „reel_dorost_tesany“/.test(text), text);
+  assert.ok(/Vnorovy – Těšany 3:1/.test(text) && /Styl: hravě/.test(text) && /Hattrick! ⚽⚽⚽/.test(text), text);
+  assert.strictEqual(p.volej('schranka').data.nove.length, 0, 'poznámka pro Clauda se v aplikaci neukazuje');
+  assert.ok(/Neplatný/.test(p.volej('reelPopisekNavrhy', { id: '../x' }).chyba));
+  // Claude zapíše 2 varianty → reel je nese, už nečeká; popisek (z PC) se sám nemění
+  p.schranka.deti.REELY.createFile('popisky_claude.json', JSON.stringify({ reel_dorost_tesany: { varianty: ['Věcně: dorost porazil Těšany 3:1.', '  Hravě: hattrick! ⚽  ', ''], kdy: '2026-10-15T18:20:00+02:00' } }));
+  p.nastavCas(T + 30 * 60e3);
+  r = p.volej('reely', { znovu: true }).data.reely.find((x) => x.id === 'reel_dorost_tesany');
+  assert.deepStrictEqual([json(r.navrhy.varianty), r.cekaNaClauda, r.popisek], [['Věcně: dorost porazil Těšany 3:1.', 'Hravě: hattrick! ⚽'], undefined, 'Hattrick! ⚽⚽⚽\n\n#fkagrovnorovy']);
+  // „Použít“ v aplikaci = úprava popisku
+  o = p.volej('reelPopisekUlozit', { id: 'reel_dorost_tesany', text: r.navrhy.varianty[1] });
+  assert.deepStrictEqual([o.data.reel.popisek, o.data.reel.upraveno, o.data.reel.navrhy.varianty.length], ['Hravě: hattrick! ⚽', true, 2]);
+  // plakát: popisek od Clauda se dvěma variantami (bez variant jen text jako dřív)
+  plakatyFotbal(p);
+  p.schranka.createFolder('PLAKATY').createFile('popisky_claude.json', JSON.stringify({
+    '2026-10-17': { text: 'Varianta 1', varianty: ['Varianta 1', 'Varianta 2 – hravá'], kdy: '2026-10-15T18:00:00+02:00' },
+    '2026-10-24': { text: 'Jen text', kdy: '2026-10-15T18:00:00+02:00' } }));
+  const pop = p.volej('plakaty').data.popisky;
+  assert.deepStrictEqual([pop['2026-10-17'].text, json(pop['2026-10-17'].varianty), pop['2026-10-24'].varianty], ['Varianta 1', ['Varianta 1', 'Varianta 2 – hravá'], undefined]);
+});
+
+test('Instagram: jen příběh u reelu – STORIES se zmínkami (bez x, y), bez popisku a bez reelu; pak jde i jako reel; delší než 60 s ne', () => {
+  const p = prostredi();
+  const video = igPripravit(p);
+  const T = Date.parse('2026-10-15T18:00:00+02:00');
+  p.nastavCas(T);
+  let o = p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: T + 36e5, jenPribeh: true, pribeh: true, oznacit: '@Dorost_Agro', popisek: 'Příběh popisek nemá' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.plan.reel_dorost_tesany), { kdy: T + 36e5, stav: 'ceka', oznacit: ['dorost_agro'], upraveno: false, jenPribeh: true });
+  assert.deepStrictEqual(json(o.data.popisky), {}, 'jen příběh popisek plánu nemá');
+  assert.ok(!p.volej('reely').data.reely.find((x) => x.id === 'reel_dorost_tesany').upraveno, 'popisek z okna se u příběhu neukládá');
+  // Teď: jeden kontejner – příběh s videem a zmínkou, bez popisku a bez „share_to_feed“
+  p.ig.stavy = ['FINISHED'];
+  o = p.volej('igKrok', { typ: 'reel', id: 'reel_dorost_tesany', ted: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  const k = p.ig.volani.filter((v) => v.cesta === '17841400000/media' && v.metoda === 'post');
+  assert.strictEqual(k.length, 1, 'jen příběh, žádný reel');
+  assert.strictEqual(k[0].telo.media_type, 'STORIES');
+  assert.ok(/drive\.usercontent\.google\.com\/download\?id=soubor-videa-reel_dorost_tesany\.mp4/.test(k[0].telo.video_url));
+  assert.deepStrictEqual(JSON.parse(k[0].telo.user_tags), [{ username: 'dorost_agro' }], 'zmínka bez x, y');
+  assert.ok(!('caption' in k[0].telo) && !('share_to_feed' in k[0].telo));
+  const z = o.data.reely.reel_dorost_tesany;
+  assert.deepStrictEqual([z.stav, z.jenPribeh, z.media, Object.keys(z.kroky).sort().join()], ['hotovo', true, 'media-1', 'hotovo,priprava,zpracovani,zverejnuji']);
+  assert.deepStrictEqual(video.sdileni, ['ANYONE_WITH_LINK:VIEW', 'PRIVATE:NONE'], 'odkaz jen po dobu stahování');
+  assert.ok(o.data.zverejneno.reel_dorost_tesany, 'vydaný (aplikace ho dá mezi zveřejněné)');
+  assert.strictEqual(p.ig.zverejneno, 1);
+  // později i jako reel: jde naplánovat, „zveřejněno“ se vrátí
+  o = p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: T + 2 * 36e5 });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual([o.data.plan.reel_dorost_tesany.stav, o.data.plan.reel_dorost_tesany.jenPribeh, json(o.data.zverejneno)], ['ceka', undefined, {}]);
+  // reel delší než 60 s do příběhu nejde
+  const p2 = prostredi();
+  igPripravit(p2);
+  const f = p2.schranka.deti.REELY.soubory.find((x) => x.getName() === 'reely.json');
+  const d = JSON.parse(f.getBlob().getDataAsString());
+  d.reely[0].delka_s = 95.4;
+  f.setContent(JSON.stringify(d));
+  assert.ok(/nejvýš 60 s – reel má 1:35/.test(p2.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: Date.now() + 36e5, jenPribeh: true }).chyba));
+  assert.strictEqual(p2.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: Date.now() + 36e5 }).ok, true, 'jako reel ano');
+});
+
+test('Instagram: zmínky i v příběhu ke reelu; když je Instagram v příběhu odmítne, příběh vyjde bez nich (zminkyChyba), reel je má', () => {
+  const p = prostredi();
+  igPripravit(p);
+  const T = Date.parse('2026-10-15T18:00:00+02:00');
+  p.nastavCas(T);
+  p.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: T, pribeh: true, oznacit: 'dorost_agro, fkagrovnorovy_b' });
+  p.ig.stavy = ['FINISHED'];
+  p.volej('igKrok', { typ: 'reel', id: 'reel_dorost_tesany' });
+  let k = p.ig.volani.filter((v) => v.cesta === '17841400000/media' && v.metoda === 'post');
+  assert.deepStrictEqual(k.map((x) => [x.telo.media_type, JSON.parse(x.telo.user_tags).map((u) => u.username).join()]),
+    [['REELS', 'dorost_agro,fkagrovnorovy_b'], ['STORIES', 'dorost_agro,fkagrovnorovy_b']]);
+  assert.deepStrictEqual([planReelu(p).stav, planReelu(p).mediaPribeh, planReelu(p).zminkyChyba], ['hotovo', 'media-2', undefined]);
+  // přihlášení přes Instagram zmínky v příběhu odmítne („An unknown error has occurred“) → příběh znovu bez nich
+  const p2 = prostredi();
+  igPripravit(p2);
+  p2.nastavCas(T);
+  p2.ig.chybaZminek = 'An unknown error has occurred.';
+  p2.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: T, pribeh: true, oznacit: 'dorost_agro' });
+  p2.ig.stavy = ['FINISHED'];
+  p2.volej('igKrok', { typ: 'reel', id: 'reel_dorost_tesany' });
+  k = p2.ig.volani.filter((v) => v.cesta === '17841400000/media' && v.metoda === 'post');
+  assert.deepStrictEqual(k.map((x) => [x.telo.media_type, !!x.telo.user_tags]), [['REELS', true], ['STORIES', true], ['STORIES', false]]);
+  const z = planReelu(p2);
+  assert.deepStrictEqual([z.stav, z.media, z.mediaPribeh, z.pribehChyba], ['hotovo', 'media-1', 'media-2', '']);
+  assert.ok(/unknown error/.test(z.zminkyChyba), 'důvod pro aplikaci: ' + z.zminkyChyba);
+  assert.strictEqual(p2.ig.zverejneno, 2, 'reel a příběh – každý jednou');
+  // jiná chyba příběhu (ne kvůli zmínkám) se jako dřív hlásí u příběhu, reel platí
+  const p3 = prostredi();
+  igPripravit(p3);
+  p3.nastavCas(T);
+  p3.ig.chybaPribehu = 'Video příběhu může mít nejvýš 60 s';
+  p3.volej('reelNaplanovat', { id: 'reel_dorost_tesany', kdy: T, pribeh: true, oznacit: 'dorost_agro' });
+  p3.ig.stavy = ['FINISHED'];
+  p3.volej('igKrok', { typ: 'reel', id: 'reel_dorost_tesany' });
+  assert.deepStrictEqual([planReelu(p3).stav, /60 s/.test(planReelu(p3).pribehChyba)], ['hotovo', true]);
+});
+
+test('plakáty na Instagram: jen příběh – obrázek 9:16 se zmínkami, popisek nemusí být; potom jde i jako příspěvek', () => {
+  const p = prostredi();
+  plakatyFotbal(p);
+  p.vlastnosti.set('IG_TOKEN', 'testovaci-ig-klic');
+  p.vlastnosti.set('IG_TOKEN_OBNOVA', String(Date.now()));
+  p.nastavCas(Date.parse('2026-10-12T09:00:00+02:00'));
+  const za = Date.parse('2026-10-15T18:00:00+02:00');
+  p.volej('plakatObrazky', { tyden: '2026-10-24', prispevek: JPEG });
+  assert.ok(/příběh/.test(p.volej('plakatNaplanovat', { tyden: '2026-10-24', kdy: za, jenPribeh: true }).chyba), 'bez obrázku příběhu ne');
+  p.volej('plakatObrazky', { tyden: '2026-10-17', prispevek: JPEG, pribeh: JPEG });
+  let o = p.volej('plakatNaplanovat', { tyden: '2026-10-17', kdy: za, jenPribeh: true, pribeh: true, oznacit: '@fkmilotice', popisek: 'nepoužije se' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.plan['2026-10-17']), { kdy: za, stav: 'ceka', jenPribeh: true, oznacit: ['fkmilotice'] });
+  assert.strictEqual(o.data.popisky, undefined, 'popisek kola se nemění');
+  // úprava popisku v kartě plán příběhu nemění
+  assert.strictEqual(p.volej('plakatPopisekUlozit', { tyden: '2026-10-17', text: 'Popisek' }).data.popisky['2026-10-17'].plan, undefined);
+  p.nastavCas(za + 60e3);
+  p.ig.stavy = ['FINISHED'];
+  p.ctx.instagramKazdych10Min();
+  const k = p.ig.volani.filter((v) => v.cesta === '17841400000/media' && v.metoda === 'post');
+  assert.strictEqual(k.length, 1);
+  assert.deepStrictEqual([k[0].telo.media_type, /2026-10-17_pribeh\.jpg/.test(k[0].telo.image_url), 'caption' in k[0].telo], ['STORIES', true, false]);
+  assert.deepStrictEqual(JSON.parse(k[0].telo.user_tags), [{ username: 'fkmilotice' }], 'v příběhu zmínka bez x, y');
+  const z = JSON.parse(p.vlastnosti.get('PLAKATY_PLAN'))['2026-10-17'];
+  assert.deepStrictEqual([z.stav, z.jenPribeh, z.media], ['hotovo', true, 'media-1']);
+  const pribeh = p.schranka.deti.PLAKATY.soubory.find((f) => f.getName() === '2026-10-17_pribeh.jpg' && !f.vKosi);
+  const prispevek = p.schranka.deti.PLAKATY.soubory.find((f) => f.getName() === '2026-10-17_prispevek.jpg' && !f.vKosi);
+  assert.deepStrictEqual([pribeh.sdileni, prispevek.sdileni], [['ANYONE_WITH_LINK:VIEW', 'PRIVATE:NONE'], undefined], 'sdílí se jen obrázek příběhu');
+  // po příběhu jde plakát i jako příspěvek (s popiskem)
+  o = p.volej('plakatNaplanovat', { tyden: '2026-10-17', kdy: za + 36e5, pribeh: false, popisek: 'Teď i příspěvek' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual([o.data.plan['2026-10-17'].stav, o.data.plan['2026-10-17'].jenPribeh], ['ceka', undefined]);
+});
+
+test('příběh z fotky: na Disk (REELY/pribehy), plán, Teď přes igKrok – STORIES se zmínkami, odkaz jen po dobu stahování; stejná fotka nic nezdvojí; zrušení', () => {
+  const p = prostredi();
+  const T = Date.parse('2026-10-15T18:00:00+02:00');
+  p.nastavCas(T);
+  const FOTKA = 'data:image/jpeg;base64,' + Buffer.from('fotka-z-telefonu').toString('base64');
+  const NAHLED = 'data:image/jpeg;base64,' + Buffer.from('nahled').toString('base64');
+  const OTISK = 'abcdef0123456789abcdef01';
+  const zadost = { obrazek: FOTKA, nahled: NAHLED, otisk: OTISK, kdy: T + 36e5, oznacit: '@dorost_agro, FKMilotice' };
+  assert.ok(/IG_TOKEN/.test(p.volej('pribehNaplanovat', zadost).chyba), 'bez Instagramu ne');
+  p.vlastnosti.set('IG_TOKEN', 'testovaci-ig-klic');
+  p.vlastnosti.set('IG_TOKEN_OBNOVA', String(Date.now()));
+  assert.ok(/JPEG/.test(p.volej('pribehNaplanovat', Object.assign({}, zadost, { obrazek: 'data:image/png;base64,AAAA' })).chyba));
+  assert.ok(/nesedí/.test(p.volej('pribehNaplanovat', Object.assign({}, zadost, { kdy: T - 864e5 })).chyba));
+  assert.ok(/Neplatné jméno/.test(p.volej('pribehNaplanovat', Object.assign({}, zadost, { oznacit: 'špatné jméno!' })).chyba));
+  assert.ok(/nejvýš 20/.test(p.volej('pribehNaplanovat', Object.assign({}, zadost, { oznacit: Array.from({ length: 21 }, (_, i) => 'ucet' + i).join(' ') })).chyba));
+  let o = p.volej('pribehNaplanovat', zadost);
+  assert.strictEqual(o.ok, true, o.chyba);
+  const id = 'pribeh_' + OTISK;
+  assert.strictEqual(o.data.id, id);
+  assert.deepStrictEqual(json(o.data.plan[id]), { kdy: T + 36e5, stav: 'ceka', jenPribeh: true, oznacit: ['dorost_agro', 'fkmilotice'] });
+  assert.deepStrictEqual(json(o.data.pribehy), [{ id, nahled: NAHLED, vytvoreno: T }]);
+  const slozka = p.schranka.deti.REELY.deti.pribehy;
+  assert.deepStrictEqual(slozka.soubory.map((f) => f.getName()).sort(), [id + '.jpg', 'pribehy.json']);
+  // stejná fotka znovu (opakování po výpadku) – jeden soubor, jeden záznam
+  o = p.volej('pribehNaplanovat', zadost);
+  assert.strictEqual(slozka.soubory.filter((f) => /\.jpg$/.test(f.getName())).length, 1, 'fotka jen jednou');
+  assert.strictEqual(o.data.pribehy.length, 1);
+  // reely i igStav nesou příběhy (seznam s náhledem a plán)
+  const r = p.volej('reely').data;
+  assert.deepStrictEqual([r.pribehy.length, r.planPribehu[id].stav], [1, 'ceka']);
+  assert.strictEqual(p.volej('igStav').data.pribehy[id].stav, 'ceka');
+  // změna času a zmínek bez nové fotky (podle id)
+  o = p.volej('pribehNaplanovat', { id, kdy: T + 2 * 36e5, oznacit: 'dorost_agro' });
+  assert.deepStrictEqual([o.data.plan[id].kdy, json(o.data.plan[id].oznacit)], [T + 2 * 36e5, ['dorost_agro']]);
+  assert.ok(/v seznamu není/.test(p.volej('pribehNaplanovat', { id: 'pribeh_0000000000000000', kdy: T + 36e5 }).chyba));
+  // Teď: první krok z aplikace – obrázek hned zpracovaný, příběh venku
+  p.ig.stavy = ['FINISHED'];
+  o = p.volej('igKrok', { typ: 'pribeh', id, ted: true });
+  assert.strictEqual(o.ok, true, o.chyba);
+  const k = p.ig.volani.filter((v) => v.cesta === '17841400000/media' && v.metoda === 'post');
+  assert.strictEqual(k.length, 1);
+  assert.deepStrictEqual([k[0].telo.media_type, /download\?id=soubor-pribehy-pribeh_abcdef/.test(k[0].telo.image_url), 'caption' in k[0].telo], ['STORIES', true, false]);
+  assert.deepStrictEqual(JSON.parse(k[0].telo.user_tags), [{ username: 'dorost_agro' }]);
+  const z = o.data.pribehy[id];
+  assert.deepStrictEqual([z.stav, z.media, z.jenPribeh], ['hotovo', 'media-1', true]);
+  const fotka = slozka.soubory.find((f) => f.getName() === id + '.jpg');
+  assert.deepStrictEqual(fotka.sdileni, ['ANYONE_WITH_LINK:VIEW', 'PRIVATE:NONE'], 'fotka sdílená jen po dobu stahování');
+  // stejná fotka hned znovu (ztracená odpověď) a další kroky ani spouštěč nic nezdvojí
+  o = p.volej('pribehNaplanovat', zadost);
+  assert.strictEqual(o.data.plan[id].stav, 'hotovo');
+  p.volej('igKrok', { typ: 'pribeh', id, ted: true });
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(p.ig.zverejneno, 1, 'příběh jen jednou');
+  // odebrat ze seznamu: plán i fotka pryč (na Instagramu nic nemaže)
+  o = p.volej('pribehZrusit', { id });
+  assert.deepStrictEqual([json(o.data.plan), json(o.data.pribehy)], [{}, []]);
+  assert.ok(fotka.vKosi, 'fotka do koše');
+  assert.ok(/Neplatný/.test(p.volej('pribehZrusit', { id: '../x' }).chyba));
+  // bez otisku z aplikace (bez crypto.subtle) – id z obsahu fotky; během nahrávání zrušit nejde
+  o = p.volej('pribehNaplanovat', { obrazek: FOTKA, kdy: T + 36e5 });
+  assert.ok(/^pribeh_[0-9a-f]{32}$/.test(o.data.id), o.data.id);
+  const plan = JSON.parse(p.vlastnosti.get('PRIBEHY_PLAN'));
+  plan[o.data.id].stav = 'nahrava';
+  p.vlastnosti.set('PRIBEHY_PLAN', JSON.stringify(plan));
+  assert.ok(/nahrává/.test(p.volej('pribehZrusit', { id: o.data.id }).chyba));
+  assert.strictEqual(p.volej('zmeny').data.instagramBezi, true, 'server obnovuje kopie, dokud se příběh zveřejňuje');
+});
+
+test('příběh z fotky: zámek položky a ztracená odpověď – PUBLISHED se dohledá mezi příběhy (stories), nic se nezveřejní dvakrát', () => {
+  const p = prostredi();
+  const T = Date.parse('2026-10-15T18:00:00+02:00');
+  p.nastavCas(T);
+  p.vlastnosti.set('IG_TOKEN', 'testovaci-ig-klic');
+  p.vlastnosti.set('IG_TOKEN_OBNOVA', String(Date.now()));
+  const FOTKA = 'data:image/jpeg;base64,' + Buffer.from('fotka-2').toString('base64');
+  const id = p.volej('pribehNaplanovat', { obrazek: FOTKA, otisk: '1111222233334444', kdy: T }).data.id;
+  // jiný běh (spouštěč, druhé zařízení) právě pracuje → Teď ho nechá být
+  let plan = JSON.parse(p.vlastnosti.get('PRIBEHY_PLAN'));
+  plan[id].bezi = T + 5 * 60e3;
+  p.vlastnosti.set('PRIBEHY_PLAN', JSON.stringify(plan));
+  p.volej('igKrok', { typ: 'pribeh', id, ted: true });
+  p.ctx.instagramKazdych10Min();
+  assert.strictEqual(p.ig.volani.filter((v) => v.cesta !== 'refresh_access_token').length, 0, 'zámek: nikdo jiný nic neposlal');
+  // zámek vyprší; zveřejnění proběhne, ale odpověď se ztratí
+  p.nastavCas(T + 7 * 60e3);
+  p.ig.stavy = ['FINISHED'];
+  p.ig.ztratitZverejneni = 1;
+  p.volej('igKrok', { typ: 'pribeh', id });
+  plan = JSON.parse(p.vlastnosti.get('PRIBEHY_PLAN'));
+  assert.deepStrictEqual([plan[id].stav, plan[id].pokusy], ['zverejnuji', 1]);
+  // další krok: kontejner PUBLISHED → nezveřejňuje se znovu, příběh se najde mezi příběhy účtu
+  p.ig.pribehyUctu = [{ id: 'media-1', timestamp: '2026-10-15T16:07:10+0000' }];
+  p.nastavCas(T + 8 * 60e3);
+  const o = p.volej('igKrok', { typ: 'pribeh', id });
+  const z = o.data.pribehy[id];
+  assert.deepStrictEqual([z.stav, z.media, p.ig.zverejneno], ['hotovo', 'media-1', 1]);
+  assert.ok(p.ig.volani.some((v) => v.cesta === '17841400000/stories'), 'hledá mezi příběhy, ne příspěvky');
 });
 
 // ---- auto: tabulka Google (vymyšlená čísla – repo je veřejné)
