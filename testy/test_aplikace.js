@@ -330,6 +330,22 @@ const motor = {
     if (!d.datum) delete autoData.terminy[d.id];
     return JSON.parse(JSON.stringify(autoData));
   },
+  // jako motor (AUTO_ODLOZENE): odložená připomínka jde do odlozene, null ji vrátí, 'hotovo' = ručně hotová
+  autoPripominkaOdlozit: (d) => {
+    autoOdlozeni.push({ pripominka: d.pripominka, do: d.do });
+    if (d.klic !== KLIC) throw new Error('klíč motoru přepsaný');
+    const vse = (autoData.pripominky || []).concat(autoData.odlozene || []);
+    const x = vse.find((y) => y.klic === d.pripominka);
+    if (!x) throw new Error('Neznámá připomínka.');
+    if (x.stav === 'odlozeno') { x.stav = x.stavPak || 'ted'; delete x.odlozeno; delete x.odlozenoDo; }
+    if (d.do) {
+      const [r, m, dd] = String(d.do).split('-').map(Number);
+      Object.assign(x, { stavPak: x.stav === 'naplanovano' ? 'ted' : x.stav, stav: 'odlozeno', odlozeno: d.do }, d.do === 'hotovo' ? {} : { odlozenoDo: new Date(r, m - 1, dd).getTime() });
+    }
+    autoData.pripominky = vse.filter((y) => y.stav !== 'odlozeno');
+    autoData.odlozene = vse.filter((y) => y.stav === 'odlozeno');
+    return JSON.parse(JSON.stringify(autoData));
+  },
   // Knihovna (motor 2026-10-11.5, CLAUDE_SCHRANKA/KNIHOVNA): karty, index rešerší, můj stav, požadavky – testy data mění jako Claude
   knihovna: () => Object.assign(JSON.parse(JSON.stringify(knihovnaTest)), { ted: Date.now() }),
   knihovnaReserse: (d) => {
@@ -394,6 +410,7 @@ function vycistiSchranku() {
   mojePoznamkyTest.splice(0, mojePoznamkyTest.length, ...MOJE_VYCHOZI.map((p) => Object.assign({}, p)));
 }
 const autoZapisy = [], autoSmazano = [], autoUctenky = [], autoUpravy = [], autoFotky = [], autoTerminy = [];
+const autoOdlozeni = [];           // autoPripominkaOdlozit: { pripominka, do }
 let autoUctenkaChyba = '';          // chyba motoru při čtení účtenky (test fronty v zařízení)
 let motorBezSite = false;           // motor nedostupný (bez sítě) – spolu s ctx.setOffline
 let postaNavic = {};              // test záložek: aktualizace v Doručené, čísla záložek a přehled od Clauda
@@ -426,7 +443,11 @@ const autoData = {
   // připomínky jako z motoru (přezutí teď, zima hotová, pojištění brzy)
   pripominky: [{ id: 'pneu-zimni', klic: 'pneu-zimni-t', nazev: 'Přezout na zimní pneumatiky', text: 'Objednej pneuservis.', od: den(-2), do: den(30), stav: 'ted', hotovo: false },
     { id: 'zima', klic: 'zima-t', nazev: 'Připravit auto na zimu', text: 'Směs do ostřikovačů.', od: den(-10), do: den(30), stav: 'ted', hotovo: true },
-    { id: 'pojisteni', klic: 'poj-t', nazev: 'Výročí pojištění', text: 'Zkontroluj platbu.', od: den(5), do: den(35), stav: 'brzy', hotovo: false }],
+    { id: 'pojisteni', klic: 'poj-t', nazev: 'Výročí pojištění', text: 'Zkontroluj platbu.', od: den(5), do: den(35), stav: 'brzy', hotovo: false },
+    // termín v kalendáři (motor 2026-10-15.3): naplánováno – na Přehledu ne, na stránce Auto šedě s dnem
+    { id: 'stk', klic: 'stk-t', nazev: 'STK', text: 'STK platí do konce měsíce.', od: den(-10), do: den(20), stav: 'naplanovano', stavPak: 'ted', hotovo: false,
+      plan: { kdy: den(4, 9), nazev: 'STK Hodonín' } }],
+  odlozene: [],
   // jako motor: řádky + indexy tučných (nadpisy); STK uvnitř tabulky není nadpis, i když je velkými písmeny
   pece: { radky: [['PÉČE O AUTO – Testovací auto', '', ''], ['', 'Úvodní věta.', ''], ['PLÁN ÚDRŽBY', 'Kdy', 'Poznámka'],
     ['Olej + filtr', 'každých 15 000 km', 'termín hlásí auto'], ['STK', 'po 4 letech, pak po 2', ''], ['PŘEHLED PODLE KM', 'Co udělat', ''],
@@ -6822,6 +6843,132 @@ function vychoziVikendTestu() {
       await page.screenshot({ path: path.join(VYSTUP, 'pc_auto_karta_tankovani.png') });
       jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     } finally {
+      await ctx.close();
+    }
+  });
+
+  // Michal 15. 10.: „přezouvat budu v pondělí … mám to i v kalendáři. A připravit auto na zimu … připomenout v půlce
+  // listopadu“ → připomínka auta: Odložit na zítra / na týden / do…, Hotovo, Zrušit odložení; termín v kalendáři = naplánováno
+  const DNY_T = ['ne', 'po', 'út', 'st', 'čt', 'pá', 'so'];
+  const denTydneT = (t) => DNY_T[new Date(t).getDay()] + ' ' + new Date(t).getDate() + '. ' + (new Date(t).getMonth() + 1) + '.';
+  const pripominkyZaloha = () => JSON.parse(JSON.stringify({ pripominky: autoData.pripominky, odlozene: autoData.odlozene }));
+  const radekPrip = (klic) => '.auto-resit > .auto-resit__seznam [data-auto-pripominka="' + klic + '"]';
+
+  await test('Auto: připomínky – naplánováno z kalendáře (šedě, s dnem), pravé tlačítko Odložit na týden / do… / Hotovo, sekce Odložené, Zrušit odložení, Vrátit, vypršelé odložení zpět; Přehled bez odložených a naplánovaných (PC)', async () => {
+    const zaloha = pripominkyZaloha();
+    // odložení, které vypršelo dnes (data z motoru jsou starší) – aplikace ho sama vrátí mezi ostatní
+    autoData.odlozene = [{ id: 'olej', klic: 'olej-t', nazev: 'Servis – výměna oleje', text: 'Podle auta za 1 200 km – objednej servis.', od: den(0), do: den(0),
+      stav: 'odlozeno', stavPak: 'ted', odlozeno: iso(den(0)), odlozenoDo: den(0), hotovo: false }];
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="auto"]');
+      await page.waitForSelector(radekPrip('stk-t'));
+      // naplánovaná STK: šedá, „naplánováno – po 19. 10.“ a co je v kalendáři
+      jistota(await page.getAttribute(radekPrip('stk-t'), 'class').then((c) => /auto-resit--naplanovano/.test(c)), 'STK naplánovaná');
+      const stk = (await page.textContent(radekPrip('stk-t'))).replace(/\s+/g, ' ');
+      jistota(stk.indexOf('naplánováno – ' + denTydneT(den(4))) >= 0 && /V kalendáři: STK Hodonín/.test(stk), 'naplánovaná STK: ' + stk);
+      // vypršelé odložení oleje je zpátky (teď), v Odložených nic
+      jistota(/teď/.test(await page.textContent(radekPrip('olej-t'))) && !(await page.locator('.auto-odlozene').count()), 'vypršelé odložení zpět');
+      // pravé tlačítko na přezutí → Odložit na týden: hned pryč z Co řešit, v Odložených (sbalené), motor dostal datum
+      await pravym(page, radekPrip('pneu-zimni-t'));
+      jistota(await nabidkaPolozky(page) === 'Odložit na zítra|Odložit na týden|Odložit do…|Hotovo', 'nabídka připomínky: ' + await nabidkaPolozky(page));
+      await vyberZNabidky(page, 'Odložit na týden');
+      await page.waitForFunction(() => !document.querySelector('.auto-resit > .auto-resit__seznam [data-auto-pripominka="pneu-zimni-t"]'));
+      await page.waitForFunction(() => /Odloženo do/.test(document.getElementById('toast').textContent));
+      jistota(JSON.stringify(autoOdlozeni[autoOdlozeni.length - 1]) === JSON.stringify({ pripominka: 'pneu-zimni-t', do: iso(den(7)) }), 'motor: ' + JSON.stringify(autoOdlozeni));
+      jistota((await page.textContent('.auto-odlozene__prepni')).replace(/\s+/g, ' ').trim() === 'Odložené1' ||
+        /Odložené\s*1/.test(await page.textContent('.auto-odlozene__prepni')), 'počet odložených');
+      jistota(!(await page.locator('.auto-odlozene__seznam').count()), 'Odložené sbalené');
+      await page.click('.auto-odlozene__prepni');
+      await page.waitForSelector('.auto-odlozene__seznam [data-auto-pripominka="pneu-zimni-t"]');
+      jistota((await page.textContent('.auto-odlozene__seznam [data-auto-pripominka="pneu-zimni-t"]')).indexOf('odloženo do ' + denTydneT(den(7))) >= 0, 'odloženo do dne');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_auto_pripominky_odlozene.png') });
+      // odložená: Zrušit odložení je první → zpátky v Co řešit
+      await pravym(page, '.auto-odlozene__seznam [data-auto-pripominka="pneu-zimni-t"]');
+      jistota(/^Zrušit odložení\|Odložit na zítra\|Odložit na týden\|Odložit do…\|Hotovo$/.test(await nabidkaPolozky(page)), 'nabídka odložené: ' + await nabidkaPolozky(page));
+      await vyberZNabidky(page, 'Zrušit odložení');
+      await page.waitForSelector(radekPrip('pneu-zimni-t'));
+      jistota(autoOdlozeni[autoOdlozeni.length - 1].do === null && !(await page.locator('.auto-odlozene').count()), 'zrušené odložení: ' + JSON.stringify(autoOdlozeni));
+      // ⋯ u pojištění → Odložit do… (okno s dnem) → motor dostane vybraný den
+      await page.hover(radekPrip('poj-t'));
+      await page.click(radekPrip('poj-t') + ' .auto-resit__vic');
+      await page.waitForSelector('.nabidka.videt [data-nabidka-i]');
+      await vyberZNabidky(page, 'Odložit do…');
+      await page.waitForSelector('.okno input[type="date"]');
+      jistota(await page.inputValue('.okno input[type="date"]') === iso(den(7)), 'návrh dne: za týden');
+      await page.fill('.okno input[type="date"]', iso(den(30)));
+      await page.click('.okno [data-okno="ano"]');
+      await page.waitForFunction(() => !document.querySelector('.auto-resit > .auto-resit__seznam [data-auto-pripominka="poj-t"]'));
+      jistota(JSON.stringify(autoOdlozeni[autoOdlozeni.length - 1]) === JSON.stringify({ pripominka: 'poj-t', do: iso(den(30)) }), 'odložit do: ' + JSON.stringify(autoOdlozeni));
+      // Vrátit v hlášce → zpátky (motor dostal null)
+      await page.click('#toast .toast__akce');
+      await page.waitForSelector(radekPrip('poj-t'));
+      jistota(autoOdlozeni[autoOdlozeni.length - 1].pripominka === 'poj-t' && autoOdlozeni[autoOdlozeni.length - 1].do === null, 'Vrátit: ' + JSON.stringify(autoOdlozeni));
+      // Přehled: přezutí a vypršelý olej ano, naplánovaná STK ne; Hotovo z pravého tlačítka → pryč
+      await page.click('#rail [data-cil="dnes"]');
+      await page.waitForSelector('.auto-dnes');
+      const naDnes = await page.$$eval('.auto-dnes', (s) => s.map((x) => x.dataset.autoPripominka).sort().join(','));
+      jistota(naDnes === 'olej-t,pneu-zimni-t', 'na Přehledu: ' + naDnes);
+      await pravym(page, '.auto-dnes[data-auto-pripominka="pneu-zimni-t"]');
+      jistota(/Odložit na zítra.*\|Hotovo$/.test(await nabidkaPolozky(page)), 'nabídka na Přehledu: ' + await nabidkaPolozky(page));
+      await vyberZNabidky(page, 'Hotovo');
+      await page.waitForFunction(() => !document.querySelector('.auto-dnes[data-auto-pripominka="pneu-zimni-t"]'));
+      jistota(JSON.stringify(autoOdlozeni[autoOdlozeni.length - 1]) === JSON.stringify({ pripominka: 'pneu-zimni-t', do: 'hotovo' }), 'hotovo: ' + JSON.stringify(autoOdlozeni));
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_dnes_auto_po_hotovo.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      Object.assign(autoData, zaloha);
+      await ctx.close();
+    }
+  });
+
+  await test('Auto: připomínka na telefonu – podržení i ⋯ na Přehledu = nabídka (Odložit…), Odložit na týden zmizí z Vyžaduje pozornost, stránka Auto s ⋯ nepřetéká', async () => {
+    const zaloha = pripominkyZaloha();
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
+    try {
+      await page.goto(WEB);
+      // data auta se načtou se stránkou Auto (Přehled pak bere naposledy načtená)
+      await page.click('.hlava-ja [data-menu]');
+      await page.click('[data-panel="menu"] [data-menu-cil="auto"]');
+      await page.waitForSelector('.auto-resit');
+      await page.click('#lista [data-cil="dnes"]');
+      const karta = '.pozor-auto[data-auto-pripominka="pneu-zimni-t"]';
+      await page.waitForSelector(karta);
+      await page.locator(karta).scrollIntoViewIfNeeded();
+      // podržení prstem na kartě připomínky
+      await page.$eval(karta + ' .pozor', (b) => {
+        const r = b.getBoundingClientRect();
+        b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', isPrimary: true, clientX: r.x + 20, clientY: r.y + 10 }));
+      });
+      await page.waitForSelector('.nabidka.videt [data-nabidka-i]');
+      await page.$eval(karta + ' .pozor', (b) => b.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch', isPrimary: true })));
+      jistota(await nabidkaPolozky(page) === 'Odložit na zítra|Odložit na týden|Odložit do…|Hotovo', 'podržení: ' + await nabidkaPolozky(page));
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_dnes_auto_nabidka.png') });
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.nabidka', { state: 'detached' });
+      await page.waitForTimeout(1600); // klepnutí hned po podržení nabidka.js zahodí
+      // ⋯ v rohu karty
+      await page.locator(karta + ' .auto-resit__vic').tap();
+      await page.waitForSelector('.nabidka.videt [data-nabidka-i]');
+      await vyberZNabidky(page, 'Odložit na týden');
+      await page.waitForFunction((s) => !document.querySelector(s), karta);
+      jistota(JSON.stringify(autoOdlozeni[autoOdlozeni.length - 1]) === JSON.stringify({ pripominka: 'pneu-zimni-t', do: iso(den(7)) }), 'motor: ' + JSON.stringify(autoOdlozeni));
+      // stránka Auto: Co řešit s ⋯ a Odložené – nic nepřetéká
+      await page.click('.hlava-ja [data-menu]');
+      await page.click('[data-panel="menu"] [data-menu-cil="auto"]');
+      await page.waitForSelector('.auto-resit .auto-odlozene__prepni');
+      await page.click('.auto-odlozene__prepni');
+      await page.waitForSelector('.auto-odlozene__seznam');
+      const prekryv = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      jistota(prekryv <= 0, 'stránka Auto přetéká o ' + prekryv + ' px');
+      const kdy = await page.$$eval('.auto-resit .auto-resit__kdy', (s) => s.map((x) => { const r = x.getBoundingClientRect(); return r.right <= window.innerWidth; }));
+      jistota(kdy.every(Boolean), 'termíny připomínek celé na obrazovce');
+      await page.locator('.auto-resit').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_auto_pripominky.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      Object.assign(autoData, zaloha);
       await ctx.close();
     }
   });

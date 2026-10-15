@@ -363,7 +363,13 @@ const autoUkazka = (() => {
   vydaj(-20, 'Parkování', 60, 'Parkování centrum');
   return { nastaveno: true, nazev: 'Ukázkové auto - Rodina', odkaz: '', tankovani: t, naklady: n,
     kategorie: ['Servis', 'Servis - PNEU', 'STK', 'Pojištění', 'Dálniční známka', 'Parkování', 'Myčka', 'Nákup doplňků', 'Doplňková výbava'],
-    platili: { Michal: 210000, Katka: 240000 }, ted };
+    platili: { Michal: 210000, Katka: 240000 }, ted,
+    // Co řešit: zima teď, přezutí naplánované v kalendáři (motor: AUTO_.pripominky s termíny z kalendáře a odloženími)
+    pripominky: [{ id: 'zima', klic: 'zima-ukazka', nazev: 'Připravit auto na zimu', text: 'Zimní směs do ostřikovačů, nové stěrače, kontrola baterie a nemrznoucí kapaliny.',
+      od: pulnoc(den(-10)), do: pulnoc(den(30)), stav: 'ted', hotovo: false },
+    { id: 'pneu-zimni', klic: 'pneu-zimni-ukazka', nazev: 'Přezout na zimní pneumatiky', text: 'Objednej pneuservis.', od: pulnoc(den(-3)), do: pulnoc(den(30)),
+      stav: 'naplanovano', stavPak: 'ted', hotovo: false, plan: { kdy: den(4, 8), nazev: 'Přezutí – pneuservis' } }],
+    odlozene: [] };
 })();
 
 /** Zdraví v ukázce: 30 dní připravenosti, spánku a zátěže; zápas v sobotu, trénink út a čt (sedí s kalendářem), posilovna v pondělí. */
@@ -985,6 +991,20 @@ const akce = {
     const t = Object.assign({}, autoUkazka.terminy);
     if (d.datum) t[d.id] = d.datum; else delete t[d.id];
     autoUkazka.terminy = t;
+    return kopie(autoUkazka);
+  },
+  // odložení připomínky: do dne / hotovo / zpět (null) – jako motor (AUTO_ODLOZENE), bez prodloužení za koncem okna
+  autoPripominkaOdlozit: (d) => {
+    const vse = autoUkazka.pripominky.concat(autoUkazka.odlozene);
+    const x = vse.find((y) => y.klic === d.pripominka);
+    if (!x) throw new Error('Neznámá připomínka.');
+    if (x.stav === 'odlozeno') { x.stav = x.stavPak || 'ted'; delete x.odlozeno; delete x.odlozenoDo; }
+    if (d.do) {
+      const [r, m, dd] = String(d.do).split('-').map(Number);
+      Object.assign(x, { stavPak: x.stav === 'naplanovano' ? 'ted' : x.stav, stav: 'odlozeno', odlozeno: d.do }, d.do === 'hotovo' ? {} : { odlozenoDo: new Date(r, m - 1, dd).getTime() });
+    }
+    autoUkazka.pripominky = vse.filter((y) => y.stav !== 'odlozeno');
+    autoUkazka.odlozene = vse.filter((y) => y.stav === 'odlozeno');
     return kopie(autoUkazka);
   },
   autoSmazat: (d) => {

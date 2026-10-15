@@ -3658,6 +3658,173 @@ test('auto: připomínky – přezutí a zima podle data (hotové podle zápisu)
   assert.deepStrictEqual([podle('pneu-letni').stav, podle('pneu-letni').klic], ['brzy', 'pneu-letni-2027']);
 });
 
+// Michal 15. 10.: „přezouvat budu v pondělí … mám to i v kalendáři. A připravit auto na zimu … připomenout v půlce listopadu“
+test('auto: odložená připomínka – do dne zmizí, po vypršení zpět i za koncem okna (nejvýš 21 dní), ručně hotovo do konce sezóny', () => {
+  const p = prostredi();
+  const prip = (d, ted, volby) => json(vm.runInContext('AUTO_.pripominky', p.ctx)(d, ted, volby));
+  const ms = (t) => new Date(t).getTime();
+  const odlozene = { 'zima-2026': '2026-11-15', 'pneu-zimni-2026': 'hotovo:2026-10-15' };
+  let x = prip({ naklady: [] }, ms('2026-10-15T12:00:00'), { odlozene });
+  const podle = (id) => x.find((y) => y.id === id) || null;
+  assert.deepStrictEqual([podle('zima').stav, podle('zima').odlozeno, podle('zima').odlozenoDo, podle('zima').stavPak],
+    ['odlozeno', '2026-11-15', ms('2026-11-15T00:00:00'), 'ted'], 'zima odložená do 15. 11.');
+  assert.ok(podle('zima').konec >= ms('2026-12-06T00:00:00'), 'za koncem okna ještě 21 dní: ' + podle('zima').konec);
+  assert.deepStrictEqual([podle('pneu-zimni').stav, podle('pneu-zimni').odlozeno], ['odlozeno', 'hotovo'], 'přezutí ručně hotové');
+  // 14. 11. pořád odložená; 15. 11. (poslední den okna) zpět jako „teď“ – s poOdlozeni (ntfy ještě jednou)
+  x = prip({ naklady: [] }, ms('2026-11-14T20:00:00'), { odlozene });
+  assert.strictEqual(podle('zima').stav, 'odlozeno');
+  x = prip({ naklady: [] }, ms('2026-11-15T08:00:00'), { odlozene });
+  assert.deepStrictEqual([podle('zima').stav, podle('zima').poOdlozeni, podle('zima').odlozeno], ['ted', '2026-11-15', undefined]);
+  // okno skončilo 15. 11., odložení vypršelo – připomínka zůstává (stav teď) nejvýš 21 dní, ručně hotové přezutí je pryč
+  x = prip({ naklady: [] }, ms('2026-11-20T12:00:00'), { odlozene });
+  assert.deepStrictEqual([podle('zima').stav, podle('zima').klic, podle('zima').hotovo], ['ted', 'zima-2026', false], 'po konci okna');
+  assert.strictEqual(podle('pneu-zimni'), null, 'hotovo ručně – po konci okna nic');
+  x = prip({ naklady: [] }, ms('2026-12-06T12:00:00'), { odlozene });
+  assert.ok(podle('zima') && podle('zima').stav === 'ted', 'ještě 6. 12.');
+  x = prip({ naklady: [] }, ms('2026-12-07T12:00:00'), { odlozene });
+  assert.strictEqual(podle('zima'), null, 'po 21 dnech pryč');
+  // zápis v Nákladech (směs do ostřikovačů) po konci okna → hotovo, už se neukazuje
+  x = prip({ naklady: [{ datum: ms('2026-11-18T00:00:00'), kategorie: 'Nákup doplňků', polozka: 'Směs do ostřikovačů', poznamka: '' }] },
+    ms('2026-11-20T12:00:00'), { odlozene });
+  assert.strictEqual(podle('zima'), null, 'zápis v Nákladech ukončí prodloužení');
+  // zápis v okně má přednost před odložením (✓ hotovo jako dřív)
+  x = prip({ naklady: [{ datum: ms('2026-10-14T00:00:00'), kategorie: 'Nákup doplňků', polozka: 'Směs do ostřikovačů', poznamka: '' }] },
+    ms('2026-10-15T12:00:00'), { odlozene });
+  assert.deepStrictEqual([podle('zima').stav, podle('zima').hotovo], ['ted', true]);
+  // odložení přes konec roku: loňská zima ještě v lednu
+  x = prip({ naklady: [] }, ms('2027-01-05T12:00:00'), { odlozene: { 'zima-2026': '2026-12-28' } });
+  assert.deepStrictEqual([podle('zima').klic, podle('zima').stav], ['zima-2026', 'ted'], 'loňské okno po odložení');
+  // servis podle auta: odložení podle klíče, po vypršení zpět ve svém stavu
+  const auto = { auta: [{ servis: { olejKm: 1200, olejDni: 200 } }] };
+  x = prip({ naklady: [], myskoda: auto }, ms('2026-10-15T12:00:00'));
+  const klicOleje = podle('olej').klic;
+  x = prip({ naklady: [], myskoda: auto }, ms('2026-10-15T12:00:00'), { odlozene: { [klicOleje]: '2026-10-22' } });
+  assert.deepStrictEqual([podle('olej').stav, podle('olej').stavPak], ['odlozeno', 'ted']);
+  // úklid: vypršelé déle než 30 dní a hotové po roce pryč, nesmysly pryč
+  const uklid = (o, ted) => json(vm.runInContext('AUTO_.uklidOdlozenych', p.ctx)(o, ted));
+  assert.deepStrictEqual(uklid({ 'zima-2026': '2026-11-15', 'jaro-2026': '2026-05-01', 'pneu-zimni-2025': 'hotovo:2025-10-01',
+    'pneu-zimni-2026': 'hotovo:2026-10-15', 'x y': '2026-11-01', 'stk-1': '2026-02-31', '__proto__': '2026-11-01' }, ms('2026-11-20T12:00:00')),
+  { 'zima-2026': '2026-11-15', 'pneu-zimni-2026': 'hotovo:2026-10-15' });
+});
+
+test('auto: termín v kalendáři → naplánováno (bez ntfy), po dni události zpět „teď“, za koncem okna ještě 21 dní', () => {
+  const p = prostredi();
+  const prip = (d, ted, volby) => json(vm.runInContext('AUTO_.pripominky', p.ctx)(d, ted, volby));
+  const ms = (t) => new Date(t).getTime();
+  const udalosti = [{ nazev: 'Přezutí – pneuservis Novák', zacatek: ms('2026-10-19T08:00:00') }, { nazev: 'Kostky s dětmi', zacatek: ms('2026-10-17T10:00:00') },
+    { nazev: 'Zubař', zacatek: ms('2026-10-16T10:00:00') }];
+  let x = prip({ naklady: [] }, ms('2026-10-15T12:00:00'), { udalosti });
+  const podle = (id) => x.find((y) => y.id === id) || null;
+  assert.deepStrictEqual([podle('pneu-zimni').stav, podle('pneu-zimni').stavPak, podle('pneu-zimni').plan],
+    ['naplanovano', 'ted', { kdy: ms('2026-10-19T08:00:00'), nazev: 'Přezutí – pneuservis Novák' }]);
+  assert.deepStrictEqual([podle('zima').stav, podle('zima').plan], ['ted', undefined], 'zima s přezutím nesouvisí');
+  x = prip({ naklady: [] }, ms('2026-10-19T18:00:00'), { udalosti });
+  assert.strictEqual(podle('pneu-zimni').stav, 'naplanovano', 'v den události pořád naplánováno');
+  x = prip({ naklady: [] }, ms('2026-10-20T09:00:00'), { udalosti });
+  assert.deepStrictEqual([podle('pneu-zimni').stav, podle('pneu-zimni').plan.kdy], ['ted', ms('2026-10-19T08:00:00')], 'po události zpět teď');
+  // zápis v Nákladech po přezutí → hotovo
+  x = prip({ naklady: [{ datum: ms('2026-10-19T00:00:00'), kategorie: 'Servis - PNEU', polozka: 'Přezutí', poznamka: '' }] }, ms('2026-10-20T09:00:00'), { udalosti });
+  assert.deepStrictEqual([podle('pneu-zimni').stav, podle('pneu-zimni').hotovo], ['ted', true]);
+  // dál než 30 dní dopředu se nebere; přezutí za koncem okna (20. 11.) → naplánováno a po něm teď ještě 21 dní
+  x = prip({ naklady: [] }, ms('2026-10-15T12:00:00'), { udalosti: [{ nazev: 'Přezout gumy', zacatek: ms('2026-11-20T08:00:00') }] });
+  assert.strictEqual(podle('pneu-zimni').stav, 'ted', 'za 36 dní – zatím ne');
+  const pozde = [{ nazev: 'Přezout gumy', zacatek: ms('2026-11-20T08:00:00') }];
+  x = prip({ naklady: [] }, ms('2026-11-01T12:00:00'), { udalosti: pozde });
+  assert.strictEqual(podle('pneu-zimni').stav, 'naplanovano');
+  x = prip({ naklady: [] }, ms('2026-11-25T12:00:00'), { udalosti: pozde });
+  assert.deepStrictEqual([podle('pneu-zimni').stav, podle('pneu-zimni').konec >= ms('2026-12-11T00:00:00')], ['ted', true], 'po termínu za oknem');
+  x = prip({ naklady: [] }, ms('2026-12-12T12:00:00'), { udalosti: pozde });
+  assert.strictEqual(podle('pneu-zimni'), null);
+  // zima podle tvarů slova (zimu, zimě) a ostřikovačů; „Zimní stadion“ ne; STK jen celé slovo; servis k oleji
+  const naplan = (nazev, id, data) => {
+    x = prip(Object.assign({ naklady: [] }, data || {}), ms('2026-10-15T12:00:00'), { udalosti: [{ nazev, zacatek: ms('2026-10-25T09:00:00') }] });
+    return podle(id) && podle(id).stav;
+  };
+  assert.strictEqual(naplan('Příprava auta na zimu', 'zima'), 'naplanovano');
+  assert.strictEqual(naplan('Koupit směs do ostřikovačů', 'zima'), 'naplanovano');
+  assert.strictEqual(naplan('Zimní stadion', 'zima'), 'ted');
+  assert.strictEqual(naplan('Gumy na auto', 'pneu-zimni'), 'naplanovano');
+  assert.strictEqual(naplan('STK Hodonín', 'stk', { terminy: { stk: '2026-11-04' } }), 'naplanovano');
+  assert.strictEqual(naplan('Kostky', 'stk', { terminy: { stk: '2026-11-04' } }), 'ted');
+  assert.strictEqual(naplan('Autoservis – olej', 'olej', { myskoda: { auta: [{ servis: { olejKm: 900 } }] } }), 'naplanovano');
+  // přezutí z jara (letní) se k zimnímu nepočítá: letní okno 2026 skončilo, událost v říjnu ho neprodlouží
+  x = prip({ naklady: [] }, ms('2026-10-15T12:00:00'), { udalosti });
+  assert.strictEqual(podle('pneu-letni'), null);
+});
+
+test('auto: akce autoPripominkaOdlozit (AUTO_ODLOZENE pod zámkem), kalendář z motoru, upozornění respektuje odložení i naplánování', () => {
+  const p = prostredi();
+  tabulkaAuta(p);
+  p.vlastnosti.set('AUTO_TABULKA', TAB_AUTO);
+  p.nastavCas(Date.parse('2026-10-15T09:00:00+02:00'));
+  // kalendář „Auto“ s přezutím v pondělí 19. 10.
+  const udalost = (nazev, z) => ({ getId: () => 'a-' + nazev, getTitle: () => nazev, isAllDayEvent: () => false, isRecurringEvent: () => false,
+    getGuestList: () => [], getStartTime: () => new Date(z), getEndTime: () => new Date(z + 36e5), getAllDayStartDate: () => new Date(z),
+    getAllDayEndDate: () => new Date(z), getLocation: () => '', getDescription: () => '', getColor: () => '' });
+  const udalosti = [udalost('Přezout pneu', Date.parse('2026-10-19T08:00:00+02:00'))];
+  p.kalendare.push({ isHidden: () => false, isSelected: () => true, getColor: () => '#123456', getName: () => 'Auto', getId: () => 'auto@test',
+    isOwnedByMe: () => false, getEvents: (a, b) => udalosti.filter((u) => +u.getStartTime() >= +a && +u.getStartTime() < +b) });
+  let o = p.volej('auto');
+  assert.strictEqual(o.ok, true, o.chyba);
+  const najdi = (seznam, id) => (seznam || []).find((x) => x.id === id) || null;
+  assert.deepStrictEqual([najdi(o.data.pripominky, 'pneu-zimni').stav, najdi(o.data.pripominky, 'pneu-zimni').plan.nazev], ['naplanovano', 'Přezout pneu']);
+  assert.deepStrictEqual(json(o.data.odlozene), []);
+  // zima do 15. 11.
+  o = p.volej('autoPripominkaOdlozit', { pripominka: 'zima-2026', do: '2026-11-15' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(najdi(o.data.pripominky, 'zima'), null, 'odložená mezi ostatními není');
+  assert.deepStrictEqual([najdi(o.data.odlozene, 'zima').odlozeno, najdi(o.data.odlozene, 'zima').stav], ['2026-11-15', 'odlozeno']);
+  assert.deepStrictEqual(JSON.parse(p.vlastnosti.get('AUTO_ODLOZENE')), { 'zima-2026': '2026-11-15' });
+  assert.strictEqual(p.volej('zmeny').data.auto, Date.parse('2026-10-15T09:00:00+02:00'), 'značka změny auta (ostatní zařízení)');
+  // hotovo ručně, zrušit, chyby
+  o = p.volej('autoPripominkaOdlozit', { pripominka: 'pneu-zimni-2026', do: 'hotovo' });
+  assert.deepStrictEqual(JSON.parse(p.vlastnosti.get('AUTO_ODLOZENE')), { 'zima-2026': '2026-11-15', 'pneu-zimni-2026': 'hotovo:2026-10-15' });
+  assert.strictEqual(najdi(o.data.odlozene, 'pneu-zimni').odlozeno, 'hotovo');
+  o = p.volej('autoPripominkaOdlozit', { pripominka: 'pneu-zimni-2026', do: null });
+  assert.deepStrictEqual(JSON.parse(p.vlastnosti.get('AUTO_ODLOZENE')), { 'zima-2026': '2026-11-15' }, 'zrušené odložení');
+  assert.strictEqual(najdi(o.data.pripominky, 'pneu-zimni').stav, 'naplanovano');
+  assert.ok(/Neznámá připomínka/.test(p.volej('autoPripominkaOdlozit', { pripominka: '', do: '2026-11-01' }).chyba));
+  assert.ok(/RRRR-MM-DD/.test(p.volej('autoPripominkaOdlozit', { pripominka: 'zima-2026', do: '15. 11.' }).chyba));
+  assert.ok(/RRRR-MM-DD/.test(p.volej('autoPripominkaOdlozit', { pripominka: 'zima-2026', do: '2026-02-31' }).chyba));
+  assert.ok(/dalších dní/.test(p.volej('autoPripominkaOdlozit', { pripominka: 'zima-2026', do: '2026-10-15' }).chyba), 'dnešek ne');
+  assert.ok(/nejvýš o rok/.test(p.volej('autoPripominkaOdlozit', { pripominka: 'zima-2026', do: '2028-01-01' }).chyba));
+  // starý záznam se při zápisu uklidí, zámek se drží
+  const zamek = [];
+  p.ctx.LockService = { getScriptLock: () => ({ waitLock() { zamek.push('zamknout'); }, releaseLock() { zamek.push('odemknout'); } }) };
+  p.vlastnosti.set('AUTO_ODLOZENE', JSON.stringify({ 'zima-2026': '2026-11-15', 'jaro-2026': '2026-05-01' }));
+  p.volej('autoPripominkaOdlozit', { pripominka: 'stk-2027-01-01', do: '2026-10-20' });
+  assert.deepStrictEqual(JSON.parse(p.vlastnosti.get('AUTO_ODLOZENE')), { 'zima-2026': '2026-11-15', 'stk-2027-01-01': '2026-10-20' });
+  assert.deepStrictEqual(zamek, ['zamknout', 'odemknout']);
+  // upozornění: 15. 10. ani přezutí (naplánované), ani zima (odložená)
+  p.volej('upozorneniZapnout');
+  // jen přezutí a zima (pojištění a známka z tabulky mají svá upozornění)
+  const autoNtfy = (od) => p.log.ntfy.slice(od).filter((z) => /^Auto: .*(pneumatiky|zimu)/.test(z.title)).map((z) => z.title);
+  let pred = p.log.ntfy.length;
+  p.ctx.instagramKazdych10Min();
+  assert.deepStrictEqual(autoNtfy(pred), [], '15. 10. nic: ' + JSON.stringify(autoNtfy(pred)));
+  // 20. 10. (po přezutí v kalendáři, bez zápisu v Nákladech) → přezutí ano, zima pořád ne
+  p.nastavCas(Date.parse('2026-10-20T09:00:00+02:00'));
+  pred = p.log.ntfy.length;
+  p.ctx.instagramKazdych10Min();
+  assert.deepStrictEqual(autoNtfy(pred), ['Auto: Přezout na zimní pneumatiky']);
+  // 15. 11. odložení vypršelo → zima přijde; 16. 11. (po konci okna) už ne znovu
+  p.nastavCas(Date.parse('2026-11-15T09:00:00+02:00'));
+  pred = p.log.ntfy.length;
+  p.ctx.instagramKazdych10Min();
+  assert.deepStrictEqual(autoNtfy(pred), ['Auto: Připravit auto na zimu']);
+  p.nastavCas(Date.parse('2026-11-16T09:00:00+02:00'));
+  pred = p.log.ntfy.length;
+  p.ctx.instagramKazdych10Min();
+  assert.deepStrictEqual(autoNtfy(pred), [], 'jednou stačí');
+  const auto16 = p.volej('auto').data;
+  assert.deepStrictEqual([najdi(auto16.pripominky, 'zima').stav, najdi(auto16.pripominky, 'zima').do < Date.parse('2026-11-16T00:00:00+01:00')], ['ted', true],
+    'po konci okna se zima ukazuje dál');
+  // úklid ve spouštěči: vypršelé stk po 30 dnech pryč
+  p.nastavCas(Date.parse('2026-11-25T09:00:00+01:00'));
+  p.ctx.instagramKazdych10Min();
+  assert.deepStrictEqual(JSON.parse(p.vlastnosti.get('AUTO_ODLOZENE')), { 'zima-2026': '2026-11-15' });
+});
+
 test('jmeniny: oblíbení lidé se uloží (jen jména, kdo nepovinné) a přijdou s info', () => {
   const p = prostredi();
   assert.deepStrictEqual(json(p.volej('info').data.jmeniny), []);
