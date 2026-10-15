@@ -29,6 +29,7 @@ const PISMA = ['400 40px Anton', '700 20px "Roboto Condensed"', '600 20px "Robot
 const ULOZIT_PO = 700;        // ms po posledním písmenu (jako web dorostu)
 const PRIPRAVA_PO = 1500;     // ms klidu po otevření stránky / poslední změně plakátu, než se obrázek pro iPhone začne kreslit
 const SIRKA = 1400, VYSKA = 990;
+const NAHLED_PC = 720; // nejširší náhled plakátu na stránce (px); tisk a obrázek mají plnou velikost
 const NAZVY_TYMU = { A: 'A-tým', B: 'B-tým', dorost: 'Dorost' };
 const pauza = (ms) => new Promise((hotovo) => setTimeout(hotovo, ms));
 
@@ -321,7 +322,8 @@ function prizpusob() {
   const box = document.querySelector('#p-plakaty .plakat-nahled');
   if (!box || !box.clientWidth) return;
   const st = getComputedStyle(box);
-  const sirka = box.clientWidth - parseFloat(st.paddingLeft) - parseFloat(st.paddingRight);
+  // na PC jen menší náhled (Michal 15. 10.: „je to moc velké, stačí mi menší náhled“) – nejvýš 720 px na šířku
+  const sirka = Math.min(box.clientWidth - parseFloat(st.paddingLeft) - parseFloat(st.paddingRight), NAHLED_PC);
   box.style.setProperty('--s', Math.max(0.15, Math.min(1, sirka / SIRKA)).toFixed(4));
 }
 

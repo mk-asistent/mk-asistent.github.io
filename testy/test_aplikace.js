@@ -4638,6 +4638,9 @@ function vychoziVikendTestu() {
       await page.waitForTimeout(600); // písma z Google Fonts
       await page.screenshot({ path: path.join(VYSTUP, 'pc_plakaty.png'), fullPage: true });
       await page.locator('#p-plakaty .plakat-nahled').screenshot({ path: path.join(VYSTUP, 'pc_plakat_nahled.png') });
+      // na PC jen menší náhled (Michal 15. 10.): nejvýš 720 × 509 px
+      const nahled = await page.evaluate(() => { const r = document.querySelector('#p-plakaty .plakat-stage').getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
+      jistota(nahled[0] <= 721 && nahled[0] >= 600 && nahled[1] <= 510, 'náhled na PC ' + nahled.join(' × '));
       // tisk: tlačítko přidá třídu tisk-plakatu a zavolá window.print (sám tisk se v testu nespouští)
       await page.evaluate(() => { window.__tisk = 0; window.print = () => { window.__tisk++; }; });
       await page.click('#p-plakaty [data-pl-tisk]');
