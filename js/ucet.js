@@ -44,6 +44,8 @@ const KOPIE_ZAPISU = {
   jmeninyUlozit: ['info'], skupinyHostuUlozit: ['info'], pocasiDomov: ['info'], reelStav: ['reely'], reelNaplanovat: ['reely'], reelZrusitPlan: ['reely'],
   plakatUlozit: ['plakaty'], plakatNastaveni: ['plakaty'], plakatPopisek: ['plakaty'], plakatPopisekUlozit: ['plakaty'], plakatObrazky: ['plakaty'],
   plakatNaplanovat: ['plakaty'], plakatZrusitPlan: ['plakaty'],
+  // reely 15. 10.: úprava popisku, návrhy od Clauda, příběh z fotky (seznam a plán příběhů jsou v kopii reelů)
+  reelPopisekUlozit: ['reely'], reelPopisekNavrhy: ['reely'], pribehNaplanovat: ['reely'], pribehZrusit: ['reely'],
   // krok zveřejnění na Instagram: aplikace ho posílá každých ~15 s – kopie zneplatní až změna stavu (js/ig.js zmenaOblasti)
   igKrok: [],
   // Knihovna: kopii na serveru nemá (čte se z motoru na své stránce) – zápis zneplatní jen značky změn, server je hned obnoví

@@ -4072,7 +4072,7 @@ function plakatZverejni_(t, volby) {
 // zmenšení videa v telefonu (WebCodecs), obojí zatím ne.
 
 const PRIBEH_ID = /^pribeh_[0-9a-f]{16,64}$/;
-const MAX_PRIBEHU = 30;                        // v seznamu (starší hotové pryč i s fotkou do koše)
+const MAX_PRIBEHU = 20;                        // v seznamu (starší hotové pryč i s fotkou do koše) – náhledy jdou i do kopie reelů na serveru
 const MAX_FOTKA_PRIBEHU = 8 * 1024 * 1024;     // Instagram bere obrázek nejvýš 8 MB
 const MAX_NAHLED_PRIBEHU = 40000;              // znaků data URL náhledu (aplikace posílá ~5–10 kB)
 const NAHLED_PRIBEHU = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;

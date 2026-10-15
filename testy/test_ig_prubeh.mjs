@@ -120,4 +120,27 @@ test('HTML kroků: aktuální krok s aria-current, fajfky, texty z motoru ošet�
   assert.strictEqual((P.teckyHtml(P.kroky({ stav: 'ceka', kdy: T }, { ted: T, video: true })).match(/ig-tecka /g) || []).length, 5);
 });
 
+// Michal 15. 10.: „dokážeme dělat i příběhy? A třeba i se zmínkami?“ – jen příběh (bez příspěvku) a zmínky
+test('jen příběh: kroky bez příspěvku a bez druhého příběhu, hotovo = „Příběh vyšel“ (po 24 h zmizí), zmínky odmítnuté', () => {
+  const kr = P.kroky({ stav: 'ceka', kdy: T + MIN, jenPribeh: true, pribeh: true }, { ted: T, video: false });
+  assert.deepStrictEqual(kr.map((k) => k.nazev), ['Naplánováno', 'Příprava obrázku', 'Instagram zpracovává', 'Zveřejnění příběhu', 'Příběh vyšel']);
+  const z = { stav: 'hotovo', kdy: T, jenPribeh: true, zverejneno: T + MIN, zminkyChyba: 'An unknown error has occurred.',
+    kroky: { priprava: T, zpracovani: T, zverejnuji: T + MIN, hotovo: T + MIN } };
+  const h = P.kroky(z, { ted: T + 2 * MIN, video: true });
+  assert.strictEqual(stavy(h), 'plan:hotovo priprava:hotovo zpracovani:hotovo zverejnuji:hotovo hotovo:hotovo');
+  assert.ok(/bez zmínek/.test(h[4].popis) && /24 h/.test(h[4].popis), h[4].popis);
+  assert.strictEqual(P.hotovoText(z, T + 2 * MIN), 'příběh vyšel 20:16 · bez zmínek');
+  assert.strictEqual(P.hotovoText({ stav: 'hotovo', kdy: T, mediaPribeh: 'm2', kroky: { hotovo: T } }, T), 'vyšlo 20:15 · i v příběhu');
+  assert.strictEqual(P.hotovoText({ stav: 'hotovo', kdy: T, pribeh: true, pribehChyba: 'x', kroky: { hotovo: T } }, T), 'vyšlo 20:15 · příběh nevyšel');
+});
+
+test('účty k označení / zmínky: bez @, malými písmeny, bez opakování; neplatné jméno a víc než 20 = chyba (jako motor)', () => {
+  assert.deepStrictEqual(P.uctyKOznaceni('@Dorost_Agro, fk.vnorovy;dorost_agro  klub'), { ucty: ['dorost_agro', 'fk.vnorovy', 'klub'], chyba: '' });
+  assert.deepStrictEqual(P.uctyKOznaceni(''), { ucty: [], chyba: '' });
+  assert.ok(/Neplatné jméno účtu: „špatné“/.test(P.uctyKOznaceni('@ok, špatné').chyba));
+  assert.ok(/Neplatné/.test(P.uctyKOznaceni('a'.repeat(31)).chyba), 'nejvýš 30 znaků');
+  assert.ok(/nejvýš 20/.test(P.uctyKOznaceni(Array.from({ length: 21 }, (_, i) => 'u' + i).join(' ')).chyba));
+  assert.strictEqual(P.uctyKOznaceni(Array.from({ length: 20 }, (_, i) => 'u' + i).join(', ')).chyba, '');
+});
+
 console.log('\n' + ok + ' testů prošlo' + (process.exitCode ? ', některé SELHALY' : ''));
