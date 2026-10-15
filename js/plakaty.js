@@ -218,11 +218,13 @@ export function vykresliPlakaty(el) {
   if (!p.sobota) p.sobota = P.vychoziVikend(Date.now());
   pripravPlakat();
   if (!el.querySelector('.plakaty')) {
+    // .plakaty-levy = náhled s nápovědou k tisku; na PC (plakaty.css ≥ 1 100 px) levý sloupec, který při posunu zůstává
+    // vidět – vpravo Instagram a editor (Michal 15. 10.: menší náhled, editor a Instagram kolem něj)
     el.innerHTML = '<div class="plakaty">' +
       '<div class="plakaty-lista" data-pl-cast="lista"></div>' +
-      '<div class="plakat-nahled"><div class="plakat-stage"><div class="plakat poster" aria-label="Náhled plakátu"></div></div></div>' +
-      '<p class="napoveda plakaty-tisk-napoveda">Tisk: v dialogu vyber <b>A3</b>, <b>na šířku</b>, okraje <b>žádné</b> a zapni <b>grafiku na pozadí</b>, ' +
-        'jinak se nevytisknou barevné pruhy. Obrázek je JPEG 2 800 px – na Instagram nebo do Fotek.</p>' +
+      '<div class="plakaty-levy"><div class="plakat-nahled"><div class="plakat-stage"><div class="plakat poster" aria-label="Náhled plakátu – klepnutím na text upravíš jeho pole"></div></div></div>' +
+      '<p class="napoveda plakaty-tisk-napoveda">Klepnutím na text v náhledu skočíš na jeho pole. Tisk: v dialogu vyber <b>A3</b>, <b>na šířku</b>, okraje <b>žádné</b> ' +
+        'a zapni <b>grafiku na pozadí</b>, jinak se nevytisknou barevné pruhy. Obrázek je JPEG 2 800 px – na Instagram nebo do Fotek.</p></div>' +
       '<div class="plakaty-mrizka"><section class="card pl-editor" data-pl-cast="editor"></section>' +
         '<div class="plakaty-vpravo"><section class="card pl-ig" data-pl-cast="ig"></section>' +
         '<details class="card plakaty-nastaveni" data-pl-cast="nastaveni"></details></div></div>' +
@@ -326,6 +328,37 @@ function prizpusob() {
   const sirka = Math.min(box.clientWidth - parseFloat(st.paddingLeft) - parseFloat(st.paddingRight), NAHLED_PC);
   box.style.setProperty('--s', Math.max(0.15, Math.min(1, sirka / SIRKA)).toFixed(4));
 }
+
+// ---------------------------------------------------------------- klepnutí v náhledu → pole v editoru
+// Michal 15. 10.: „klepnutí na text v náhledu sjede v editoru přesně na pole s tím textem“. Prvky plakátu nesou
+// data-pl-pole = cesta pole (plakat.js plakatHtml), editor má stejnou cestu v data-pl-cesta – žádné hledání podle textu.
+// Obrysy při najetí jen v náhledu na obrazovce (plakaty.css) – tisk a obrázek (html2canvas, .plakat-export) beze změny.
+
+let blikani = 0;
+/** Posune editor k poli s cestou, krátce ho zvýrazní a dá do něj kurzor (na konec textu). */
+function skocNaPole(cesta) {
+  const pole = document.querySelector('#p-plakaty .pl-editor [data-pl-cesta="' + String(cesta).replace(/["\\]/g, '') + '"]');
+  if (!pole) return false;
+  const sbalene = pole.closest('details:not([open])');
+  if (sbalene) sbalene.open = true;
+  const obal = pole.closest('label') || pole;
+  const plynule = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  obal.scrollIntoView({ block: 'center', behavior: plynule ? 'smooth' : 'auto' });
+  pole.focus({ preventScroll: true });
+  if (pole.type === 'text' && pole.setSelectionRange) { const n = pole.value.length; pole.setSelectionRange(n, n); }
+  document.querySelectorAll('#p-plakaty .pl-blik').forEach((x) => x.classList.remove('pl-blik'));
+  void obal.offsetWidth; // znovu spustit animaci i u stejného pole
+  obal.classList.add('pl-blik');
+  clearTimeout(blikani);
+  blikani = setTimeout(() => obal.classList.remove('pl-blik'), 1600);
+  return true;
+}
+
+document.addEventListener('click', (e) => {
+  const cil = e.target && e.target.closest && e.target.closest('#p-plakaty .plakat-stage [data-pl-pole]');
+  if (!cil || e.button) return;
+  if (skocNaPole(cil.dataset.plPole)) e.preventDefault();
+});
 
 function sledujVelikost(box) {
   if (p.pozorovatel) p.pozorovatel.disconnect();

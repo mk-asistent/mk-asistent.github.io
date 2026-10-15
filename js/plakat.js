@@ -244,27 +244,34 @@ const zkratka = (n) => esc(String(n).replace(/^(FK|TJ|SK|FC)\s+/i, '').slice(0, 
 /**
  * Obsah plakátu (do prvku .plakat.poster). cesty = { znaky: 'plakat/znaky/', qr: 'plakat/qr/instagram.png' }.
  * Velikosti řeší CSS podle počtu řádků (m2–m4, v4–v5, tyden); dlouhé názvy zmenší plakaty.js (zkratitDlouhe).
+ * Texty a znaky nesou data-pl-pole = cesta pole v editoru (Michal 15. 10.: klepnutí na text v náhledu → pole v editoru,
+ * plakaty.js skocNaPole); den a čas jsou dva řádkové <span> se stejným textem jako dřív – vzhled, tisk ani obrázek se nemění.
  */
 export function plakatHtml(d, cesty) {
-  const znak = (logo, nazev, velikost) => {
+  const k = (cesta) => ' data-pl-pole="' + cesta + '"';
+  const znak = (logo, nazev, velikost, cesta) => {
     const c = velikost ? ' ' + velikost : '';
-    return logo ? '<img class="badge' + c + '" src="' + esc(cesty.znaky + logo) + '" alt="' + esc(nazev) + '">'
-      : '<div class="ph' + c + '">' + zkratka(nazev) + '</div>';
+    return logo ? '<img class="badge' + c + '"' + k(cesta) + ' src="' + esc(cesty.znaky + logo) + '" alt="' + esc(nazev) + '">'
+      : '<div class="ph' + c + '"' + k(cesta) + '>' + zkratka(nazev) + '</div>';
   };
+  // „den  čas“ jako dřív (mezi nimi dvě mezery, prázdná část vynechaná), každá část klepnutím do svého pole
+  const denCas = (c, x) => [x.den ? '<span' + k(c + 'den') + '>' + esc(x.den) + '</span>' : '', x.cas ? '<span' + k(c + 'cas') + '>' + esc(x.cas) + '</span>' : '']
+    .filter(Boolean).join('  ');
   const jeden = d.doma.length === 1;
-  const bloky = d.doma.map((z) => '<div class="blok' + (jeden ? ' single' : '') + '">' +
-    '<div class="team">' + esc(z.tym) + '</div><div class="comp">' + esc(z.soutez) + '</div>' +
-    '<div class="mid"><div class="duel"><img class="badge" src="' + esc(cesty.znaky + d.nasZnak) + '" alt="FK Agro Vnorovy">' +
-      '<span class="vs">VS</span>' + znak(z.logo, z.souper) + '</div><div class="opp">' + esc(z.souper) + '</div></div>' +
-    '<div class="when">' + esc(z.den) + ' &nbsp;|&nbsp; ' + esc(z.cas) + '</div></div>').join('');
-  const mladez = d.domaMladez.map((m) => '<div class="row"><span class="cat">' + esc(m.kat) + '</span>' + znak(m.logo, m.souper, 'xs') +
-    '<span class="opp">' + esc(m.souper) + '</span><span class="when">' + esc([m.den, m.cas].filter(Boolean).join('  ')) + '</span></div>').join('');
-  const venku = d.venku.map((v) => '<div class="awayrow">' + znak(v.logo, v.souper, 'sm') +
-    '<div class="meta"><div class="cat">' + esc(v.kat) + '</div><div class="opp">' + esc(v.souper) + '</div></div>' +
-    '<div class="when">' + esc(v.cas) + '</div></div>').join('');
-  const tyden = d.vTydnu.length ? '<div class="wk"><div class="wkh">V TÝDNU</div>' + d.vTydnu.map((t) => '<div class="wkr">' +
-    '<div class="wkline"><span class="wkc">' + esc(t.kat) + '</span><span class="wkt">' + esc([t.den, t.cas].filter(Boolean).join('  ')) + '</span></div>' +
-    '<div class="wkm">' + (t.doma ? 'AGRO – ' + esc(t.souper) : esc(t.souper) + ' – AGRO') + '</div></div>').join('') + '</div>' : '';
+  const bloky = d.doma.map((z, i) => '<div class="blok' + (jeden ? ' single' : '') + '">' +
+    '<div class="team"' + k('doma.' + i + '.tym') + '>' + esc(z.tym) + '</div><div class="comp"' + k('doma.' + i + '.soutez') + '>' + esc(z.soutez) + '</div>' +
+    '<div class="mid"><div class="duel"><img class="badge"' + k('nasZnak') + ' src="' + esc(cesty.znaky + d.nasZnak) + '" alt="FK Agro Vnorovy">' +
+      '<span class="vs">VS</span>' + znak(z.logo, z.souper, '', 'doma.' + i + '.logo') + '</div><div class="opp"' + k('doma.' + i + '.souper') + '>' + esc(z.souper) + '</div></div>' +
+    '<div class="when"><span' + k('doma.' + i + '.den') + '>' + esc(z.den) + '</span> &nbsp;|&nbsp; <span' + k('doma.' + i + '.cas') + '>' + esc(z.cas) + '</span></div></div>').join('');
+  const mladez = d.domaMladez.map((m, i) => '<div class="row"><span class="cat"' + k('domaMladez.' + i + '.kat') + '>' + esc(m.kat) + '</span>' +
+    znak(m.logo, m.souper, 'xs', 'domaMladez.' + i + '.logo') +
+    '<span class="opp"' + k('domaMladez.' + i + '.souper') + '>' + esc(m.souper) + '</span><span class="when">' + denCas('domaMladez.' + i + '.', m) + '</span></div>').join('');
+  const venku = d.venku.map((v, i) => '<div class="awayrow">' + znak(v.logo, v.souper, 'sm', 'venku.' + i + '.logo') +
+    '<div class="meta"><div class="cat"' + k('venku.' + i + '.kat') + '>' + esc(v.kat) + '</div><div class="opp"' + k('venku.' + i + '.souper') + '>' + esc(v.souper) + '</div></div>' +
+    '<div class="when"' + k('venku.' + i + '.cas') + '>' + esc(v.cas) + '</div></div>').join('');
+  const tyden = d.vTydnu.length ? '<div class="wk"><div class="wkh">V TÝDNU</div>' + d.vTydnu.map((t, i) => '<div class="wkr">' +
+    '<div class="wkline"><span class="wkc"' + k('vTydnu.' + i + '.kat') + '>' + esc(t.kat) + '</span><span class="wkt">' + denCas('vTydnu.' + i + '.', t) + '</span></div>' +
+    '<div class="wkm"' + k('vTydnu.' + i + '.souper') + '>' + (t.doma ? 'AGRO – ' + esc(t.souper) : esc(t.souper) + ' – AGRO') + '</div></div>').join('') + '</div>' : '';
   const mCls = d.domaMladez.length >= 4 ? ' m4' : d.domaMladez.length === 3 ? ' m3' : d.domaMladez.length === 2 ? ' m2' : '';
   const vCls = (d.venku.length >= 5 ? ' v5' : d.venku.length === 4 ? ' v4' : '') + (d.vTydnu.length ? ' tyden' : '');
   return '<div class="design">' +
@@ -272,15 +279,17 @@ export function plakatHtml(d, cesty) {
     '<div class="corner tr"><i class="t2 r"></i><i class="t2 k"></i><i></i><i class="t2 r"></i></div>' +
     '<div class="corner br"><i></i><i class="t4 r"></i><i class="t4 r"></i><i class="t4 k"></i></div>' +
     '<div class="dots l"></div><div class="dots rt"></div>' +
-    '<div class="phead"><img class="clublogo" src="' + esc(cesty.znaky + d.nasZnak) + '" alt="FK Agro Vnorovy">' +
-      '<div class="phead-mid"><div class="kicker">FK AGRO VNOROVY</div><div class="ptitle">' + esc(d.nadpis) + '</div></div>' +
-      '<div class="pdate"><div class="d">' + esc(d.datum) + '</div><div class="m">' + esc(d.mesic) + '</div></div></div>' +
+    '<div class="phead"><img class="clublogo"' + k('nasZnak') + ' src="' + esc(cesty.znaky + d.nasZnak) + '" alt="FK Agro Vnorovy">' +
+      '<div class="phead-mid"><div class="kicker">FK AGRO VNOROVY</div><div class="ptitle"' + k('nadpis') + '>' + esc(d.nadpis) + '</div></div>' +
+      '<div class="pdate"><div class="d"' + k('datum') + '>' + esc(d.datum) + '</div><div class="m"' + k('mesic') + '>' + esc(d.mesic) + '</div></div></div>' +
     '<div class="rule"></div>' +
     '<div class="body2"><div class="left' + mCls + '">' +
       (d.doma.length || d.domaMladez.length
-        ? '<div class="band home">HRAJEME DOMA<span class="sub">' + esc(d.paticka.misto) + '</span></div>' + (d.doma.length ? '<div class="bloky">' + bloky + '</div>' : '') + mladez
+        ? '<div class="band home">HRAJEME DOMA<span class="sub"' + k('paticka.misto') + '>' + esc(d.paticka.misto) + '</span></div>' +
+          (d.doma.length ? '<div class="bloky">' + bloky + '</div>' : '') + mladez
         : '<div class="nicdoma">TENTO VÍKEND<br>HRAJEME JEN VENKU</div>') +
-      '<div class="pfoot"><div><div class="venue">' + esc(d.vyzva) + '</div><div class="txt">' + esc(d.paticka.podtitul) + '</div></div></div>' +
+      '<div class="pfoot"><div><div class="venue"' + k('vyzva') + '>' + esc(d.vyzva) + '</div><div class="txt"' + k('paticka.podtitul') + '>' +
+        esc(d.paticka.podtitul) + '</div></div></div>' +
     '</div><div class="right' + vCls + '"><div class="band away">VENKU</div><div class="rowlist">' + venku + '</div>' + tyden +
       '<div class="qr"><div class="qrbox"><img src="' + esc(cesty.qr) + '" alt="Instagram"><span>@FKAGROVNOROVY</span></div></div>' +
     '</div></div></div>';

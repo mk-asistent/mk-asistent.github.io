@@ -569,7 +569,9 @@ button.legenda-radek { width: 100%; background: none; border: 0; text-align: lef
 }
 
 /* ================================================================ Zdraví (WHOOP + Apple Watch) */
-.pohled-zdravi { max-width: 1180px; }
+/* šířka (Michal 15. 10.): celá šířka stránky (strop jen --sirka-stranky z .pohled), víc sloupců místo větších karet –
+   2 sloupce od 900 px, 3 od 1 400 px, 4 od 2 300 px; kruh připravenosti jen v prvním sloupci a čísla (spánek, zátěž,
+   kroky) vedle něj (dřív kruh přes celou šířku s prázdnou pravou půlkou a stránka zastropená na 1 180 / 1 640 px) */
 .zdravi-pripojit { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
 .zdravi-pripojit > span:nth-child(2) { flex: 1; min-width: 0; }
 .zdravi-pripojit b { display: block; font-size: 14px; font-weight: 650; }
@@ -601,10 +603,26 @@ button.legenda-radek { width: 100%; background: none; border: 0; text-align: lef
     .zdravi-mrizka-karet { display: block; columns: 2; column-gap: 16px; }
     .zdravi-mrizka-karet > section { break-inside: avoid; margin: 0 0 16px; }
 }
-@media (min-width: 1700px) {
-    .pohled-zdravi { max-width: 1640px; }
+@media (min-width: 1200px) {
+    .pohled-zdravi { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+    .pohled-zdravi > * { grid-column: 1 / -1; }
+    .pohled-zdravi > .zdravi-hero { grid-column: 1; align-self: stretch; }
+    .pohled-zdravi > .zdravi-hero + .zdravi-kpi { grid-column: 2 / -1; align-self: stretch; }
+    .zdravi-hero + .zdravi-kpi .kpi { justify-content: center; }
+}
+@media (min-width: 1400px) {
+    .pohled-zdravi { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .zdravi-mrizka-karet { columns: 3; }
 }
+@media (min-width: 2300px) {
+    .pohled-zdravi { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .zdravi-mrizka-karet { columns: 4; }
+}
+/* delší texty na řádek nejvýš ~75 znaků */
+.tyden-claude p, .tyden-claude ul, .zd-piti .napoveda { max-width: var(--sirka-cteni); }
+/* grafy v užším sloupci (3 sloupce na 1 400–1 700 px, iPad): SVG se zmenší i s písmem → popisky větší, ať zůstanou čitelné */
+@media (min-width: 760px) { .zd-graf, .zd-vaha { container-type: inline-size; } }
+@container (max-width: 520px) { .zd-graf .graf14__popis, .zd-vaha .graf-vahy__popis { font-size: 13px; } }
 /* týdenní shrnutí od Clauda (stejný text jako v nedělním e-mailu) */
 .tyden-claude { margin: 4px 16px 14px; padding: 12px 14px; border-radius: 14px; background: var(--accent-tint); font-size: 13.5px; line-height: 1.5; }
 .tyden-claude p { margin: 0 0 8px; }
@@ -633,6 +651,7 @@ button.legenda-radek { width: 100%; background: none; border: 0; text-align: lef
 .vaha-zapis .field { flex: 1; min-width: 0; max-width: 160px; }
 .vaha-zapis > span { font-size: 13px; color: var(--muted); }
 .vaha-zapis .btn { margin-left: auto; }
+.vaha-zapis .btn + .btn { margin-left: 0; } /* Zapsat a „jiný čas“ u sebe vpravo (na široké kartě se mezera dělila mezi ně) */
 .graf-vahy { display: block; width: 100%; height: auto; padding: 0 4px 4px; }
 .graf-vahy__mez { stroke: var(--line); stroke-dasharray: 3 4; }
 .graf-vahy__cara { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
@@ -1017,6 +1036,19 @@ button.tk-den__kruh:hover, .tk-den__kruh[aria-expanded="true"] { background: var
 .fotbal-souhrn { margin: -2px 2px 0; font-size: 13px; color: var(--text-soft); }
 .fotbal-mrizka { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); align-items: start; }
 @media (min-width: 1000px) { .fotbal-mrizka { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); } }
+/* široké PC (Michal 15. 10.: šířka jinými sloupci, ne roztaženými kartami): tři sloupce – zápasy | tabulka | střelci;
+   tabulka přes 830 px měla klub vlevo a čísla o 600 px dál. Pravý sloupec (tabulka, střelci, poznámka) se rozloží
+   do mřížky přes display: contents; poslední řádek 1fr bere výšku dlouhých sloupců, ať se poznámka drží pod střelci.
+   Jen když jsou střelci (3 části vpravo) – jinak zůstanou dva sloupce. */
+@media (min-width: 1500px) {
+    .fotbal-mrizka:has(> .fotbal-sloupec + .fotbal-sloupec > :nth-child(3)) {
+        grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, .8fr); grid-template-rows: auto auto 1fr;
+    }
+    .fotbal-mrizka:has(> .fotbal-sloupec + .fotbal-sloupec > :nth-child(3)) > .fotbal-sloupec:first-child { grid-column: 1; grid-row: 1 / -1; }
+    .fotbal-mrizka > .fotbal-sloupec + .fotbal-sloupec:has(> :nth-child(3)) { display: contents; }
+    .fotbal-mrizka > .fotbal-sloupec + .fotbal-sloupec:has(> :nth-child(3)) > * { grid-column: 3; }
+    .fotbal-mrizka > .fotbal-sloupec + .fotbal-sloupec:has(> :nth-child(3)) > :first-child { grid-column: 2; grid-row: 1 / -1; }
+}
 .fotbal-sloupec { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .fotbal-pad { padding: 0 16px 12px; }
 .dalsi-zapas { display: flex; flex-direction: column; gap: 3px; padding: 2px 16px 14px; }
@@ -2477,7 +2509,10 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 .kruh--auto-tint { background: var(--oranz-tint); font-size: 18px; }
 
 /* ================================================================ Auto: náklady a tankování (tabulka Google) */
-.pohled-auto { max-width: 1180px; }
+/* Michal 15. 10.: „problém s tou šířkou stránky … i u auta“ – stránka byla zastropená na 1 180 px (na 1920 px vpravo
+   600 px prázdné) a 25 zápisů v jednom dlouhém řádku přes celou šířku. Teď celá šířka: zápisy ve sloupcích, na širokém
+   PC (≥ 1 700 px) tři sloupce karet – nahoře čísla + servis, pod nimi cena nafty, výdaje a „za co“ vedle sebe.
+   Grafy se tím nezvětšují (karta nejvýš ~600 px). Strop stránky jen --sirka-stranky z .pohled. */
 .auto { display: flex; flex-direction: column; gap: 16px; }
 .auto-hero { padding: 16px 18px 14px; }
 .auto-hero__hlava { display: flex; align-items: center; gap: 12px; }
@@ -2744,6 +2779,31 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 }
 @media (max-width: 999px) {
     .auto-mrizka { grid-template-columns: minmax(0, 1fr); }
+}
+/* PC a iPad: zápisy (i „Auto hlásí tankování“) ve sloupcích po ~460 px shora dolů, připomínky „Co řešit“ v mřížce –
+   řádek přes celou šířku měl název vlevo a částku o 1 000 px dál */
+@media (min-width: 760px) {
+    .auto-seznam { columns: 460px; column-gap: 28px; }
+    .auto-seznam > li { break-inside: avoid; }
+    .auto-resit__seznam { grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
+    /* úzká karta grafu (iPad, 2 sloupce): „tis.“ pod číslo jako na telefonu, ať se popisky měsíců nepřekrývají */
+    .auto-graf { container-type: inline-size; }
+}
+@container (max-width: 520px) {
+    .auto-sloupec__cislo { font-size: 10px; line-height: 1.1; }
+    .auto-sloupec__cislo i { display: block; font-size: 8.5px; opacity: .8; }
+    .auto-cara text { font-size: 16px; } /* graf se zmenší na ~0,7 → písmo zase ~11 px */
+}
+/* široké PC: tři sloupce – karty z .auto-mrizka jdou přímo do mřížky stránky (display: contents), pořadí přes order */
+@media (min-width: 1700px) {
+    .auto { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+    .auto > * { grid-column: 1 / -1; order: 3; }
+    .auto > .auto-hero { order: 1; }
+    .auto:has(.auto-mrizka > .auto-servis) > .auto-hero { grid-column: 1 / span 2; align-self: stretch; }
+    .auto-mrizka { display: contents; }
+    .auto-mrizka > * { grid-column: auto; order: 4; }
+    .auto-mrizka > .auto-servis { grid-column: 3; order: 2; align-self: stretch; }
+    .auto > .auto-zapisy { order: 5; }
 }
 @media (max-width: 759px) {
     .auto-cisla { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }

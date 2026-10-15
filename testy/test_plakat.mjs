@@ -110,8 +110,16 @@ test('HTML plakátu: jedna dlaždice = single, 3 řádky mládeže = m3, v týdn
   s.venku[0].logo = '';
   const h = P.plakatHtml(s, { znaky: 'plakat/znaky/', qr: 'plakat/qr/instagram.png' });
   assert.ok(/class="blok single"/.test(h) && /class="left m3"/.test(h) && /class="right tyden"/.test(h), 'třídy velikostí');
-  assert.ok(/<div class="ph sm">PETROV<\/div>/.test(h), 'čárkovaný rámeček se zkratkou');
+  assert.ok(/<div class="ph sm" data-pl-pole="venku\.0\.logo">PETROV<\/div>/.test(h), 'čárkovaný rámeček se zkratkou (klepnutím do výběru znaku)');
   assert.ok(/AGRO – ROHATEC/.test(h) && /HR\. LHOTA\/LIPOV – AGRO/.test(h), 'směr zápasu v týdnu');
+  // klepnutí v náhledu → pole editoru: každý text s cestou pole (Michal 15. 10.), den a čas zvlášť, text beze změny
+  const cesty = Array.from(h.matchAll(/data-pl-pole="([^"]+)"/g)).map((m) => m[1]);
+  ['nadpis', 'datum', 'mesic', 'nasZnak', 'paticka.misto', 'vyzva', 'paticka.podtitul', 'doma.0.tym', 'doma.0.soutez', 'doma.0.souper', 'doma.0.logo',
+    'doma.0.den', 'doma.0.cas', 'domaMladez.2.kat', 'domaMladez.2.souper', 'domaMladez.2.den', 'domaMladez.2.cas', 'venku.0.kat', 'venku.0.souper',
+    'venku.0.cas', 'vTydnu.0.kat', 'vTydnu.0.souper', 'vTydnu.0.den'].forEach((c) => assert.ok(cesty.indexOf(c) >= 0, 'chybí data-pl-pole ' + c));
+  cesty.forEach((c) => assert.ok(P.hodnotaCesty(s, c) !== undefined, 'cesta bez pole v plakátu: ' + c));
+  const text = (x) => x.replace(/<[^>]+>/g, '');
+  assert.ok(/SOBOTA 17\. 10\. &nbsp;\|&nbsp; 14:30/.test(text(h)), 'den | čas v dlaždici jako dřív');
   const prazdny = P.plakatHtml(P.normalizujPlakat({}, '2026-12-05', {}), { znaky: '', qr: '' });
   assert.ok(/TENTO VÍKEND<br>HRAJEME JEN VENKU/.test(prazdny), 'bez domácích zápasů');
 });

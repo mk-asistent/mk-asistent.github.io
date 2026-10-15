@@ -2866,8 +2866,9 @@ function vychoziVikendTestu() {
   }
 
   // ---------- Zdraví: karty ve sloupcích podle výšky (Michal 9. 10.: „stále v jedné stejné výšce“) – žádná se nenatahuje na
-  // výšku sousední; PC (Michalův monitor ~1650 px) 2 sloupce, od 1700 px 3, telefon 1; snímky světlý i tmavý režim
-  const ZDRAVI_VELIKOSTI = [{ nazev: 'pc1650', sirka: 1650, vyska: 1000, sloupcu: 2 }, { nazev: 'pc1800', sirka: 1800, vyska: 1000, sloupcu: 3 },
+  // výšku sousední; PC od 1 400 px 3 sloupce (Michal 15. 10.: šířku využít sloupci – dřív 2 sloupce v pruhu 1 180 px na jeho
+  // ~1 650 px monitoru), iPad 2, telefon 1; snímky světlý i tmavý režim
+  const ZDRAVI_VELIKOSTI = [{ nazev: 'pc1650', sirka: 1650, vyska: 1000, sloupcu: 3 }, { nazev: 'pc1800', sirka: 1800, vyska: 1000, sloupcu: 3 },
     { nazev: 'ipad-sirka', sirka: 1180, vyska: 820, dotyk: true, sloupcu: 2 }, { nazev: 'ipad-vyska', sirka: 820, vyska: 1180, dotyk: true, sloupcu: 1 },
     { nazev: 'telefon', sirka: 390, vyska: 844, dotyk: true, sloupcu: 1 }];
   for (const v of ZDRAVI_VELIKOSTI) {
@@ -4900,6 +4901,103 @@ function vychoziVikendTestu() {
     }
   });
 
+  // ---------- interaktivní náhled (Michal 15. 10.): klepnutí na text v náhledu plakátu sjede v editoru na pole s tím textem, krátce
+  // ho zvýrazní a dá do něj kurzor; mapování přes data-pl-pole (plakat.js) ↔ data-pl-cesta (editor), žádné hledání podle textu
+  await test('Plakáty: klepnutí na text v náhledu → jeho pole v editoru (posun, bliknutí, kurzor), obrys jen při najetí v náhledu – tisk a obrázek bez obrysů; telefon klepnutím', async () => {
+    fotbalPlakat = true;
+    delete plakatyData.kola['2026-10-17'];
+    let { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3], 'light', PRAHA);
+    // aktivní pole je v editoru (rozbalené části) a vidět na obrazovce
+    const vPoli = (cesta) => cekejVeStrance(page, (c) => {
+      const a = document.activeElement, r = a && a.getBoundingClientRect();
+      return !!a && a.dataset.plCesta === c && !!a.closest('#p-plakaty .pl-editor') && !a.closest('details:not([open])') && r.top >= 0 && r.bottom <= innerHeight;
+    }, cesta, 4000);
+    try {
+      await pevnyCasPlakatu(page);
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="plakaty"]');
+      await page.waitForSelector('#p-plakaty [data-pl-vyber]');
+      await naVikend(page, '2026-10-17', 'MILOTICE');
+      // každý text a znak v náhledu má své pole v editoru
+      const cesty = await page.$$eval(PL + '[data-pl-pole]', (x) => x.map((e) => e.dataset.plPole));
+      const bezPole = await page.evaluate((c) => c.filter((x) => !document.querySelector('#p-plakaty .pl-editor [data-pl-cesta="' + x + '"]')), cesty);
+      jistota(cesty.length >= 25 && !bezPole.length, 'texty náhledu s polem: ' + cesty.length + ', bez pole: ' + bezPole.join(', '));
+      const klikni = async (sel, cesta) => {
+        await (typeof sel === 'string' ? page.click(sel) : sel.click());
+        await vPoli(cesta);
+        jistota(await page.evaluate(() => !!document.activeElement.closest('label.pl-blik')), 'bliknutí u pole ' + cesta);
+      };
+      // soupeř velké dlaždice: pole soupeře, kurzor na konci – psaní jde rovnou do náhledu
+      await klikni(PL + '.blok .opp', 'doma.0.souper');
+      jistota(await page.evaluate(() => { const a = document.activeElement; return a.selectionStart === a.value.length && a.selectionEnd === a.value.length; }), 'kurzor na konci textu');
+      await page.keyboard.type(' X');
+      await page.waitForFunction(() => /MILOTICE X/.test(document.querySelector('#p-plakaty .plakat-stage .poster .blok .opp').textContent));
+      // čas a den zvlášť, nadpis, datum, mládež, venku (i znak → výběr znaku), v týdnu, patička
+      await klikni(PL + '.blok .when [data-pl-pole="doma.0.cas"]', 'doma.0.cas');
+      await klikni(PL + '.blok .when [data-pl-pole="doma.0.den"]', 'doma.0.den');
+      await klikni(PL + '.ptitle', 'nadpis');
+      await klikni(PL + '.pdate .d', 'datum');
+      await klikni(page.locator(PL + '.left .row .opp').nth(2), 'domaMladez.2.souper');
+      await klikni(PL + '.awayrow .cat', 'venku.0.kat');
+      await klikni(PL + '.awayrow [data-pl-pole="venku.0.logo"]', 'venku.0.logo');
+      await klikni(PL + '.wkr .wkm', 'vTydnu.0.souper');
+      await klikni(PL + '.pfoot .venue', 'vyzva');
+      // najetí myší: ukazatel a obrys jen u textu pod myší
+      await page.hover(PL + '.ptitle');
+      const najeti = await page.$eval(PL + '.ptitle', (x) => [getComputedStyle(x).cursor, getComputedStyle(x).boxShadow]);
+      jistota(najeti[0] === 'pointer' && /inset/.test(najeti[1]), 'obrys při najetí: ' + najeti.join(' | '));
+      await page.mouse.move(2, 400);
+      jistota(await page.$eval(PL + '.ptitle', (x) => getComputedStyle(x).boxShadow) === 'none', 'bez najetí bez obrysu');
+      // plakát pro obrázek (.plakat-export, html2canvas) ani tisk obrysy nemají
+      await page.evaluate(() => {
+        const h = document.createElement('div');
+        h.className = 'plakat-export plakat-export--klon __test-export';
+        h.innerHTML = '<div class="plakat poster">' + document.querySelector('#p-plakaty .plakat-stage .poster').innerHTML + '</div>';
+        document.body.appendChild(h);
+      });
+      // (export má pointer-events: none – najetí nejde, proto se zkouší, jestli by na něj pravidla s najetím vůbec platila)
+      const vObrazku = await page.evaluate(() => {
+        const x = document.querySelector('.__test-export .ptitle');
+        const pravidla = [];
+        const projdi = (seznam) => Array.from(seznam).forEach((r) => {
+          if (/data-pl-pole/.test(r.selectorText || '')) pravidla.push(r.selectorText);
+          if (r.cssRules && r.cssRules.length) projdi(r.cssRules); // @media (i vnořená pravidla)
+        });
+        Array.from(document.styleSheets).forEach((st) => { try { projdi(st.cssRules); } catch (e) { /* cizí list */ } });
+        const plati = pravidla.filter((sel) => x.matches(sel.replace(/:hover/g, '')));
+        const v = [getComputedStyle(x).cursor, getComputedStyle(x).boxShadow, pravidla.length, plati.join(' ; ')];
+        document.querySelector('.__test-export').remove();
+        return v;
+      });
+      jistota(vObrazku[0] !== 'pointer' && vObrazku[1] === 'none' && vObrazku[2] >= 2 && !vObrazku[3], 'obrázek bez obrysu: ' + vObrazku.join(' | '));
+      await page.emulateMedia({ media: 'print' });
+      await page.hover(PL + '.ptitle');
+      const tisk = await page.$eval(PL + '.ptitle', (x) => getComputedStyle(x).boxShadow);
+      await page.emulateMedia({ media: 'screen' });
+      jistota(tisk === 'none', 'tisk bez obrysu: ' + tisk);
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+      // telefon: stejně klepnutím (Instagram je nad editorem – posun dolů k poli)
+      ({ ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0], 'dark', PRAHA));
+      await pevnyCasPlakatu(page);
+      await page.goto(WEB);
+      await page.click('.hlava-ja [data-menu]');
+      await page.click('[data-panel="menu"] [data-menu-cil="plakaty"]');
+      await page.waitForSelector('#p-plakaty .plakat-stage .poster .design');
+      await naVikend(page, '2026-10-17', 'MILOTICE');
+      await page.tap(PL + '.blok .opp');
+      await vPoli('doma.0.souper');
+      await page.tap(PL + '.left .row .opp');
+      await vPoli('domaMladez.0.souper');
+      jistota(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, 'telefon přetéká');
+      jistota(!chybyStranky.length, 'chyby stránky (telefon): ' + chybyStranky.join(' | '));
+    } finally {
+      fotbalPlakat = false;
+      delete plakatyData.kola['2026-10-17'];
+      await ctx.close();
+    }
+  });
+
   await test('Plakáty: stažení obrázku – html2canvas z aplikace až při stažení (nic z cizích serverů), neškálovaný plakát 1400 × 990, JPEG 2 800 px', async () => {
     fotbalPlakat = true;
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3], 'light', PRAHA);
@@ -6376,6 +6474,121 @@ function vychoziVikendTestu() {
       jistota(!venku.length, 'ukázka nic neposílá ven: ' + venku.join(', '));
       jistota(!chyby.length, 'chyby stránky: ' + chyby.join(' | '));
     } finally { await ctx.close(); }
+  });
+
+  // ---------- šířka stránek (Michal 15. 10.: „problém s tou šířkou stránky je stejně jako na reelu i u auta … projdi všechny stránky“):
+  // na PC šířku využít víc sloupci / mřížkou, ne zvětšováním jednoho prvku – nic přerostlého (grafy, obrázky, karty, tabulky přes
+  // celou šířku) ani úzký pruh s prázdnem vedle; telefon bez přetečení do strany. Stránky Zdraví, Fotbal, Auto, Plakáty, Knihovna.
+  const PC1920 = { nazev: 'pc1920', sirka: 1920, vyska: 1080, dotyk: false };
+  const PC1280 = { nazev: 'pc1280', sirka: 1280, vyska: 800, dotyk: false };
+  const NA_STRANCE = { zdravi: '#p-zdravi .zdravi-hero', fotbal: '#p-fotbal .fotbal-tabulka tr.nas', auto: '#p-auto .auto-zapisy',
+    plakaty: '#p-plakaty .plakat-stage .poster .design', knihovna: '#p-knihovna .kn-karta' };
+  /** Otevře stránku (PC pásem, telefon menu) a vrátí míry: dostupná šířka, obsah, obdélníky prvků podle selektorů, přetečení. */
+  const otevriAZmer = async (page, v, s, vyber) => {
+    if (v.sirka >= 760) await page.click('#rail [data-cil="' + s + '"]');
+    else { await page.click('.hlava-ja [data-menu]'); await page.click('[data-panel="menu"] [data-menu-cil="' + s + '"]'); }
+    await page.waitForSelector(NA_STRANCE[s]);
+    // plakát vždy na 17.–18. 10. (mládež z rozlosování = několik řádků v editoru), ať nezáleží na dni spuštění
+    if (s === 'plakaty') await naVikend(page, '2026-10-17', 'RATÍŠKOVICE');
+    await page.waitForTimeout(400);
+    return page.evaluate(([s, vyber]) => {
+      const el = document.getElementById('p-' + s), main = el.parentElement, cs = getComputedStyle(main);
+      const r = (x) => { const b = x.getBoundingClientRect(); return { l: Math.round(b.left), r: Math.round(b.right), t: Math.round(b.top + scrollY), w: Math.round(b.width), h: Math.round(b.height) }; };
+      const prvky = {};
+      Object.keys(vyber).forEach((k) => { prvky[k] = Array.from(el.querySelectorAll(vyber[k])).filter((x) => x.getClientRects().length).map(r); });
+      return { dostupne: Math.round(main.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)), obsah: r(el), prvky,
+        preteka: document.documentElement.scrollWidth - document.documentElement.clientWidth, okno: innerWidth };
+    }, [s, vyber]);
+  };
+  const nejvic = (pole, k) => Math.max(0, ...pole.map((x) => x[k]));
+  const sloupcu = (pole) => new Set(pole.map((x) => x.l)).size;
+  const vedle = (a, b) => a && b && b.l >= a.r && Math.abs(a.t - b.t) <= 4; // b vpravo od a, nahoře zarovnané
+  const VYBER = {
+    zdravi: { karty: '.card', grafy: 'svg.graf14, svg.graf-vahy', hero: '.zdravi-hero', kpi: '.zdravi-kpi' },
+    fotbal: { karty: '.card', tabulka: '.fotbal-tabulka' },
+    auto: { hero: '.auto-hero', servis: '.auto-servis', grafy: '.auto-graf', cara: 'svg.auto-cara', zapisy: '.auto-zapisy .auto-zapis', resit: '.auto-resit__polozka', karty: '.card' },
+    plakaty: { nahled: '.plakat-nahled', stage: '.plakat-stage', ig: '.pl-ig', editor: '.pl-editor', karty: '.pl-editor .pl-karta' },
+    knihovna: { karty: '.kn-karta' }
+  };
+
+  await test('šířka stránek na PC 1920 px: Zdraví, Fotbal, Auto, Plakáty a Knihovna přes celou šířku ve sloupcích – žádný graf, obrázek, karta ani tabulka přerostlé', async () => {
+    knihovnaTest = KNIHOVNA_VYCHOZI();
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, PC1920, 'light', PRAHA);
+    try {
+      await knihovnaSit(page);
+      await page.goto(WEB);
+      await page.waitForSelector('#rail [data-cil="knihovna"]', { state: 'attached' }); // motor načtený – v pásu i menu jsou všechny stránky
+      const m = {};
+      for (const s of Object.keys(VYBER)) {
+        m[s] = await otevriAZmer(page, PC1920, s, VYBER[s]);
+        jistota(m[s].preteka <= 0, s + ': stránka přetéká o ' + m[s].preteka + ' px');
+        // stránka není zastropená úzkým sloupcem (Auto bylo 1 180 px z 1 792, Zdraví 1 640)
+        jistota(m[s].obsah.w >= m[s].dostupne - 2, s + ': obsah ' + m[s].obsah.w + ' px z ' + m[s].dostupne);
+        await page.screenshot({ path: path.join(VYSTUP, 'pc1920_' + s + '.png'), fullPage: true });
+      }
+      const z = m.zdravi.prvky, f = m.fotbal.prvky, a = m.auto.prvky, p = m.plakaty.prvky;
+      // Zdraví: karty ve 3 sloupcích (≤ 700 px), kruh připravenosti jen v prvním sloupci a čísla vedle něj, grafy rozumně velké
+      jistota(nejvic(z.karty, 'w') <= 700 && sloupcu(z.karty) >= 3, 'Zdraví: karty ' + nejvic(z.karty, 'w') + ' px, sloupců ' + sloupcu(z.karty));
+      jistota(vedle(z.hero[0], z.kpi[0]), 'Zdraví: čísla vedle kruhu ' + JSON.stringify([z.hero[0], z.kpi[0]]));
+      jistota(z.grafy.length >= 1 && nejvic(z.grafy, 'w') <= 700 && nejvic(z.grafy, 'h') <= 300, 'Zdraví: grafy ' + JSON.stringify(z.grafy));
+      // Fotbal: zápasy | tabulka | střelci – tabulka ani karta přes půl stránky
+      jistota(sloupcu(f.karty) >= 3 && nejvic(f.karty, 'w') <= 720 && nejvic(f.tabulka, 'w') <= 720, 'Fotbal: ' + JSON.stringify({ sloupcu: sloupcu(f.karty), karta: nejvic(f.karty, 'w'), tabulka: nejvic(f.tabulka, 'w') }));
+      // Auto: čísla + servis nahoře vedle sebe, grafy po třech (≤ 700 px, čára ≤ 230 px na výšku), zápisy ve 3 sloupcích, Co řešit v mřížce
+      jistota(vedle(a.hero[0], a.servis[0]) && a.hero[0].w <= 1250, 'Auto: servis vedle čísel ' + JSON.stringify([a.hero[0], a.servis[0]]));
+      jistota(a.grafy.length >= 2 && nejvic(a.grafy, 'w') <= 700 && nejvic(a.cara, 'h') <= 230, 'Auto: grafy ' + JSON.stringify(a.grafy.concat(a.cara)));
+      jistota(a.zapisy.length >= 6 && sloupcu(a.zapisy) >= 3 && nejvic(a.zapisy, 'w') <= 700, 'Auto: zápisy ' + sloupcu(a.zapisy) + ' sloupce, ' + nejvic(a.zapisy, 'w') + ' px');
+      jistota(a.resit.length >= 2 && sloupcu(a.resit) >= 2 && nejvic(a.resit, 'w') <= 700, 'Auto: Co řešit ' + JSON.stringify(a.resit));
+      // Plakáty: náhled nejvýš 720 px, Instagram a editor vpravo vedle něj, dlaždice v editoru po dvou
+      jistota(p.stage[0].w <= 721 && p.nahled[0].w <= 760, 'Plakáty: náhled ' + JSON.stringify([p.nahled[0], p.stage[0]]));
+      jistota(vedle(p.nahled[0], p.ig[0]) && p.editor[0].l >= p.nahled[0].r && p.editor[0].t > p.ig[0].t, 'Plakáty: Instagram a editor vedle náhledu ' + JSON.stringify([p.nahled[0], p.ig[0], p.editor[0]]));
+      jistota(sloupcu(p.karty) >= 2, 'Plakáty: dlaždice editoru po dvou');
+      // Knihovna: karty v mřížce, žádná roztažená
+      jistota(m.knihovna.prvky.karty.length >= 2 && nejvic(m.knihovna.prvky.karty, 'w') <= 420, 'Knihovna: karty ' + JSON.stringify(m.knihovna.prvky.karty.slice(0, 3)));
+      // náhled plakátu při posunu dolů zůstává vidět (editor je dlouhý – klepnutí v náhledu skáče do pole)
+      await page.click('#rail [data-cil="plakaty"]');
+      await page.waitForSelector('#p-plakaty .plakat-stage .poster .design');
+      await page.evaluate(() => window.scrollTo(0, 900));
+      await page.waitForTimeout(200);
+      const n = await page.evaluate(() => { const b = document.querySelector('#p-plakaty .plakat-nahled').getBoundingClientRect(); return [Math.round(b.top), Math.round(b.bottom)]; });
+      jistota(n[0] >= 0 && n[1] <= 1080, 'náhled při posunu mimo obrazovku: ' + n.join('–'));
+      jistota(!chybyKnihovny(chybyStranky).length, 'chyby stránky: ' + chybyKnihovny(chybyStranky).join(' | ')); // 404 = záměrně chybějící obrázek knihovny
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  await test('šířka stránek na PC 1280 px a na telefonu: Zdraví čísla vedle kruhu, Auto zápisy ve 2 sloupcích, Plakáty náhled s Instagramem vedle sebe; telefon nic nepřetéká (tmavý)', async () => {
+    knihovnaTest = KNIHOVNA_VYCHOZI();
+    let { ctx, page, chybyStranky } = await novaStranka(prohlizec, PC1280, 'light', PRAHA);
+    try {
+      await page.goto(WEB);
+      await page.waitForSelector('#rail [data-cil="knihovna"]', { state: 'attached' }); // motor načtený – v pásu i menu jsou všechny stránky
+      const z = (await otevriAZmer(page, PC1280, 'zdravi', VYBER.zdravi)).prvky;
+      jistota(vedle(z.hero[0], z.kpi[0]) && nejvic(z.karty, 'w') <= 620 && sloupcu(z.karty) >= 2, 'Zdraví 1280: ' + JSON.stringify([z.hero[0], z.kpi[0], nejvic(z.karty, 'w')]));
+      const a = await otevriAZmer(page, PC1280, 'auto', VYBER.auto);
+      jistota(a.obsah.w >= a.dostupne - 2 && sloupcu(a.prvky.zapisy) >= 2 && nejvic(a.prvky.grafy, 'w') <= 640, 'Auto 1280: ' + JSON.stringify({ obsah: a.obsah.w, sloupcu: sloupcu(a.prvky.zapisy), graf: nejvic(a.prvky.grafy, 'w') }));
+      const p = (await otevriAZmer(page, PC1280, 'plakaty', VYBER.plakaty)).prvky;
+      jistota(vedle(p.nahled[0], p.ig[0]) && p.stage[0].w >= 560 && p.stage[0].w <= 721 && p.ig[0].w >= 470, 'Plakáty 1280: ' + JSON.stringify([p.nahled[0], p.stage[0], p.ig[0]]));
+      await page.screenshot({ path: path.join(VYSTUP, 'pc1280_plakaty.png') });
+      const f = (await otevriAZmer(page, PC1280, 'fotbal', VYBER.fotbal)).prvky;
+      jistota(sloupcu(f.karty) === 2 && nejvic(f.karty, 'w') <= 650, 'Fotbal 1280: ' + JSON.stringify(f.karty));
+      jistota(!chybyKnihovny(chybyStranky).length, 'chyby stránky: ' + chybyKnihovny(chybyStranky).join(' | ')); // 404 = záměrně chybějící obrázek knihovny
+      await ctx.close();
+      // telefon: všechno pod sebou jako dřív, nic nepřetéká a žádná karta nevyčuhuje z obrazovky
+      ({ ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0], 'dark', PRAHA));
+      await knihovnaSit(page);
+      await page.goto(WEB);
+      await page.waitForSelector('#rail [data-cil="knihovna"]', { state: 'attached' }); // motor načtený – v pásu i menu jsou všechny stránky
+      for (const s of Object.keys(VYBER)) {
+        const t = await otevriAZmer(page, VELIKOSTI[0], s, { karty: '.card, .kn-karta', grafy: 'svg, img' });
+        const ven = t.prvky.karty.concat(t.prvky.grafy.filter((x) => x.w > 40)).filter((x) => x.l < 0 || x.r > t.okno);
+        jistota(t.preteka <= 0 && !ven.length, 'telefon ' + s + ': přetéká ' + t.preteka + ' px, ven ' + JSON.stringify(ven.slice(0, 3)));
+        jistota(sloupcu(t.prvky.karty.filter((x) => x.w > 300)) <= 1, 'telefon ' + s + ': karty pod sebou');
+      }
+      jistota(!chybyKnihovny(chybyStranky).length, 'chyby stránky: ' + chybyKnihovny(chybyStranky).join(' | ')); // 404 = záměrně chybějící obrázek knihovny
+    } finally {
+      await ctx.close();
+    }
   });
 
   await test('telefon: menu zleva se všemi sekcemi (Fotbal, Reely, Plakáty), zavření klepnutím vedle', async () => {
