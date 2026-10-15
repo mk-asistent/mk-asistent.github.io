@@ -271,17 +271,49 @@ a celé rozlosování na fotbal.cz. Data: `FOTBAL.json` verze 2 (tabulky + detai
 `NASTROJE\asistent\fotbal_cz` (naplánovaná úloha „asistent-fotbal“ v Michalově Chromu; detaily jen nových zápasů).
 
 ## Reely
-Stránka **Reely** (levý pruh, tlačítko „Reely“ na stránce Fotbal a v kartě Fotbal na Dnes): hotové reely z fotbalu po
-týdnech – náhled s tlačítkem přehrát (video na Disku Google, otevře ho jen Michalův účet), zápas a výsledek, **popisek**
-přesně jako na Instagram (odřádkování, emoji) s tlačítkem **Kopírovat popisek** a přepínač **Zveřejněno**. Na Dnes
-limetková karta **Reel k vyvěšení**, když je nezveřejněný reel ze zápasu za poslední týden (Kopírovat a Video jedním
-ťuknutím; po zkopírování jde v oznámení rovnou označit „Zveřejněno“).
+Stránka **Reely** (levý pruh, tlačítko „Reely“ na stránce Fotbal a v kartě Fotbal na Dnes). Michal 15. 10.: „lépe
+uspořádáno … primárně jen to, co čeká na Instagram … vše překliknout, až když budu chtít“ →
+- přepínač **Nevydané · Zveřejněné · Vše** (+ týmy), výchozí **Nevydané**: nahoře **Naplánované** (chyba, zveřejňuje se,
+  pak podle času vydání), pod nimi **Čeká na Instagram** od nejnovějšího; volba se pamatuje v zařízení;
+- na PC (od 1 000 px) vlevo malé karty (náhled, tým, zápas, datum, stav), vpravo **detail vybraného**: náhled s tlačítkem
+  přehrát (video na Disku Google, otevře ho jen Michalův účet), průběh zveřejňování, **popisek k úpravě**, **2 návrhy od
+  Clauda**, Instagram (kam, účty, čas) a tlačítka; na telefonu a iPadu na výšku klepnutí na kartu otevře detail v okně
+  (tlačítka v patičce);
+- **popisek**: pole přímo v detailu, uloží se 700 ms po psaní (akce `reelPopisekUlozit` → `REELY/upravy.json`, píše jen
+  motor), štítek „upraveno“, počítadlo do 2 200 znaků, **Vrátit původní** (popisek z PC); naplánovanému reelu se změní
+  i popisek plánu; když se popisek na PC od úpravy změnil, detail to řekne;
+- **návrhy od Clauda**: Návrh 1 / Návrh 2 s náhledem a **Použít** (text do pole – uloží se jako úprava, jde dál přepisovat);
+  **Nové návrhy** → motor `reelPopisekNavrhy` založí poznámku `…_reel.md` pro Clauda (ve Schránce skrytá), Claude zapíše
+  2 varianty do `REELY/popisky_claude.json` (skill `asistent-schranka`, Popisek k reelu);
+- na Dnes limetková karta **Reel k vyvěšení**, když je nevydaný a nenaplánovaný reel ze zápasu za poslední týden
+  (Na Instagram = detail, Kopírovat a Video jedním ťuknutím; po zkopírování jde v oznámení rovnou označit „Zveřejněno“).
 
 Data dělá domácí PC: nástroj `CLAUDE_PRACOVNI\NASTROJE\asistent\reely\export_reely.py` po dokončení reelu zkopíruje video
 do `CLAUDE_SCHRANKA/REELY/videa/` a zapíše `REELY/reely.json` (popisky z `popisky\*.txt`, zápasy podle scénáře
 a FOTBAL.json, malé náhledy z výsledkové desky). Motor (akce `reely`) k videím dohledá soubory na Disku a chybějící
-výsledek doplní z FOTBAL.json; stav „zveřejněno“ drží vlastnost `REELY_STAV` (akce `reelStav`). Popisek se v aplikaci
-jen kopíruje – mění se na PC. Do Fotek v iPhonu: aplikace Disk → ⋯ → Poslat kopii → Uložit video.
+výsledek doplní z FOTBAL.json, přidá Michalovy úpravy popisků (`upravy.json`), návrhy od Clauda (`popisky_claude.json`)
+a příběhy z fotek; stav „zveřejněno“ drží vlastnost `REELY_STAV` (akce `reelStav`). Exportér píše jen `reely.json`
+a `videa/` – úpravy z aplikace nepřepíše. Do Fotek v iPhonu: aplikace Disk → ⋯ → Poslat kopii → Uložit video.
+
+### Příběhy na Instagram (od 15. 10.)
+- **Jen příběh** u reelu i plakátu (Kam: Reel · Reel + příběh · Jen příběh; u plakátu Příspěvek · Příspěvek + příběh ·
+  Jen příběh): kontejner STORIES bez příspěvku a bez popisku; video do příběhu nejvýš 60 s (delší reel motor odmítne).
+  Reel, který vyšel jen v příběhu, jde potom naplánovat i jako reel. Vyšlý příběh: „příběh vyšel <kdy>“ (po 24 h zmizí).
+- **Zmínky**: účty z pole Označit / Zmínit účty (bez @ nebo s ním, nejvýš 20, kontrola tvaru v aplikaci i v motoru) jdou
+  u příspěvku jako označení a v příběhu jako zmínky (`user_tags` jen se jménem). Dokumentace IG User Media je pro příběhy
+  uvádí u přihlášení přes Facebook; přihlášení přes Instagram (náš motor, graph.instagram.com) je výslovně nemá a vývojáři
+  hlásí chybu „An unknown error has occurred“ – motor proto příběh se zmínkami, který Instagram odmítne, zkusí znovu bez
+  nich (příběh vyjde, aplikace ukáže „bez zmínek“). Jen veřejné účty, které Michal sám zadá.
+- **Příběh z fotky z telefonu** (tlačítko Nový příběh na stránce Reely nebo „+“ → Příběh z fotky): fotka z Fotek /
+  Fotoaparátu / Souborů (HEIC přečte Safari sám), aplikace ji převede na JPEG 1080 × 1920 – fotka jiného poměru než 9:16
+  je celá uprostřed na rozmazaném a ztmaveném pozadí (`js/pribeh_obrazek.js`, `js/pribehy.js`); zmínky, Teď / Naplánovat →
+  motor `pribehNaplanovat` uloží fotku do `REELY/pribehy/<id>.jpg` (seznam `pribehy.json` s malým náhledem, nejvýš 20,
+  píše jen motor), plán `PRIBEHY_PLAN`; zveřejní spouštěč nebo aplikace (`igKrok`, typ `pribeh`) – fotka sdílená odkazem
+  jen po dobu stahování Instagramem. Stejná fotka poslaná znovu (otisk) = stejný příběh. `pribehZrusit` zruší plán /
+  odebere příběh ze seznamu (fotka do koše; z Instagramu nic nemaže).
+- **Video z telefonu zatím ne**: požadavek na Apps Script i soubor z něj mají strop ~50 MB, base64 v JSON video zvětší
+  o třetinu a minuta videa z iPhonu má 100+ MB. Chtělo by to nahrávání na Disk po kouscích (obnovitelné nahrávání Drive
+  API s krátkodobým tokenem z motoru) nebo zmenšení videa v telefonu (WebCodecs) – a ověřit délku do 60 s.
 
 ## Počasí (ČHMÚ)
 Motor čte otevřená data ČHMÚ (CC BY 4.0): výstrahy CAP pro ORP, vodní stav řeky s povodňovými stupni a textovou
@@ -386,14 +418,15 @@ přibližná poloha mimo domov má „≈“ a v detailu radu (iPhone: Polohové
 Na stránce Reely jde reel **naplánovat na Instagram** (datum a čas, výchozí nejbližší 18:00) nebo **zveřejnit teď** (stejné
 okno, „Kdy: Teď“). Motor ho zveřejní na klubovém účtu přes Instagram API (Meta aplikace „Asistent FK Vnorovy“ ve vývojovém
 režimu, účet je v ní tester).
-V okně plánu jdou **označit účty** (u dorostu předvyplněný `@dorost_agro`, aplikace si pamatuje poslední označení týmu;
-na Instagramu jde o označení osob v reelu – `user_tags`) a **upravit popisek** jen pro tenhle příspěvek (vlastnost
-`REELY_POPISEK:<id>`, po zveřejnění nebo zrušení plánu se smaže; soubor `popisky\*.txt` zůstává jediná pravda):
+V okně plánu (od 15. 10. přímo v detailu reelu) jdou **označit účty** (u dorostu předvyplněný `@dorost_agro`, aplikace si
+pamatuje poslední označení týmu; na Instagramu jde o označení osob v reelu – `user_tags`, v příběhu zmínky) a popisek
+(popisek plánu ve vlastnosti `REELY_POPISEK:<id>`, po zveřejnění nebo zrušení plánu se smaže; od 15. 10. je to zároveň
+Michalova úprava popisku v `REELY/upravy.json` – soubor `popisky\*.txt` na PC zůstává):
 - klíč `IG_TOKEN` ve Vlastnostech skriptu (vloží Michal, platí 60 dní, motor ho jednou týdně obnoví), plán `REELY_PLAN`;
 - spouštěč **`instagramKazdych10Min`** (Spouštěče → Minutový časovač → Každých 10 minut) – jeden reel za běh;
 - Instagram si video stahuje z adresy → video na Disku má jen po dobu stahování tajný odkaz (Michal souhlasil 5. 10.),
   hned potom se sdílení vypne; video jde beze změny (stejný soubor jako z PC – H.264 1080×1920), přepočítá ho až Instagram;
-- popisek je přesně ten z `popisky\*.txt`, pokud ho Michal v okně plánu neupravil;
+- popisek je ten z `popisky\*.txt`, pokud ho Michal v aplikaci neupravil (úprava v `REELY/upravy.json`, popisek plánu);
 - po vložení klíče jednou spustit `overInstagram` (vypíše účet).
 
 **Průběh zveřejňování** (Michal 11. 10.: „trvá to a nevidím, v jaké je to fázi … jestli se to někde zaseklo“ – reel už na
@@ -503,6 +536,13 @@ Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**
   ze schránky) mají přednost, STK se připomíná jen ze zadaného termínu (45 / 21 dní předem). Hotovo = odpovídající zápis
   v Náklady. Karta nahoře na stránce Auto, aktuální věci i na Dnes, do iPhonu jednou za sezónu (`upozorneniAuto_`,
   jednou denně, `OHLASENO_AUTO`).
+  **Odložit a Hotovo** (od 15. 10.): pravé tlačítko, podržení prstem nebo ⋯ u připomínky (stránka Auto i Přehled) →
+  Odložit na zítra / na týden / do… (vybraný den), Hotovo, Zrušit odložení (akce `autoPripominkaOdlozit`, vlastnost
+  `AUTO_ODLOZENE`). Odložená se ukazuje jen na stránce Auto ve sbalené sekci Odložené a ten den se vrátí – i když mezitím
+  skončilo sezónní okno (pak ještě nejvýš 21 dní nebo do zápisu v Nákladech), do iPhonu přijde ještě jednou. Hotovo ručně
+  ji schová do konce okna. **Termín v kalendáři** (událost do 30 dní s „přezutí / pneu / gumy“, „zima / ostřikovače“,
+  „servis / olej“, „STK“) = „naplánováno – po 19. 10.“ šedě jen na stránce Auto, bez upozornění; po dni události se
+  vrátí jako „teď“ (s „V kalendáři bylo …“), dokud není zápis v Nákladech nebo Hotovo.
 - **Výdaje po měsících**: souvislá řada 13 měsíců s rokem; najetí myší nebo klepnutí na sloupec (i Tab a šipky) = bublina
   „říjen 2026 · 3 450 Kč“ s rozpisem po kategoriích („Ostatní“ = vše kromě paliva). **Cena nafty**: bublina u tankování
   s datem, Kč/l, litry, částkou a stavem km.
@@ -591,7 +631,9 @@ Vlastnosti skriptu (⚙ → Vlastnosti skriptu) – všechny nepovinné kromě k
 | `AUTO_TABULKA` | ID tabulky Google s náklady auta (nastaví aplikace odkazem na stránce Auto) |
 | `IG_TOKEN`, `IG_UCET`, `IG_TOKEN_OBNOVA`, `REELY_PLAN`, `PLAKATY_PLAN` | Instagram: klíč (vloží Michal, motor obnovuje), účet, plán zveřejnění reelů a plakátů (čas, označené účty, průběh `kroky` s časy, `kontrola`, `stavIg`, zámek `bezi`; nejvýš 25 položek a 8 000 znaků) |
 | `IG_SPOUSTEC` | kdy naposledy běžel spouštěč `instagramKazdych10Min` (aplikace pozná „spouštěč neběží“) |
-| `REELY_POPISEK:<id>` | upravený popisek reelu jen pro Instagram (do zveřejnění nebo zrušení plánu) |
+| `REELY_POPISEK:<id>` | popisek naplánovaného reelu (do zveřejnění nebo zrušení plánu; úprava popisku je v `REELY/upravy.json`) |
+| `PRIBEHY_PLAN` | plán příběhů z fotek (jako `REELY_PLAN`; fotky v `REELY/pribehy`) |
+| `REELY_NAVRHY_POZADANO` | kdy aplikace požádala Clauda o návrhy popisku reelu { id: ms } (nejvýš 60) |
 | `FOTBAL`, `DRUHY_KALENDARU`, `ICS_KALENDARE`, `SKRYTE_KALENDARE`, … | spravuje motor sám |
 
 ## Instalace aplikace

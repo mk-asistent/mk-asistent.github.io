@@ -1,5 +1,5 @@
 // Auto: náklady a tankování z Michalovy tabulky Google (motor: auto, autoZapsat, autoUpravit, autoSmazat, autoUctenka,
-// autoUctenkaFoto, autoNastavit). Fotka účtenky se rovnou zapíše (když je z ní jasné co) a každý zápis jde upravit
+// autoUctenkaFoto, autoNastavit, autoPripominkaOdlozit). Fotka účtenky se rovnou zapíše (když je z ní jasné co) a každý zápis jde upravit
 // i s náhledem fotky – změny jdou do tabulky.
 // Tabulka zůstává hlavní a je i záloha – stránka z ní počítá přehled (najeto, spotřeba, nafta na km, cena nafty, výdaje
 // po měsících a kategoriích, servis podle listu Péče o auto) a nové zápisy, i z vyfocené účtenky, posílá do ní.
@@ -7,13 +7,13 @@
 
 import { stav, zmeneno, umiMotor, prejdi } from './stav.js';
 import { volej, jePripojeno } from './api.js';
-import { esc, uloziste, dm, isoDatum, kdyKratce, MESICE_1 } from './pomocne.js';
-import { kostra, chybaHtml, toast, potvrd, segment, hlavickaKarty, kopiruj } from './ui.js';
+import { esc, uloziste, dm, isoDatum, kdyKratce, MESICE_1, pulnoc } from './pomocne.js';
+import { kostra, chybaHtml, toast, toastAkce, okno, potvrd, segment, hlavickaKarty, kopiruj } from './ui.js';
 import { IKONY } from './ikony.js';
 import { otevriPanel, zavriPanel, obnovPanel, elementPanelu, horniPanel } from './panely.js';
 import { bublina, grafAtr } from './grafy.js';
 import { karta, registruj, hlavaKarty } from './bubliny.js';
-import { pripoj as pripojNabidku } from './nabidka.js';
+import { pripoj as pripojNabidku, otevri as otevriNabidku } from './nabidka.js';
 
 const ULOZISTE = 'asistent.data.auto';
 const CELE = new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 });
@@ -436,62 +436,219 @@ function oddilyPece(pece) {
 const nazevOddilu = (t) => (t.charAt(0) + t.slice(1).toLowerCase()).replace(/\b(dsg|stk|dpf|tdi|uv)\b/gi, (z) => z.toUpperCase());
 
 // ---------------------------------------------------------------- připomínky „Co řešit“ (počítá motor, okna podle dneška)
+// Michal 15. 10.: „přezouvat budu v pondělí … mám to i v kalendáři. A připravit auto na zimu zatím může jít taky pryč …
+// připomenout v půlce listopadu“ → u každé připomínky pravé tlačítko / podržení / ⋯: Odložit na zítra, na týden, do…,
+// Hotovo, Zrušit odložení (motor autoPripominkaOdlozit → AUTO_ODLOZENE). Termín v Michalových kalendářích = „naplánováno
+// – po 19. 10.“ (šedě, na Přehledu ne, bez upozornění), po dni události zase „teď“. Odložené jsou jen na stránce Auto
+// (sbalené pod Co řešit); odložení vyprší i bez nových dat z motoru.
 
 const SEZONNI_ID = ['pneu-zimni', 'pneu-letni', 'zima', 'jaro'];
 const IKONA_PRIPOMINKY = { 'pneu-zimni': '❄️', 'pneu-letni': '☀️', zima: '🧊', jaro: '🌬️', olej: '🛢️', prohlidka: '🔧', adblue: '💧', pojisteni: '📄', znamka: '🛣️', stk: '🔍' };
+const DEN_MS = 864e5;
+const PO_ODLOZENI = 21 * DEN_MS; // jako motor: po vypršení odložení ještě nejvýš 21 dní, i za koncem sezónního okna
+const DNY_TYDNE = ['ne', 'po', 'út', 'st', 'čt', 'pá', 'so'];
+const VIC = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/>' +
+  '<circle cx="18.5" cy="12" r="1.6" fill="currentColor"/></svg>';
+const zIso = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || '')); return m ? new Date(+m[1], +m[2] - 1, +m[3]).getTime() : null; };
+/** „po 19. 10.“ */
+const denTydne = (t) => DNY_TYDNE[new Date(t).getDay()] + ' ' + dm(t);
+/** Datum za n dní ('RRRR-MM-DD', místní). */
+const zaDni = (n) => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + n); return isoDatum(d.getTime()); };
+const jeSezonni = (x) => SEZONNI_ID.indexOf(x.id) >= 0;
+let odlozeneRozbalene = false; // sekce Odložené na stránce Auto
+let poradiOdlozeni = 0;        // jen odpověď na poslední odložení přepíše data (Odložit a hned Vrátit)
 
 /**
- * Připomínky z motoru (přezutí, zima, servis podle auta, pojištění, dálniční známka). Sezónní okna se vyhodnotí podle
- * dneška (data můžou být pár dní stará): teď / brzy (30 dní předem) / po skončení pryč; ostatní, jak je poslal motor.
+ * Stav připomínky podle dneška (data z motoru můžou být pár hodin stará): sezónní okno teď / brzy (30 dní předem) /
+ * po skončení pryč – po odložení nebo termínu z kalendáře platí do konec; termín z kalendáře (plan) do svého dne
+ * „naplánováno“; odložení do dne vyprší samo (stavPak = stav bez odložení / termínu). null = už se neukazuje.
+ */
+function prepocti(x, ted) {
+  const dnes = pulnoc(ted);
+  const y = Object.assign({}, x);
+  if (y.stav === 'odlozeno') {
+    if (y.odlozeno === 'hotovo' || y.odlozenoDo == null || dnes < y.odlozenoDo) {
+      return jeSezonni(y) && ted > Math.max(y.do, y.konec || 0) + DEN_MS ? null : y;
+    }
+    y.stav = y.stavPak || 'ted';
+    y.poOdlozeni = y.odlozeno;
+    if (jeSezonni(y)) y.konec = Math.max(y.konec || y.do, y.odlozenoDo + PO_ODLOZENI);
+    delete y.odlozeno;
+    delete y.odlozenoDo;
+  }
+  const naplanovano = !!y.plan && !y.hotovo && pulnoc(y.plan.kdy) >= dnes;
+  if (jeSezonni(y)) {
+    if (ted > Math.max(y.do, y.konec || 0) + DEN_MS) return null;
+    const s = naplanovano ? 'naplanovano' : ted >= y.od ? 'ted' : y.od - ted <= 30 * DEN_MS ? 'brzy' : null;
+    return s ? Object.assign(y, { stav: s }) : null;
+  }
+  if (naplanovano && y.stav !== 'naplanovano') { y.stavPak = y.stav; y.stav = 'naplanovano'; }
+  else if (!naplanovano && y.stav === 'naplanovano') y.stav = y.stavPak || 'ted';
+  return y;
+}
+
+/** Všechny připomínky z motoru (i odložené) přepočítané na dnešek. */
+function vsechnyPripominky(d) {
+  const data = d || stav.auto || {};
+  const ted = Date.now();
+  return (data.pripominky || []).concat(data.odlozene || []).map((x) => prepocti(x, ted)).filter(Boolean);
+}
+
+const PORADI_STAVU = { ted: 0, brzy: 1, naplanovano: 2 };
+const poradi = (x) => (x.stav in PORADI_STAVU ? PORADI_STAVU[x.stav] : 1);
+
+/**
+ * Připomínky z motoru (přezutí, zima, servis podle auta, pojištění, dálniční známka) bez odložených: teď, brzy,
+ * naplánované v kalendáři, hotové (zápis v Nákladech) na konci.
  */
 export function pripominky(d) {
-  const ted = Date.now();
-  return (((d || stav.auto) || {}).pripominky || []).map((x) => {
-    if (SEZONNI_ID.indexOf(x.id) < 0) return x;
-    if (ted > x.do + 864e5) return null;
-    const s = ted >= x.od ? 'ted' : x.od - ted <= 30 * 864e5 ? 'brzy' : null;
-    return s ? Object.assign({}, x, { stav: s }) : null;
-  }).filter(Boolean).sort((a, b) => (a.hotovo - b.hotovo) || ((a.stav === 'ted' ? 0 : 1) - (b.stav === 'ted' ? 0 : 1)));
+  return vsechnyPripominky(d).filter((x) => x.stav !== 'odlozeno').sort((a, b) => (a.hotovo - b.hotovo) || (poradi(a) - poradi(b)));
+}
+
+/** Odložené (do dne nebo ručně hotové) – jen na stránce Auto, sbaleně pod Co řešit. */
+export function odlozenePripominky(d) {
+  const kdy = (x) => (x.odlozenoDo != null ? x.odlozenoDo : Infinity);
+  return vsechnyPripominky(d).filter((x) => x.stav === 'odlozeno').sort((a, b) => kdy(a) - kdy(b));
 }
 
 function kdyPripominky(x) {
   if (x.hotovo) return '✓ hotovo';
-  if (SEZONNI_ID.indexOf(x.id) >= 0) return x.stav === 'ted' ? 'do ' + dm(x.do) : 'od ' + dm(x.od);
+  if (x.stav === 'odlozeno') return x.odlozeno === 'hotovo' ? '✓ hotovo' : 'odloženo do ' + denTydne(x.odlozenoDo);
+  if (x.stav === 'naplanovano' && x.plan) return 'naplánováno – ' + denTydne(x.plan.kdy);
+  if (jeSezonni(x)) return x.stav === 'ted' ? (Date.now() > x.do + DEN_MS ? 'teď' : 'do ' + dm(x.do)) : 'od ' + dm(x.od);
   return x.stav === 'ted' ? 'teď' : 'brzy';
 }
 
-function pripominkaHtml(x) {
-  return '<li class="auto-resit__polozka auto-resit--' + (x.hotovo ? 'hotovo' : x.stav) + '"><span class="auto-resit__ikona" aria-hidden="true">' +
-    (IKONA_PRIPOMINKY[x.id] || '🚗') + '</span><div class="auto-resit__text"><b>' + esc(x.nazev) + '</b><small>' + esc(x.text) + '</small></div>' +
-    '<span class="auto-resit__kdy">' + esc(kdyPripominky(x)) + '</span></li>';
+/** Termín vpravo; „naplánováno – po 19. 10.“ a „odloženo do čt 22. 10.“ se na úzkém displeji zalomí před dnem. */
+function kdyHtml(x) {
+  const t = kdyPripominky(x);
+  const m = /^(.*?) ((?:po|út|st|čt|pá|so|ne) \d+\. \d+\.)$/.exec(t);
+  return m ? '<span class="auto-resit__kdy auto-resit__kdy--dve"><span>' + esc(m[1]) + '</span> <span>' + esc(m[2]) + '</span></span>'
+    : '<span class="auto-resit__kdy">' + esc(t) + '</span>';
 }
 
-/** Karta Co řešit nahoře na stránce Auto (teď a do 30 dní; hotové v sezóně s fajfkou). */
+/** Řádek pod textem: co je v kalendáři, nebo že termín z kalendáře proběhl a výdaj chybí. */
+function poznamkaPripominky(x) {
+  if (!x.plan || x.hotovo) return '';
+  if (x.stav === 'naplanovano' || (x.stav === 'odlozeno' && pulnoc(x.plan.kdy) >= pulnoc(Date.now()))) return 'V kalendáři: ' + x.plan.nazev;
+  if (x.stav === 'ted' && pulnoc(x.plan.kdy) < pulnoc(Date.now())) return 'V kalendáři bylo ' + denTydne(x.plan.kdy) + ' – zapiš výdaj, nebo dej Hotovo.';
+  return '';
+}
+
+/** ⋯ = stejná nabídka jako pravé tlačítko (na telefonu i podržení); u hotových (zápis v Nákladech) není co odkládat. */
+function tlacitkoVic(x) {
+  if (x.hotovo || !umiMotor('autoPripominkaOdlozit')) return '';
+  return '<button type="button" class="auto-resit__vic" data-auto-pripominka-nabidka="' + esc(x.klic) + '" aria-label="Odložit nebo hotovo: ' + esc(x.nazev) +
+    '" title="Odložit, Hotovo (i pravé tlačítko)">' + VIC + '</button>';
+}
+
+function pripominkaHtml(x) {
+  const pozn = poznamkaPripominky(x);
+  const vic = tlacitkoVic(x);
+  return '<li class="auto-resit__polozka auto-resit--' + (x.hotovo ? 'hotovo' : x.stav) + (vic ? ' auto-resit__polozka--vic' : '') + '" data-auto-pripominka="' + esc(x.klic) + '">' +
+    '<span class="auto-resit__ikona" aria-hidden="true">' + (IKONA_PRIPOMINKY[x.id] || '🚗') + '</span><div class="auto-resit__text"><b>' + esc(x.nazev) + '</b><small>' + esc(x.text) + '</small>' +
+    (pozn ? '<small class="auto-resit__pozn">' + esc(pozn) + '</small>' : '') + '</div>' + kdyHtml(x) + vic + '</li>';
+}
+
+/** Sekce Odložené pod Co řešit (sbalená; počet je vidět vždy). */
+function odlozeneHtml(odl) {
+  if (!odl.length) return '';
+  return '<div class="auto-odlozene"><button type="button" class="auto-odlozene__prepni" data-auto-odlozene-prepni aria-expanded="' + odlozeneRozbalene + '">' +
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+    '<span>Odložené</span><small>' + odl.length + '</small></button>' +
+    (odlozeneRozbalene ? '<ul class="auto-resit__seznam auto-odlozene__seznam">' + odl.map(pripominkaHtml).join('') + '</ul>' : '') + '</div>';
+}
+
+/** Karta Co řešit nahoře na stránce Auto (teď, do 30 dní, naplánované; hotové v sezóně s fajfkou; odložené sbalené). */
 function coResitHtml(d) {
   const x = pripominky(d);
-  if (!x.length) return '';
+  const odl = odlozenePripominky(d);
+  if (!x.length && !odl.length) return '';
   return '<section class="card auto-resit" data-oblast="auto">' + hlavickaKarty(IKONY.kalendar, 'Co řešit',
-    '<button type="button" class="odkaz" data-auto-pece>Péče o auto</button>') + '<ul class="auto-resit__seznam">' + x.map(pripominkaHtml).join('') + '</ul></section>';
+    '<button type="button" class="odkaz" data-auto-pece>Péče o auto</button>') +
+    (x.length ? '<ul class="auto-resit__seznam">' + x.map(pripominkaHtml).join('') + '</ul>' : '<p class="auto-resit__nic">Teď nic – všechno je odložené.</p>') +
+    odlozeneHtml(odl) + '</section>';
 }
 
-/** Dnes → Vyžaduje pozornost: co je u auta potřeba řešit teď (z naposledy načtených dat auta). */
+/** Dnes → Vyžaduje pozornost: co je u auta potřeba řešit teď (z naposledy načtených dat auta; odložené a naplánované ne). */
 export function pripominkyDnes() {
   return pripominky().filter((x) => x.stav === 'ted' && !x.hotovo);
 }
 
 export function pripominkaDnesHtml(x) {
-  return '<li class="auto-dnes"><button type="button" class="auto-dnes__btn" data-cil="auto"><span class="auto-resit__ikona" aria-hidden="true">' +
+  return '<li class="auto-dnes" data-auto-pripominka="' + esc(x.klic) + '"><button type="button" class="auto-dnes__btn" data-cil="auto"><span class="auto-resit__ikona" aria-hidden="true">' +
     (IKONA_PRIPOMINKY[x.id] || '🚗') + '</span><span class="auto-dnes__text"><b>' + esc(x.nazev) + '</b><small>' + esc(x.text) + '</small></span>' +
-    '<span class="auto-resit__kdy">' + esc(kdyPripominky(x)) + '</span></button></li>';
+    '<span class="auto-resit__kdy">' + esc(kdyPripominky(x)) + '</span></button>' + tlacitkoVic(x) + '</li>';
 }
 
 /** Totéž na telefonu: karta jako ostatní položky „Vyžaduje pozornost“ (vzor PriorAuth) – klepnutí otevře stránku Auto. */
 export function pripominkaPozorHtml(x) {
-  return '<li><button type="button" class="pozor" data-cil="auto">' +
+  return '<li class="pozor-auto" data-auto-pripominka="' + esc(x.klic) + '"><button type="button" class="pozor" data-cil="auto">' +
     '<span class="pozor__hora"><span class="kruh kruh--auto-tint" aria-hidden="true">' + (IKONA_PRIPOMINKY[x.id] || '🚗') + '</span>' +
     '<span class="pozor__text"><b>' + esc(x.nazev) + '</b><small>' + esc(x.text) + '</small></span></span>' +
-    '<span class="pozor__radek">' + IKONY.cas + '<span>Auto</span><em>' + esc(kdyPripominky(x)) + '</em></span></button></li>';
+    '<span class="pozor__radek">' + IKONY.cas + '<span>Auto</span><em>' + esc(kdyPripominky(x)) + '</em></span></button>' + tlacitkoVic(x) + '</li>';
 }
+
+/** Data auta s připomínkou přesunutou mezi odložené (kam = 'RRRR-MM-DD' | 'hotovo') nebo zpět (null) – hned v aplikaci. */
+export function sOdlozenim(d, klic, kam) {
+  const x = (d.pripominky || []).concat(d.odlozene || []).find((y) => y.klic === klic);
+  if (!x) return d;
+  const y = Object.assign({}, x);
+  if (y.stav === 'odlozeno') { y.stav = y.stavPak || 'ted'; delete y.odlozeno; delete y.odlozenoDo; }
+  if (kam) {
+    y.stavPak = y.stav === 'naplanovano' ? (y.stavPak || 'ted') : y.stav;
+    y.stav = 'odlozeno';
+    y.odlozeno = kam;
+    if (kam === 'hotovo') delete y.odlozenoDo; else y.odlozenoDo = zIso(kam);
+  }
+  const bez = (s) => (s || []).filter((z) => z.klic !== klic);
+  return Object.assign({}, d, kam ? { pripominky: bez(d.pripominky), odlozene: bez(d.odlozene).concat(y) }
+    : { pripominky: bez(d.pripominky).concat(y), odlozene: bez(d.odlozene) });
+}
+
+/** Odložit / Hotovo / Zrušit odložení: hned v aplikaci, pak motor (čte tabulku – pár sekund); Vrátit vrátí předchozí stav. */
+function odloz(x, kam) {
+  if (!stav.auto) return;
+  const puvodni = stav.auto;
+  const predtim = x.stav === 'odlozeno' ? x.odlozeno : null;
+  const moje = ++poradiOdlozeni;
+  stav.auto = sOdlozenim(puvodni, x.klic, kam);
+  zmeneno();
+  volej('autoPripominkaOdlozit', { pripominka: x.klic, do: kam })
+    .then((data) => { if (moje === poradiOdlozeni) { uloz(data); zmeneno(); } })
+    .catch((e) => { if (moje === poradiOdlozeni) { stav.auto = puvodni; zmeneno(); } toast(e.message, true); });
+  if (!kam) { toast('Připomínka je zpátky: ' + x.nazev); return; }
+  const vratit = Object.assign({}, x, { stav: 'odlozeno', odlozeno: kam });
+  toastAkce((kam === 'hotovo' ? 'Hotovo: ' : 'Odloženo do ' + denTydne(zIso(kam)) + ': ') + x.nazev, 'Vrátit',
+    () => odloz(vratit, predtim && (predtim === 'hotovo' || predtim > isoDatum(Date.now())) ? predtim : null));
+}
+
+/** Odložit do… – okno s výběrem dne (Michal: zimu „připomenout v půlce listopadu“). */
+function odlozDo(x) {
+  const navrh = x.stav === 'odlozeno' && x.odlozeno !== 'hotovo' ? x.odlozeno : zaDni(7);
+  okno({ ikona: IKONY.pripomenout, nadpis: 'Odložit do…', text: x.nazev + ' – ten den se připomínka zase ukáže.',
+    pole: { popisek: 'Ukázat znovu', typ: 'date', hodnota: navrh }, ano: 'Odložit' }).then((v) => {
+    if (!v) return;
+    if (zIso(v) == null || v <= isoDatum(Date.now())) { toast('Vyber některý z dalších dní.', true); return; }
+    odloz(x, v);
+  });
+}
+
+/** Nabídka připomínky (pravé tlačítko, podržení prstem, ⋯) – na stránce Auto, v Péči o auto i na Přehledu. */
+export function nabidkaPripominky(cil) {
+  const el = cil && cil.closest && cil.closest('[data-auto-pripominka]');
+  if (!el || !umiMotor('autoPripominkaOdlozit')) return null;
+  const x = vsechnyPripominky().find((y) => y.klic === el.dataset.autoPripominka);
+  if (!x || x.hotovo) return null;
+  const p = [];
+  if (x.stav === 'odlozeno') p.push({ ikona: IKONY.zpet, text: 'Zrušit odložení', fn: () => odloz(x, null) });
+  p.push({ ikona: IKONY.pripomenout, text: 'Odložit na zítra', oddel: x.stav === 'odlozeno', fn: () => odloz(x, zaDni(1)) },
+    { ikona: IKONY.pripomenout, text: 'Odložit na týden', fn: () => odloz(x, zaDni(7)) },
+    { ikona: IKONY.kalendar, text: 'Odložit do…', fn: () => odlozDo(x) });
+  if (x.odlozeno !== 'hotovo') p.push({ ikona: IKONY.fajfka, text: 'Hotovo', oddel: true, fn: () => odloz(x, 'hotovo') });
+  return { nadpis: x.nazev + ' · ' + kdyPripominky(x), polozky: p };
+}
+pripojNabidku(nabidkaPripominky);
 
 // ---------------------------------------------------------------- panel Péče o auto (tlačítko na liště stránky Auto)
 
@@ -1249,6 +1406,13 @@ export function klikAuto(el) {
   if (el.hasAttribute('data-auto-znovu')) { stav.chyby.auto = null; nactiAuto(true); return true; }
   if (el.dataset.autoZapis) { otevriZapis(el.dataset.autoZapis); return true; }
   if (el.hasAttribute('data-auto-pece')) { otevriPeci(); return true; }
+  if (el.dataset.autoPripominkaNabidka) {
+    const n = nabidkaPripominky(el);
+    const r = el.getBoundingClientRect();
+    if (n) otevriNabidku(r.right - 4, r.bottom + 4, n, el);
+    return true;
+  }
+  if (el.hasAttribute('data-auto-odlozene-prepni')) { odlozeneRozbalene = !odlozeneRozbalene; zmeneno(); return true; }
   if (el.classList.contains('auto-sloupec')) return true; // sloupec měsíce: rozpis ukáže bublina (js/grafy.js)
   if (el.dataset.autoUpravit) { const [list, radek] = el.dataset.autoUpravit.split(':'); otevriUpravu(najdiZapis(list, radek)); return true; }
   if (el.hasAttribute('data-az-foto-velka') && f) { ukazFotku(f.foto || f.velka || f.nahled); return true; }

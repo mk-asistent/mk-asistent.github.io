@@ -312,9 +312,20 @@ const reelyUkazka = [
 ];
 const reelyZverejneno = { reel_dorost_kyjov: iso(pridejDny(dnes, minulaNedele + 1)) };
 const reelyPlan = {}, reelyPopisky = {};
+// úpravy popisků z aplikace (motor: REELY/upravy.json) a 2 návrhy od Clauda u béčka (vymyšlené texty)
+const reelyUpravy = {};
+const reelyNavrhy = { 'reel_benfika_nova-lhota': { varianty: ['Béčko doma přejelo Novou Lhotu 8:0 a drží se na čele tabulky. ⚽\n\nDalší zápas: neděle 15:00 doma proti Veselí B.\n\n#fkagrovnorovy #benfika',
+  'Osm gólů, nula obdržených a pořád první! 🔥 Benfika nezastavitelná.\n\nV neděli v 15:00 zase doma – přijďte fandit! 💚\n\n#fkagrovnorovy #benfika #fotbal'], kdy: ted - 3 * H } };
+// příběhy z fotek (motor: REELY/pribehy, PRIBEHY_PLAN) – v ukázce se fotka jen „nahraje“, nikam nic nejde
+const pribehyUkazka = [], pribehyPlan = {};
+/** Reel, jak ho vrací motor: s úpravou popisku a návrhy od Clauda. */
+const reelUkazky = (r) => {
+  const u = reelyUpravy[r.id], n = reelyNavrhy[r.id];
+  return Object.assign({}, r, u ? { popisek: u, upraveno: true, puvodni: r.popisek } : {}, n ? { navrhy: kopie(n) } : {});
+};
 /** Průběh zveřejňování jako akce igStav motoru (spouštěč „běžel“ před 4 minutami). */
-const igUkazka = () => kopie({ ted: Date.now(), spoustec: Date.now() - 4 * 60e3, reely: reelyPlan, plakaty: plakatyUkazka.plan, zverejneno: reelyZverejneno,
-  popiskyPlanu: reelyPopisky });
+const igUkazka = () => kopie({ ted: Date.now(), spoustec: Date.now() - 4 * 60e3, reely: reelyPlan, plakaty: plakatyUkazka.plan, pribehy: pribehyPlan,
+  zverejneno: reelyZverejneno, popiskyPlanu: reelyPopisky });
 // Plakáty v ukázce: výchozí nastavení, bez ručních úprav, k nejbližšímu víkendu už popisek „od Clauda“ (vymyšlený),
 // Instagram propojený na ukázkový účet; obrázky se jen „nahrají“ (v paměti zůstane, že jsou).
 const plakatVikendUkazky = iso(pridejDny(dnes, denTydne === 0 ? -1 : 6 - denTydne));
@@ -363,7 +374,13 @@ const autoUkazka = (() => {
   vydaj(-20, 'Parkování', 60, 'Parkování centrum');
   return { nastaveno: true, nazev: 'Ukázkové auto - Rodina', odkaz: '', tankovani: t, naklady: n,
     kategorie: ['Servis', 'Servis - PNEU', 'STK', 'Pojištění', 'Dálniční známka', 'Parkování', 'Myčka', 'Nákup doplňků', 'Doplňková výbava'],
-    platili: { Michal: 210000, Katka: 240000 }, ted };
+    platili: { Michal: 210000, Katka: 240000 }, ted,
+    // Co řešit: zima teď, přezutí naplánované v kalendáři (motor: AUTO_.pripominky s termíny z kalendáře a odloženími)
+    pripominky: [{ id: 'zima', klic: 'zima-ukazka', nazev: 'Připravit auto na zimu', text: 'Zimní směs do ostřikovačů, nové stěrače, kontrola baterie a nemrznoucí kapaliny.',
+      od: pulnoc(den(-10)), do: pulnoc(den(30)), stav: 'ted', hotovo: false },
+    { id: 'pneu-zimni', klic: 'pneu-zimni-ukazka', nazev: 'Přezout na zimní pneumatiky', text: 'Objednej pneuservis.', od: pulnoc(den(-3)), do: pulnoc(den(30)),
+      stav: 'naplanovano', stavPak: 'ted', hotovo: false, plan: { kdy: den(4, 8), nazev: 'Přezutí – pneuservis' } }],
+    odlozene: [] };
 })();
 
 /** Zdraví v ukázce: 30 dní připravenosti, spánku a zátěže; zápas v sobotu, trénink út a čt (sedí s kalendářem), posilovna v pondělí. */
@@ -779,13 +796,52 @@ const akce = {
   kontakty: () => kopie(kontakty),
   podpisyUlozit: (d) => { Object.assign(podpisy, { osobni: String((d.podpisy || {}).osobni || ''), pracovni: String((d.podpisy || {}).pracovni || '') }); return akce.info().posta; },
   fotbal: () => kopie({ data: fotbalUkazka, vKalendari: fotbalVKalendari, kalendar: null }),
-  reely: () => kopie({ aktualizovano: new Date(ted - 2 * H).toISOString(), reely: reelyUkazka, zverejneno: reelyZverejneno, plan: reelyPlan, popiskyPlanu: reelyPopisky,
+  reely: () => kopie({ aktualizovano: new Date(ted - 2 * H).toISOString(), reely: reelyUkazka.map(reelUkazky), zverejneno: reelyZverejneno, plan: reelyPlan,
+    popiskyPlanu: reelyPopisky, pribehy: pribehyUkazka, planPribehu: pribehyPlan,
     instagram: { nastaveno: true, ucet: 'klub_ukazka' } }),
   reelNaplanovat: (d) => {
-    reelyPlan[d.id] = { kdy: Number(d.kdy), stav: 'ceka', oznacit: String(d.oznacit || '').split(/[\s,]+/).filter(Boolean).map((u) => u.replace(/^@/, '')), upraveno: true,
-      pribeh: !!d.pribeh };
-    if (d.popisek) reelyPopisky[d.id] = d.popisek;
-    return { plan: kopie(reelyPlan), popisky: kopie(reelyPopisky) };
+    const r = reelyUkazka.find((x) => x.id === d.id);
+    reelyPlan[d.id] = Object.assign({ kdy: Number(d.kdy), stav: 'ceka', oznacit: String(d.oznacit || '').split(/[\s,]+/).filter(Boolean).map((u) => u.replace(/^@/, '')), upraveno: true },
+      d.jenPribeh ? { jenPribeh: true } : { pribeh: !!d.pribeh });
+    if (d.popisek && !d.jenPribeh) { reelyPopisky[d.id] = d.popisek; if (r && d.popisek !== r.popisek) reelyUpravy[d.id] = d.popisek; } else delete reelyPopisky[d.id];
+    if (d.jenPribeh || (r && r.popisek === d.popisek)) delete reelyPopisky[d.id];
+    if (reelyZverejneno[d.id]) delete reelyZverejneno[d.id]; // vyšel jen příběh → i jako reel
+    return { plan: kopie(reelyPlan), popisky: kopie(reelyPopisky), zverejneno: kopie(reelyZverejneno), reel: r ? reelUkazky(r) : null };
+  },
+  // úprava popisku v aplikaci (prázdný / stejný jako z PC / vratit = zpět na původní)
+  reelPopisekUlozit: (d) => {
+    const r = reelyUkazka.find((x) => x.id === d.id);
+    if (!r) throw new Error('Reel už není v REELY/reely.json.');
+    const text = d.vratit ? '' : String(d.text || '');
+    if (text.length > 2200) throw new Error('Popisek je delší než 2 200 znaků – Instagram ho nevezme.');
+    if (text.trim() && text.trim() !== r.popisek.trim()) reelyUpravy[d.id] = text; else delete reelyUpravy[d.id];
+    if (reelyPlan[d.id] && reelyPlan[d.id].stav === 'ceka' && !reelyPlan[d.id].jenPribeh) { if (reelyUpravy[d.id]) reelyPopisky[d.id] = text.trim(); else delete reelyPopisky[d.id]; }
+    return { reel: reelUkazky(r), popiskyPlanu: kopie(reelyPopisky), plan: kopie(reelyPlan) };
+  },
+  // nové návrhy od Clauda: v ukázce „přijdou“ hned
+  reelPopisekNavrhy: (d) => {
+    const r = reelyUkazka.find((x) => x.id === d.id);
+    if (!r) throw new Error('Reel už není v REELY/reely.json.');
+    reelyNavrhy[d.id] = { varianty: ['Věcně: ' + r.nazev + '. ⚽\n\n#fkagrovnorovy', 'Hravě: tohle se musí vidět! 🔥 ' + r.nazev + '\n\n#fkagrovnorovy'], kdy: Date.now() };
+    return { reel: reelUkazky(r) };
+  },
+  // příběh z fotky: v ukázce jen do seznamu a plánu (nic nikam nejde)
+  pribehNaplanovat: (d) => {
+    const ucty = String(Array.isArray(d.oznacit) ? d.oznacit.join(' ') : d.oznacit || '').split(/[\s,;]+/).filter(Boolean).map((u) => u.replace(/^@/, '').toLowerCase());
+    let id = String(d.id || '');
+    if (d.obrazek) {
+      if (!/^data:image\/jpeg;base64,/.test(String(d.obrazek))) throw new Error('Fotka příběhu nepřišla (čekám JPEG).');
+      id = 'pribeh_' + (d.otisk || Date.now().toString(16).padStart(16, '0'));
+      if (!pribehyUkazka.some((x) => x.id === id)) pribehyUkazka.unshift({ id, nahled: String(d.nahled || ''), vytvoreno: Date.now() });
+    } else if (!pribehyUkazka.some((x) => x.id === id)) throw new Error('Příběh už v seznamu není – vyber fotku znovu.');
+    pribehyPlan[id] = { kdy: Number(d.kdy), stav: 'ceka', jenPribeh: true, oznacit: ucty };
+    return { id, plan: kopie(pribehyPlan), pribehy: kopie(pribehyUkazka) };
+  },
+  pribehZrusit: (d) => {
+    delete pribehyPlan[d.id];
+    const i = pribehyUkazka.findIndex((x) => x.id === d.id);
+    if (i >= 0) pribehyUkazka.splice(i, 1);
+    return { plan: kopie(pribehyPlan), pribehy: kopie(pribehyUkazka) };
   },
   reelZrusitPlan: (d) => { delete reelyPlan[d.id]; delete reelyPopisky[d.id]; return { plan: kopie(reelyPlan), popisky: kopie(reelyPopisky) }; },
   plakaty: () => kopie(Object.assign({}, plakatyUkazka, { ig: { nastaveno: true, ucet: 'klub_ukazka' } })),
@@ -798,7 +854,8 @@ const akce = {
   plakatNastaveni: (d) => { plakatyUkazka.nastaveni = kopie(d.nastaveni || {}); return { nastaveni: kopie(plakatyUkazka.nastaveni) }; },
   // v ukázce „odpoví“ Claude hned (skutečný popisek přijde do půl hodiny, když běží PC)
   plakatPopisek: (d) => {
-    plakatyUkazka.popisky[d.tyden] = { text: 'Ukázkový popisek od Clauda' + (d.styl ? ' (' + d.styl + ')' : '') + ' ⚽\n\nPřijďte fandit na Agro Arénu!\n\n#fkagrovnorovy',
+    const v1 = 'Ukázkový popisek od Clauda' + (d.styl ? ' (' + d.styl + ')' : '') + ' ⚽\n\nPřijďte fandit na Agro Arénu!\n\n#fkagrovnorovy';
+    plakatyUkazka.popisky[d.tyden] = { text: v1, varianty: [v1, 'Víkend plný fotbalu! 🔥 Kdo nepřijde, neuvidí to.\n\n#fkagrovnorovy #fotbal'],
       zdroj: 'claude', kdy: Date.now(), styl: String(d.styl || ''), pozadano: Date.now(), cekaNaClauda: false };
     return { popisky: kopie(plakatyUkazka.popisky) };
   },
@@ -817,15 +874,15 @@ const akce = {
   // popisek z okna plánu se drží k plánu a je i popiskem kola; označené účty k plánu (nic nikam nejde)
   plakatNaplanovat: (d) => {
     if (!plakatyUkazka.obrazky[d.tyden]) throw new Error('Chybí obrázek plakátu – vyrob ho v aplikaci znovu.');
-    const vlastni = String(d.popisek || '').trim();
-    if (!vlastni && !(plakatyUkazka.popisky[d.tyden] || {}).text) throw new Error('Plakát nemá popisek – bez něj ho na Instagram nepošlu.');
+    const vlastni = d.jenPribeh ? '' : String(d.popisek || '').trim();
+    if (!vlastni && !d.jenPribeh && !(plakatyUkazka.popisky[d.tyden] || {}).text) throw new Error('Plakát nemá popisek – bez něj ho na Instagram nepošlu.');
     const pop = plakatyUkazka.popisky[d.tyden] = Object.assign({}, plakatyUkazka.popisky[d.tyden]);
     if (vlastni) {
       if (String(pop.text || '').trim() !== vlastni) Object.assign(pop, { text: vlastni, zdroj: 'rucne', kdy: Date.now() });
       Object.assign(pop, { plan: vlastni, planKdy: Date.now() });
     }
     const oznacit = String(d.oznacit || '').split(/[\s,;]+/).filter(Boolean).map((u) => u.replace(/^@/, '').toLowerCase());
-    plakatyUkazka.plan[d.tyden] = Object.assign({ kdy: Number(d.kdy), stav: 'ceka', pribeh: !!d.pribeh }, oznacit.length ? { oznacit } : {});
+    plakatyUkazka.plan[d.tyden] = Object.assign({ kdy: Number(d.kdy), stav: 'ceka' }, d.jenPribeh ? { jenPribeh: true } : { pribeh: !!d.pribeh }, oznacit.length ? { oznacit } : {});
     return { plan: kopie(plakatyUkazka.plan), popisky: kopie(plakatyUkazka.popisky) };
   },
   plakatZrusitPlan: (d) => {
@@ -836,12 +893,12 @@ const akce = {
   // průběh zveřejňování na Instagram (motor igStav / igKrok): v ukázce posune každý krok zveřejnění o fázi – nic nikam nejde
   igStav: () => igUkazka(),
   igKrok: (d) => {
-    const plan = d.typ === 'plakat' ? plakatyUkazka.plan : reelyPlan;
+    const plan = d.typ === 'plakat' ? plakatyUkazka.plan : d.typ === 'pribeh' ? pribehyPlan : reelyPlan;
     const z = plan[d.id];
     if (!z) throw new Error('Příspěvek není v plánu – naplánuj ho znovu.');
     const t = Date.now();
     if (d.ted && z.stav === 'ceka') z.kdy = Math.min(z.kdy, t);
-    if (d.znovu && z.stav === 'chyba') plan[d.id] = { kdy: t, stav: 'ceka', pribeh: z.pribeh, oznacit: z.oznacit };
+    if (d.znovu && z.stav === 'chyba') plan[d.id] = { kdy: t, stav: 'ceka', pribeh: z.pribeh, jenPribeh: z.jenPribeh, oznacit: z.oznacit };
     const x = plan[d.id];
     const k = (x.kroky = x.kroky || {});
     if (x.stav === 'ceka' && x.kdy <= t + 60e3) {
@@ -852,8 +909,8 @@ const akce = {
       k.zverejnuji = t;
       if (x.pribeh) k.pribeh = t;
       k.hotovo = t;
-      Object.assign(x, { stav: 'hotovo', zverejneno: t, odkaz: '', kontejner: '', stavIg: undefined, mediaPribeh: x.pribeh ? 'ukazka' : '', pribehChyba: '' });
-      if (d.typ !== 'plakat') reelyZverejneno[d.id] = iso(t);
+      Object.assign(x, { stav: 'hotovo', zverejneno: t, odkaz: '', kontejner: '', stavIg: undefined, mediaPribeh: x.pribeh && !x.jenPribeh ? 'ukazka' : '', pribehChyba: '' });
+      if (d.typ === 'reel') reelyZverejneno[d.id] = iso(t);
     }
     return igUkazka();
   },
@@ -985,6 +1042,20 @@ const akce = {
     const t = Object.assign({}, autoUkazka.terminy);
     if (d.datum) t[d.id] = d.datum; else delete t[d.id];
     autoUkazka.terminy = t;
+    return kopie(autoUkazka);
+  },
+  // odložení připomínky: do dne / hotovo / zpět (null) – jako motor (AUTO_ODLOZENE), bez prodloužení za koncem okna
+  autoPripominkaOdlozit: (d) => {
+    const vse = autoUkazka.pripominky.concat(autoUkazka.odlozene);
+    const x = vse.find((y) => y.klic === d.pripominka);
+    if (!x) throw new Error('Neznámá připomínka.');
+    if (x.stav === 'odlozeno') { x.stav = x.stavPak || 'ted'; delete x.odlozeno; delete x.odlozenoDo; }
+    if (d.do) {
+      const [r, m, dd] = String(d.do).split('-').map(Number);
+      Object.assign(x, { stavPak: x.stav === 'naplanovano' ? 'ted' : x.stav, stav: 'odlozeno', odlozeno: d.do }, d.do === 'hotovo' ? {} : { odlozenoDo: new Date(r, m - 1, dd).getTime() });
+    }
+    autoUkazka.pripominky = vse.filter((y) => y.stav !== 'odlozeno');
+    autoUkazka.odlozene = vse.filter((y) => y.stav === 'odlozeno');
     return kopie(autoUkazka);
   },
   autoSmazat: (d) => {

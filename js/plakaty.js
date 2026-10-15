@@ -16,6 +16,8 @@ import { otevriPanel, zavriPanel, obnovPanel, elementPanelu, jeOtevreny } from '
 import { LOGA } from './plakat_data.js';
 import * as P from './plakat.js';
 import * as ig_ from './ig.js'; // průběh zveřejňování (ig_ – „ig“ je níž okno plánu a stav Instagramu z motoru)
+import { uctyKOznaceni, casKratce } from './ig_prubeh.js'; // zmínky / označení – stejná kontrola jako motor
+import { navrhyHtml } from './ig_navrhy.js'; // 2 návrhy popisku od Clauda na výběr (jako u reelu)
 
 const ULOZISTE = 'asistent.data.plakaty';
 const OTISKY = 'asistent.plakaty.otisky';   // víkend → otisk plakátu, ze kterého jsou obrázky na Instagramu (v tomhle zařízení)
@@ -964,9 +966,14 @@ function stavPlanuHtml(plan) {
   if (!plan) return '';
   const kartaIg = ig_.stavKartaAtr('plakat', p.sobota); // najetí / klepnutí = kroky s časy
   if (plan.stav === 'ceka') {
-    return '<span class="tag tag--plan"' + kartaIg + '>' + IKONY.kalendar + 'vyjde ' + esc(kdyPlan(plan.kdy)) + '</span>' +
-      (plan.pribeh ? '<span class="tag tag--seda">i do příběhu</span>' : '') +
-      (plan.oznacit && plan.oznacit.length ? '<span class="tag tag--seda">označí ' + esc(ucty(plan.oznacit)) + '</span>' : '');
+    return '<span class="tag tag--plan"' + kartaIg + '>' + IKONY.kalendar + (plan.jenPribeh ? 'příběh vyjde ' : 'vyjde ') + esc(kdyPlan(plan.kdy)) + '</span>' +
+      (plan.pribeh && !plan.jenPribeh ? '<span class="tag tag--seda">i do příběhu</span>' : '') +
+      (plan.oznacit && plan.oznacit.length ? '<span class="tag tag--seda">' + (plan.jenPribeh ? 'zmíní ' : 'označí ') + esc(ucty(plan.oznacit)) + '</span>' : '');
+  }
+  // jen příběh (Michal 15. 10.) – po 24 h zmizí, plakát jde potom i jako příspěvek
+  if (plan.stav === 'hotovo' && plan.jenPribeh) {
+    return '<span class="tag tag--ok"' + kartaIg + '>' + IKONY.fajfka + 'příběh vyšel ' + esc(casKratce(Number(plan.zverejneno) || plan.kdy, Date.now())) + '</span>' +
+      (plan.zminkyChyba ? '<span class="tag tag--warn">bez zmínek</span>' : '');
   }
   if (plan.stav === 'nahrava' || plan.stav === 'zverejnuji') return '<span class="tag tag--plan"' + kartaIg + '>' + IKONY.obnovit + 'zveřejňuje se na Instagram</span>';
   if (plan.stav === 'hotovo') {
@@ -980,14 +987,14 @@ function stavPlanuHtml(plan) {
 function klicIg() {
   const d = data(), s = p.sobota;
   return JSON.stringify([s, d.popisky[s], d.plan[s], d.obrazky[s], d.ig, p.igPracuje, umiMotor('plakatNaplanovat'), s in p.popisek,
-    (uloziste.cti(OTISKY) || {})[s] === P.otisk(JSON.stringify(p.plakat || {})), ig_.klic('plakat', s), umiMotor('igKrok')]);
+    (uloziste.cti(OTISKY) || {})[s] === P.otisk(JSON.stringify(p.plakat || {})), ig_.klic('plakat', s), umiMotor('igKrok'), (p.navrh || {})[s]]);
 }
 
 /** Tlačítka karty Instagram (Michal 15. 10.: na telefonu vidět hned, bez hledání – proto nad popiskem). */
 function akceIgHtml(plan, ig, text) {
   const s = p.sobota;
   let akce = '';
-  if (plan && plan.stav === 'hotovo') {
+  if (plan && plan.stav === 'hotovo' && !(plan.jenPribeh && umiMotor('igJenPribeh'))) {
     if (plan.odkaz) akce += '<a class="btn btn--ghost" href="' + esc(plan.odkaz) + '" target="_blank" rel="noopener noreferrer">' + IKONY.odkaz + '<span>Na Instagramu</span></a>';
   } else if (!umiMotor('plakatNaplanovat') || !ig.nastaveno || (plan && (plan.stav === 'nahrava' || plan.stav === 'zverejnuji'))) {
     akce = '';
@@ -1042,6 +1049,8 @@ function igHtml() {
     h += '<div class="pl-ceka pl-novy-popisek" data-pl-novy-popisek>' + IKONY.claude + '<span>Claude mezitím napsal nový popisek – na Instagram zatím půjde ten z plánu.</span>' +
       '<button type="button" class="btn btn--ghost btn--sm" data-pl-popisek-novy>Použít nový</button></div>';
   }
+  // 2 návrhy od Clauda na výběr (Michal 15. 10.) – Použít = text do pole, uloží se a jde dál přepisovat
+  h += navrhyHtml({ varianty: pop.varianty, volba: (p.navrh || {})[s] || 0, atribut: 'data-pl-navrh', id: s });
   // <textarea> zahodí první odřádkování obsahu – když text začíná prázdným řádkem, přidat jedno navíc
   h += '<textarea class="odpoved" data-pl-popisek rows="8" placeholder="Popisek k příspěvku – napiš ho, nebo požádej Clauda (styl níž).">' +
     esc(/^\r?\n/.test(text) ? '\n' + text : text) + '</textarea>';
@@ -1125,6 +1134,7 @@ function otevriPlan(hned) {
   const plan = data().plan[tyden];
   const ceka = !!(plan && plan.stav === 'ceka');
   p.ig = { tyden, kdy: doPole(vychoziCas(tyden)), pribeh: !(plan && plan.pribeh === false), popisek: textPopisku(tyden),
+    jenPribeh: !!(ceka && plan.jenPribeh), // jen příběh bez příspěvku (motor 2026-10-15.2, schopnost igJenPribeh)
     oznacit: ceka ? ucty(plan.oznacit) : String(uloziste.cti(OZNACIT) || ''),
     ukladam: false, nahled: null, chyba: '', hned: !!hned && umiMotor('igKrok'), zmena: ceka };
   const moje = p.ig;
@@ -1148,7 +1158,8 @@ function otevriPlan(hned) {
 function napovedaPlanu(ig) {
   const ucet = '@' + ((data().ig || {}).ucet || P.nastaveniPlakatu(nastaveni()).instagram);
   return 'Plakát víkendu ' + esc(P.rozsahVikendu(ig.tyden)) + ' vyjde na ' + esc(ucet) + (ig.hned ? ' hned' : ' sám v zadaný čas (do 10 minut)') +
-    ' – příspěvek s popiskem' + (ig.pribeh ? ' a příběh' : '') + '.' + (ig.hned ? ' Průběh uvidíš v kartě Instagram.' : '');
+    (ig.jenPribeh ? ' – jen příběh 1080 × 1920 (bez příspěvku a popisku, po 24 h zmizí).' : ' – příspěvek s popiskem' + (ig.pribeh ? ' a příběh' : '') + '.') +
+    (ig.hned ? ' Průběh uvidíš v kartě Instagram.' : '');
 }
 
 function nahledPlanuHtml(ig) {
@@ -1172,14 +1183,17 @@ function planHtml() {
   return '<div class="formular">' +
     '<p class="napoveda" data-pl-ig-napoveda>' + napovedaPlanu(ig) + '</p>' + volba +
     (ig.hned ? '' : '<label><span class="label">' + (volba ? 'Datum a čas' : 'Kdy') + '</span><input class="field" type="datetime-local" data-pl-ig="kdy" value="' + esc(ig.kdy) + '"></label>') +
-    (sPlanem ? '<label><span class="label">Označit účty</span><input class="field" data-pl-ig="oznacit" value="' + esc(ig.oznacit) + '" placeholder="např. @dorost_agro" ' +
+    (umiMotor('igJenPribeh') ? '<div class="rp-kdy"><span class="label">Kam</span>' + segment([['prispevek', 'Příspěvek'], ['oba', 'Příspěvek + příběh'],
+      ['pribeh', 'Jen příběh']], ig.jenPribeh ? 'pribeh' : ig.pribeh ? 'oba' : 'prispevek', 'data-pl-ig-kam', 'Kam zveřejnit') + '</div>' : '') +
+    (sPlanem ? '<label><span class="label" data-pl-ig-oznacit-popis>' + (ig.jenPribeh ? 'Zmínit účty v příběhu' : 'Označit účty') + '</span><input class="field" data-pl-ig="oznacit" value="' + esc(ig.oznacit) + '" placeholder="např. @dorost_agro" ' +
       'autocomplete="off" autocapitalize="off" spellcheck="false"></label>' : '') +
-    '<label class="prepinac-radek"><span><b>I do příběhu</b><small>plakát 1080 × 1920 na tmavém pozadí i do příběhu (story)</small></span>' +
-      '<span class="prepinac"><input type="checkbox" data-pl-ig="pribeh"' + (ig.pribeh ? ' checked' : '') + '><span></span></span></label>' +
+    (umiMotor('igJenPribeh') ? '' : '<label class="prepinac-radek"><span><b>I do příběhu</b><small>plakát 1080 × 1920 na tmavém pozadí i do příběhu (story)</small></span>' +
+      '<span class="prepinac"><input type="checkbox" data-pl-ig="pribeh"' + (ig.pribeh ? ' checked' : '') + '><span></span></span></label>') +
+    '<div class="pl-ig-jen-prispevek" data-pl-ig-prispevek' + (ig.jenPribeh ? ' hidden' : '') + '>' +
     (pop.cekaNaClauda && !String(ig.popisek).trim() ? '<p class="pl-ceka">' + IKONY.claude + '<span>Claude píše popisek… (do půl hodiny, když běží PC) – nebo ho napiš sám.</span></p>' : '') +
     '<label><span class="label">Popisek na Instagram</span><textarea class="odpoved pl-ig-popisek" data-pl-ig="popisek" rows="9" ' +
       'placeholder="Popisek k příspěvku – napiš ho, nebo požádej Clauda v kartě Instagram.">' + esc(text) + '</textarea></label>' +
-    '<p class="napoveda">Popisek se uloží i v kartě Instagram' + (sPlanem ? ' a drží se k plánu – pozdější popisek od Clauda ho sám nezmění.' : '.') + '</p>' +
+    '<p class="napoveda">Popisek se uloží i v kartě Instagram' + (sPlanem ? ' a drží se k plánu – pozdější popisek od Clauda ho sám nezmění.' : '.') + '</p></div>' +
     '<div class="pl-ig-nahled" data-pl-ig-nahled>' + nahledPlanuHtml(ig) + '</div>' +
     '<p class="pruh pruh-varovani" data-pl-ig-chyba' + (ig.chyba ? '' : ' hidden') + '>' + esc(ig.chyba) + '</p></div>';
 }
@@ -1214,22 +1228,25 @@ async function ulozPlan() {
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(ig.kdy || '');
   if (!m && !ig.hned) { ukaz('Vyber datum a čas.'); return; }
   const text = String(ig.popisek || '').replace(/\r\n/g, '\n').trim();
-  if (!text) { ukaz('Popisek je prázdný – napiš ho, nebo požádej Clauda v kartě Instagram.'); return; }
-  if (text.length > 2200) { ukaz('Popisek je delší než 2 200 znaků – Instagram ho nevezme.'); return; }
+  if (!text && !ig.jenPribeh) { ukaz('Popisek je prázdný – napiš ho, nebo požádej Clauda v kartě Instagram.'); return; }
+  if (text.length > 2200 && !ig.jenPribeh) { ukaz('Popisek je delší než 2 200 znaků – Instagram ho nevezme.'); return; }
+  const kontrola = uctyKOznaceni(ig.oznacit);
+  if (kontrola.chyba) { ukaz(kontrola.chyba); return; }
   let kdy = ig.hned ? Date.now() : new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])).getTime();
   if (!ig.hned && kdy < Date.now() - 60e3) { ukaz('Ten čas už byl – vyber pozdější.'); return; }
   ig.ukladam = true;
   ukaz('');
   try {
     // popisek z okna = popisek kola (karta ukáže totéž); uloží se jen změněný, ať zůstane štítek „od Clauda“
-    if (ig.tyden in p.popisek || text !== ulozenyPopisek(ig.tyden).trim()) p.popisek[ig.tyden] = text;
+    if (!ig.jenPribeh && (ig.tyden in p.popisek || text !== ulozenyPopisek(ig.tyden).trim())) p.popisek[ig.tyden] = text;
     await ulozPopisekHned();
     const o = await ig.obrazky;
     const v1 = await volej('plakatObrazky', { tyden: ig.tyden, prispevek: o.prispevek, pribeh: o.pribeh });
     if (v1 && v1.obrazky) data().obrazky = v1.obrazky;
     if (ig.hned) kdy = Date.now(); // obrázky se mezitím nahrávaly
     const sPlanem = umiMotor('plakatPlanPopisek');
-    const v2 = await volej('plakatNaplanovat', Object.assign({ tyden: ig.tyden, kdy, pribeh: !!ig.pribeh }, sPlanem ? { popisek: text, oznacit: ig.oznacit } : {}));
+    const v2 = await volej('plakatNaplanovat', Object.assign({ tyden: ig.tyden, kdy, pribeh: !!ig.pribeh && !ig.jenPribeh },
+      ig.jenPribeh ? { jenPribeh: true, oznacit: ig.oznacit } : sPlanem ? { popisek: text, oznacit: ig.oznacit } : {}));
     if (v2 && v2.plan) data().plan = v2.plan;
     if (v2 && v2.popisky) data().popisky = v2.popisky;
     ulozDoZarizeni();
@@ -1238,8 +1255,9 @@ async function ulozPlan() {
     uloziste.pis(OTISKY, otisky);
     if (sPlanem) uloziste.pis(OZNACIT, ig.oznacit);
     zavriPanel();
-    toast(ig.hned ? 'Zveřejňuji na Instagram' + (ig.pribeh ? ' i s příběhem' : '') + ' – průběh vidíš v kartě Instagram'
-      : (ig.zmena ? 'Plán změněný' : 'Naplánováno') + ' – vyjde ' + kdyPlan(kdy) + (ig.pribeh ? ' i s příběhem' : ''));
+    const co = ig.jenPribeh ? ' jen příběh' : ig.pribeh ? ' i s příběhem' : '';
+    toast(ig.hned ? 'Zveřejňuji na Instagram' + co + ' – průběh vidíš v kartě Instagram'
+      : (ig.zmena ? 'Plán změněný' : 'Naplánováno') + ' – vyjde ' + kdyPlan(kdy) + co);
     zmeneno();
     if (ig.hned) ig_.hned('plakat', ig.tyden, 'ted');
   } catch (e) {
@@ -1280,6 +1298,31 @@ export function klikPlakaty(el) {
   if (el.hasAttribute('data-pl-ig-naplanovat') || el.hasAttribute('data-pl-ig-hned')) { otevriPlan(el.hasAttribute('data-pl-ig-hned')); return true; }
   if (el.dataset.plIgKdyVolba) { if (p.ig) { p.ig.hned = el.dataset.plIgKdyVolba === 'ted'; obnovPanel('plakat-ig'); } return true; }
   if (el.hasAttribute('data-pl-ig-ulozit')) { if (p.ig && !p.ig.ukladam) ulozPlan(); return true; }
+  if (el.dataset.plIgKam) {
+    // kam: příspěvek / + příběh / jen příběh – jen části okna (rozepsaný popisek zůstane)
+    if (p.ig) {
+      p.ig.jenPribeh = el.dataset.plIgKam === 'pribeh';
+      p.ig.pribeh = el.dataset.plIgKam !== 'prispevek';
+      const okno = elementPanelu('plakat-ig');
+      if (okno) {
+        okno.querySelectorAll('[data-pl-ig-kam]').forEach((b) => b.setAttribute('aria-pressed', String(b === el)));
+        const pr = okno.querySelector('[data-pl-ig-prispevek]');
+        if (pr) pr.hidden = p.ig.jenPribeh;
+        const op = okno.querySelector('[data-pl-ig-oznacit-popis]');
+        if (op) op.textContent = p.ig.jenPribeh ? 'Zmínit účty v příběhu' : 'Označit účty';
+      }
+      obnovCastiPlanu();
+    }
+    return true;
+  }
+  if (el.dataset.plNavrhVolba != null && el.hasAttribute('data-pl-navrh-volba')) { (p.navrh = p.navrh || {})[p.sobota] = Number(el.dataset.plNavrhVolba) || 0; zmeneno(); return true; }
+  if (el.dataset.plNavrhPouzit) {
+    const pop = (data() && data().popisky[p.sobota]) || {};
+    const i = (p.navrh || {})[p.sobota] || 0;
+    const text = Array.isArray(pop.varianty) ? pop.varianty[i] : '';
+    if (text) { p.popisek[p.sobota] = String(text); zmeneno(); ulozPopisekHned(); toast('Návrh ' + (i + 1) + ' je v popisku – jde dál upravit'); }
+    return true;
+  }
   if (el.hasAttribute('data-pl-ig-zrusit')) { zrusPlan(); return true; }
   if (el.hasAttribute('data-pl-kopirovat')) { kopiruj(textPopisku(p.sobota), 'Popisek zkopírovaný – vlož ho do Instagramu'); return true; }
   if (el.hasAttribute('data-pl-popisek-novy')) { pouzijNovyPopisek(); return true; }
