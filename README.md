@@ -503,6 +503,13 @@ Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**
   ze schránky) mají přednost, STK se připomíná jen ze zadaného termínu (45 / 21 dní předem). Hotovo = odpovídající zápis
   v Náklady. Karta nahoře na stránce Auto, aktuální věci i na Dnes, do iPhonu jednou za sezónu (`upozorneniAuto_`,
   jednou denně, `OHLASENO_AUTO`).
+  **Odložit a Hotovo** (od 15. 10.): pravé tlačítko, podržení prstem nebo ⋯ u připomínky (stránka Auto i Přehled) →
+  Odložit na zítra / na týden / do… (vybraný den), Hotovo, Zrušit odložení (akce `autoPripominkaOdlozit`, vlastnost
+  `AUTO_ODLOZENE`). Odložená se ukazuje jen na stránce Auto ve sbalené sekci Odložené a ten den se vrátí – i když mezitím
+  skončilo sezónní okno (pak ještě nejvýš 21 dní nebo do zápisu v Nákladech), do iPhonu přijde ještě jednou. Hotovo ručně
+  ji schová do konce okna. **Termín v kalendáři** (událost do 30 dní s „přezutí / pneu / gumy“, „zima / ostřikovače“,
+  „servis / olej“, „STK“) = „naplánováno – po 19. 10.“ šedě jen na stránce Auto, bez upozornění; po dni události se
+  vrátí jako „teď“ (s „V kalendáři bylo …“), dokud není zápis v Nákladech nebo Hotovo.
 - **Výdaje po měsících**: souvislá řada 13 měsíců s rokem; najetí myší nebo klepnutí na sloupec (i Tab a šipky) = bublina
   „říjen 2026 · 3 450 Kč“ s rozpisem po kategoriích („Ostatní“ = vše kromě paliva). **Cena nafty**: bublina u tankování
   s datem, Kč/l, litry, částkou a stavem km.

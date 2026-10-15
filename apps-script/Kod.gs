@@ -42,7 +42,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-15.1';
+const VERZE = '2026-10-15.3';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -245,6 +245,8 @@ const AKCE = {
   autoUctenkaFoto: function (d) { return autoUctenkaFoto_(d); },
   autoPeceZapsat: function (d) { return autoPeceZapsat_(d); },
   autoTermin: function (d) { return autoTermin_(d); },
+  // připomínka „Co řešit“: odložit do dne / hotovo / zrušit odložení (Michal 15. 10.: „připomenout v půlce listopadu“)
+  autoPripominkaOdlozit: function (d) { return autoPripominkaOdlozit_(d); },
   // Knihovna (filmy, seriály, knihy, rešerše): čtení, celá rešerše, požadavek pro Clauda, můj stav / hodnocení / poznámka,
   // zrušení nevyřízeného požadavku – CLAUDE_SCHRANKA/KNIHOVNA (karty a rešerše píše jen Claude, moje.json jen motor)
   knihovna: function () { return knihovna_(); },
@@ -3960,11 +3962,93 @@ function autoDataBez_(ss) {
   };
 }
 
-/** Data auta + připomínky „Co řešit“ (sezóna, termíny z tabulky a z auta) – aplikace je ukáže na Auto a na Dnes. */
+/**
+ * Data auta + připomínky „Co řešit“ (sezóna, termíny z tabulky a z auta) – aplikace je ukáže na Auto a na Dnes.
+ * pripominky = co se ukazuje (teď, brzy, naplánováno podle kalendáře), odlozene = odložené do dne a ručně hotové
+ * (aplikace je má na stránce Auto sbalené, po vypršení odložení je sama vrátí mezi ostatní).
+ */
 function autoDataSPripominkami_(ss) {
   const d = autoDataBez_(ss);
-  d.pripominky = AUTO_.pripominky(d, Date.now());
+  const vse = autoPripominky_(d, Date.now());
+  d.pripominky = vse.filter(function (x) { return x.stav !== 'odlozeno'; });
+  d.odlozene = vse.filter(function (x) { return x.stav === 'odlozeno'; });
   return d;
+}
+
+/** Připomínky auta s odloženími (AUTO_ODLOZENE) a termíny z kalendářů – pro aplikaci i pro upozornění do iPhonu. */
+function autoPripominky_(d, ted) {
+  return AUTO_.pripominky(d, ted, { odlozene: autoOdlozene_(), udalosti: autoUdalosti_(ted) });
+}
+
+/** Odložené připomínky { klic: 'RRRR-MM-DD' (odloženo do dne) | 'hotovo:RRRR-MM-DD' (ručně hotovo, kdy) }. */
+function autoOdlozene_() {
+  try {
+    const o = JSON.parse(vlastnosti_().getProperty('AUTO_ODLOZENE') || '{}');
+    return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
+  } catch (chyba) {
+    return {};
+  }
+}
+
+/**
+ * Události z Michalových kalendářů (Google i iCloud, jako v sekci Kalendář) 21 dní zpět až měsíc dopředu – jen název
+ * a začátek: „přezutí“ v kalendáři = připomínka naplánovaná (Michal 15. 10.: „přezouvat budu v pondělí … mám to
+ * i v kalendáři“). Rozsah po celých dnech → mezipaměť kalendáře (5 min) platí pro všechna čtení auta toho dne.
+ * Chyba kalendáře auto neshodí – připomínky jsou pak jen bez termínů.
+ */
+function autoUdalosti_(ted) {
+  try {
+    const dnes = new Date(ted);
+    dnes.setHours(0, 0, 0, 0);
+    const k = nactiKalendar_(dnes.getTime() - 21 * 864e5, dnes.getTime() + 32 * 864e5);
+    return (k.udalosti || []).map(function (u) { return { nazev: String(u.nazev || '').slice(0, 80), zacatek: u.zacatek }; });
+  } catch (chyba) {
+    return [];
+  }
+}
+
+/**
+ * Akce autoPripominkaOdlozit { pripominka (klíč připomínky – pole „klic“ nese klíč motoru), do }: odložit připomínku
+ * „Co řešit“ do dne ('RRRR-MM-DD' – ten den se zase ukáže; když mezitím skončí sezónní okno, ukáže se po vypršení
+ * přesto, nejvýš 21 dní), 'hotovo' (ručně vyřízené – skryje ji do konce okna / sezóny, klíč nese rok) nebo null
+ * (zrušit odložení). → vlastnost AUTO_ODLOZENE (pod zámkem, staré
+ * záznamy pryč). Vrací data auta jako akce auto.
+ */
+function autoPripominkaOdlozit_(d) {
+  const klic = String((d && d.pripominka) || '').trim();
+  if (!/^[a-z][\w-]{1,60}$/i.test(klic)) throw new Error('Neznámá připomínka.');
+  const kam = d.do == null || d.do === '' ? null : String(d.do).trim();
+  const ted = Date.now();
+  const dnes = Utilities.formatDate(new Date(ted), CASOVE_PASMO, 'yyyy-MM-dd');
+  if (kam !== null && kam !== 'hotovo') {
+    if (AUTO_.zIso(kam) == null) throw new Error('Odložit do: datum RRRR-MM-DD.');
+    if (kam <= dnes) throw new Error('Odložit jde jen na některý z dalších dní.');
+    if (kam > Utilities.formatDate(new Date(ted + 400 * 864e5), CASOVE_PASMO, 'yyyy-MM-dd')) throw new Error('Odložit jde nejvýš o rok.');
+  }
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(10000);
+  try {
+    const o = autoOdlozene_();
+    if (kam === null) delete o[klic]; else o[klic] = kam === 'hotovo' ? 'hotovo:' + dnes : kam;
+    vlastnosti_().setProperty('AUTO_ODLOZENE', JSON.stringify(AUTO_.uklidOdlozenych(o, ted)));
+  } finally {
+    zamek.releaseLock();
+  }
+  const ss = autoTabulka_();
+  return ss ? autoData_(ss) : { nastaveno: false };
+}
+
+/** Úklid AUTO_ODLOZENE (jednou denně s upozorněními auta) – zapíše jen při změně. */
+function autoOdlozeneUklid_(ted) {
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(10000);
+  try {
+    const o = autoOdlozene_();
+    const cisty = AUTO_.uklidOdlozenych(o, ted);
+    if (JSON.stringify(cisty) !== JSON.stringify(o)) vlastnosti_().setProperty('AUTO_ODLOZENE', JSON.stringify(cisty));
+  } finally {
+    zamek.releaseLock();
+  }
 }
 
 /** Stav auta z MyŠkoda (tachometr, nádrž, dojezd, servis) – soubor AUTO/myskoda.json zapisuje domácí PC; bez polohy a VIN. */
@@ -4599,30 +4683,124 @@ const AUTO_ = (function () {
       text: 'Před létem nový pylový filtr; klimatizaci 1× za 2 roky vydezinfikovat a zkontrolovat chladivo.' }
   ];
   const DEN = 864e5, PREDEM = 30 * DEN;
+  // po vypršení odložení a po termínu z kalendáře se připomínka ukazuje ještě nejvýš 21 dní – i když sezónní okno
+  // mezitím skončilo (Michal 15. 10.: zimu „připomenout v půlce listopadu“, okno končí 15. 11.)
+  const PO_ODLOZENI = 21 * DEN;
+  // termín v kalendáři podle názvu události (bez diakritiky, malými) – které připomínce patří
+  const PNEU = /prezou|prezut|pneu|(?:^|[^a-z])gum(?:y|u)?(?:$|[^a-z])/;
+  const SERVIS = /servis|olej/;
+  const KALENDAR = { 'pneu-zimni': PNEU, 'pneu-letni': PNEU, zima: /(?:^|[^a-z])zim[aeuy](?:$|[^a-z])|ostrikova/, jaro: /klimatiz|pylov/,
+    olej: SERVIS, prohlidka: SERVIS, stk: /(?:^|[^a-z0-9])stk(?:$|[^a-z0-9])/ };
 
   function den(ms) { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); }
   function datumCz(ms) { const d = new Date(ms); return d.getDate() + '. ' + (d.getMonth() + 1) + '. ' + d.getFullYear(); }
+  /** 'RRRR-MM-DD' → půlnoc toho dne (ms), neplatné datum → null. */
+  function zIso(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+    if (!m) return null;
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    return d.getMonth() === +m[2] - 1 && d.getDate() === +m[3] ? d.getTime() : null;
+  }
+  const bezDiakritiky = function (s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); };
+
+  /** Odložení připomínky: { den, iso } (odloženo do dne), { hotovo: true } (ručně hotovo), nebo null. */
+  function odlozeni(odlozene, klic) {
+    const v = odlozene && Object.prototype.hasOwnProperty.call(odlozene, klic) ? String(odlozene[klic] || '') : '';
+    if (/^hotovo/.test(v)) return { hotovo: true };
+    const t = zIso(v);
+    return t != null ? { den: t, iso: v } : null;
+  }
+
+  /**
+   * Událost z kalendáře k připomínce: nejbližší budoucí (dnes až za 30 dní), jinak poslední proběhlá (nejvýš 21 dní
+   * zpět); { kdy, den, nazev }. od / doo omezí dny na sezónu (přezutí v říjnu nepatří k letnímu z jara).
+   */
+  function terminZKalendare(udalosti, id, dnes, od, doo) {
+    const vzor = KALENDAR[id];
+    if (!vzor || !Array.isArray(udalosti)) return null;
+    let budouci = null, minula = null;
+    udalosti.forEach(function (u) {
+      if (!u || !(u.zacatek > 0) || !vzor.test(bezDiakritiky(u.nazev))) return;
+      const d0 = den(u.zacatek);
+      if ((od != null && d0 < od) || (doo != null && d0 > doo)) return;
+      const t = { kdy: u.zacatek, den: d0, nazev: String(u.nazev || '').slice(0, 80) };
+      if (d0 >= dnes && d0 <= dnes + PREDEM) { if (!budouci || t.kdy < budouci.kdy) budouci = t; }
+      else if (d0 < dnes && d0 >= dnes - PO_ODLOZENI) { if (!minula || t.kdy > minula.kdy) minula = t; }
+    });
+    return budouci || minula;
+  }
+
+  /**
+   * Odložení a termín z kalendáře do připomínky: stav 'odlozeno' (odlozeno = 'RRRR-MM-DD' + odlozenoDo, nebo 'hotovo'),
+   * 'naplanovano' (budoucí termín v kalendáři, plan = { kdy, nazev }); stavPak = stav po vypršení / po termínu (aplikace
+   * ho použije, než přijdou nová data). Zápis v Nákladech (hotovo) má přednost. poOdlozeni = odložení vypršelo →
+   * upozornění do iPhonu ještě jednou.
+   */
+  function upravStav(x, odl, plan, dnes) {
+    if (plan) x.plan = { kdy: plan.kdy, nazev: plan.nazev };
+    if (x.hotovo) return x;
+    if (odl && odl.hotovo) { x.stavPak = x.stav; x.stav = 'odlozeno'; x.odlozeno = 'hotovo'; return x; }
+    if (odl && dnes < odl.den) { x.stavPak = x.stav; x.stav = 'odlozeno'; x.odlozeno = odl.iso; x.odlozenoDo = odl.den; return x; }
+    if (odl) x.poOdlozeni = odl.iso;
+    if (plan && plan.den >= dnes) { x.stavPak = x.stav; x.stav = 'naplanovano'; }
+    return x;
+  }
+
+  /** Úklid odložených: vypršelá déle než 30 dní (po vypršení se ukazují nejvýš 21 dní), ručně hotová po roce, nejvýš 60. */
+  function uklidOdlozenych(o, ted) {
+    const dnes = den(ted);
+    const platne = [];
+    Object.keys(o || {}).forEach(function (k) {
+      const v = String(o[k] || '');
+      const m = /^(hotovo:)?(\d{4}-\d{2}-\d{2})$/.exec(v);
+      const t = m ? zIso(m[2]) : null;
+      if (t == null || !/^[a-z][\w-]{1,60}$/i.test(k)) return;
+      if (m[1] ? t < dnes - 400 * DEN : t < dnes - 30 * DEN) return;
+      platne.push([k, v, t]);
+    });
+    const ven = {};
+    platne.sort(function (a, b) { return b[2] - a[2]; }).slice(0, 60).forEach(function (x) { ven[x[0]] = x[1]; });
+    return ven;
+  }
 
   /**
    * Připomínky k autu: sezónní okna (letos, po skončení příští rok), servis a AdBlue podle auta (MyŠkoda), výročí
-   * pojištění a konec dálniční známky z Náklady. Každá { id, klic (pro jednorázové upozornění), nazev, text, od, do,
-   * stav: 'ted' | 'brzy', hotovo }. Hotovo = v Náklady je k tomu zápis od začátku okna (−30 dní).
+   * pojištění a konec dálniční známky z Náklady. Každá { id, klic (pro jednorázové upozornění a odložení), nazev, text,
+   * od, do, stav: 'ted' | 'brzy' | 'naplanovano' | 'odlozeno', hotovo }. Hotovo = v Náklady je k tomu zápis od začátku
+   * okna (−30 dní). volby: { odlozene (AUTO_ODLOZENE), udalosti: [{ nazev, zacatek }] z kalendářů }. Sezónní připomínka
+   * po odložení nebo termínu z kalendáře za koncem okna platí ještě do konec (ms).
    */
-  function pripominky(d, ted) {
+  function pripominky(d, ted, volby) {
     const dnes = den(ted);
     const ven = [];
     const naklady = (d && d.naklady) || [];
+    const odlozene = (volby && volby.odlozene) || {};
+    const udalosti = (volby && volby.udalosti) || [];
     const zapis = function (vzor, od) {
       return naklady.some(function (z) { return z.datum != null && z.datum >= od && vzor.test([z.kategorie, z.polozka, z.poznamka].join(' ')); });
     };
     SEZONNI.forEach(function (s) {
-      let rok = new Date(dnes).getFullYear();
-      let od = new Date(rok, s.od[0] - 1, s.od[1]).getTime(), doo = new Date(rok, s.do[0] - 1, s.do[1]).getTime();
-      if (dnes > doo) { rok++; od = new Date(rok, s.od[0] - 1, s.od[1]).getTime(); doo = new Date(rok, s.do[0] - 1, s.do[1]).getTime(); }
-      if (dnes < od - PREDEM) return;
-      ven.push({ id: s.id, klic: s.id + '-' + rok, nazev: s.nazev, text: s.text, od: od, do: doo, stav: dnes >= od ? 'ted' : 'brzy',
-        hotovo: zapis(s.hotovo, od - PREDEM) });
+      // loňské okno může ještě běžet po odložení přes konec roku, jinak letošní (po skončení příští rok – až za ~11 měsíců)
+      let vybrana = null;
+      const letos = new Date(dnes).getFullYear();
+      [letos - 1, letos].forEach(function (rok) {
+        const od = new Date(rok, s.od[0] - 1, s.od[1]).getTime(), doo = new Date(rok, s.do[0] - 1, s.do[1]).getTime();
+        if (dnes < od - PREDEM) return;
+        const klic = s.id + '-' + rok;
+        const hotovo = zapis(s.hotovo, od - PREDEM);
+        const odl = odlozeni(odlozene, klic);
+        const plan = terminZKalendare(udalosti, s.id, dnes, od - PREDEM, doo + PREDEM);
+        let konec = doo;
+        if (!hotovo && odl && odl.den != null) konec = Math.max(konec, odl.den + PO_ODLOZENI);
+        if (!hotovo && plan && !(odl && odl.hotovo)) konec = Math.max(konec, plan.den + PO_ODLOZENI); // ručně hotovo = jen do konce okna
+        if (dnes > konec) return;
+        const x = { id: s.id, klic: klic, nazev: s.nazev, text: s.text, od: od, do: doo, stav: dnes >= od ? 'ted' : 'brzy', hotovo: hotovo };
+        if (konec > doo) x.konec = konec;
+        vybrana = upravStav(x, odl, plan, dnes);
+      });
+      if (vybrana) ven.push(vybrana);
     });
+    const sezonnich = ven.length;
     // servis a AdBlue podle auta
     const a = d && d.myskoda && Array.isArray(d.myskoda.auta) ? d.myskoda.auta[0] : null;
     const sv = (a && a.servis) || {};
@@ -4683,6 +4861,10 @@ const AUTO_ = (function () {
             : 'Známka platí do ' + datumCz(konec) + ' – kup novou na edalnice.cz.' });
       }
     }
+    // servis, STK, pojištění, známka: odložení podle klíče, termín v kalendáři kdykoli v nejbližším měsíci
+    for (let i = sezonnich; i < ven.length; i++) {
+      upravStav(ven[i], odlozeni(odlozene, ven[i].klic), terminZKalendare(udalosti, ven[i].id, dnes, null, null), dnes);
+    }
     return ven;
   }
 
@@ -4700,7 +4882,8 @@ const AUTO_ = (function () {
   }
 
   return { sloupce: sloupce, pismeno: pismeno, cislo: cislo, datum: datum, zapisy: zapisy, kategorie: kategorie, platili: platili,
-    volnyRadek: volnyRadek, novyZapis: novyZapis, zUctenky: zUctenky, idUctenky: idUctenky, zapisZUctenky: zapisZUctenky, pripominky: pripominky };
+    volnyRadek: volnyRadek, novyZapis: novyZapis, zUctenky: zUctenky, idUctenky: idUctenky, zapisZUctenky: zapisZUctenky, pripominky: pripominky,
+    uklidOdlozenych: uklidOdlozenych, zIso: zIso };
 })();
 
 // ---------------------------------------------------------------- Docházka dorostu (Týmuj → web dorostu → tady)
@@ -7407,7 +7590,8 @@ function upozorneniKontrola_() {
 
 /**
  * Připomínky k autu do iPhonu (jednou denně, každá jen jednou za sezónu): „začni řešit“ přezutí, přípravu na zimu,
- * servis podle auta, výročí pojištění, dálniční známku. Čte tabulku auta – proto jen jednou za den.
+ * servis podle auta, výročí pojištění, dálniční známku. Čte tabulku auta – proto jen jednou za den. Odložené
+ * a naplánované (termín v kalendáři) mlčí; po vypršení odložení přijde upozornění ještě jednou (klíč s datem odložení).
  */
 function upozorneniAuto_() {
   const p = vlastnosti_();
@@ -7419,9 +7603,15 @@ function upozorneniAuto_() {
   let ohlasene = {};
   try { ohlasene = JSON.parse(p.getProperty('OHLASENO_AUTO') || '{}') || {}; } catch (chyba) { ohlasene = {}; }
   const ted = Date.now();
-  AUTO_.pripominky(autoDataBez_(ss), ted).forEach(function (x) {
-    if (x.stav !== 'ted' || x.hotovo || ohlasene[x.klic]) return;
-    if (upozorni_('Auto: ' + x.nazev, x.text, ['red_car'], 3)) ohlasene[x.klic] = ted;
+  try { autoOdlozeneUklid_(ted); } catch (chyba) { /* zítra */ }
+  autoPripominky_(autoDataBez_(ss), ted).forEach(function (x) {
+    if (x.stav !== 'ted' || x.hotovo) return;
+    const k = x.klic + (x.poOdlozeni ? '@' + x.poOdlozeni : '');
+    if (ohlasene[k]) return;
+    if (upozorni_('Auto: ' + x.nazev, x.text, ['red_car'], 3)) {
+      ohlasene[k] = ted;
+      if (!ohlasene[x.klic]) ohlasene[x.klic] = ted; // po úklidu odložení se nemá ohlásit znovu
+    }
   });
   // staré záznamy pryč (déle než rok)
   Object.keys(ohlasene).forEach(function (k) { if (ted - ohlasene[k] > 400 * 864e5) delete ohlasene[k]; });
