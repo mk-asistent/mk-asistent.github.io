@@ -248,6 +248,8 @@ const AKCE = {
   vaha: function (d) { return vaha_(d); },
   doplnky: function (d) { return doplnky_(d); },
   pitiJidlo: function (d) { return pitiJidlo_(d); },
+  // Michalova odpověď Claudovi k jídlu (otázka z PITI_JIDLO_CLAUDE.json → odhady[id].otazka) nebo upřesnění bez otázky
+  jidloOdpoved: function (d) { return jidloOdpoved_(d); },
   upozorneni: function () { return upozorneniStav_(); },
   upozorneniZapnout: function () { return upozorneniZapnout_(); },
   upozorneniTest: function () { return { odeslano: upozorni_('Asistent', 'Zkušební upozornění ✓', ['white_check_mark'], 3) }; },
@@ -4390,7 +4392,7 @@ function autoList_(ss, druh) {
 // aplikace podle nich data načte znovu (zdraví i auto jdou přímo z motoru, kopie na serveru nemají)
 // knihovna = Michalův stav a požadavky (moje.json) z aplikace; nové karty od Clauda přidá zmenaKnihovny_ podle souborů
 const ZNACKY_ZMEN = { auto: 'AUTO_ZMENA', zdravi: 'ZDRAVI_ZMENA', knihovna: 'KNIHOVNA_ZMENA' };
-const ZAPISY_ZDRAVI = ['vaha', 'doplnky', 'pitiJidlo', 'whoopPropojit', 'whoopOdpojit'];
+const ZAPISY_ZDRAVI = ['vaha', 'doplnky', 'pitiJidlo', 'jidloOdpoved', 'whoopPropojit', 'whoopOdpojit'];
 
 /** Oblast, které se zápis týká (auto | zdravi | knihovna), nebo '' – čtení značku nemění. */
 function oblastZapisu_(akce) {
@@ -4421,13 +4423,14 @@ function zmeny_() {
     knihovna: Math.max(Number(vl.getProperty('KNIHOVNA_ZMENA') || 0), zmenaKnihovny_()) };
 }
 
-/** Kdy Claude naposledy upravil ZDRAVI/PITI_JIDLO_CLAUDE.json nebo ZDRAVI_REZIM.json (id souborů v mezipaměti 6 h, výsledek 1 min). */
+/** Kdy Claude naposledy upravil ZDRAVI/PITI_JIDLO_CLAUDE.json, ZDRAVI/JIDLA_MICHAL.json (Michalova jídla a recepty) nebo
+ *  ZDRAVI_REZIM.json (id souborů v mezipaměti 6 h, výsledek 1 min). */
 function zmenaSouboruClauda_() {
   const cache = CacheService.getScriptCache();
   const hotovo = cache.get('zmena:claude');
   if (hotovo) return Number(hotovo);
   let nejnovejsi = 0;
-  [['ZDRAVI', 'PITI_JIDLO_CLAUDE.json'], ['', 'ZDRAVI_REZIM.json']].forEach(function (x) {
+  [['ZDRAVI', 'PITI_JIDLO_CLAUDE.json'], ['ZDRAVI', 'JIDLA_MICHAL.json'], ['', 'ZDRAVI_REZIM.json']].forEach(function (x) {
     try {
       const klic = 'id:' + x[1];
       let soubor = null;
@@ -6997,9 +7000,12 @@ function zdravi_(znovu) {
     if (chybaSync) p.whoop.sync.chyba = chybaSync;
     p.rezim = zdraviRezim_();
     p.vaha = nactiVahu_(slozka).zaznamy;
-    const claude = nactiJson_(slozka, 'PITI_JIDLO_CLAUDE.json').data || {};
+    const cj = nactiJson_(slozka, 'PITI_JIDLO_CLAUDE.json');
+    const claude = cj.data || {};
     p.doplnky = spojDoplnky_(nactiDoplnky_(slozka).dny, claude);
-    p.pitiJidlo = pitiJidloDny_(slozka, 14, claude);
+    p.pitiJidlo = pitiJidloDny_(slozka, 14, claude, casSouboru_(cj.soubor));
+    // Michalova jídla a recepty, které se Claude naučil (místní odhad v aplikaci je bere přednostně – js/jidlo_odhad.js)
+    p.jidlaMichal = jidlaMichal_(slozka);
     p.tydenni = posledniTydenni_(claude, ted); // týdenní shrnutí od Clauda (karta ve Zdraví)
     if (!chybaSync) ulozDoCache_(klic, p, 1800);
   }
@@ -7147,28 +7153,33 @@ function nactiJson_(slozka, nazev) {
  * Jídlo z aplikace s místním odhadem (odhad: 'mistni') dostane Claudův odhad z PITI_JIDLO_CLAUDE.json → odhady[id]
  * (odhad: 'claude' – podle id, takže sedí i po přesunu na jiný den); hodnocení dne od Clauda → hodnoceni[den] = { znamka, text, kdy },
  * se „stare: true“, když se den od hodnocení zpětně změnil (Claude ho přehodnotí). Claudovy zápisy přesunuté v aplikaci
- * („presunute“) jsou v novém dni.
+ * („presunute“) jsou v novém dni. U každého jídla i Claudova otázka a Michalova odpověď (claudovoKJidlu_). claudeKdy = kdy Claude
+ * naposledy upravil svůj soubor (náhrada za chybějící „kdy“ u jeho odhadu nebo otázky).
  */
-function pitiJidloDny_(slozka, dni, claudeData) {
+function pitiJidloDny_(slozka, dni, claudeData, claudeKdy) {
   const vlastni = nactiJson_(slozka, 'PITI_JIDLO.json').data || {};
-  const claude = claudeData || nactiJson_(slozka, 'PITI_JIDLO_CLAUDE.json').data || {};
+  let claude = claudeData, souborKdy = Number(claudeKdy) || 0;
+  if (!claude) {
+    const cj = nactiJson_(slozka, 'PITI_JIDLO_CLAUDE.json');
+    claude = cj.data || {};
+    souborKdy = casSouboru_(cj.soubor);
+  }
   const odhady = claude.odhady && typeof claude.odhady === 'object' ? claude.odhady : {};
   const presunute = vlastni.presunute && typeof vlastni.presunute === 'object' ? vlastni.presunute : {};
   const zmeneno = vlastni.zmeneno && typeof vlastni.zmeneno === 'object' ? vlastni.zmeneno : {};
+  const odpovedi = vlastni.odpovedi && typeof vlastni.odpovedi === 'object' ? vlastni.odpovedi : {}; // k Claudovým zápisům z diktátu
   const smazane = {};
   (Array.isArray(vlastni.smazane) ? vlastni.smazane : []).forEach(function (id) { smazane[id] = true; });
   const hranice = Utilities.formatDate(new Date(Date.now() - (dni - 1) * 864e5), CASOVE_PASMO, 'yyyy-MM-dd');
   const dny = {};
   const den = function (d) { return (dny[d] = dny[d] || { piti: [], jidlo: [] }); };
-  const cislo = function (x, max) { return Math.max(0, Math.min(max, Math.round(Number(x) || 0))); };
   Object.keys(vlastni.dny || {}).forEach(function (d) {
     if (d < hranice) return;
     const z = vlastni.dny[d] || {};
     (z.piti || []).forEach(function (x) { den(d).piti.push(x); });
     (z.jidlo || []).forEach(function (x) {
-      const o = x && x.id && odhady[x.id];
-      den(d).jidlo.push(o && typeof o === 'object' ? Object.assign({}, x, { bilkoviny: cislo(o.bilkoviny, 300), kcal: cislo(o.kcal, 5000), odhad: 'claude',
-        poznamka: String(o.poznamka || '').slice(0, 160) }) : x);
+      if (!x || typeof x !== 'object') return;
+      den(d).jidlo.push(claudovoKJidlu_(x, x.id ? odhady[x.id] : null, x.odpoved, souborKdy, false));
     });
   });
   const hodnoceni = claude.hodnoceni && typeof claude.hodnoceni === 'object' ? claude.hodnoceni : {};
@@ -7187,8 +7198,9 @@ function pitiJidloDny_(slozka, dni, claudeData) {
     if (x.druh === 'piti' && Number(x.ml) > 0 && Number(x.ml) <= 3000) {
       den(d).piti.push({ id: String(x.id), kdy: kdy, ml: Math.round(Number(x.ml)), co: String(x.co || '').slice(0, 60), claude: true });
     } else if (x.druh === 'jidlo' && x.co) {
-      den(d).jidlo.push({ id: String(x.id), kdy: kdy, co: String(x.co).slice(0, 120), bilkoviny: Math.max(0, Math.min(300, Math.round(Number(x.bilkoviny) || 0))),
-        kcal: Math.max(0, Math.min(5000, Math.round(Number(x.kcal) || 0))), claude: true });
+      const j = { id: String(x.id), kdy: kdy, co: String(x.co).slice(0, 120), bilkoviny: cisloJidla_(x.bilkoviny, 300), kcal: cisloJidla_(x.kcal, 5000), claude: true };
+      if (x.poznamka) j.poznamka = String(x.poznamka).slice(0, 160);
+      den(d).jidlo.push(claudovoKJidlu_(j, odhady[j.id], odpovedi[j.id], souborKdy, true));
     }
   });
   Object.keys(dny).forEach(function (d) {
@@ -7196,6 +7208,152 @@ function pitiJidloDny_(slozka, dni, claudeData) {
     dny[d].jidlo.sort(function (a, b) { return (a.kdy || 0) - (b.kdy || 0); });
   });
   return dny;
+}
+
+const cisloJidla_ = function (x, max) { return Math.max(0, Math.min(max, Math.round(Number(x) || 0))); };
+
+/** Kdy se soubor na Disku naposledy změnil (ms), bez souboru 0. */
+function casSouboru_(soubor) {
+  try { return soubor ? soubor.getLastUpdated().getTime() : 0; } catch (chyba) { return 0; }
+}
+
+/**
+ * Jídlo pro aplikaci s tím, co k němu řekl Claude a Michal (Michal 16. 10.: „chci, aby se jídlo vždy probralo s tebou, abys to
+ * zkontroloval … a nebylo to jen přednastavené věci“). o = PITI_JIDLO_CLAUDE.json → odhady[id] { bilkoviny, kcal, poznamka, kdy,
+ * otazka: { text, moznosti, kdy } }, odpoved = Michalova poslední odpověď { text, kdy, otazka } (píše jen motor – jidloOdpoved_).
+ * Vrací kopii jídla: Claudova čísla (u jídla z aplikace odhad: 'claude'), poznamka (rozpad), otazka – jen dokud na ni Michal
+ * neodpověděl, odpoved a prepocet: true = Michal odpověděl (nebo upřesnil) po posledním Claudově zápisu k jídlu → Claude přepočítá.
+ * Čas Claudova zápisu: „kdy“ u odhadu / otázky, jinak kdy naposledy upravil svůj soubor (souborKdy) – zapomenuté „kdy“ tak
+ * nenechá jídlo navždy „přepočítá“. Jídlo bez Claudova zápisu s odpovědí čeká na přepočet vždy.
+ */
+function claudovoKJidlu_(x, o, odpoved, souborKdy, zDiktatu) {
+  const j = Object.assign({}, x);
+  delete j.otazka; delete j.prepocet; delete j.odpoved;
+  const zapsal = o && typeof o === 'object';
+  const kdyClauda = zapsal ? (Date.parse(o.kdy) || souborKdy || 0) : 0;
+  if (zapsal) {
+    if (o.bilkoviny != null && o.bilkoviny !== '' && isFinite(Number(o.bilkoviny))) {
+      j.bilkoviny = cisloJidla_(o.bilkoviny, 300);
+      if (o.kcal != null && o.kcal !== '') j.kcal = cisloJidla_(o.kcal, 5000);
+      if (!zDiktatu) j.odhad = 'claude';
+    }
+    if (o.poznamka) j.poznamka = String(o.poznamka).slice(0, 160);
+  }
+  const q = zapsal && o.otazka && typeof o.otazka === 'object' && String(o.otazka.text || '').trim() ? {
+    text: String(o.otazka.text).replace(/\s+/g, ' ').trim().slice(0, 200),
+    moznosti: (Array.isArray(o.otazka.moznosti) ? o.otazka.moznosti : []).map(function (m) { return String(m == null ? '' : m).replace(/\s+/g, ' ').trim().slice(0, 40); })
+      .filter(function (m) { return m; }).slice(0, 6),
+    kdy: Date.parse(o.otazka.kdy) || kdyClauda
+  } : null;
+  const a = odpoved && typeof odpoved === 'object' && String(odpoved.text || '').trim() ? {
+    text: String(odpoved.text).slice(0, 300), kdy: Number(odpoved.kdy) || 0, otazka: String(odpoved.otazka || '').slice(0, 200)
+  } : null;
+  if (a) j.odpoved = a;
+  if (q && (!a || q.kdy > a.kdy)) j.otazka = q;
+  else if (a && a.kdy > Math.max(kdyClauda, q ? q.kdy : 0)) j.prepocet = true;
+  return j;
+}
+
+/**
+ * Akce jidloOdpoved { id, text }: Michalova odpověď na Claudovu otázku k jídlu (čip s možností nebo vlastní slova), nebo upřesnění
+ * bez otázky („byla to ¾ krabičky“). Uloží se k jídlu do PITI_JIDLO.json (vlastní zápis: jidlo.odpoved { text, kdy, otazka };
+ * Claudův zápis z diktátu: odpovedi[id] – jeho soubor motor nemění) a Claude dostane poznámku …_jidl.md s otázkou i odpovědí →
+ * přepočítá, otázku smaže (nebo položí další) a naučené zapíše do ZDRAVI/JIDLA_MICHAL.json. Vrací { dny } jako pitiJidlo.
+ */
+function jidloOdpoved_(d) {
+  const id = String(d.id || '');
+  if (!/^[\w-]{1,80}$/.test(id)) throw new Error('Jídlo už není – obnov stránku.');
+  const text = String(d.text || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  if (!text) throw new Error('Napiš odpověď.');
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(30000);
+  try {
+    const ted = Date.now();
+    const slozka = slozkaZdravi_();
+    const v = nactiJson_(slozka, 'PITI_JIDLO.json');
+    const data = v.data && typeof v.data === 'object' ? v.data : {};
+    data.dny = data.dny && typeof data.dny === 'object' ? data.dny : {};
+    data.odpovedi = data.odpovedi && typeof data.odpovedi === 'object' ? data.odpovedi : {};
+    const cj = nactiJson_(slozka, 'PITI_JIDLO_CLAUDE.json');
+    const claude = cj.data || {};
+    const o = claude.odhady && typeof claude.odhady === 'object' && claude.odhady[id] && typeof claude.odhady[id] === 'object' ? claude.odhady[id] : null;
+    let zapis = null, den = '';
+    const kde = /^c-/.test(id) ? null : najdiZapisPiti_(data.dny, id, '');
+    if (kde && kde.druh === 'jidlo') {
+      zapis = data.dny[kde.den].jidlo[kde.i];
+      den = kde.den;
+    } else if (/^c-/.test(id) && (Array.isArray(data.smazane) ? data.smazane : []).indexOf(id) < 0) {
+      const x = (Array.isArray(claude.zapisy) ? claude.zapisy : []).filter(function (z) { return z && String(z.id) === id && z.druh === 'jidlo'; })[0];
+      if (x) {
+        zapis = { id: id, co: String(x.co || ''), bilkoviny: x.bilkoviny, kcal: x.kcal };
+        den = /^\d{4}-\d{2}-\d{2}$/.test(String((data.presunute || {})[id] || '')) ? data.presunute[id] : String(x.den || '');
+      }
+    }
+    if (!zapis) throw new Error('Jídlo už není – obnov stránku.');
+    // na kterou otázku odpovídá: ta, která ještě visí (stejné pravidlo jako v aplikaci – claudovoKJidlu_)
+    const pred = claudovoKJidlu_(zapis, o, /^c-/.test(id) ? data.odpovedi[id] : zapis.odpoved, casSouboru_(cj.soubor), /^c-/.test(id));
+    const odpoved = { text: text, kdy: ted, otazka: pred.otazka ? pred.otazka.text : '' };
+    if (/^c-/.test(id)) data.odpovedi[id] = odpoved; else zapis.odpoved = odpoved;
+    // odpovědi k zápisům z diktátu starší než PITI_JIDLO_DNI pryč (jídla už aplikace neukazuje)
+    Object.keys(data.odpovedi).forEach(function (k) { if (!(Number((data.odpovedi[k] || {}).kdy) > ted - PITI_JIDLO_DNI * 864e5)) delete data.odpovedi[k]; });
+    data.aktualizovano = ted;
+    const obsah = JSON.stringify(data);
+    if (v.soubor) v.soubor.setContent(obsah); else slozka.createFile('PITI_JIDLO.json', obsah, MimeType.PLAIN_TEXT);
+    try {
+      poznamkaKJidlu_('- id ' + id + ', ' + den + ': „' + String(zapis.co).slice(0, 300) + '“ – ' +
+        (odpoved.otazka ? 'ptal ses: „' + odpoved.otazka + '“ → Michal odpověděl: „' + text + '“' : 'Michal upřesnil: „' + text + '“') +
+        ' (teď ' + (pred.bilkoviny || 0) + ' g bílkovin, ' + (pred.kcal || 0) + ' kcal – ' + (pred.odhad === 'claude' || /^c-/.test(id) ? 'tvůj odhad' : 'odhad aplikace') + ')');
+    } catch (chyba) { /* odpověď je uložená; poznámka pro Clauda vznikne s dalším jídlem */ }
+    return { dny: pitiJidloDny_(slozka, 14) };
+  } finally {
+    zamek.releaseLock();
+  }
+}
+
+// ---- Michalova jídla a recepty: CLAUDE_SCHRANKA/ZDRAVI/JIDLA_MICHAL.json – píše jen Claude (skill asistent-schranka, Jídlo
+// k odhadu), když se od Michala něco naučí (jeho recept, porce, nádoba). Motor ho jen čte a posílá se Zdravím; aplikace ho dává
+// místnímu odhadu přednostně (js/jidlo_odhad.js). Jen na Disku – do repa nepatří (ukázka má vymyšlené položky).
+// { polozky: [{ id, nazev, vzory: [text], jednotka, porce, g, bilkoviny, kcal, nadoba, pozn } | { id, nazev, typ: 'nadoba', vzory, ml, g, pozn }] }
+// g, bilkoviny a kcal platí pro „porce“ jednotek (výchozí 1 – např. 1 krajíc), nadoba = id nádoby, ve které se jídlo nosí.
+const JIDLA_MICHAL_MAX = 200;
+
+function jidlaMichal_(slozka) {
+  return vycistiJidlaMichal_(nactiJson_(slozka, 'JIDLA_MICHAL.json').data);
+}
+
+/** Jen platné položky a známá pole (Claude píše soubor ručně – překlep nesmí rozbít Zdraví). */
+function vycistiJidlaMichal_(data) {
+  const polozky = data && Array.isArray(data.polozky) ? data.polozky : [];
+  const text = function (x, max) { return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, max); };
+  const cislo = function (x, max) { const n = Number(x); return isFinite(n) && n > 0 ? Math.min(max, Math.round(n * 100) / 100) : 0; };
+  const ven = [];
+  const ids = {};
+  polozky.forEach(function (p) {
+    if (!p || typeof p !== 'object' || ven.length >= JIDLA_MICHAL_MAX) return;
+    const id = String(p.id || '');
+    if (!/^[\w-]{1,40}$/.test(id) || ids[id]) return;
+    const nadoba = p.typ === 'nadoba';
+    const x = { id: id, nazev: text(p.nazev, 80), vzory: (Array.isArray(p.vzory) ? p.vzory : []).map(function (v) { return text(v, 60); }).filter(Boolean).slice(0, 12) };
+    if (!x.nazev && !x.vzory.length) return;
+    if (nadoba) {
+      x.typ = 'nadoba';
+      x.ml = cislo(p.ml, 5000);
+      if (cislo(p.g, 5000)) x.g = cislo(p.g, 5000);
+      if (!x.ml && !x.g) return;
+    } else {
+      x.jednotka = text(p.jednotka, 20);
+      x.porce = cislo(p.porce, 20) || 1;
+      x.g = cislo(p.g, 5000);
+      x.bilkoviny = cislo(p.bilkoviny, 300);
+      x.kcal = cislo(p.kcal, 5000);
+      if (!x.kcal && !x.bilkoviny) return;
+      if (p.nadoba && /^[\w-]{1,40}$/.test(String(p.nadoba))) x.nadoba = String(p.nadoba);
+    }
+    if (p.pozn) x.pozn = text(p.pozn, 200);
+    ids[id] = true;
+    ven.push(x);
+  });
+  return { polozky: ven, aktualizovano: data && data.aktualizovano ? text(data.aktualizovano, 40) : '' };
 }
 
 /**
@@ -7357,11 +7515,18 @@ const SKRYTE_POZNAMKY = /_(jidl|hodn|plak|tyden|knih|reel)\.md$/;
 
 /** Jídlo s místním odhadem → řádek do poznámky „jídlo k odhadu“ v NOVE (jedna, dokud ji Claude nezpracuje, pak další). */
 function jidloKOdhadu_(den, zapis) {
-  const nove = podslozka_(koren_(), 'NOVE');
   // jídlo zapsané zpětně (k uplynulému dni) – den jídla a zvlášť, kdy se zapsalo
   const zapsano = Utilities.formatDate(new Date(zapis.kdy), CASOVE_PASMO, 'yyyy-MM-dd HH:mm');
-  const radek = '- id ' + zapis.id + ', ' + (zapsano.slice(0, 10) === den ? zapsano : den + ' (zapsáno ' + zapsano + ')') + ': „' + zapis.co + '“' +
-    (zapis.bilkoviny || zapis.kcal ? ' (aplikace odhadla ' + zapis.bilkoviny + ' g bílkovin, ' + zapis.kcal + ' kcal)' : '');
+  poznamkaKJidlu_('- id ' + zapis.id + ', ' + (zapsano.slice(0, 10) === den ? zapsano : den + ' (zapsáno ' + zapsano + ')') + ': „' + zapis.co + '“' +
+    (zapis.bilkoviny || zapis.kcal ? ' (aplikace odhadla ' + zapis.bilkoviny + ' g bílkovin, ' + zapis.kcal + ' kcal)' : ''));
+}
+
+/**
+ * Řádek do Claudovy poznámky k jídlu (…_jidl.md v NOVE): jídla k odhadu i Michalovy odpovědi na otázky – jedna poznámka, dokud
+ * ji Claude nezpracuje, další řádky se připíšou do ní. Michal 16. 10.: jídlo se má vždy probrat s Claudem, ne jen tabulkou.
+ */
+function poznamkaKJidlu_(radek) {
+  const nove = podslozka_(koren_(), 'NOVE');
   const it = nove.getFiles();
   while (it.hasNext()) {
     const f = it.next();
@@ -7373,8 +7538,11 @@ function jidloKOdhadu_(den, zapis) {
   nove.createFile(Utilities.formatDate(ted, CASOVE_PASMO, 'yyyy-MM-dd_HHmmss') + '_jidl.md', ['---',
     'kdy: ' + Utilities.formatDate(ted, CASOVE_PASMO, "yyyy-MM-dd'T'HH:mm:ssXXX"),
     'odkud: aplikace (jídlo)', 'typ: jidlo', '---', '',
-    'Odhadni bílkoviny a kcal jídel, která Michal zapsal v aplikaci bez bílkovin, a zapiš je do ZDRAVI\\PITI_JIDLO_CLAUDE.json → ' +
-    '„odhady“ (skill asistent-schranka, Jídlo k odhadu). Vezmi i starší jídla s „odhad: mistni“ bez odhadu, ať žádné nezůstane.',
+    'Projdi Michalova jídla níž a zapiš odhad do ZDRAVI\\PITI_JIDLO_CLAUDE.json → „odhady“ (skill asistent-schranka, Jídlo k odhadu): ' +
+    'nejdřív jeho jídla a recepty v ZDRAVI\\JIDLA_MICHAL.json, „poznamka“ vždy s rozpadem, „kdy“ = teď. Nejasné množství nebo ' +
+    'složení → nejlepší odhad a k tomu otázka („otazka“ s 2–4 možnostmi), nic nepředpokládej potichu. Řádek s odpovědí = Michal ' +
+    'odpověděl: přepočítej, otázku smaž (nebo polož další) a naučené zapiš do JIDLA_MICHAL.json. Vezmi i starší jídla ' +
+    's „odhad: mistni“ bez odhadu, ať žádné nezůstane.',
     '', radek, ''].join('\n'), MimeType.PLAIN_TEXT);
 }
 

@@ -87,7 +87,8 @@ Jen akce, které aplikace už má – mazání se ptá nebo má v oznámení Vr�
   k zápasu (Plakáty na tom víkendu), Přidat do kalendáře… (předvyplněný formulář, jen tým, který se do kalendáře nepřidává sám),
   Navigovat (venku); řádek tabulky: Kopírovat řádek / celou tabulku.
 - **Zdraví** – doplněk: Odškrtnout / Zrušit dnes, včera (ukázaný den), všechny hlavní naráz (oznámení s Vrátit); jídlo:
-  Zopakovat dnes, Přesunout na jiný den…, Kopírovat, Smazat; den v týdnu Pití a jídlo: +0,25 / +0,5 l a jídlo k tomu dni;
+  Zopakovat dnes, Upřesnit pro Clauda… (Odpovědět Claudovi…, když se ptá), Přesunout na jiný den…, Kopírovat, Smazat; den
+  v týdnu Pití a jídlo: +0,25 / +0,5 l a jídlo k tomu dni;
   doplňky v pásku týdne: odškrtnout vše; váha: Kopírovat, Smazat zápis.
 - **Auto** – zápis: Upravit, Zopakovat tankování (stejná cena za litr a stanice) / výdaj, Fotka účtenky, Kopírovat, Smazat jen
   u posledního zápisu listu (motor jinak nesmí).
@@ -385,6 +386,15 @@ přibližná poloha mimo domov má „≈“ a v detailu radu (iPhone: Polohové
     → motor zapíše jídlo s `odhad: 'mistni'` (v kartě „≈“) a do schránky poznámku pro Clauda `…_jidl.md` (`typ: jidlo`,
     aplikace ji neukazuje); Claude (úloha schránky na obou PC, skill `asistent-schranka`) zapíše upřesnění do
     `ZDRAVI/PITI_JIDLO_CLAUDE.json` → `odhady[id]` (v kartě štítek „Claude“). Bílkoviny vím přesně = bez Clauda.
+  - **Jídlo probrané s Claudem** (Michal 16. 10.: „chci, aby se jídlo vždy probralo s tebou … a nebylo to jen přednastavené
+    věci“, motor 2026-10-16.2): u každého jídla čip, kdo ho prošel – *odhad aplikace · Claude zkontroluje* → *✓ Claude*
+    (vyjetá karta s rozpadem z `poznamka`) → *❓ Claude se ptá* (Claude zapíše `odhady[id].otazka { text, moznosti, kdy }`;
+    pod jídlem čipy možností a pole) → *Odpověděl jsi: … · Claude přepočítá*; *tvoje čísla* = bílkoviny zadané ručně.
+    Odpověď (i bez otázky – „Upřesnit pro Clauda…“ v nabídce jídla a v kartě) = akce `jidloOdpoved { id, text }`: motor ji
+    uloží k jídlu (`odpoved { text, kdy, otazka }`, k zápisu z diktátu do `odpovedi[id]`) a připíše Claudovi řádek do
+    poznámky `…_jidl.md`; Claude přepočítá, otázku smaže a naučené zapíše do **`ZDRAVI/JIDLA_MICHAL.json`** (jen Claude;
+    Michalova jídla, recepty a nádoby – motor ho posílá se Zdravím jako `jidlaMichal`). Místní odhad bere Michalovy položky
+    přednostně (v okně štítek „tvůj recept“) a nádoby jako jednotku („¾ krabičky rýže“). Soubor jen na Disku, ukázka vymyšlená.
   - **Hodnocení dne:** spouštěč motoru po 21:30 (jen když se jedlo nebo pilo) dá Claudovi poznámku `…_hodn.md` → Claude
     zapíše `hodnoceni[den] = { znamka A–E, text }` (strava, voda, šetrně pohyb); karta ho ukáže večer
     a ráno ještě za včerejšek.

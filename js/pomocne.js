@@ -174,3 +174,32 @@ export const uloziste = {
     try { return Object.keys(localStorage).filter((k) => k.indexOf(predpona) === 0); } catch (e) { return []; }
   }
 };
+
+/**
+ * innerHTML, ale pole, do kterého se právě píše ([data-pole] – popisek reelu, účty, čas, odpověď Claudovi u jídla), zůstane: všechno kolem něj se vymění
+ * za nové uzly po patrech od pole až ke kořeni, pole samo ne (jeho hodnotu drží ed / f). iPhone by jinak zavřel klávesnici
+ * a kurzor by skočil.
+ */
+export function prepisSPolem(el, h) {
+  const a = document.activeElement;
+  const pole = a && a.matches && a.matches('[data-pole]') && el.contains(a) ? a : null;
+  const sablona = document.createElement('template');
+  sablona.innerHTML = h;
+  const nove = pole && sablona.content.querySelector('[data-pole="' + CSS.escape(pole.dataset.pole) + '"]');
+  if (!nove || nove.tagName !== pole.tagName) { el.innerHTML = h; return; }
+  let s = pole, n = nove;
+  while (s !== el && s.parentNode && n.parentNode) {
+    const sp = s.parentNode, np = n.parentNode;
+    const deti = Array.from(np.childNodes);
+    const i = deti.indexOf(n);
+    Array.from(sp.childNodes).forEach((c) => { if (c !== s) sp.removeChild(c); });
+    deti.slice(0, i).forEach((c) => sp.insertBefore(c, s));
+    deti.slice(i + 1).forEach((c) => sp.appendChild(c));
+    if (sp !== el && np.nodeType === 1) {
+      Array.from(sp.attributes).forEach((x) => { if (!np.hasAttribute(x.name)) sp.removeAttribute(x.name); });
+      Array.from(np.attributes).forEach((x) => sp.setAttribute(x.name, x.value));
+    }
+    s = sp;
+    n = np;
+  }
+}

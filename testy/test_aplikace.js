@@ -142,7 +142,7 @@ const motor = {
         zatez: { probiha: true, zatez: 6.2, kroky: 4000 } } }],
     treninky: [{ id: 'w1', den: iso(ted), start: den(0, 9), konec: den(0, 10), sport: 'soccer', zatez: 11.5, tepPrumer: 140, tepMax: 180, kcal: 700, zony: [1, 5, 20, 20, 10, 4] }],
     whoop: { nastaveno: true, propojeno: true, sync: { kdy: ted, chyba: '' } }, apple: { kdy: ted }, vaha: vahaZaznamy.slice(), doplnky: JSON.parse(JSON.stringify(doplnkyDny)),
-    pitiJidlo: JSON.parse(JSON.stringify(pitiDny)), tydenni: tydenniMock ? JSON.parse(JSON.stringify(tydenniMock)) : null,
+    pitiJidlo: JSON.parse(JSON.stringify(pitiDny)), tydenni: tydenniMock ? JSON.parse(JSON.stringify(tydenniMock)) : null, jidlaMichal: JSON.parse(JSON.stringify(jidlaMichalMock)),
     rezim: { kofeinDo: '14:00', treninkDny: [], zapasTymy: ['A'], hlavni: rezimHlavni || undefined, cilVahy: { kg: 70, do: iso(den(150)), od: { kg: 74, den: iso(den(-10)) } }, polozky: [{ id: 'kreatin', nazev: 'Kreatin', davka: '5 g', kdy: 'rano' },
       { id: 'kofein', nazev: 'Kofein', davka: 'před výkopem', kdy: 'zapas', jen: 'zapas' }, { id: 'horcik', nazev: 'Hořčík', davka: 'večer', kdy: 'vecer' }] } }),
   zdraviKlic: () => ({ klic: 'testovaci-klic-zdravi' }),
@@ -160,6 +160,17 @@ const motor = {
       if (!n && d.jak === 'presun') throw new Error('Zápis už není – obnov stránku.');
       if (n) { const x = pitiDny[n.k][n.druh].splice(n.i, 1)[0]; if (d.jak === 'presun') zDne(d.den)[n.druh].push(x); }
     }
+    return { dny: JSON.parse(JSON.stringify(pitiDny)) };
+  },
+  // jako motor 2026-10-16.2: odpověď Claudovi k jídlu (čip, pole, Upřesnit) → odpoved k jídlu, „Claude přepočítá“
+  jidloOdpoved: (d) => {
+    let j = null;
+    Object.keys(pitiDny).forEach((k) => (pitiDny[k].jidlo || []).forEach((x) => { if (x.id === d.id) j = x; }));
+    if (!j) throw new Error('Jídlo už není – obnov stránku.');
+    if (!String(d.text || '').trim()) throw new Error('Napiš odpověď.');
+    j.odpoved = { text: d.text, kdy: Date.now(), otazka: j.otazka ? j.otazka.text : '' };
+    delete j.otazka;
+    j.prepocet = true;
     return { dny: JSON.parse(JSON.stringify(pitiDny)) };
   },
   doplnky: (d) => {
@@ -449,6 +460,7 @@ let postaNavic = {};              // test záložek: aktualizace v Doručené, �
 const doplnkyDny = {}, doplnkyVolani = []; // odškrtnuté doplňky (motor: ZDRAVI/DOPLNKY.json)
 let jmeninyOblibeni = [];          // oblíbení lidé (jmeniny v kalendáři)
 const pitiDny = {}, pitiVolani = []; // pití a jídlo (motor: ZDRAVI/PITI_JIDLO.json)
+let jidlaMichalMock = { polozky: [] }; // Michalova jídla a recepty (motor: zdravi.jidlaMichal ze ZDRAVI/JIDLA_MICHAL.json – píše Claude)
 let rezimHlavni = null;             // hlavní doplňky v režimu (ZDRAVI_REZIM.json → hlavni); null = počítá se vše
 let tydenniMock = null;             // týdenní shrnutí od Clauda (motor: zdravi.tydenni)
 const postaPresuny = [], postaPrecteno = [];
@@ -3643,6 +3655,101 @@ function vychoziVikendTestu() {
     await ctx.close();
     delete pitiDny[dnes];
   });
+
+  // ---------- jídlo probrané s Claudem (Michal 16. 10.: „chci, aby se jídlo vždy probralo s tebou, abys to zkontroloval … a nebylo to
+  // jen přednastavené věci“): stav u každého jídla, Claude se ptá → odpověď čipem i polem, Upřesnit, odhad z Michalovy položky
+  for (const v of [VELIKOSTI[3], VELIKOSTI[0]]) {
+    await test(v.nazev + ': jídlo s Claudem – čipy stavu, karta s rozpadem, otázka → odpověď čipem i polem (hned „Odpověděl jsi“), Upřesnit, odhad z Michalovy položky', async () => {
+      const zaloha = JSON.parse(JSON.stringify(pitiDny));
+      const dnesIso = iso(ted);
+      Object.keys(pitiDny).forEach((k) => delete pitiDny[k]);
+      pitiDny[dnesIso] = { piti: [], jidlo: [
+        { id: 'jc-1', kdy: den(0, 7), co: 'Kuskus', bilkoviny: 8, kcal: 300, odhad: 'mistni' },
+        { id: 'jc-2', kdy: den(0, 7.2), co: 'Rizoto s kuřetem', bilkoviny: 34, kcal: 640, odhad: 'claude', poznamka: 'rizoto ~350 g ~21 g, kuře ~60 g ~13 g' },
+        { id: 'jc-3', kdy: den(0, 7.4), co: 'Buchta', bilkoviny: 12, kcal: 450, odhad: 'claude', poznamka: 'buchta ~150 g',
+          otazka: { text: 'Jaká to byla buchta?', moznosti: ['tvarohová', 's mákem'], kdy: den(0, 7.5) } },
+        { id: 'jc-4', kdy: den(0, 7.6), co: 'Polévka', bilkoviny: 6, kcal: 150, odhad: 'claude', otazka: { text: 'Kolik talířů?', moznosti: [], kdy: den(0, 7.7) } },
+        { id: 'jc-5', kdy: den(0, 7.8), co: 'Tvaroh', bilkoviny: 30, kcal: 250 }] };
+      jidlaMichalMock = { polozky: [{ id: 'box', nazev: 'Box na oběd', typ: 'nadoba', vzory: ['box'], ml: 800 },
+        { id: 'kuskus_cizrna', nazev: 'Kuskus s cizrnou', vzory: ['kuskus s cizrnou'], jednotka: 'box', nadoba: 'box', porce: 0.5, g: 350, bilkoviny: 20, kcal: 480 }] };
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, v, v.dotyk ? 'dark' : 'light');
+      const K = '#dl-piti ', R = (id) => K + '[data-jidlo-zapis="' + id + '"] ';
+      const cip = (id) => page.textContent(R(id) + '.jidlo-stav');
+      try {
+        await page.goto(WEB);
+        await page.waitForSelector(R('jc-3') + '.jidlo-otazka');
+        const cipy = [await cip('jc-1'), await cip('jc-2'), await cip('jc-3'), await cip('jc-5')];
+        jistota(cipy.join('|') === 'odhad aplikace · Claude zkontroluje|✓ Claude|❓ Claude se ptá|tvoje čísla', 'čipy stavu: ' + cipy.join('|'));
+        jistota(/Claude se ptá: Jaká to byla buchta\?/.test(await page.textContent(R('jc-3') + '.jidlo-otazka')) &&
+          await page.locator(R('jc-3') + '[data-jidlo-moznost]').count() === 2, 'otázka s možnostmi u jídla');
+        jistota(await page.locator(R('jc-1') + '.jidlo-otazka').count() === 0, 'bez otázky žádný blok');
+        await page.locator('#dl-piti').screenshot({ path: path.join(VYSTUP, v.nazev + '_jidlo_claude.png') });
+        // karta „✓ Claude“ s rozpadem (myš najetím, dotyk klepnutím)
+        if (v.dotyk) await page.tap(R('jc-2') + '.jidlo-stav'); else await page.hover(R('jc-2') + '.jidlo-stav');
+        await page.waitForSelector('#bublina-karta.videt[data-druh="jidlo"]');
+        const k = (await page.textContent('#bublina-karta')).replace(/\s+/g, ' ');
+        jistota(/Rizoto s kuřetem/.test(k) && /rizoto ~350 g ~21 g/.test(k) && /kuře ~60 g ~13 g/.test(k) && /34 g bílkovin/.test(k) && /Upřesnit pro Clauda/.test(k), 'karta s rozpadem: ' + k);
+        await page.waitForTimeout(220);
+        await page.screenshot({ path: path.join(VYSTUP, v.nazev + '_jidlo_karta.png') });
+        if (v.dotyk) await page.tap(R('jc-2') + '.jidlo-stav'); else await page.mouse.move(2, 2);
+        await page.waitForSelector('#bublina-karta', { state: 'hidden' });
+        // odpověď čipem možnosti → hned „Odpověděl jsi“, motor dostane id a text
+        let pred = volano.length;
+        await page.click(R('jc-3') + '[data-jidlo-moznost][data-text="tvarohová"]');
+        await page.waitForFunction((s) => /Odpověděl jsi: „tvarohová“ · Claude přepočítá/.test(document.querySelector(s).textContent), R('jc-3'));
+        jistota(await cip('jc-3') === 'Claude přepočítá' && await page.locator(R('jc-3') + '.jidlo-otazka').count() === 0, 'stav po odpovědi');
+        await cekej(() => volano.slice(pred).some((d) => d.akce === 'jidloOdpoved' && d.id === 'jc-3' && d.text === 'tvarohová'), 4000, 'odpověď do motoru');
+        // vlastní slova polem: překreslení karty pole nezavře (fokus i text zůstanou), Enter odešle
+        const pole = R('jc-4') + '[data-jidlo-odpoved-pole]';
+        await page.click(pole);
+        await page.keyboard.type('dva tal');
+        await page.evaluate(async () => { (await import('./js/stav.js')).zmeneno(); await new Promise((r) => setTimeout(r, 120)); });
+        jistota(await page.evaluate((s) => document.activeElement === document.querySelector(s), pole), 'pole po překreslení drží fokus');
+        await page.keyboard.type('íře');
+        jistota(await page.inputValue(pole) === 'dva talíře', 'text v poli: ' + await page.inputValue(pole));
+        pred = volano.length;
+        await page.keyboard.press('Enter');
+        await cekej(() => volano.slice(pred).some((d) => d.akce === 'jidloOdpoved' && d.id === 'jc-4' && d.text === 'dva talíře'), 4000, 'odpověď polem do motoru');
+        await page.waitForFunction((s) => /Odpověděl jsi: „dva talíře“/.test(document.querySelector(s).textContent), R('jc-4'));
+        // Upřesnit pro Clauda bez otázky (PC: pravé tlačítko na jídle; dotyk: tlačítko ve vyjeté kartě)
+        if (v.dotyk) {
+          await page.tap(R('jc-5') + '.jidlo-stav');
+          await page.waitForSelector('#bublina-karta.videt [data-jidlo-upresnit="jc-5"]');
+          await page.click('#bublina-karta [data-jidlo-upresnit="jc-5"]');
+        } else {
+          await page.click(R('jc-5'), { button: 'right' });
+          await page.waitForSelector('.nabidka.videt [data-nabidka-i]');
+          await page.click('.nabidka [data-nabidka-i] span:text-is("Upřesnit pro Clauda…")');
+        }
+        await page.waitForSelector('.okno-pozadi.videt .okno__pole .field');
+        jistota(/Upřesnit pro Clauda/.test(await page.textContent('.okno-pozadi #okno-nadpis')), 'okno Upřesnit');
+        await page.fill('.okno-pozadi .okno__pole .field', 'celý kelímek 500 g');
+        pred = volano.length;
+        await page.click('.okno-pozadi [data-okno="ano"]');
+        await cekej(() => volano.slice(pred).some((d) => d.akce === 'jidloOdpoved' && d.id === 'jc-5' && d.text === 'celý kelímek 500 g'), 4000, 'upřesnění do motoru');
+        await page.waitForFunction((s) => /Upřesnil jsi: „celý kelímek 500 g“ · Claude přepočítá/.test(document.querySelector(s).textContent), R('jc-5'));
+        // odhad z Michalovy položky (JIDLA_MICHAL.json) a nádoba jako jednotka
+        await page.click(K + '[data-jidlo-pridat]');
+        const O = '[data-panel="jidlo"] ';
+        await page.waitForSelector(O + '[data-jidlo-co]');
+        await page.fill(O + '[data-jidlo-co]', '¾ boxu kuskusu s cizrnou');
+        await page.waitForFunction((o) => /tvůj recept/.test(document.querySelector(o + '[data-jidlo-odhad]').textContent), O);
+        const odhad = (await page.textContent(O + '[data-jidlo-odhad]')).replace(/\s+/g, ' ');
+        jistota(/≈ 30 g/.test(odhad) && /Kuskus s cizrnou ¾ boxu/.test(odhad), 'odhad z Michalovy položky: ' + odhad);
+        await page.locator('[data-panel="jidlo"]').screenshot({ path: path.join(VYSTUP, v.nazev + '_jidlo_muj_recept.png') });
+        pred = pitiVolani.length;
+        await page.click(O + '[data-jidlo-ulozit]');
+        await cekej(() => pitiVolani.slice(pred).some((x) => x.jak === 'jidlo' && x.bilkoviny === 30), 4000, 'jídlo s Michalovým odhadem');
+        jistota(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, 'přetéká');
+        jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      } finally {
+        await ctx.close();
+        Object.keys(pitiDny).forEach((k) => delete pitiDny[k]);
+        Object.assign(pitiDny, zaloha);
+        jidlaMichalMock = { polozky: [] };
+      }
+    });
+  }
 
   // ---------- jídlo na správný den (Michal 10. 10.: „nadiktoval sem jídlo co jsem jedl včera … zapsalo se mi to do dneška“ –
   // skutečný zápis zněl „v pátek ráno sem měl 3 rohlíky…“): den z textu, volba dne v okně, Ukázat, Přesunout na jiný den
@@ -7294,7 +7401,7 @@ function vychoziVikendTestu() {
       // jídlo: Zopakovat dnes, Kopírovat
       await page.mouse.move(2, 2);
       await pravym(page, '#p-zdravi [data-jidlo-zapis="j-test"]');
-      jistota(await nabidkaPolozky(page) === 'Zopakovat dnes|Přesunout na jiný den…|Kopírovat|Smazat', 'nabídka jídla: ' + await nabidkaPolozky(page));
+      jistota(await nabidkaPolozky(page) === 'Zopakovat dnes|Upřesnit pro Clauda…|Přesunout na jiný den…|Kopírovat|Smazat', 'nabídka jídla: ' + await nabidkaPolozky(page));
       await vyberZNabidky(page, 'Kopírovat');
       jistota(await schrankaText(page) === 'Kuře s rýží · 40 g bílkovin · 600 kcal', 'jídlo do schránky: ' + await schrankaText(page));
       let predP = pitiVolani.length;

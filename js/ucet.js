@@ -51,9 +51,9 @@ const KOPIE_ZAPISU = {
   // Knihovna: kopii na serveru nemá (čte se z motoru na své stránce) – zápis zneplatní jen značky změn, server je hned obnoví
   // a ostatní zařízení si podle zmeny.knihovna knihovnu načtou znovu
   knihovnaPridat: ['zmeny'], knihovnaMoje: ['zmeny'], knihovnaZrusit: ['zmeny'],
-  vaha: [], doplnky: [], pitiJidlo: [], whoopPropojit: [], whoopOdpojit: [], zdraviKlic: [], upozorneniZapnout: [], upozorneniVypnout: [], upozorneniTest: []
+  vaha: [], doplnky: [], pitiJidlo: [], jidloOdpoved: [], whoopPropojit: [], whoopOdpojit: [], zdraviKlic: [], upozorneniZapnout: [], upozorneniVypnout: [], upozorneniTest: []
 };
-const SIGNAL_ZAPISU = { vaha: 'zdravi', doplnky: 'zdravi', pitiJidlo: 'zdravi', whoopPropojit: 'zdravi', whoopOdpojit: 'zdravi' };
+const SIGNAL_ZAPISU = { vaha: 'zdravi', doplnky: 'zdravi', pitiJidlo: 'zdravi', jidloOdpoved: 'zdravi', whoopPropojit: 'zdravi', whoopOdpojit: 'zdravi' };
 /** Oblasti kopií, které zápis mění ([] = žádné, null = všechny). */
 function kopieZapisu(akce) { return /^auto/.test(akce) ? [] : KOPIE_ZAPISU[akce] || null; }
 /** Signál pro ostatní zařízení po zápisu: 'zdravi' | 'auto' | ''. */

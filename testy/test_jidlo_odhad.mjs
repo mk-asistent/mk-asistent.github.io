@@ -1,7 +1,7 @@
 // Test odhadu jídla z textu (bílkoviny, kcal, doplňky z režimu) – node testy/test_jidlo_odhad.mjs
 import assert from 'node:assert';
 process.env.TZ = 'Europe/Prague';
-const { odhadniJidlo, denJidla, _test } = await import('../js/jidlo_odhad.js');
+const { odhadniJidlo, denJidla, stavJidla, rozpadPoznamky, _test } = await import('../js/jidlo_odhad.js');
 
 // doplňky z režimu (ZDRAVI_REZIM.json) – jen id a názvy
 const DOPLNKY = [{ id: 'champion', nazev: 'MADMONQ Champion' }, { id: 'kreatin', nazev: 'Kreatin' }, { id: 'smoothie', nazev: 'Breakfast Smoothie' },
@@ -380,11 +380,81 @@ test('chleba ve vajíčku (Michalův recept: menší krajíc, ½ vejce, 2 plátk
   assert.deepStrictEqual(nazvy(o('3 vejce a chleba')), ['Vejce', 'Chléb']);
 });
 
+// ---- Michalova jídla a recepty (ZDRAVI/JIDLA_MICHAL.json – píše Claude, když se od Michala něco naučí; Michal 16. 10.: „ať to
+// nejsou jen přednastavené věci“). Tady jen vymyšlené položky – skutečný soubor je jen na Disku.
+const MICHAL = { polozky: [
+  { id: 'box_obed', nazev: 'Box na oběd', typ: 'nadoba', vzory: ['box', 'obědový box'], ml: 800 },
+  { id: 'kuskus_cizrna', nazev: 'Kuskus s cizrnou', vzory: ['kuskus s cizrnou', 'cizrnový kuskus'], jednotka: 'box', nadoba: 'box_obed', porce: 0.5, g: 350, bilkoviny: 20, kcal: 480 },
+  { id: 'chleb_vejce', nazev: 'Chleba ve vajíčku se šunkou a sýrem', vzory: ['chleba ve vajíčku', 'krajíc ve vajíčku'], jednotka: 'krajíc', g: 100, bilkoviny: 16, kcal: 240 },
+  { id: 'kure_mama', nazev: 'Kuře od mámy', vzory: ['kuře'], g: 200, bilkoviny: 40, kcal: 400 },
+  { id: 'polevka_babi', nazev: 'Polévka od babičky', vzory: ['babiččina polévka'], jednotka: 'talíř', g: 350, bilkoviny: 9, kcal: 210 },
+  { id: 'spatne', nazev: 'Bez hodnot', vzory: ['nic'] }, null, { typ: 'nadoba', nazev: 'bez id', ml: 500 }
+] };
+const om = (text) => odhadniJidlo(text, DOPLNKY, MICHAL);
+
+test('Michalovy položky mají přednost před tabulkou (stejně dlouhý vzor vyhraje, delší z tabulky ne), množství v jeho jednotkách', () => {
+  let r = om('chleba ve vajíčku');
+  assert.deepStrictEqual(r.polozky.map((x) => [x.co, x.bilkoviny, x.kcal, x.michal, x.mnozstvi]), [['Chleba ve vajíčku se šunkou a sýrem', 16, 240, true, '1 krajíc']]);
+  assert.strictEqual(o('chleba ve vajíčku').polozky[0].bilkoviny, 14, 'bez Michalova souboru obecná tabulka');
+  r = om('3 chleby ve vajíčku');
+  assert.deepStrictEqual([r.bilkoviny, r.kcal, r.polozky[0].mnozstvi], [48, 720, '3 krajíce']);
+  assert.strictEqual(om('3 krajíce ve vajíčku').bilkoviny, 48, 'vzor začínající jednotkou („krajíc ve vajíčku“)');
+  // přísady z názvu za položkou se nepočítají podruhé (i v jiném pořadí, než je v názvu)
+  assert.deepStrictEqual(nazvy(om('2 chleby ve vajíčku se sýrem a šunkou')), ['Chleba ve vajíčku se šunkou a sýrem']);
+  assert.strictEqual(om('2 chleby ve vajíčku se sýrem a šunkou').bilkoviny, 32);
+  // stejně dlouhý vzor jako v tabulce → Michalův; delší z tabulky („kuřecí řízek“) vyhraje
+  assert.deepStrictEqual(nazvy(om('kuře s rýží')), ['Kuře od mámy', 'Rýže']);
+  assert.deepStrictEqual(nazvy(om('kuřecí řízek')), ['Kuřecí řízek s bramborem']);
+  // vlastní jednotka („talíř“) i slovo, které jinak nic neznamená, a doplňky dál fungují
+  r = om('2 talíře babiččiny polévky, kreatin');
+  assert.deepStrictEqual([nazvy(r), r.bilkoviny, r.doplnky], [['Polévka od babičky'], 18, ['kreatin']]);
+  // neplatné položky (bez hodnot, bez id) nic nerozbijí
+  assert.deepStrictEqual(nazvy(om('3 vejce')), ['Vejce']);
+});
+
+test('nádoby jako jednotka: „¾ boxu“, „3/4 boxu“, „tři čtvrtě boxu“, „půl boxu rýže“ – u jídla z boxu jeho porce, jinak objem boxu', () => {
+  const kuskus = (t) => { const p = om(t).polozky; assert.strictEqual(p.length, 1, t + ': ' + JSON.stringify(p)); return [p[0].co, p[0].bilkoviny, p[0].kcal, p[0].mnozstvi]; };
+  assert.deepStrictEqual(kuskus('¾ boxu kuskusu s cizrnou'), ['Kuskus s cizrnou', 30, 720, '¾ boxu']);
+  assert.deepStrictEqual(kuskus('kuskus s cizrnou'), ['Kuskus s cizrnou', 20, 480, '½ boxu'], 'bez množství obvyklá porce');
+  assert.deepStrictEqual(kuskus('kuskus s cizrnou 3/4 boxu'), ['Kuskus s cizrnou', 30, 720, '3/4 boxu']);
+  assert.deepStrictEqual(kuskus('tři čtvrtě boxu kuskusu s cizrnou'), ['Kuskus s cizrnou', 30, 720, 'tři čtvrtě boxu']);
+  assert.deepStrictEqual(kuskus('celý box cizrnového kuskusu'), ['Kuskus s cizrnou', 40, 960, 'box']);
+  // jiné jídlo v boxu: objem boxu (800 ml ≈ 800 g)
+  const r = om('půl boxu rýže');
+  assert.deepStrictEqual(r.polozky.map((x) => [x.co, x.g, x.mnozstvi]), [['Rýže', 400, 'půl boxu']]);
+  assert.strictEqual(om('obědový box rýže').polozky[0].g, 800, 'vzor nádoby z víc slov');
+  // bez Michalova souboru „boxu“ jednotka není
+  assert.strictEqual(o('½ boxu rýže').polozky[0].g, 100);
+  // ¾ a 3/4 jako čísla i u obecných jednotek, „8/10“ zlomek není
+  assert.strictEqual(o('¾ hrnku mléka').polozky[0].g, 188);
+  assert.strictEqual(o('1/2 rohlíku').polozky[0].g, 22);
+  assert.deepStrictEqual(_test.tvarJednotky('krabička', 0.75) + '|' + _test.tvarJednotky('krabička', 5) + '|' + _test.tvarJednotky('krajíc', 5) + '|' +
+    _test.tvarJednotky('kus', 0.5), 'krabičky|krabiček|krajíců|kusu');
+});
+
+test('stav jídla v kartě: odhad aplikace → ✓ Claude → ❓ Claude se ptá → Claude přepočítá; z diktátu, tvoje čísla, doplněk', () => {
+  const druh = (j) => stavJidla(j).druh;
+  assert.strictEqual(druh({ co: 'kuře', odhad: 'mistni' }), 'aplikace');
+  assert.strictEqual(stavJidla({ odhad: 'mistni' }).text, 'odhad aplikace · Claude zkontroluje');
+  assert.strictEqual(stavJidla({ odhad: 'claude', poznamka: 'x' }).text, '✓ Claude');
+  assert.strictEqual(stavJidla({ claude: true }).text, '✓ Claude · z diktátu');
+  assert.strictEqual(druh({ odhad: 'claude', otazka: { text: 'Kolik?', moznosti: [] } }), 'otazka');
+  assert.strictEqual(druh({ odhad: 'mistni', otazka: { text: 'Kolik?' } }), 'otazka', 'otázka i bez Claudových čísel');
+  assert.strictEqual(druh({ odhad: 'claude', prepocet: true, odpoved: { text: 'talíř' } }), 'prepocet');
+  assert.strictEqual(druh({ odhad: 'claude', odpoved: { text: 'talíř' } }), 'claude', 'přepočítané = zase ✓');
+  assert.strictEqual(druh({ bilkoviny: 30 }), 'rucne');
+  assert.strictEqual(druh({ doplnek: true, odhad: 'mistni' }), 'doplnek');
+  assert.deepStrictEqual(rozpadPoznamky('3 vejce ~19 g, 1,5 krajíce chleba ~4 g; olej + máslo'), ['3 vejce ~19 g', '1,5 krajíce chleba ~4 g', 'olej', 'máslo']);
+  assert.deepStrictEqual(rozpadPoznamky(''), []);
+});
+
 test('rychlost: 2000 odhadů (psaní po písmenech) pod 1 s', () => {
   const vzor = 'k obědu kuřecí prsa 200 g s rýží, 2 rohlíky se šunkou, kreatin a omega';
   const t0 = Date.now();
   for (let n = 0; n < 2000; n++) o(vzor.slice(0, (n % vzor.length) + 1));
-  mezi(Date.now() - t0, 0, 1000, 'ms');
+  // s Michalovými položkami (předzpracují se jednou – stejný objekt ze Zdraví)
+  for (let n = 0; n < 1000; n++) om(vzor.slice(0, (n % vzor.length) + 1));
+  mezi(Date.now() - t0, 0, 1500, 'ms');
 });
 
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));
