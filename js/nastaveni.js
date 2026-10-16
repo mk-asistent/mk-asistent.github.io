@@ -14,6 +14,7 @@ import { DRUHY } from './kalendar.js';
 import * as pocasi from './pocasi.js';
 import * as ucet from './ucet.js';
 import * as wedos from './wedos.js'; // WEDOS – pracovní schránka přímo: oddíl v Nastavení → Pošta (ovládání v js/wedos.js)
+import * as skupiny from './ig_skupiny.js'; // Instagram: skupiny lidí k označení (ovládání v js/ig_skupiny.js)
 
 export const VERZE_APLIKACE = '2026-10-09';
 
@@ -36,7 +37,7 @@ document.addEventListener('toggle', (e) => {
 
 // záložky okna Nastavení – vždy je vidět jen jedna
 const ZALOZKY = [['pripojeni', 'Připojení'], ['posta', 'Pošta'], ['kalendare', 'Kalendáře'], ['pocasi', 'Počasí'], ['zdravi', 'Zdraví'], ['upozorneni', 'Upozornění'],
-  ['vzhled', 'Vzhled'], ['aplikace', 'Aplikace']];
+  ['instagram', 'Instagram'], ['vzhled', 'Vzhled'], ['aplikace', 'Aplikace']];
 
 // ---------------------------------------------------------------- vzhled
 
@@ -566,6 +567,13 @@ function sekceUpozorneni() {
     '<button type="button" class="btn btn--primary btn--sm" data-nast="upozorneni-kopirovat">Kopírovat téma</button></div></section>';
 }
 
+// Instagram: skupiny lidí k označení u reelů, plakátů a příběhů (Michal 16. 10.) – stejná správa jako okno Skupiny na stránce Reely
+function sekceInstagramu() {
+  const h = '<section class="card nast-sekce" data-sekce="instagram"><h3>Skupiny k označení</h3>';
+  if (staryMotor() || !skupiny.umi()) return h + '<p>Skupiny lidí k označení ukáže nová verze motoru.</p>' + (staryMotor() ? novaVerzeMotoruHtml() : '') + '</section>';
+  return h + skupiny.spravaHtml() + '</section>';
+}
+
 function nactiUpozorneni() {
   if (n.upozorneniNacitam) return;
   n.upozorneniNacitam = true;
@@ -578,7 +586,7 @@ function nactiUpozorneni() {
 function nastaveniHtml() {
   const s = ZALOZKY.some((z) => z[0] === n.sekce) ? n.sekce : 'pripojeni';
   const obsah = { pripojeni: sekcePripojeni, posta: sekcePosty, kalendare: sekceKalendaru, pocasi: sekcePocasi, zdravi: sekceZdravi,
-    upozorneni: sekceUpozorneni, vzhled: sekceVzhledu, aplikace: sekceAplikace }[s]();
+    upozorneni: sekceUpozorneni, instagram: sekceInstagramu, vzhled: sekceVzhledu, aplikace: sekceAplikace }[s]();
   return '<div class="nast-zalozky" role="tablist" aria-label="Části nastavení">' + ZALOZKY.map((z) =>
     '<button type="button" class="chip" role="tab" data-nast-sekce="' + z[0] + '" aria-selected="' + (z[0] === s) + '" aria-pressed="' + (z[0] === s) + '">' + z[1] +
     (z[0] === 'pripojeni' && (staryMotor() || stav.chyby.info) ? ' <i class="tecka"></i>' : '') + '</button>').join('') + '</div>' +

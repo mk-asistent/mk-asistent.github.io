@@ -17,6 +17,7 @@ import { pripoj as pripojNabidku } from './nabidka.js';
 import * as ig from './ig.js';
 import { uctyKOznaceni, casKratce } from './ig_prubeh.js';
 import * as O from './pribeh_obrazek.js';
+import * as skupiny from './ig_skupiny.js'; // skupiny lidí k označení (čipy u pole Zmínit účty)
 
 const ULOZISTE = 'asistent.data.reely';     // seznam a plán příběhů jsou v datech reelů (akce reely) – ukládají se s nimi
 const VSTUP = 'pribeh-foto-vstup';
@@ -118,13 +119,14 @@ export function kartaHtml(x, vybrany) {
 /** Detail příběhu z fotky: { telo, akce, nazev } – náhled, stav, zmínky, průběh; Zveřejnit teď / Změnit / Zrušit / Odebrat. */
 export function detailHtml(x) {
   const z = plan(x.id);
+  // stejné okno jako reel (js/reely.js): vlevo náhled a název, vpravo průběh a zmínky
   const telo = '<div class="reel-detail reel-detail--pribeh" data-pribeh-detail="' + esc(x.id) + '">' +
-    '<div class="reel-detail__hlava"><span class="reel__nahled">' + nahled(x) + '<span class="reel__druh">Příběh</span></span>' +
+    '<div class="reel-detail__media"><span class="reel__nahled">' + nahled(x) + '<span class="reel__druh">Příběh</span></span>' +
       '<div class="reel-detail__titul"><div class="reel__stitky"><span class="tag tag--fialova">' + IKONY.foto + 'fotka z telefonu</span>' + stitekHtml(x, z) + '</div>' +
         '<h2 class="reel__nazev">Příběh z fotky</h2><small class="reel__meta">nahráno ' + esc(kdyPlan(x.vytvoreno || Date.now())) + ' · ' + esc(ucet()) + '</small></div></div>' +
-    (z ? ig.prubehHtml('pribeh', x.id, z) : '') +
+    '<div class="reel-detail__obsah">' + (z ? ig.prubehHtml('pribeh', x.id, z) : '') +
     '<section class="reel-detail__cast"><span class="label">Zmínky v příběhu</span><p class="reel-detail__text">' + esc(zminky(z) || 'bez zmínek') + '</p>' +
-      '<p class="napoveda">Příběh na Instagramu po 24 h sám zmizí. Fotka zůstává na tvém Disku (REELY/pribehy), dokud ji neodebereš.</p></section></div>';
+      '<p class="napoveda">Příběh na Instagramu po 24 h sám zmizí. Fotka zůstává na tvém Disku (REELY/pribehy), dokud ji neodebereš.</p></section></div></div>';
   return { telo, akce: akceHtml(x, z), nazev: 'Příběh z fotky' };
 }
 
@@ -267,8 +269,11 @@ export function otevriNovy(id) {
     oznacit: z ? zminky(z) : String(uloziste.cti(ZMINKY) || '') };
   const moje = np;
   otevriPanel({
-    id: 'pribeh-novy', trida: 'panel-okno panel-formular', titul: () => (np && np.id ? 'Změnit příběh' : 'Nový příběh na Instagram'),
+    // stejné široké okno uprostřed jako detail reelu (Michal 16. 10.: „ať je to jednotné“) – vlevo fotka, vpravo kdy a zmínky
+    id: 'pribeh-novy', trida: 'panel-okno panel-formular panel-reel panel-pribeh', titul: () => (np && np.id ? 'Změnit příběh' : 'Nový příběh na Instagram'),
     vykresli: oknoHtml, paticka: patickaHtml,
+    // klepnutí mimo okno ho zavře, jen když v něm nic rozdělaného není (vybraná fotka by se ztratila)
+    zavritMimo: () => !(np === moje && (moje.foto || moje.pripravuji || moje.ukladam)),
     poOtevreni: (el) => el.focus({ preventScroll: true }),
     priZavreni: () => { if (np === moje) np = null; }
   });
@@ -300,15 +305,16 @@ function oknoHtml() {
   const volba = umiMotor('igKrok') ? '<div class="rp-kdy"><span class="label">Kdy</span>' +
     segment([['ted', 'Teď'], ['cas', 'Naplánovat']], np.hned ? 'ted' : 'cas', 'data-np-kdy', 'Kdy zveřejnit') + '</div>' : '';
   return '<div class="formular pribeh-okno">' +
-    '<p class="napoveda" data-np-napoveda>' + napoveda() + '</p>' +
-    '<div class="pribeh-foto" data-np-foto>' + fotoHtml() + '</div>' + volba +
+    '<div class="pribeh-foto" data-np-foto>' + fotoHtml() + '</div>' +
+    '<div class="pribeh-okno__pole">' +
+    '<p class="napoveda" data-np-napoveda>' + napoveda() + '</p>' + volba +
     '<label data-np-kdy-pole' + (np.hned ? ' hidden' : '') + '><span class="label">' + (volba ? 'Datum a čas' : 'Kdy') + '</span>' +
       '<input class="field" type="datetime-local" data-np="kdy" value="' + esc(np.kdy) + '"></label>' +
-    '<label><span class="label">Zmínit účty</span><input class="field" data-np="oznacit" value="' + esc(np.oznacit) + '" placeholder="např. @dorost_agro" ' +
-      'autocomplete="off" autocapitalize="off" spellcheck="false"></label>' +
+    // zmínky se skupinami (js/ig_skupiny.js) – klepnutí na skupinu přidá / ubere její lidi
+    skupiny.oznaceniHtml({ popisek: 'Zmínit účty', atribut: 'data-np="oznacit"', hodnota: np.oznacit }) +
     '<p class="napoveda">Účty bez @ nebo s ním, oddělené čárkou (nejvýš 20). Zmíněný účet dostane upozornění – piš jen veřejné účty, ' +
       'které znáš. Když je Instagram v příběhu nevezme, příběh vyjde bez nich.</p>' +
-    '<p class="pruh pruh-varovani" data-np-chyba' + (np.chyba ? '' : ' hidden') + '>' + esc(np.chyba) + '</p></div>';
+    '<p class="pruh pruh-varovani" data-np-chyba' + (np.chyba ? '' : ' hidden') + '>' + esc(np.chyba) + '</p></div></div>';
 }
 
 function patickaHtml() {

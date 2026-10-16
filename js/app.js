@@ -1303,8 +1303,11 @@ window.addEventListener('offline', zmeneno);
 // telefon ↔ iPad/PC (otočení, změna okna): jiná hlavička a přehled Dnes; přes 1180 px celý / úzký levý pás
 TELEFON.addEventListener('change', zmeneno);
 SIROKY.addEventListener('change', () => { sbalRail(); zmeneno(); });
-// klepnutí vedle vysunutého menu ho zavře
-document.querySelector('#panely .panel-pozadi').addEventListener('click', () => { const h = horniPanel(); if (h && h.id === 'menu') zavriPanel(); });
+// klepnutí vedle vysunutého menu ho zavře; stejně okna s zavritMimo (detail reelu, skupiny, nový příběh bez fotky – Michal 16. 10.)
+document.querySelector('#panely .panel-pozadi').addEventListener('click', () => {
+  const h = horniPanel();
+  if (h && (h.id === 'menu' || (typeof h.zavritMimo === 'function' ? h.zavritMimo() : h.zavritMimo))) zavriPanel();
+});
 
 // ---------------------------------------------------------------- spuštění
 

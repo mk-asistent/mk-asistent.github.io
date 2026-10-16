@@ -318,6 +318,31 @@ const reelyNavrhy = { 'reel_benfika_nova-lhota': { varianty: ['Béčko doma pře
   'Osm gólů, nula obdržených a pořád první! 🔥 Benfika nezastavitelná.\n\nV neděli v 15:00 zase doma – přijďte fandit! 💚\n\n#fkagrovnorovy #benfika #fotbal'], kdy: ted - 3 * H } };
 // příběhy z fotek (motor: REELY/pribehy, PRIBEHY_PLAN) – v ukázce se fotka jen „nahraje“, nikam nic nejde
 const pribehyUkazka = [], pribehyPlan = {};
+// skupiny lidí k označení (motor: REELY/skupiny.json) – jen vymyšlená jména, skutečná jsou jen na Michalově Disku
+const skupinyUkazka = [{ id: 'sk_ukazka0001', nazev: 'Dorost – hráči', ucty: ['hrac_ukazka1', 'hrac_ukazka2', 'hrac_ukazka3'], barva: 'zelena' },
+  { id: 'sk_ukazka0002', nazev: 'Trenéři', ucty: ['trener_ukazka'], barva: 'modra' }];
+/** Uložení skupiny jako motor (SKUPINY_.uloz): nová / přejmenování / členové, jména bez @ malými, nejvýš 50 a 30 skupin. */
+function ulozSkupinuUkazky(d) {
+  const nazev = d.nazev == null ? null : String(d.nazev).replace(/s+/g, ' ').trim();
+  let s = d.id ? skupinyUkazka.find((x) => x.id === d.id) : null;
+  const nova = !s;
+  if (nova && skupinyUkazka.length >= 30) throw new Error('Skupin může být nejvýš 30.');
+  if (nova || nazev != null) {
+    if (!nazev) throw new Error('Napiš název skupiny.');
+    if (skupinyUkazka.some((x) => x !== s && x.nazev.toLowerCase() === nazev.toLowerCase())) throw new Error('Skupina „' + nazev + '“ už je.');
+  }
+  if (nova) { s = { id: d.id || 'sk_' + Date.now().toString(36), nazev, ucty: [], barva: d.barva || 'fialova' }; skupinyUkazka.push(s); } else if (nazev) s.nazev = nazev;
+  if (d.ucty != null) {
+    const ucty = [];
+    (Array.isArray(d.ucty) ? d.ucty : String(d.ucty).split(/[s,;]+/)).map((u) => String(u).trim().replace(/^@/, '')).filter(Boolean).forEach((u) => {
+      if (!/^[a-z0-9._]{1,30}$/i.test(u)) throw new Error('Neplatné jméno účtu na Instagramu: ' + u);
+      if (ucty.indexOf(u.toLowerCase()) < 0) ucty.push(u.toLowerCase());
+    });
+    if (ucty.length > 50) throw new Error('Ve skupině může být nejvýš 50 účtů.');
+    s.ucty = ucty;
+  }
+  return { skupiny: kopie(skupinyUkazka), skupina: kopie(s) };
+}
 /** Reel, jak ho vrací motor: s úpravou popisku a návrhy od Clauda. */
 const reelUkazky = (r) => {
   const u = reelyUpravy[r.id], n = reelyNavrhy[r.id];
@@ -811,8 +836,15 @@ const akce = {
   podpisyUlozit: (d) => { Object.assign(podpisy, { osobni: String((d.podpisy || {}).osobni || ''), pracovni: String((d.podpisy || {}).pracovni || '') }); return akce.info().posta; },
   fotbal: () => kopie({ data: fotbalUkazka, vKalendari: fotbalVKalendari, kalendar: null }),
   reely: () => kopie({ aktualizovano: new Date(ted - 2 * H).toISOString(), reely: reelyUkazka.map(reelUkazky), zverejneno: reelyZverejneno, plan: reelyPlan,
-    popiskyPlanu: reelyPopisky, pribehy: pribehyUkazka, planPribehu: pribehyPlan,
+    popiskyPlanu: reelyPopisky, pribehy: pribehyUkazka, planPribehu: pribehyPlan, skupiny: skupinyUkazka,
     instagram: { nastaveno: true, ucet: 'klub_ukazka' } }),
+  igSkupiny: () => kopie({ skupiny: skupinyUkazka }),
+  igSkupinaUlozit: (d) => ulozSkupinuUkazky(d),
+  igSkupinaSmazat: (d) => {
+    const i = skupinyUkazka.findIndex((x) => x.id === d.id);
+    const smazana = i >= 0 ? skupinyUkazka.splice(i, 1)[0] : null;
+    return { skupiny: kopie(skupinyUkazka), smazana: kopie(smazana) };
+  },
   reelNaplanovat: (d) => {
     const r = reelyUkazka.find((x) => x.id === d.id);
     reelyPlan[d.id] = Object.assign({ kdy: Number(d.kdy), stav: 'ceka', oznacit: String(d.oznacit || '').split(/[\s,]+/).filter(Boolean).map((u) => u.replace(/^@/, '')), upraveno: true },
@@ -858,7 +890,7 @@ const akce = {
     return { plan: kopie(pribehyPlan), pribehy: kopie(pribehyUkazka) };
   },
   reelZrusitPlan: (d) => { delete reelyPlan[d.id]; delete reelyPopisky[d.id]; return { plan: kopie(reelyPlan), popisky: kopie(reelyPopisky) }; },
-  plakaty: () => kopie(Object.assign({}, plakatyUkazka, { ig: { nastaveno: true, ucet: 'klub_ukazka' } })),
+  plakaty: () => kopie(Object.assign({}, plakatyUkazka, { ig: { nastaveno: true, ucet: 'klub_ukazka' }, skupiny: skupinyUkazka })),
   plakatUlozit: (d) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(d.tyden || ''))) throw new Error('Víkend má tvar RRRR-MM-DD (sobota).');
     if (d.smazat) delete plakatyUkazka.kola[d.tyden];

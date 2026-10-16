@@ -12,7 +12,8 @@ function elPanelu(id) { return document.querySelector('[data-panel="' + id + '"]
 
 /**
  * p = { id, trida ('panel-bocni' | 'panel-okno'), titul (text nebo funkce), vykresli() → html,
- *       vpravo?() → html tlačítek v hlavičce, paticka?() → html, poVykresleni?(el), poOtevreni?(el), priZavreni?() }
+ *       vpravo?() → html tlačítek v hlavičce, paticka?() → html, poVykresleni?(el), poOtevreni?(el), priZavreni?(),
+ *       zavritMimo? (true nebo funkce → true: klepnutí na ztmavené pozadí vedle okna ho zavře – app.js) }
  */
 export function otevriPanel(p) {
   if (najdi(p.id)) { obnovPanel(p.id); return; }

@@ -46,6 +46,8 @@ const KOPIE_ZAPISU = {
   plakatNaplanovat: ['plakaty'], plakatZrusitPlan: ['plakaty'],
   // reely 15. 10.: úprava popisku, návrhy od Clauda, příběh z fotky (seznam a plán příběhů jsou v kopii reelů)
   reelPopisekUlozit: ['reely'], reelPopisekNavrhy: ['reely'], pribehNaplanovat: ['reely'], pribehZrusit: ['reely'],
+  // skupiny lidí k označení (16. 10.) jsou v kopiích reelů i plakátů
+  igSkupinaUlozit: ['reely', 'plakaty'], igSkupinaSmazat: ['reely', 'plakaty'],
   // krok zveřejnění na Instagram: aplikace ho posílá každých ~15 s – kopie zneplatní až změna stavu (js/ig.js zmenaOblasti)
   igKrok: [],
   // Knihovna: kopii na serveru nemá (čte se z motoru na své stránce) – zápis zneplatní jen značky změn, server je hned obnoví
@@ -69,6 +71,7 @@ export const CTENI = ['info', 'schranka', 'posta', 'kalendar', 'kalendare', 'poc
   'postaDetaily', // pošta: přednačtení detailů posledních konverzací (nic neoznačí jako přečtené)
   'kontakty', 'hledat', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'zmeny', 'plakaty',
   'igStav', // čtení bez kopie nic nezneplatní (igStav = průběh zveřejňování na Instagram, js/ig.js)
+  'igSkupiny', // skupiny k označení (js/ig_skupiny.js) – jen když je kopie reelů ani plakátů nemá
   'knihovna', 'knihovnaReserse']; // Knihovna (js/knihovna.js) – jen z motoru, kopii na serveru nemá
 
 const s = { fb: null, fbSlib: null, fnSlib: null, uzivatel: null, kopie: {}, server: null, pripraveno: null, odber: null, prvni: true,

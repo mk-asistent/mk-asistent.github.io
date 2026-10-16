@@ -207,7 +207,33 @@ const motor = {
   // reely: včerejší dorost (nezveřejněný, s popiskem a videem) a starší béčko (video se ještě nahrává, bez popisku)
   reely: () => ({ aktualizovano: new Date(ted - H).toISOString(), zverejneno: Object.assign({}, reelyZverejneno), plan: Object.assign({}, reelyPlan),
     popiskyPlanu: Object.assign({}, reelyPopisky), pribehy: JSON.parse(JSON.stringify(pribehyTest)), planPribehu: JSON.parse(JSON.stringify(pribehyPlan)),
-    instagram: { nastaveno: true, ucet: 'klub_test' }, reely: REELY_TEST.map(reelTestu) }),
+    instagram: { nastaveno: true, ucet: 'klub_test' }, reely: REELY_TEST.map(reelTestu), skupiny: JSON.parse(JSON.stringify(skupinyTest)) }),
+  // skupiny lidí k označení (motor REELY/skupiny.json) – jako SKUPINY_ v motoru: jména bez @ malými, nejvýš 50, 30 skupin
+  igSkupiny: () => ({ skupiny: JSON.parse(JSON.stringify(skupinyTest)) }),
+  igSkupinaUlozit: (d) => {
+    skupinyVolani.push(JSON.parse(JSON.stringify(d)));
+    let sk = d.id ? skupinyTest.find((x) => x.id === d.id) : null;
+    const nova = !sk;
+    const nazev = d.nazev == null ? null : String(d.nazev).replace(/\s+/g, ' ').trim();
+    if (nova || nazev != null) {
+      if (!nazev) throw new Error('Napiš název skupiny.');
+      if (skupinyTest.some((x) => x !== sk && x.nazev.toLowerCase() === nazev.toLowerCase())) throw new Error('Skupina „' + nazev + '“ už je.');
+    }
+    if (nova) { sk = { id: d.id || 'sk_test' + String(skupinyTest.length + 1).padStart(6, '0'), nazev, ucty: [], barva: d.barva || 'fialova' }; skupinyTest.push(sk); } else if (nazev) sk.nazev = nazev;
+    if (d.ucty != null) {
+      const ucty = (Array.isArray(d.ucty) ? d.ucty : String(d.ucty).split(/[\s,;]+/)).map((u) => String(u).replace(/^@/, '').toLowerCase()).filter(Boolean);
+      if (ucty.some((u) => !/^[a-z0-9._]{1,30}$/.test(u))) throw new Error('Neplatné jméno účtu na Instagramu');
+      if (ucty.length > 50) throw new Error('Ve skupině může být nejvýš 50 účtů.');
+      sk.ucty = ucty.filter((u, i) => ucty.indexOf(u) === i);
+    }
+    return { skupiny: JSON.parse(JSON.stringify(skupinyTest)), skupina: JSON.parse(JSON.stringify(sk)) };
+  },
+  igSkupinaSmazat: (d) => {
+    skupinyVolani.push({ smazat: d.id });
+    const i = skupinyTest.findIndex((x) => x.id === d.id);
+    const smazana = i >= 0 ? skupinyTest.splice(i, 1)[0] : null;
+    return { skupiny: JSON.parse(JSON.stringify(skupinyTest)), smazana };
+  },
   reelStav: (d) => { if (d.zverejneno) reelyZverejneno[d.id] = iso(ted); else delete reelyZverejneno[d.id]; return { zverejneno: Object.assign({}, reelyZverejneno) }; },
   // úprava popisku z aplikace (motor 2026-10-15.2, REELY/upravy.json): prázdný / stejný jako z PC / vratit = původní
   reelPopisekUlozit: (d) => {
@@ -256,7 +282,7 @@ const motor = {
   },
   reelZrusitPlan: (d) => { delete reelyPlan[d.id]; delete reelyPopisky[d.id]; return { plan: Object.assign({}, reelyPlan), popisky: Object.assign({}, reelyPopisky) }; },
   // plakáty (motor 2026-10-09.3, CLAUDE_SCHRANKA/PLAKATY): ruční úpravy kol, nastavení, popisky, obrázky a plán na Instagram
-  plakaty: () => JSON.parse(JSON.stringify(Object.assign({}, plakatyData, { ig: plakatyIg }))),
+  plakaty: () => JSON.parse(JSON.stringify(Object.assign({}, plakatyData, { ig: plakatyIg, skupiny: skupinyTest }))),
   plakatUlozit: (d) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(d.tyden || ''))) throw new Error('Víkend má tvar RRRR-MM-DD (sobota).');
     if (d.smazat) delete plakatyData.kola[d.tyden];
@@ -519,6 +545,16 @@ const reelyPlan = {}, reelyPopisky = {}, reelyNaplanovano = [];
 // 15. 10.: úpravy popisků (REELY/upravy.json), návrhy od Clauda (REELY/popisky_claude.json), příběhy z fotek (PRIBEHY_PLAN)
 const reelyUpravy = {}, reelyNavrhy = {}, reelyNavrhyPozadano = {};
 const pribehyTest = [], pribehyPlan = {};
+// skupiny k označení (napodobený REELY/skupiny.json) – vymyšlená jména; testy si je nastaví přes skupinyVychozi()
+const skupinyTest = [], skupinyVolani = [];
+const SKUPINY_VYCHOZI = [{ id: 'sk_test000001', nazev: 'Dorost – hráči', ucty: ['hrac_ukazka1', 'hrac_ukazka2', 'hrac_ukazka3'], barva: 'zelena' },
+  { id: 'sk_test000002', nazev: 'Trenéři', ucty: ['trener_ukazka', 'hrac_ukazka1'], barva: 'modra' }];
+function skupinyVychozi(seznam) {
+  skupinyTest.length = 0;
+  skupinyVolani.length = 0;
+  (seznam || SKUPINY_VYCHOZI).forEach((x) => skupinyTest.push(JSON.parse(JSON.stringify(x))));
+}
+skupinyVychozi();
 /** Reel jako z motoru: s úpravou popisku a návrhy od Clauda. */
 function reelTestu(r) {
   const u = reelyUpravy[r.id], n = reelyNavrhy[r.id];
@@ -4153,7 +4189,7 @@ function vychoziVikendTestu() {
   });
 
   // ---------- Reely: limetková karta na Dnes, Kopírovat popisek (celý text i s prázdnými řádky), „Už je venku“, stránka s filtrem
-  await test('Reely na PC: karta na Dnes, kopírování popisku, zveřejněno; stránka Nevydané · Zveřejněné · Vše, seznam vlevo a detail vpravo', async () => {
+  await test('Reely na PC: karta na Dnes, kopírování popisku, zveřejněno; stránka Nevydané · Zveřejněné · Vše, seznam přes celou šířku, detail v okně uprostřed', async () => {
     reelyZverejneno = {};
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
     await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: WEB.replace(/\/$/, '') });
@@ -4172,25 +4208,33 @@ function vychoziVikendTestu() {
     await page.waitForSelector('#dl-reel', { state: 'hidden' });
     jistota(volano.some((d) => d.akce === 'reelStav' && d.id === 'reel_dorost_tesany' && d.zverejneno === true), 'zveřejnění nedorazilo do motoru');
     // stránka Reely: výchozí Nevydané (Michal 15. 10.: „primárně jen to, co čeká na Instagram“) – zveřejněný dorost tam není,
-    // béčko (video se ještě nahrává) ano a je vybrané v detailu vpravo
+    // béčko (video se ještě nahrává) ano; seznam přes celou šířku, detail až po klepnutí v okně uprostřed (Michal 16. 10.)
     await page.click('#rail [data-cil="reely"]');
     await page.waitForSelector('#p-reely .reel[data-reel="reel_benfika_lipov"]');
     jistota(!(await page.locator('#p-reely .reel[data-reel="reel_dorost_tesany"]').count()), 'zveřejněný v Nevydaných není');
     jistota(await page.getAttribute('#p-reely [data-reely-filtr="nevydane"]', 'aria-pressed') === 'true', 'výchozí Nevydané');
     jistota(/2 reely · 1 čeká na Instagram/.test(await page.textContent('#hlava')), 'podnadpis: ' + await page.textContent('#hlava'));
-    await page.waitForSelector('#p-reely .reely-detail [data-reel-detail="reel_benfika_lipov"]');
-    const det = await page.textContent('#p-reely .reely-detail');
-    jistota(/nahrává se na Disk/.test(det) && /Vnorovy B – Lipov 4:5/.test(det), 'detail vybraného: ' + det.slice(0, 160));
-    jistota(!(await page.locator('#p-reely .reely-detail [data-rd-ulozit]').count()), 'bez videa na Disku se plánovat nedá');
-    // rozvržení: seznam vlevo, detail vpravo (nejvýš ~500 px), náhled videa malý, karta seznamu ne přes celou šířku, nic nepřetéká
+    jistota(!(await page.locator('#p-reely .reely-detail, [data-panel="reel-detail"]').count()), 'bez klepnutí žádný detail');
+    await page.click('#p-reely [data-reel-vyber="reel_benfika_lipov"]');
+    const O = '[data-panel="reel-detail"] ';
+    await page.waitForSelector(O + '[data-reel-detail="reel_benfika_lipov"]');
+    const det = await page.textContent('[data-panel="reel-detail"]');
+    jistota(/nahrává se na Disk/.test(det) && /Vnorovy B – Lipov 4:5/.test(det), 'detail v okně: ' + det.slice(0, 160));
+    jistota(!(await page.locator(O + '[data-rd-ulozit]').count()), 'bez videa na Disku se plánovat nedá');
+    jistota(await page.getAttribute('#p-reely .reel[data-reel="reel_benfika_lipov"]', 'class').then((c) => /reel--vybrany/.test(c)), 'otevřená karta svítí');
+    // rozvržení: okno uprostřed (široké), vlevo velký náhled, vpravo obsah; seznam za oknem přes celou šířku, nic nepřetéká
+    await page.waitForTimeout(300);
     const r = await page.evaluate(() => {
       const box = (s) => document.querySelector(s).getBoundingClientRect();
-      return { sRight: Math.round(box('#p-reely .reely-sloupec').right), dLeft: Math.round(box('#p-reely .reely-detail').left), dW: Math.round(box('#p-reely .reely-detail').width),
-        nW: Math.round(box('#p-reely .reely-detail .reel__nahled').width), kW: Math.round(box('#p-reely .reel').width),
-        prekryv: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+      const o = box('[data-panel="reel-detail"]');
+      return { oW: Math.round(o.width), stred: Math.round(o.left + o.width / 2 - innerWidth / 2), nH: Math.round(box('[data-panel="reel-detail"] .reel__nahled').height),
+        obsahLeft: Math.round(box('[data-panel="reel-detail"] .reel-detail__obsah').left), nRight: Math.round(box('[data-panel="reel-detail"] .reel__nahled').right),
+        kW: Math.round(box('#p-reely .reel').width), prekryv: document.documentElement.scrollWidth - document.documentElement.clientWidth };
     });
-    jistota(r.dLeft >= r.sRight && r.dW <= 560 && r.nW <= 360 && r.kW <= 600 && r.prekryv <= 0, 'rozvržení: ' + JSON.stringify(r));
-    await page.screenshot({ path: path.join(VYSTUP, 'pc_reely.png'), fullPage: true });
+    jistota(r.oW >= 900 && Math.abs(r.stred) <= 2 && r.nH >= 380 && r.obsahLeft > r.nRight && r.kW <= 600 && r.prekryv <= 0, 'rozvržení: ' + JSON.stringify(r));
+    await page.screenshot({ path: path.join(VYSTUP, 'pc_reely.png') });
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-panel="reel-detail"]', { state: 'detached' });
     // Zveřejněné: dorost s „na Instagramu od“; Vše: oba; volba se pamatuje v zařízení
     await page.click('#p-reely [data-reely-filtr="zverejnene"]');
     await page.waitForSelector('#p-reely .reel[data-reel="reel_dorost_tesany"]');
@@ -4198,12 +4242,12 @@ function vychoziVikendTestu() {
     await page.click('#p-reely [data-reely-filtr="vse"]');
     await page.waitForFunction(() => document.querySelectorAll('#p-reely .reel').length === 2);
     jistota(JSON.parse(await page.evaluate(() => localStorage.getItem('asistent.reely.vyber'))).stav === 'vse', 'volba v zařízení');
-    // výběr reelu → detail vpravo s popiskem; zpět mezi nezveřejněné
+    // klepnutí na reel → okno s popiskem; zpět mezi nezveřejněné
     await page.click('#p-reely [data-reel-vyber="reel_dorost_tesany"]');
-    await page.waitForSelector('#p-reely .reely-detail [data-reel-detail="reel_dorost_tesany"]');
+    await page.waitForSelector('[data-panel="reel-detail"] [data-reel-detail="reel_dorost_tesany"]');
     jistota(await page.getAttribute('#p-reely .reel[data-reel="reel_dorost_tesany"] [data-reel-vyber]', 'aria-current') === 'true', 'vybraná karta');
-    jistota((await page.inputValue('#p-reely .reely-detail [data-reel-popisek]')).replace(/\r\n/g, '\n').indexOf('Hattrick!') === 0, 'popisek v detailu');
-    await page.click('#p-reely .reely-detail [data-reel-zverejneno="reel_dorost_tesany"]');
+    jistota((await page.inputValue('[data-panel="reel-detail"] [data-reel-popisek]')).replace(/\r\n/g, '\n').indexOf('Hattrick!') === 0, 'popisek v detailu');
+    await page.click('[data-panel="reel-detail"] [data-reel-zverejneno="reel_dorost_tesany"]');
     await page.waitForFunction(() => /čeká na Instagram/.test(document.querySelector('#p-reely .reel[data-reel="reel_dorost_tesany"]').textContent));
     jistota(volano.some((d) => d.akce === 'reelStav' && d.id === 'reel_dorost_tesany' && d.zverejneno === false), 'zrušení zveřejnění');
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
@@ -4221,7 +4265,7 @@ function vychoziVikendTestu() {
     await page.waitForSelector('#p-fotbal .reely-tl');
     await page.click('#p-fotbal .reely-tl');
     await page.waitForSelector('#p-reely .reel[data-reel="reel_dorost_tesany"] [data-reel-vyber]');
-    jistota(!(await page.locator('#p-reely .reely-detail').count()), 'na telefonu detail vedle seznamu není');
+    jistota(!(await page.locator('[data-panel="reel-detail"]').count()), 'bez klepnutí žádný detail');
     jistota(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, 'Reely přetékají');
     await page.screenshot({ path: path.join(VYSTUP, 'telefon_reely.png'), fullPage: true });
     // klepnutí na reel → okno s detailem: celý popisek k úpravě, Instagram, tlačítka v patičce
@@ -4230,9 +4274,11 @@ function vychoziVikendTestu() {
     await page.waitForSelector(O + '[data-reel-popisek="reel_dorost_tesany"]');
     jistota(/#fkagrovnorovy #dorost$/.test((await page.inputValue(O + '[data-reel-popisek]')).replace(/\r\n/g, '\n')), 'popisek celý v poli');
     jistota(await page.locator(O + '.panel-paticka [data-rd-ted]').count() === 1 && await page.locator(O + '.panel-paticka [data-rd-ulozit]').count() === 1, 'Zveřejnit teď a Naplánovat v patičce');
-    const rozmer = await page.evaluate(() => ({ prekryv: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      nahled: document.querySelector('[data-panel="reel-detail"] .reel__nahled').getBoundingClientRect().width }));
-    jistota(rozmer.prekryv <= 0 && rozmer.nahled <= 120, 'okno detailu: ' + JSON.stringify(rozmer));
+    await page.waitForTimeout(350);
+    const rozmer = await page.evaluate(() => { const o = document.querySelector('[data-panel="reel-detail"]').getBoundingClientRect();
+      return { prekryv: document.documentElement.scrollWidth - document.documentElement.clientWidth, w: Math.round(o.width), h: Math.round(o.height), top: Math.round(o.top),
+        nahled: document.querySelector('[data-panel="reel-detail"] .reel__nahled').getBoundingClientRect().width }; });
+    jistota(rozmer.prekryv <= 0 && rozmer.nahled <= 120 && rozmer.w === 390 && rozmer.h >= 840 && rozmer.top === 0, 'okno detailu přes celou obrazovku: ' + JSON.stringify(rozmer));
     await page.waitForTimeout(350);
     await page.screenshot({ path: path.join(VYSTUP, 'telefon_reel_detail.png') });
     await page.click(O + '[data-zavrit-panel]');
@@ -4761,8 +4807,9 @@ function vychoziVikendTestu() {
     try {
       await page.goto(WEB);
       await page.click('#rail [data-cil="reely"]');
-      const D = '#p-reely .reely-detail ';
-      // první v Nevydaných je nejnovější čekající – dorost
+      const D = '[data-panel="reel-detail"] ';
+      // první v Nevydaných je nejnovější čekající – dorost; detail v okně uprostřed
+      await page.click('#p-reely [data-reel-vyber="reel_dorost_tesany"]');
       await page.waitForSelector(D + '[data-reel-detail="reel_dorost_tesany"] [data-rd="kdy"]');
       const vychozi = await page.inputValue(D + '[data-rd="kdy"]');
       jistota(/T18:00$/.test(vychozi), 'výchozí čas 18:00: ' + vychozi);
@@ -4777,7 +4824,7 @@ function vychoziVikendTestu() {
       const z = reelyNaplanovano[reelyNaplanovano.length - 1] || {};
       jistota(z.id === 'reel_dorost_tesany' && z.kdy === den(1, 19.5) && z.oznacit === '@dorost_agro' && /^Upravený popisek/.test(z.popisek) && z.pribeh === true && !z.jenPribeh,
         'plán do motoru: ' + JSON.stringify(z));
-      await page.waitForFunction(() => /vyjde .*19:30 \+ příběh/.test(document.querySelector('#p-reely .reely-detail').textContent));
+      await page.waitForFunction(() => /vyjde .*19:30 \+ příběh/.test(document.querySelector('[data-panel="reel-detail"]').textContent));
       const karta = (await page.textContent(D)).replace(/\s+/g, ' ');
       jistota(/označí @dorost_agro/.test(karta) && /upraveno/.test(karta) && /Uložit změny/.test(karta) && /Zrušit plán/.test(karta), 'detail po naplánování: ' + karta.slice(0, 300));
       jistota(/upravený popisek/.test(await page.textContent('#p-reely .reel[data-reel="reel_dorost_tesany"]')), 'v seznamu: upravený popisek');
@@ -4812,7 +4859,8 @@ function vychoziVikendTestu() {
     try {
       await page.goto(WEB);
       await page.click('#rail [data-cil="reely"]');
-      const D = '#p-reely .reely-detail ';
+      const D = '[data-panel="reel-detail"] ';
+      await page.click('#p-reely [data-reel-vyber="reel_dorost_tesany"]');
       await page.waitForSelector(D + '[data-rd-ted="reel_dorost_tesany"]');
       jistota(await page.locator(D + '[data-rd-ulozit]').count() === 1, 'vedle Zveřejnit teď i Naplánovat');
       await page.fill(D + '[data-rd="oznacit"]', '@dorost_agro, @klub_test');
@@ -4833,7 +4881,7 @@ function vychoziVikendTestu() {
       jistota(await page.locator(D + '.ig-krok--hotovo').count() === 2, 'hotové kroky: naplánováno a příprava');
       jistota(/poslední kontrola na Instagramu před chvílí/.test(await page.textContent(D + '.ig-prubeh__info')), 'řádek s kontrolou');
       jistota(/zveřejňuje se/.test(await page.textContent('#p-reely .reel[data-reel="reel_dorost_tesany"] .reel__stitky')), 'štítek v seznamu');
-      await page.locator('#p-reely .reely-detail').screenshot({ path: path.join(VYSTUP, 'pc_reel_prubeh.png') });
+      await page.locator('[data-panel="reel-detail"]').screenshot({ path: path.join(VYSTUP, 'pc_reel_prubeh.png') });
       // aplikace se za ~15 s sama zeptá motoru (igKrok) – reel vyjde a v detailu (pořád vybraný) se ukáže odkaz
       await page.waitForSelector(D + 'a[href="https://www.instagram.com/reel/TESTreel/"]', { timeout: 25000 });
       jistota(igKroky.filter((x) => x.id === 'reel_dorost_tesany').length === 2 && !igKroky[1].ted, 'druhý krok bez ted: ' + JSON.stringify(igKroky));
@@ -4841,7 +4889,9 @@ function vychoziVikendTestu() {
       jistota(await page.locator(D + '.ig-krok--hotovo').count() === 6 && !(await page.locator(D + '.ig-krok--ted').count()), 'vše hotové: ' + kroky);
       jistota(/na Instagramu od/.test(await page.textContent(D + '.reel__stitky')), 'zveřejněno z přímého čtení');
       jistota(!(await page.locator('#p-reely .reely-sloupec .reel[data-reel="reel_dorost_tesany"]').count()), 'vydaný zmizel z Nevydaných');
-      // Přehled: karta Instagramu s odkazem (vyšlo před chvílí)
+      // Přehled: karta Instagramu s odkazem (vyšlo před chvílí) – nejdřív zavřít okno (Esc)
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-panel="reel-detail"]', { state: 'detached' });
       await page.click('#rail [data-cil="dnes"]');
       await page.waitForSelector('#dl-reel:not([hidden]) .ig-karta');
       const karta = (await page.textContent('#dl-reel .ig-karta')).replace(/\s+/g, ' ');
@@ -4870,7 +4920,8 @@ function vychoziVikendTestu() {
     try {
       await page.goto(WEB);
       await page.click('#rail [data-cil="reely"]');
-      const D = '#p-reely .reely-detail ';
+      const D = '[data-panel="reel-detail"] ';
+      await page.click('#p-reely [data-reel-vyber="reel_dorost_tesany"]');
       await page.waitForSelector(D + '[data-reel-popisek="reel_dorost_tesany"]');
       jistota(/^99 \/ 2 200$/.test((await page.textContent(D + '[data-reel-znaky]')).replace(/\s/g, ' ')), 'počítadlo: ' + await page.textContent(D + '[data-reel-znaky]'));
       jistota(!(await page.textContent(D + '[data-reel-stitek]')).trim(), 'bez úpravy bez štítku');
@@ -4880,7 +4931,7 @@ function vychoziVikendTestu() {
       await page.keyboard.type(' Díky za podporu!');
       jistota(/upraveno/.test(await page.textContent(D + '[data-reel-stitek]')), 'štítek upraveno hned');
       await cekej(() => volano.some((d) => d.akce === 'reelPopisekUlozit' && d.id === 'reel_dorost_tesany' && /Díky za podporu!$/.test(d.text)), 4000, 'uložení popisku');
-      await page.waitForFunction(() => /Uloženo/.test(document.querySelector('#p-reely .reely-detail [data-reel-ulozeni]').textContent));
+      await page.waitForFunction(() => /Uloženo/.test(document.querySelector('[data-panel="reel-detail"] [data-reel-ulozeni]').textContent));
       jistota(await page.evaluate(() => !!document.activeElement && document.activeElement.matches('[data-reel-popisek]')), 'pole zůstalo ve fokusu');
       await page.keyboard.type(' 💚');
       await cekej(() => volano.some((d) => d.akce === 'reelPopisekUlozit' && /podporu! 💚$/.test(d.text)), 4000, 'psaní pokračuje');
@@ -4888,7 +4939,7 @@ function vychoziVikendTestu() {
       // návrhy od Clauda: Návrh 1 / Návrh 2, Použít → do pole a uložit
       jistota(/Návrhy od Clauda/.test(await page.textContent(D + '.ig-navrhy')) && /Věcně/.test(await page.textContent(D + '.ig-navrhy__text')), 'návrh 1');
       await page.click(D + '[data-reel-navrh-volba="1"]');
-      await page.waitForFunction(() => /Hravě/.test(document.querySelector('#p-reely .reely-detail .ig-navrhy__text').textContent));
+      await page.waitForFunction(() => /Hravě/.test(document.querySelector('[data-panel="reel-detail"] .ig-navrhy__text').textContent));
       await page.screenshot({ path: path.join(VYSTUP, 'pc_reel_popisek_navrhy.png') });
       await page.click(D + '[data-reel-navrh-pouzit]');
       await cekej(() => volano.some((d) => d.akce === 'reelPopisekUlozit' && d.text === 'Hravě: hattrick a tři body! 🔥\n\n#fkagrovnorovy #dorost'), 4000, 'použitý návrh uložený');
@@ -4897,7 +4948,7 @@ function vychoziVikendTestu() {
       await page.waitForSelector(D + '[data-reel-vratit]');
       await page.click(D + '[data-reel-vratit]');
       await cekej(() => volano.some((d) => d.akce === 'reelPopisekUlozit' && d.vratit === true), 4000, 'Vrátit původní');
-      await page.waitForFunction(() => /^Hattrick!/.test(document.querySelector('#p-reely .reely-detail [data-reel-popisek]').value));
+      await page.waitForFunction(() => /^Hattrick!/.test(document.querySelector('[data-panel="reel-detail"] [data-reel-popisek]').value));
       jistota(!reelyUpravy.reel_dorost_tesany, 'úprava v motoru pryč');
       // Nové návrhy od Clauda: úkol pro Clauda, „Claude píše 2 návrhy…“
       await page.click(D + '[data-reel-navrh-claude]');
@@ -4920,14 +4971,15 @@ function vychoziVikendTestu() {
     try {
       await page.goto(WEB);
       await page.click('#rail [data-cil="reely"]');
-      const D = '#p-reely .reely-detail ';
+      const D = '[data-panel="reel-detail"] ';
+      await page.click('#p-reely [data-reel-vyber="reel_dorost_tesany"]');
       await page.waitForSelector(D + '[data-rd-kam="pribeh"]');
       await page.click(D + '[data-rd-kam="pribeh"]');
-      await page.waitForFunction(() => /Zmínit účty v příběhu/.test(document.querySelector('#p-reely .reely-detail .reel-ig').textContent));
+      await page.waitForFunction(() => /Zmínit účty v příběhu/.test(document.querySelector('[data-panel="reel-detail"] .reel-ig').textContent));
       const pred = reelyNaplanovano.length;
       await page.fill(D + '[data-rd="oznacit"]', '@dorost_agro, špatné jméno!');
       await page.click(D + '[data-rd-ulozit]');
-      await page.waitForFunction(() => /Neplatné jméno účtu/.test(document.querySelector('#p-reely .reely-detail [data-rd-chyba]').textContent));
+      await page.waitForFunction(() => /Neplatné jméno účtu/.test(document.querySelector('[data-panel="reel-detail"] [data-rd-chyba]').textContent));
       jistota(reelyNaplanovano.length === pred, 'neplatné jméno do motoru nejde');
       await page.fill(D + '[data-rd="oznacit"]', '@dorost_agro, @fkagrovnorovy');
       await page.fill(D + '[data-rd="kdy"]', iso(den(1)) + 'T10:00');
@@ -4936,7 +4988,7 @@ function vychoziVikendTestu() {
       const z = reelyNaplanovano[reelyNaplanovano.length - 1] || {};
       jistota(z.jenPribeh === true && z.pribeh === false && z.popisek === undefined && z.oznacit === '@dorost_agro, @fkagrovnorovy' && z.kdy === den(1, 10), 'jen příběh do motoru: ' + JSON.stringify(z));
       jistota(/příběh vyjde/.test(await page.textContent('#p-reely .reel[data-reel="reel_dorost_tesany"]')), 'štítek příběh vyjde');
-      await page.waitForFunction(() => /zmíní @dorost_agro, @fkagrovnorovy/.test(document.querySelector('#p-reely .reely-detail').textContent));
+      await page.waitForFunction(() => /zmíní @dorost_agro, @fkagrovnorovy/.test(document.querySelector('[data-panel="reel-detail"]').textContent));
       jistota(await page.getAttribute(D + '[data-rd-kam="pribeh"]', 'aria-pressed') === 'true', 'v detailu naplánovaného jen příběh');
       jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     } finally {
@@ -5002,33 +5054,85 @@ function vychoziVikendTestu() {
     }
   });
 
-  await test('Reely na PC 1500 × 850 a 1920 × 1080 (světlý i tmavý): seznam vlevo v mřížce, detail vpravo, nic přerostlé ani úzký pruh', async () => {
+  // ---------- Reely 16. 10.: detail uprostřed a širší (Michal: „ať to není jen vpravo … dej to doprostřed a ať je to širší“)
+  await test('Reely na PC 1500 × 850 a 1920 × 1080 (světlý i tmavý): seznam přes celou šířku v mřížce, detail v širokém okně uprostřed (≥ 900 px), Esc / klepnutí mimo / Zpět zavře; nový příběh ve stejném okně', async () => {
     reelyZverejneno = {};
     reelyPlan.reel_dorost_tesany = { kdy: Date.now() + 5 * H, stav: 'ceka', pribeh: true, oznacit: ['dorost_agro'], upraveno: false };
     pribehyTest.length = 0;
     pribehyTest.push({ id: 'pribeh_0123456789abcdef', nahled: '', vytvoreno: Date.now() - H });
     pribehyPlan.pribeh_0123456789abcdef = { kdy: Date.now() + 2 * H, stav: 'ceka', jenPribeh: true, oznacit: ['dorost_agro'] };
+    skupinyVychozi();
     try {
       for (const [sirka, vyska, motiv] of [[1500, 850, 'light'], [1920, 1080, 'dark'], [1500, 850, 'dark'], [1920, 1080, 'light']]) {
         const { ctx, page, chybyStranky } = await novaStranka(prohlizec, { nazev: 'pc', sirka, vyska, dotyk: false }, motiv);
         try {
           await page.goto(WEB);
           await page.click('#rail [data-cil="reely"]');
-          // první v Nevydaných je naplánovaný příběh (vyjde dřív než reel) – detail vpravo
-          await page.waitForSelector('#p-reely .reely-detail [data-pribeh-detail="pribeh_0123456789abcdef"]');
-          const r = await page.evaluate(() => {
-            const box = (s) => document.querySelector(s).getBoundingClientRect();
+          await page.waitForSelector('#p-reely [data-reel-vyber="reel_dorost_tesany"]');
+          // seznam: přes celou šířku stránky, karty v mřížce (nic přerostlého), žádný detail vedle
+          const s = await page.evaluate(() => {
+            const box = (x) => document.querySelector(x).getBoundingClientRect();
             const karty = Array.from(document.querySelectorAll('#p-reely .reely-sloupec .reel')).map((k) => Math.round(k.getBoundingClientRect().width));
-            return { stranka: Math.round(box('#p-reely').width), sloupec: Math.round(box('#p-reely .reely-sloupec').width), detail: Math.round(box('#p-reely .reely-detail').width),
-              detailLeft: Math.round(box('#p-reely .reely-detail').left), sloupecRight: Math.round(box('#p-reely .reely-sloupec').right),
-              nahled: Math.round(box('#p-reely .reely-detail .reel__nahled').width), karty, sekce: document.querySelectorAll('#p-reely .reely-sekce').length,
+            return { stranka: Math.round(box('#p-reely').width), sloupec: Math.round(box('#p-reely .reely-sloupec').width), karty,
+              sloupce: getComputedStyle(document.querySelector('#p-reely .reely-seznam')).gridTemplateColumns.split(' ').length,
+              detail: document.querySelectorAll('#p-reely .reely-detail').length, sekce: document.querySelectorAll('#p-reely .reely-sekce').length,
               prekryv: document.documentElement.scrollWidth - document.documentElement.clientWidth };
           });
-          // stránka přes celou šířku (systém šířek, 15. 10.) – na 1920 px detail až 600 px, karty pořád nejvýš 460 px
-          jistota(r.detailLeft >= r.sloupecRight && r.detail >= 380 && r.detail <= (sirka >= 1800 ? 610 : 560) && r.nahled <= 360 && Math.max(...r.karty) <= 600 && r.sloupec >= 300 &&
-            r.stranka >= 0.85 * (sirka - 80) && r.prekryv <= 0 && r.sekce === 2, sirka + '×' + vyska + ': ' + JSON.stringify(r));
+          jistota(s.detail === 0 && s.sloupec >= 0.95 * s.stranka && s.stranka >= 0.85 * (sirka - 80) && Math.max(...s.karty) <= 600 && s.sloupce >= (sirka >= 1800 ? 4 : 3) &&
+            s.sekce === 2 && s.prekryv <= 0, sirka + '×' + vyska + ' seznam: ' + JSON.stringify(s));
           await page.waitForTimeout(200);
           await page.screenshot({ path: path.join(VYSTUP, 'pc_reely_' + sirka + '_' + motiv + '.png') });
+          // klepnutí na reel → okno uprostřed: 900–1200 px (nejvýš 90 % šířky a výšky), vlevo velký náhled, vpravo popisek a Instagram
+          await page.click('#p-reely [data-reel-vyber="reel_dorost_tesany"]');
+          const O = '[data-panel="reel-detail"]';
+          await page.waitForSelector(O + ' [data-reel-detail="reel_dorost_tesany"] [data-reel-popisek]');
+          await page.waitForTimeout(350);
+          const o = await page.evaluate((sel) => {
+            const box = (x) => document.querySelector(x).getBoundingClientRect();
+            const ok = box(sel), n = box(sel + ' .reel-detail__media .reel__nahled'), ob = box(sel + ' .reel-detail__obsah');
+            return { w: Math.round(ok.width), h: Math.round(ok.height), stredX: Math.round(ok.left + ok.width / 2 - innerWidth / 2), stredY: Math.round(ok.top + ok.height / 2 - innerHeight / 2),
+              nW: Math.round(n.width), nH: Math.round(n.height), obsahLeft: Math.round(ob.left), obsahW: Math.round(ob.width), nRight: Math.round(n.right),
+              pozadi: getComputedStyle(document.querySelector('#panely .panel-pozadi')).opacity, iw: innerWidth, ih: innerHeight,
+              akce: !!document.querySelector(sel + ' .panel-paticka [data-rd-ulozit]'), cipy: document.querySelectorAll(sel + ' [data-ig-skupina]').length };
+          }, O);
+          jistota(o.w >= 900 && o.w <= 1200 && o.w <= 0.9 * o.iw + 1 && o.h <= 0.9 * o.ih + 1 && Math.abs(o.stredX) <= 2 && Math.abs(o.stredY) <= 2 && o.nH >= 380 &&
+            o.nH <= 610 && Math.abs(o.nW / o.nH - 9 / 16) < 0.03 && o.obsahLeft > o.nRight && o.obsahW >= 440 && o.pozadi === '1' && o.akce && o.cipy === 2,
+            sirka + '×' + vyska + ' okno: ' + JSON.stringify(o));
+          await page.screenshot({ path: path.join(VYSTUP, 'pc_reel_okno_' + sirka + '_' + motiv + '.png') });
+          // Esc zavře; klepnutí mimo okno zavře; Zpět v prohlížeči zavře
+          await page.keyboard.press('Escape');
+          await page.waitForSelector(O, { state: 'detached' });
+          await page.click('#p-reely [data-reel-vyber="reel_dorost_tesany"]');
+          await page.waitForSelector(O + '.otevreny');
+          await page.mouse.click(20, Math.round(vyska / 2));
+          await page.waitForSelector(O, { state: 'detached' });
+          jistota(await page.evaluate(() => document.querySelectorAll('#p-reely .reel--vybrany').length) === 0, 'po zavření karta nesvítí');
+          await page.click('#p-reely [data-reel-vyber="pribeh_0123456789abcdef"]');
+          await page.waitForSelector(O + ' [data-pribeh-detail="pribeh_0123456789abcdef"]');
+          await page.waitForTimeout(300);
+          const p2 = await page.evaluate((sel) => Math.round(document.querySelector(sel).getBoundingClientRect().width), O);
+          jistota(p2 >= 900, 'příběh ve stejném širokém okně: ' + p2);
+          await page.goBack();
+          await page.waitForSelector(O, { state: 'detached' });
+          jistota(await page.evaluate(() => !!document.querySelector('#p-reely .reely-sloupec')), 'po Zpět zůstává stránka Reely');
+          // Nový příběh z fotky: stejné široké okno uprostřed (vlevo místo pro fotku 9:16, vpravo kdy a zmínky se skupinami)
+          if (sirka === 1500 && motiv === 'light') {
+            await page.click('#p-reely [data-pribeh-novy]');
+            const N = '[data-panel="pribeh-novy"]';
+            await page.waitForSelector(N + ' label[for="pribeh-foto-vstup"]');
+            await page.waitForTimeout(350);
+            const n = await page.evaluate((sel) => {
+              const ok = document.querySelector(sel).getBoundingClientRect(), v = document.querySelector(sel + ' .pribeh-foto__vyber').getBoundingClientRect();
+              const pole = document.querySelector(sel + ' .pribeh-okno__pole').getBoundingClientRect();
+              return { w: Math.round(ok.width), stredX: Math.round(ok.left + ok.width / 2 - innerWidth / 2), vH: Math.round(v.height), poleLeft: Math.round(pole.left), vRight: Math.round(v.right),
+                cipy: document.querySelectorAll(sel + ' [data-ig-skupina]').length };
+            }, N);
+            jistota(n.w >= 900 && Math.abs(n.stredX) <= 2 && n.vH >= 380 && n.poleLeft > n.vRight && n.cipy === 2, 'okno nového příběhu: ' + JSON.stringify(n));
+            await page.screenshot({ path: path.join(VYSTUP, 'pc_pribeh_novy_okno.png') });
+            // bez fotky zavře i klepnutí mimo okno
+            await page.mouse.click(20, Math.round(vyska / 2));
+            await page.waitForSelector(N, { state: 'detached' });
+          }
           jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
         } finally {
           await ctx.close();
@@ -5038,6 +5142,230 @@ function vychoziVikendTestu() {
       delete reelyPlan.reel_dorost_tesany;
       pribehyTest.length = 0;
       Object.keys(pribehyPlan).forEach((k) => delete pribehyPlan[k]);
+    }
+  });
+
+  // ---------- Skupiny k označení (Michal 16. 10.: „skupiny … k označení … a mít tam pak možnost přidávat si do těch skupin lidi“)
+  await test('Skupiny k označení: správa ze stránky Reely i z Nastavení → Instagram – vytvořit, přidat lidi Enterem i víc naráz, kontrola jmen, odebrat ×, přejmenovat, smazat a Vrátit', async () => {
+    skupinyVychozi([]);
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="reely"]');
+      await page.waitForSelector('#p-reely [data-ig-skupiny-sprava]');
+      jistota(/Skupiny/.test(await page.textContent('#p-reely .reely-skupiny')), 'tlačítko Skupiny na stránce Reely');
+      await page.click('#p-reely .reely-skupiny');
+      const S = '[data-panel="ig-skupiny"] ';
+      await page.waitForSelector(S + '[data-ig-sk-novy]');
+      jistota(/Zatím žádná skupina/.test(await page.textContent(S + '.ig-sprava')), 'prázdná správa');
+      // vytvořit: Enter v poli názvu → skupina, fokus do pole přidání
+      await page.fill(S + '[data-ig-sk-novy]', 'Dorost hráči');
+      await page.press(S + '[data-ig-sk-novy]', 'Enter');
+      await page.waitForSelector(S + '[data-ig-sk] [data-ig-sk-pridat]');
+      jistota(skupinyVolani.some((d) => d.nazev === 'Dorost hráči' && Array.isArray(d.ucty) && !d.ucty.length), 'nová skupina do motoru: ' + JSON.stringify(skupinyVolani));
+      await cekejVeStrance(page, () => !!document.activeElement && document.activeElement.matches('[data-panel="ig-skupiny"] [data-ig-sk-pridat]'));
+      // přidat: jedno jméno Enterem (pole zůstane ve fokusu), pak víc naráz (mezera, čárka, @, velká písmena, opakování)
+      await page.keyboard.type('@Hrac_Ukazka1');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => /@hrac_ukazka1/.test(document.querySelector('[data-panel="ig-skupiny"] .ig-sk__clenove').textContent));
+      jistota(await page.evaluate(() => document.activeElement.matches('[data-ig-sk-pridat]') && document.activeElement.value === ''), 'pole prázdné a ve fokusu');
+      await page.keyboard.type('hrac_ukazka2, @hrac_ukazka3 hrac_ukazka1;hrac.ukazka4');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.querySelectorAll('[data-panel="ig-skupiny"] .ig-sk__clen').length === 4);
+      await cekej(() => (skupinyTest[0] || {}).ucty && skupinyTest[0].ucty.join() === 'hrac_ukazka1,hrac_ukazka2,hrac_ukazka3,hrac.ukazka4', 4000, 'členové v motoru: ' + JSON.stringify(skupinyTest));
+      jistota(/4 lidé/.test(await page.textContent(S + '.ig-sk__pocet')), 'počet členů: ' + await page.textContent(S + '.ig-sk__pocet'));
+      // neplatné jméno: chyba u skupiny, nic do motoru
+      const pred = skupinyVolani.length;
+      await page.keyboard.type('špatné jméno!');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => /Neplatné jméno účtu: „špatné“/.test(document.querySelector('[data-panel="ig-skupiny"] [data-ig-sk-chyba]:not([hidden])').textContent));
+      jistota(skupinyVolani.length === pred, 'neplatné jméno do motoru nejde');
+      await page.fill(S + '[data-ig-sk-pridat]', '');
+      // odebrat × u čipu
+      await page.click(S + '[data-ig-sk-odebrat="hrac_ukazka3"]');
+      await page.waitForFunction(() => document.querySelectorAll('[data-panel="ig-skupiny"] .ig-sk__clen').length === 3);
+      await cekej(() => skupinyTest[0].ucty.join() === 'hrac_ukazka1,hrac_ukazka2,hrac.ukazka4', 4000, 'odebráno v motoru');
+      // druhá skupina tlačítkem Vytvořit; stejný název nejde
+      await page.fill(S + '[data-ig-sk-novy]', 'dorost HRÁČI');
+      await page.click(S + '[data-ig-sk-zalozit]');
+      await page.waitForFunction(() => /už je/.test(document.querySelector('[data-panel="ig-skupiny"] [data-ig-sk-chyba="novy"]').textContent));
+      await page.fill(S + '[data-ig-sk-novy]', 'Trenéři');
+      await page.click(S + '[data-ig-sk-zalozit]');
+      await page.waitForFunction(() => document.querySelectorAll('[data-panel="ig-skupiny"] [data-ig-sk]').length === 2);
+      await page.waitForTimeout(250);
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_skupiny.png') });
+      // přejmenovat (okno s polem)
+      const id1 = skupinyTest[0].id;
+      await page.click(S + '[data-ig-sk-prejmenovat="' + id1 + '"]');
+      await page.waitForSelector('.okno-pozadi.videt .okno__pole .field');
+      await page.fill('.okno-pozadi .okno__pole .field', 'Dorost – hráči');
+      await page.click('.okno-pozadi [data-okno="ano"]');
+      await page.waitForFunction(() => /Dorost – hráči/.test(document.querySelector('[data-panel="ig-skupiny"] .ig-sk__nazev').textContent));
+      jistota(skupinyTest[0].nazev === 'Dorost – hráči' && skupinyTest[0].ucty.length === 3, 'přejmenováno, členové zůstali');
+      // smazat bez dotazu a Vrátit (stejné id, členové zpět)
+      await page.click(S + '[data-ig-sk-smazat="' + id1 + '"]');
+      await page.waitForFunction(() => document.querySelectorAll('[data-panel="ig-skupiny"] [data-ig-sk]').length === 1);
+      await page.waitForSelector('#toast.videt .toast__akce');
+      jistota(/smazaná/.test(await page.textContent('#toast')), 'oznámení se smazáním');
+      await page.click('#toast .toast__akce');
+      await page.waitForFunction(() => document.querySelectorAll('[data-panel="ig-skupiny"] [data-ig-sk]').length === 2);
+      jistota(skupinyTest.some((x) => x.id === id1 && x.ucty.length === 3), 'Vrátit: skupina zpět se stejným id: ' + JSON.stringify(skupinyTest));
+      // Hotovo → v liště Reely počet skupin; Nastavení → Instagram ukáže totéž
+      await page.click('[data-panel="ig-skupiny"] .panel-paticka [data-zavrit-panel]');
+      await page.waitForSelector('[data-panel="ig-skupiny"]', { state: 'detached' });
+      await page.waitForFunction(() => /2/.test((document.querySelector('#p-reely .reely-skupiny .pocet') || {}).textContent || ''));
+      await page.evaluate(() => import('/js/nastaveni.js').then((m) => m.otevriNastaveni('instagram')));
+      await page.waitForSelector('[data-panel="nastaveni"] [data-ig-sprava] [data-ig-sk]');
+      jistota(await page.locator('[data-panel="nastaveni"] [data-ig-sk]').count() === 2 && /Instagram/.test(await page.textContent('[data-panel="nastaveni"] [data-nast-sekce="instagram"]')),
+        'Nastavení → Instagram');
+      await page.fill('[data-panel="nastaveni"] [data-ig-sk-pridat="' + id1 + '"]', 'hrac_ukazka5');
+      await page.press('[data-panel="nastaveni"] [data-ig-sk-pridat="' + id1 + '"]', 'Enter');
+      await cekej(() => skupinyTest.find((x) => x.id === id1).ucty.indexOf('hrac_ukazka5') >= 0, 4000, 'přidáno z Nastavení');
+      await page.locator('[data-panel="nastaveni"]').screenshot({ path: path.join(VYSTUP, 'pc_nastaveni_instagram.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      skupinyVychozi();
+      await ctx.close();
+    }
+  });
+
+  await test('Skupiny k označení v okně reelu, plakátu i příběhu: čip přidá všechny členy (bez opakování), druhé klepnutí je ubere, počet / 20, přes 20 nic nepřidá a upozorní, naposledy použitá první', async () => {
+    reelyZverejneno = {};
+    Object.keys(reelyPlan).forEach((k) => delete reelyPlan[k]);
+    const velka = { id: 'sk_test000003', nazev: 'Celý kádr', ucty: Array.from({ length: 18 }, (_, i) => 'kadr_ukazka' + i), barva: 'oranz' };
+    skupinyVychozi(SKUPINY_VYCHOZI.concat(velka));
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="reely"]');
+      await page.click('#p-reely [data-reel-vyber="reel_dorost_tesany"]');
+      const D = '[data-panel="reel-detail"] ';
+      await page.waitForSelector(D + '[data-ig-skupina="sk_test000001"]');
+      const pole = D + '[data-rd="oznacit"]';
+      jistota(await page.inputValue(pole) === '@dorost_agro', 'výchozí @dorost_agro');
+      jistota(/1 \/ 20/.test(await page.textContent(D + '[data-ig-pocet]')), 'počet: ' + await page.textContent(D + '[data-ig-pocet]'));
+      // čip Dorost – hráči: přidá 3 členy za @dorost_agro
+      await page.click(D + '[data-ig-skupina="sk_test000001"]');
+      jistota(await page.inputValue(pole) === '@dorost_agro, @hrac_ukazka1, @hrac_ukazka2, @hrac_ukazka3', 'po skupině: ' + await page.inputValue(pole));
+      jistota(await page.getAttribute(D + '[data-ig-skupina="sk_test000001"]', 'aria-pressed') === 'true' && /4 \/ 20/.test(await page.textContent(D + '[data-ig-pocet]')), 'čip vybraný, 4 / 20');
+      // Trenéři: hrac_ukazka1 už v poli je – přidá jen trenéra (bez opakování)
+      await page.click(D + '[data-ig-skupina="sk_test000002"]');
+      jistota(await page.inputValue(pole) === '@dorost_agro, @hrac_ukazka1, @hrac_ukazka2, @hrac_ukazka3, @trener_ukazka', 'bez opakování: ' + await page.inputValue(pole));
+      // druhé klepnutí na Trenéry: uberou se, ale hrac_ukazka1 drží vybraná skupina Dorost
+      await page.click(D + '[data-ig-skupina="sk_test000002"]');
+      jistota(await page.inputValue(pole) === '@dorost_agro, @hrac_ukazka1, @hrac_ukazka2, @hrac_ukazka3', 'po odebrání trenérů: ' + await page.inputValue(pole));
+      // velká skupina (18): 4 + 18 = 22 > 20 → nic nepřidá a upozorní
+      await page.click(D + '[data-ig-skupina="sk_test000003"]');
+      await page.waitForSelector(D + '[data-ig-varovani]:not([hidden])');
+      jistota(/22 účtů/.test(await page.textContent(D + '[data-ig-varovani]')) && /nejvýš 20/.test(await page.textContent(D + '[data-ig-varovani]')), 'varování: ' + await page.textContent(D + '[data-ig-varovani]'));
+      jistota(await page.inputValue(pole) === '@dorost_agro, @hrac_ukazka1, @hrac_ukazka2, @hrac_ukazka3' && await page.getAttribute(D + '[data-ig-skupina="sk_test000003"]', 'aria-pressed') === 'false', 'přes limit nic nepřidáno');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_reel_skupiny_limit.png') });
+      // psaní do pole: varování zmizí, počet se mění hned
+      await page.click(pole);
+      await page.keyboard.press('End');
+      await page.keyboard.type(', @klub_test');
+      jistota(await page.locator(D + '[data-ig-varovani]:not([hidden])').count() === 0 && /5 \/ 20/.test(await page.textContent(D + '[data-ig-pocet]')), 'po psaní 5 / 20');
+      // druhé klepnutí na Dorost: uberou se jeho tři, ruční účty zůstanou; naplánovat → účty do motoru
+      await page.click(D + '[data-ig-skupina="sk_test000001"]');
+      jistota(await page.inputValue(pole) === '@dorost_agro, @klub_test', 'po odebrání skupiny: ' + await page.inputValue(pole));
+      await page.click(D + '[data-ig-skupina="sk_test000001"]');
+      await page.click(D + '[data-rd-ulozit]');
+      await cekej(() => (reelyNaplanovano[reelyNaplanovano.length - 1] || {}).oznacit === '@dorost_agro, @klub_test, @hrac_ukazka1, @hrac_ukazka2, @hrac_ukazka3', 4000,
+        'účty se skupinou do motoru: ' + JSON.stringify(reelyNaplanovano[reelyNaplanovano.length - 1]));
+      // naposledy použitá skupina (Dorost) je v řadě první; Upravit skupiny otevře správu nad oknem reelu
+      jistota(await page.evaluate(() => localStorage.getItem('asistent.ig.skupinaPosledni')) === '"sk_test000001"', 'pamatuje poslední skupinu');
+      await page.click(D + '.ig-cipy__sprava');
+      await page.waitForSelector('[data-panel="ig-skupiny"] [data-ig-sk="sk_test000002"]');
+      await page.fill('[data-panel="ig-skupiny"] [data-ig-sk-pridat="sk_test000002"]', 'trener_ukazka2');
+      await page.press('[data-panel="ig-skupiny"] [data-ig-sk-pridat="sk_test000002"]', 'Enter');
+      await page.waitForFunction(() => /3/.test(document.querySelector('[data-panel="reel-detail"] [data-ig-skupina="sk_test000002"] .pocet').textContent));
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-panel="ig-skupiny"]', { state: 'detached' });
+      jistota(await page.locator('[data-panel="reel-detail"]').count() === 1, 'okno reelu zůstalo pod správou');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-panel="reel-detail"]', { state: 'detached' });
+      // příběh z fotky: čipy u Zmínit účty, poslední skupina první
+      await page.click('#p-reely [data-pribeh-novy]');
+      const N = '[data-panel="pribeh-novy"] ';
+      await page.waitForSelector(N + '[data-ig-skupina]');
+      jistota(await page.getAttribute(N + '[data-ig-cipy] [data-ig-skupina]', 'data-ig-skupina') === 'sk_test000001', 'naposledy použitá první');
+      await page.click(N + '[data-ig-skupina="sk_test000002"]');
+      jistota(/@trener_ukazka, @hrac_ukazka1, @trener_ukazka2$/.test(await page.inputValue(N + '[data-np="oznacit"]')), 'zmínky v příběhu: ' + await page.inputValue(N + '[data-np="oznacit"]'));
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-panel="pribeh-novy"]', { state: 'detached' });
+      // plakát: okno plánu má čipy u Označit účty
+      await page.click('#rail [data-cil="plakaty"]');
+      await page.waitForSelector('#p-plakaty [data-pl-ig-naplanovat]');
+      await page.click('#p-plakaty [data-pl-ig-naplanovat]');
+      const P = '[data-panel="plakat-ig"] ';
+      await page.waitForSelector(P + '[data-ig-skupina="sk_test000001"]');
+      await page.click(P + '[data-ig-skupina="sk_test000001"]');
+      jistota(/@hrac_ukazka1, @hrac_ukazka2, @hrac_ukazka3$/.test(await page.inputValue(P + '[data-pl-ig="oznacit"]')), 'plakát: ' + await page.inputValue(P + '[data-pl-ig="oznacit"]'));
+      await page.click(P + '[data-pl-ig-kam="pribeh"]');
+      jistota(/Zmínit účty v příběhu/.test(await page.textContent(P + '[data-pl-ig-oznacit-popis]')) && /@hrac_ukazka3$/.test(await page.inputValue(P + '[data-pl-ig="oznacit"]')), 'jen příběh: popisek i účty');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      Object.keys(reelyPlan).forEach((k) => delete reelyPlan[k]);
+      Object.keys(reelyPopisky).forEach((k) => delete reelyPopisky[k]);
+      Object.keys(reelyUpravy).forEach((k) => delete reelyUpravy[k]);
+      skupinyVychozi();
+      await ctx.close();
+    }
+  });
+
+  await test('Skupiny a okno reelu na telefonu (tmavý): okno přes celou obrazovku, čipy u účtů, správa skupin přes celou obrazovku, klávesnice nezakryje pole přidání, nic nepřetéká', async () => {
+    reelyZverejneno = {};
+    skupinyVychozi();
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0], 'dark');
+    // napodobená klávesnice: visualViewport s menší výškou (jako iphoneStranka – window.__klavesnice(viditelná výška), 0 = zavřená)
+    await page.addInitScript(() => {
+      const cil = new EventTarget();
+      let vyska = 0;
+      const vv = { get width() { return innerWidth; }, get height() { return vyska || innerHeight; }, offsetTop: 0, offsetLeft: 0, pageTop: 0, pageLeft: 0, scale: 1,
+        addEventListener: cil.addEventListener.bind(cil), removeEventListener: cil.removeEventListener.bind(cil), dispatchEvent: cil.dispatchEvent.bind(cil) };
+      Object.defineProperty(window, 'visualViewport', { configurable: true, get: () => vv });
+      window.__klavesnice = (h) => { vyska = h; cil.dispatchEvent(new Event('resize')); };
+    });
+    try {
+      await page.goto(WEB);
+      await page.waitForSelector('#dnes-mobil .reel-krok');
+      await page.evaluate(() => import('/js/stav.js').then((m) => { m.prejdi('reely'); m.zmeneno(); }));
+      await page.click('#p-reely [data-reel-vyber="reel_dorost_tesany"]');
+      const D = '[data-panel="reel-detail"]';
+      await page.waitForSelector(D + ' [data-ig-skupina]');
+      await page.locator(D + ' [data-ig-oznaceni]').scrollIntoViewIfNeeded();
+      await page.click(D + ' [data-ig-skupina="sk_test000001"]');
+      await page.waitForTimeout(350);
+      const r = await page.evaluate((sel) => { const o = document.querySelector(sel).getBoundingClientRect(), c = document.querySelector(sel + ' .ig-cipy').getBoundingClientRect();
+        return { w: Math.round(o.width), h: Math.round(o.height), cRight: Math.round(c.right), prekryv: document.documentElement.scrollWidth - document.documentElement.clientWidth }; }, D);
+      jistota(r.w === 390 && r.h >= 840 && r.cRight <= 390 && r.prekryv <= 0, 'telefon – okno reelu: ' + JSON.stringify(r));
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_reel_skupiny.png') });
+      // správa skupin: přes celou obrazovku, pole přidání nad klávesnicí (visualViewport – js/panely.js)
+      await page.click(D + ' .ig-cipy__sprava');
+      const S = '[data-panel="ig-skupiny"]';
+      await page.waitForSelector(S + ' [data-ig-sk-pridat="sk_test000002"]');
+      await page.click(S + ' [data-ig-sk-pridat="sk_test000002"]');
+      {
+        await page.evaluate(() => window.__klavesnice(470));
+        await page.waitForTimeout(300);
+        const k = await page.evaluate((sel) => { const p = document.activeElement.getBoundingClientRect(), pat = document.querySelector(sel + ' .panel-paticka').getBoundingClientRect();
+          return { poleDole: Math.round(p.bottom), viditelne: 470, paticka: Math.round(pat.bottom) }; }, S);
+        jistota(k.poleDole <= k.viditelne && k.paticka <= k.viditelne + 1, 'klávesnice: ' + JSON.stringify(k));
+        await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_skupiny_klavesnice.png') });
+        await page.evaluate(() => window.__klavesnice(0));
+      }
+      await page.keyboard.type('trener_ukazka3');
+      await page.keyboard.press('Enter');
+      await cekej(() => skupinyTest.find((x) => x.id === 'sk_test000002').ucty.indexOf('trener_ukazka3') >= 0, 4000, 'přidáno na telefonu');
+      const r2 = await page.evaluate((sel) => { const o = document.querySelector(sel).getBoundingClientRect();
+        return { w: Math.round(o.width), prekryv: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          siroke: Array.from(document.querySelectorAll(sel + ' .ig-sk, ' + sel + ' .ig-sk__clen')).filter((x) => x.getBoundingClientRect().right > 391).length }; }, S);
+      jistota(r2.w === 390 && r2.prekryv <= 0 && r2.siroke === 0, 'telefon – správa: ' + JSON.stringify(r2));
+      await page.screenshot({ path: path.join(VYSTUP, 'telefon_tmavy_skupiny.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      skupinyVychozi();
+      await ctx.close();
     }
   });
 
@@ -5071,8 +5399,9 @@ function vychoziVikendTestu() {
       await page.goto(WEB);
       const R = '[data-reel="reel_dorost_tesany"] ';
       await page.waitForSelector(R + '.reel__stitky');
-      // z kopie nejdřív „na řadě od …“ – aplikace se hned zeptá motoru (čas prošel) a ukáže skutečný stav
-      const D = '#p-reely .reely-detail ';
+      // z kopie nejdřív „na řadě od …“ – aplikace se hned zeptá motoru (čas prošel) a ukáže skutečný stav (detail v okně)
+      const D = '[data-panel="reel-detail"] ';
+      await page.click('#p-reely [data-reel-vyber="reel_dorost_tesany"]');
       await page.waitForSelector(D + 'a[href="https://www.instagram.com/reel/TESTstary/"]', { timeout: 8000 });
       const stitky = await page.textContent(R + '.reel__stitky');
       jistota(/na Instagramu od/.test(stitky) && !/vyjde|na řadě/.test(stitky), 'štítek: ' + stitky);
@@ -7639,10 +7968,13 @@ function vychoziVikendTestu() {
       await pravym(page, reel + ' .reel__nazev');
       await vyberZNabidky(page, 'Označit jako zveřejněné');
       await cekej(() => !!reelyZverejneno.reel_dorost_tesany, 3000, 'zveřejněno do motoru');
-      // text popisku (pole v detailu): nabídka prohlížeče (označit a kopírovat ručně)
-      await page.click('#p-reely .reely-detail [data-reel-popisek]', { button: 'right' });
+      // text popisku (pole v okně detailu): nabídka prohlížeče (označit a kopírovat ručně)
+      await page.evaluate(() => import('/js/reely.js').then((m) => m.otevriDetail('reel_dorost_tesany')));
+      await page.click('[data-panel="reel-detail"] [data-reel-popisek]', { button: 'right' });
       await page.waitForTimeout(200);
       jistota(!(await page.locator('.nabidka').count()), 'v textu popisku nabídka prohlížeče');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-panel="reel-detail"]', { state: 'detached' });
       // plakát: nabídka na náhledu
       await page.click('#rail [data-cil="plakaty"]');
       await page.waitForSelector('#p-plakaty .plakat-stage .poster');

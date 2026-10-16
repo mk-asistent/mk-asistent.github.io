@@ -3,11 +3,13 @@
 // překliknout, až když budu chtít“ a „seznam reelů víc vlevo a Instagram vpravo jako okno vedle“ →
 // - výchozí pohled Nevydané (naplánované podle času vydání nahoře, pod nimi čekající od nejnovějšího), přepínač
 //   Nevydané · Zveřejněné · Vše a týmy; volba se pamatuje v zařízení;
-// - na PC vlevo seznam (malé karty v mřížce), vpravo detail vybraného: náhled videa (otevře ho Disk – jen Michalův účet),
-//   popisek k úpravě (uloží se 700 ms po psaní, motor reelPopisekUlozit → REELY/upravy.json; „Vrátit původní“), 2 návrhy
-//   od Clauda na výběr (Návrh 1 / Návrh 2 → Použít; Nové návrhy od Clauda), Instagram: kam (reel, reel + příběh, jen
-//   příběh), zmínky / označení, čas, průběh (js/ig.js) a Zveřejnit teď / Naplánovat / Uložit změny / Zrušit plán.
-//   Na telefonu a iPadu na výšku klepnutí na kartu otevře tentýž detail přes celou obrazovku (tlačítka v patičce);
+// - seznam přes celou šířku stránky (malé karty v mřížce); klepnutí na kartu otevře detail v okně – Michal 16. 10.: „ten reel,
+//   když rozkliknu, tak ať to není jen vpravo … dej to doprostřed a ať je to širší“ → na PC (≥ 1000 px) široké okno uprostřed
+//   (1200 px, nejvýš 90 % šířky a výšky, ztmavené pozadí; Esc, ×, klepnutí mimo i Zpět ho zavřou): vlevo velký náhled videa
+//   (otevře ho Disk – jen Michalův účet), vpravo popisek k úpravě (uloží se 700 ms po psaní, motor reelPopisekUlozit →
+//   REELY/upravy.json; „Vrátit původní“), 2 návrhy od Clauda (Návrh 1 / Návrh 2 → Použít; Nové návrhy od Clauda),
+//   Instagram: kam (reel, reel + příběh, jen příběh), účty k označení se skupinami (js/ig_skupiny.js), čas, průběh
+//   (js/ig.js) a v patičce Zveřejnit teď / Naplánovat / Uložit změny / Zrušit plán. Na telefonu totéž přes celou obrazovku;
 // - příběhy z fotek z telefonu (js/pribehy.js) jsou ve stejném seznamu; na Přehledu limetková karta „Reel k vyvěšení“.
 
 import { stav, zmeneno, umiMotor, hooky, prejdi } from './stav.js';
@@ -21,6 +23,7 @@ import * as ig from './ig.js';
 import { uctyKOznaceni, casKratce } from './ig_prubeh.js';
 import * as pribehy from './pribehy.js';
 import { navrhyHtml } from './ig_navrhy.js';
+import * as skupiny from './ig_skupiny.js';
 
 const ULOZISTE = 'asistent.data.reely';
 const VYBER = 'asistent.reely.vyber'; // { stav: nevydane | zverejnene | vse, tym } – volba pohledu v zařízení
@@ -29,15 +32,14 @@ const POPISEK_MAX = 2200;             // Instagram vezme popisek nejvýš 2 200 
 const ULOZIT_PO = 700;                // ms po posledním písmenu (jako popisek plakátu)
 const PRIBEH_VIDEO_S = 60;            // video v příběhu nejvýš 60 s (motor IG_PRIBEH_VIDEO_S)
 const STAVY = ['nevydane', 'zverejnene', 'vse'];
-const SIROKE = window.matchMedia('(min-width: 1000px)'); // seznam a detail vedle sebe (jako Pošta)
-SIROKE.addEventListener('change', () => zmeneno());
+const OKNO = 'reel-detail';           // okno detailu reelu / příběhu (na PC široké uprostřed, na telefonu přes celou obrazovku)
 
 function nactiVyber() {
   const v = uloziste.cti(VYBER);
   return v && typeof v === 'object' ? { stav: STAVY.indexOf(v.stav) >= 0 ? v.stav : 'nevydane', tym: String(v.tym || '') } : { stav: 'nevydane', tym: '' };
 }
 let vyber = nactiVyber();
-let vybrany = '';               // id vybraného reelu nebo příběhu (detail vpravo / v okně)
+let vybrany = '';               // id reelu nebo příběhu otevřeného v okně detailu
 let f = null;                   // formulář Instagramu vybraného reelu: { id, kdy, kam, oznacit, ukladam, chyba }
 let ed = null;                  // popisek vybraného reelu: { id, text, zmena, casovac, uklada, ulozeno, chyba }
 let fronta = Promise.resolve(); // ukládání popisků po sobě
@@ -205,7 +207,7 @@ function kartaHtml(r) {
   const t = datumReelu(r);
   const meta = [DNY_KR[new Date(t).getDay()] + ' ' + dm(t), (r.zapasy[0] || {}).soutez].filter(Boolean);
   const obr = r.nahled ? '<img src="' + esc(r.nahled) + '" alt="">' : '<span class="reel__prazdny">' + IKONY.reely + '</span>';
-  const vyb = vybrany === r.id && SIROKE.matches;
+  const vyb = vybrany === r.id && jeOtevreny(OKNO);
   return '<li class="reel reel--' + kategorie(r) + (vyb ? ' reel--vybrany' : '') + '" data-reel="' + esc(r.id) + '">' +
     '<button type="button" class="reel__vyber" data-reel-vyber="' + esc(r.id) + '"' + (vyb ? ' aria-current="true"' : '') + '>' +
       '<span class="reel__nahled">' + obr + (r.delka ? '<span class="reel__delka cisla">' + delkaText(r.delka) + '</span>' : '') + '</span>' +
@@ -309,8 +311,8 @@ function instagramHtml(r) {
   return '<section class="reel-detail__cast reel-ig"><div class="reel-ig__hlava"><span class="label">' + IKONY.instagram + 'Instagram ' + esc(ucetIg()) + '</span>' +
       (p && p.stav === 'ceka' ? '<span class="tag tag--plan">naplánováno</span>' : '') + '</div>' +
     kam + dlouhe +
-    '<label><span class="label">' + (jen ? 'Zmínit účty v příběhu' : 'Označit účty') + '</span><input class="field" data-rd="oznacit" data-pole="oznacit" value="' + esc(fm.oznacit) + '" ' +
-      'placeholder="např. @dorost_agro" autocomplete="off" autocapitalize="off" spellcheck="false"></label>' +
+    // účty k označení se skupinami (Michal 16. 10.) – klepnutí na skupinu přidá / ubere její lidi přímo v poli
+    skupiny.oznaceniHtml({ popisek: jen ? 'Zmínit účty v příběhu' : 'Označit účty', atribut: 'data-rd="oznacit" data-pole="oznacit"', hodnota: fm.oznacit }) +
     '<label><span class="label">' + (p && p.stav === 'ceka' ? 'Vyjde' : 'Naplánovat na') + '</span><input class="field" type="datetime-local" data-rd="kdy" data-pole="kdy" value="' + esc(fm.kdy) + '"></label>' +
     '<p class="napoveda">' + (jen ? 'Jen příběh – bez příspěvku a bez popisku, po 24 h zmizí.' : fm.kam === 'oba' ? 'Reel s popiskem a stejné video i do příběhu.' : 'Reel s popiskem.') +
       ' Účty bez @ nebo s ním, oddělené čárkou (nejvýš 20) – ' + (jen ? 'v příběhu se zmíní' : 'na reelu se označí' + (fm.kam === 'oba' ? ', v příběhu zmíní' : '')) +
@@ -349,16 +351,18 @@ function vedlejsiAkceHtml(r) {
       '<span>' + (z ? 'Zveřejněno' : 'Už je venku') + '</span></button></div>';
 }
 
-/** Detail reelu: { telo, akce } – na PC vpravo vedle seznamu (akce pod Instagramem), na telefonu v okně (akce v patičce). */
+/** Detail reelu: { telo, akce, nazev } – v okně: vlevo (na telefonu nahoře) náhled videa, název a vedlejší akce, vpravo průběh,
+ *  popisek a Instagram; akce v patičce okna. */
 function detailReelu(r) {
   const t = datumReelu(r);
   const meta = [DNY_KR[new Date(t).getDay()] + ' ' + dm(t), (r.zapasy[0] || {}).soutez, r.varianta, r.delka ? delkaText(r.delka) : '',
     r.velikost ? Math.round(r.velikost) + ' MB' : ''].filter(Boolean);
   const telo = '<div class="reel-detail" data-reel-detail="' + esc(r.id) + '">' +
-    '<div class="reel-detail__hlava">' + nahledHtml(r) +
+    '<div class="reel-detail__media">' + nahledHtml(r) +
       '<div class="reel-detail__titul"><div class="reel__stitky">' + r.tymy.map((k) => '<span class="tag tag--seda">' + esc(nazevTymu(k)) + '</span>').join('') +
-        stitekHtml(r) + '</div><h2 class="reel__nazev">' + esc(r.nazev) + '</h2><small class="reel__meta">' + esc(meta.join(' · ')) + '</small></div></div>' +
-    prubehHtml(r) + popisekHtml(r) + instagramHtml(r) + vedlejsiAkceHtml(r) + '</div>';
+        stitekHtml(r) + '</div><h2 class="reel__nazev">' + esc(r.nazev) + '</h2><small class="reel__meta">' + esc(meta.join(' · ')) + '</small></div>' +
+      vedlejsiAkceHtml(r) + '</div>' +
+    '<div class="reel-detail__obsah">' + prubehHtml(r) + popisekHtml(r) + instagramHtml(r) + '</div></div>';
   return { telo, akce: akceDetailu(r), nazev: r.nazev };
 }
 
@@ -368,9 +372,10 @@ function detailPolozky(id) {
   return r ? detailReelu(r) : null;
 }
 
-/** Vybrat reel / příběh: na PC detail vpravo, na telefonu okno přes celou obrazovku. */
+/** Otevřít reel / příběh v okně: na PC široké okno uprostřed (vlevo video, vpravo popisek a Instagram), na telefonu přes
+ *  celou obrazovku. Esc, ×, klepnutí mimo okno i Zpět ho zavřou; rozepsaný popisek se při zavření uloží. */
 export function otevriDetail(id) {
-  if (!id) return;
+  if (!id || !detailPolozky(id)) return;
   if (vybrany !== id) {
     if (ed && ed.id !== id) ulozPopisek();
     vybrany = id;
@@ -378,26 +383,29 @@ export function otevriDetail(id) {
     if (!ed || ed.id !== id) ed = null;
   }
   if (stav.pohled !== 'reely') prejdi('reely');
-  if (!SIROKE.matches) {
-    const d = detailPolozky(id);
-    if (!d) return;
-    otevriPanel({
-      id: 'reel-detail', trida: 'panel-okno panel-formular panel-reel', titul: () => { const x = detailPolozky(vybrany); return x ? x.nazev : 'Reel'; },
-      vykresli: () => { const x = detailPolozky(vybrany); return x ? x.telo : ''; },
-      paticka: () => { const x = detailPolozky(vybrany); return '<div class="akce akce--reel">' + (x ? x.akce : '') + '</div>'; },
-      poOtevreni: (el) => el.focus({ preventScroll: true })
-    });
-  }
+  posledniPanel = '';
+  otevriPanel({
+    id: OKNO, trida: 'panel-okno panel-formular panel-reel', titul: () => { const x = detailPolozky(vybrany); return x ? x.nazev : 'Reel'; },
+    vykresli: () => { const x = detailPolozky(vybrany); return x ? x.telo : ''; },
+    paticka: () => { const x = detailPolozky(vybrany); return '<div class="akce akce--reel">' + (x ? x.akce : '') + '</div>'; },
+    zavritMimo: true,
+    poOtevreni: (el) => el.focus({ preventScroll: true }),
+    priZavreni: () => {
+      if (ed && ed.zmena) ulozPopisek();
+      // zavírá se pořád tohle okno (ne nově otevřené se stejným id) – zrušit výběr, karta v seznamu přestane svítit
+      if (!jeOtevreny(OKNO)) { vybrany = ''; f = null; zmeneno(); }
+    }
+  });
   zmeneno();
 }
 
-/** Okno detailu na telefonu: překreslit obsah bez ztráty rozepsaného pole (obnovPanel by přepsal i pole a zavřel klávesnici). */
+/** Okno detailu: překreslit obsah bez ztráty rozepsaného pole (obnovPanel by přepsal i pole a zavřel klávesnici). */
 let posledniPanel = '';
 function obnovDetailVOkne() {
-  if (!jeOtevreny('reel-detail')) return;
-  const el = elementPanelu('reel-detail');
+  if (!jeOtevreny(OKNO)) return;
+  const el = elementPanelu(OKNO);
   const d = detailPolozky(vybrany);
-  if (!d) { const h = horniPanel(); if (h && h.id === 'reel-detail') zavriPanel(); return; } // reel z exportu vypadl, příběh odebraný
+  if (!d) { const h = horniPanel(); if (h && h.id === OKNO) zavriPanel(); return; } // reel z exportu vypadl, příběh odebraný
   if (!el) return;
   const telo = el.querySelector('.panel-telo'), pata = el.querySelector('.panel-paticka');
   const klic = d.telo + '|' + d.akce;
@@ -592,7 +600,7 @@ function polozky() {
   }
   return vse;
 }
-const kartaPolozky = (p) => (p.druh === 'reel' ? kartaHtml(p.r) : pribehy.kartaHtml(p.x, vybrany === p.id && SIROKE.matches));
+const kartaPolozky = (p) => (p.druh === 'reel' ? kartaHtml(p.r) : pribehy.kartaHtml(p.x, vybrany === p.id && jeOtevreny(OKNO)));
 const PORADI = { chyba: 0, bezi: 1, plan: 2, ceka: 3, venku: 4 };
 const nevydana = (p) => p.kat !== 'venku';
 
@@ -614,20 +622,20 @@ function poTydnech(pol) {
   return tydny;
 }
 
-/** Seznam vlevo (sekce) a pořadí položek – podle něj se vybírá první, když vybraná v pohledu není. */
+/** Seznam stránky (sekce Naplánované a Čeká na Instagram, jinak po týdnech) – HTML. */
 function seznamStranky(vse) {
   if (vyber.stav === 'nevydane') {
     const na = vse.filter((p) => ['chyba', 'bezi', 'plan'].indexOf(p.kat) >= 0)
       .sort((a, b) => PORADI[a.kat] - PORADI[b.kat] || (a.kat === 'plan' ? a.kdy - b.kdy : b.kdy - a.kdy));
     const ceka = vse.filter((p) => p.kat === 'ceka').sort((a, b) => b.datum - a.datum);
-    return { poradi: na.concat(ceka), html: na.length || ceka.length ? sekceHtml('Naplánované', na, 'reely-sekce--plan') + sekceHtml('Čeká na Instagram', ceka)
+    return na.length || ceka.length ? sekceHtml('Naplánované', na, 'reely-sekce--plan') + sekceHtml('Čeká na Instagram', ceka)
       : '<div class="card"><div class="prazdne">Nic nečeká – všechno je venku. ' +
-        '<button type="button" class="btn btn--ghost btn--sm" data-reely-filtr="zverejnene">Ukázat zveřejněné</button></div></div>' };
+        '<button type="button" class="btn btn--ghost btn--sm" data-reely-filtr="zverejnene">Ukázat zveřejněné</button></div></div>';
   }
   const tydny = poTydnech(vyber.stav === 'zverejnene' ? vse.filter((p) => !nevydana(p)) : vse);
-  return { poradi: [].concat(...tydny.map((t) => t.pol)), html: tydny.length
+  return tydny.length
     ? tydny.map((t) => '<section class="reely-tyden"><h2 class="reely-tyden__nadpis">' + esc(nadpisTydne(t.pondeli)) + '</h2>' + seznamHtml(t.pol) + '</section>').join('')
-    : '<div class="card"><div class="prazdne">Zatím nic zveřejněného.</div></div>' };
+    : '<div class="card"><div class="prazdne">Zatím nic zveřejněného.</div></div>';
 }
 
 function strankaHtml() {
@@ -636,23 +644,23 @@ function strankaHtml() {
   const tymy = [];
   vsechnyReely.forEach((r) => r.tymy.forEach((k) => { if (tymy.indexOf(k) < 0) tymy.push(k); }));
   const nNe = vse.filter(nevydana).length, nZv = vse.length - nNe;
+  const nSk = skupiny.seznam().length;
   const lista = '<div class="reely-lista">' +
     segment([['nevydane', 'Nevydané', nNe], ['zverejnene', 'Zveřejněné', nZv], ['vse', 'Vše', vse.length]], vyber.stav, 'data-reely-filtr', 'Které reely ukázat') +
     (tymy.length > 1 ? segment([['', 'Všechny týmy']].concat(tymy.map((k) => [k, nazevTymu(k)])), vyber.tym, 'data-reely-tym', 'Tým') : '') +
-    (pribehy.umi() ? '<button type="button" class="btn btn--plan reely-novy" data-pribeh-novy>' + IKONY.foto + '<span>Nový příběh</span></button>' : '') + '</div>';
-  let h = '<div class="reely-stranka">' + (vsechnyReely.length || pribehy.seznam().length || pribehy.umi() ? lista : '');
+    '<span class="reely-lista__vpravo">' +
+      // skupiny lidí k označení (Michal 16. 10.) – správa v okně
+      (skupiny.umi() ? '<button type="button" class="btn btn--ghost reely-skupiny" data-ig-skupiny-sprava>' + IKONY.lide + '<span>Skupiny</span>' +
+        (nSk ? '<span class="pocet cisla">' + nSk + '</span>' : '') + '</button>' : '') +
+      (pribehy.umi() ? '<button type="button" class="btn btn--plan reely-novy" data-pribeh-novy>' + IKONY.foto + '<span>Nový příběh</span></button>' : '') + '</span></div>';
+  let h = '<div class="reely-stranka">' + (vsechnyReely.length || pribehy.seznam().length || pribehy.umi() || skupiny.umi() ? lista : '');
   if (stav.chyby.reely) h += chybaHtml(stav.chyby.reely, 'data-reely-znovu');
   if (!vsechnyReely.length && !pribehy.seznam().length) {
     h += '<div class="card"><div class="prazdne">Zatím tu žádný reel není. Hotové reely sem posílá domácí PC – po dokončení reelu export ' +
       '<code>NASTROJE\\asistent\\reely\\export_reely.py</code> nahraje popisek a video na Disk.</div></div>';
   } else {
-    const s = seznamStranky(vse);
-    // na PC detail vpravo: vybraný (i když mezitím vyšel a ze seznamu Nevydané zmizel – průběh je pořád vidět), jinak první
-    // v pohledu (vlevo co čeká, vpravo detail vybraného); jiný filtr = zase první
-    if (SIROKE.matches && !detailPolozky(vybrany) && s.poradi.length) { vybrany = s.poradi[0].id; f = null; }
-    const d = SIROKE.matches && detailPolozky(vybrany);
-    h += '<div class="reely-rozvrzeni' + (d ? ' reely-rozvrzeni--detail' : '') + '"><div class="reely-sloupec">' + s.html + '</div>' +
-      (d ? '<aside class="reely-detail card" aria-label="Vybraný reel">' + d.telo + (d.akce ? '<div class="reel-detail__akce">' + d.akce + '</div>' : '') + '</aside>' : '') + '</div>';
+    // seznam přes celou šířku (mřížka karet) – detail se otevře v okně uprostřed (otevriDetail)
+    h += '<div class="reely-sloupec">' + seznamStranky(vse) + '</div>';
   }
   h += '<p class="napoveda reely-napoveda">Videa jsou na tvém Disku Google (CLAUDE_SCHRANKA/REELY) a otevře je jen tvůj účet. ' +
     'Do Fotek v iPhonu: v aplikaci Disk ⋯ → Poslat kopii → Uložit video. ' +
@@ -741,12 +749,12 @@ function oznac(id, ano) {
 
 function nastavVyber(zmena) {
   vyber = Object.assign({}, vyber, zmena);
-  if (SIROKE.matches) { if (ed && ed.id === vybrany) ulozPopisek(); vybrany = ''; f = null; } // v novém pohledu vybrat první
   uloziste.pis(VYBER, vyber);
   zmeneno();
 }
 
 export function klikReely(el) {
+  if (skupiny.klikSkupiny(el)) return true; // skupiny k označení: čip u pole účtů (reel, plakát, příběh), správa skupin
   if (ig.klikIg(el)) return true; // Zveřejnit teď / Zkusit znovu u naplánovaného reelu, plakátu a příběhu a na Přehledu
   if (pribehy.klikPribehy(el)) return true; // Nový příběh z fotky, změnit, zrušit, okno příběhu
   const reel = (klic) => najdi(el.dataset[klic]);

@@ -276,10 +276,17 @@ Stránka **Reely** (levý pruh, tlačítko „Reely“ na stránce Fotbal a v ka
 uspořádáno … primárně jen to, co čeká na Instagram … vše překliknout, až když budu chtít“ →
 - přepínač **Nevydané · Zveřejněné · Vše** (+ týmy), výchozí **Nevydané**: nahoře **Naplánované** (chyba, zveřejňuje se,
   pak podle času vydání), pod nimi **Čeká na Instagram** od nejnovějšího; volba se pamatuje v zařízení;
-- na PC (od 1 000 px) vlevo malé karty (náhled, tým, zápas, datum, stav), vpravo **detail vybraného**: náhled s tlačítkem
-  přehrát (video na Disku Google, otevře ho jen Michalův účet), průběh zveřejňování, **popisek k úpravě**, **2 návrhy od
-  Clauda**, Instagram (kam, účty, čas) a tlačítka; na telefonu a iPadu na výšku klepnutí na kartu otevře detail v okně
-  (tlačítka v patičce);
+- seznam malých karet (náhled, tým, zápas, datum, stav) přes celou šířku v mřížce; klepnutí na kartu otevře **detail
+  v okně** – Michal 16. 10.: „dej to doprostřed a ať je to širší“ → na PC (od 1 000 px) široké okno uprostřed (1 200 px,
+  nejvýš 90 % šířky a výšky): vlevo velký náhled s tlačítkem přehrát (video na Disku Google, otevře ho jen Michalův účet),
+  vpravo průběh zveřejňování, **popisek k úpravě**, **2 návrhy od Clauda**, Instagram (kam, účty se skupinami, čas),
+  tlačítka v patičce; Esc, ×, klepnutí mimo okno i Zpět ho zavřou. Na telefonu totéž přes celou obrazovku;
+- **skupiny k označení** (Michal 16. 10.: „skupiny … k označení … přidávat si do těch skupin lidi“): tlačítko **Skupiny**
+  na stránce Reely (i Nastavení → Instagram) – vytvořit, přejmenovat, smazat s Vrátit, přidat lidi (@jméno + Enter, víc
+  naráz oddělených mezerou nebo čárkou), odebrat ×. U „Označit účty“ v okně reelu, plakátu i příběhu z fotky jsou čipy
+  skupin: klepnutí přidá všechny členy (bez opakování), druhé je ubere; počet „N / 20“ a přes 20 účtů nic nepřidá.
+  Data `REELY/skupiny.json` (píše jen motor – akce `igSkupiny`, `igSkupinaUlozit`, `igSkupinaSmazat`; skupiny jdou
+  i s daty `reely` a `plakaty`), jména jen na Disku a v zařízení;
 - **popisek**: pole přímo v detailu, uloží se 700 ms po psaní (akce `reelPopisekUlozit` → `REELY/upravy.json`, píše jen
   motor), štítek „upraveno“, počítadlo do 2 200 znaků, **Vrátit původní** (popisek z PC); naplánovanému reelu se změní
   i popisek plánu; když se popisek na PC od úpravy změnil, detail to řekne;

@@ -18,6 +18,7 @@ import * as P from './plakat.js';
 import * as ig_ from './ig.js'; // průběh zveřejňování (ig_ – „ig“ je níž okno plánu a stav Instagramu z motoru)
 import { uctyKOznaceni, casKratce } from './ig_prubeh.js'; // zmínky / označení – stejná kontrola jako motor
 import { navrhyHtml } from './ig_navrhy.js'; // 2 návrhy popisku od Clauda na výběr (jako u reelu)
+import * as skupiny from './ig_skupiny.js'; // skupiny lidí k označení (čipy u pole Označit účty, Michal 16. 10.)
 
 const ULOZISTE = 'asistent.data.plakaty';
 const OTISKY = 'asistent.plakaty.otisky';   // víkend → otisk plakátu, ze kterého jsou obrázky na Instagramu (v tomhle zařízení)
@@ -68,7 +69,9 @@ export function nactiZUloziste() {
 function upravData(d) {
   const obj = (x) => (x && typeof x === 'object' && !Array.isArray(x) ? x : {});
   d = obj(d);
-  return { nastaveni: obj(d.nastaveni), kola: obj(d.kola), popisky: obj(d.popisky), plan: obj(d.plan), obrazky: obj(d.obrazky), ig: obj(d.ig) };
+  const ven = { nastaveni: obj(d.nastaveni), kola: obj(d.kola), popisky: obj(d.popisky), plan: obj(d.plan), obrazky: obj(d.obrazky), ig: obj(d.ig) };
+  if (Array.isArray(d.skupiny)) ven.skupiny = d.skupiny; // skupiny k označení (motor od 2026-10-16.3) – js/ig_skupiny.js
+  return ven;
 }
 
 function ulozDoZarizeni() { if (data()) uloziste.pis(ULOZISTE, { data: data(), kdy: Date.now() }); }
@@ -1185,8 +1188,8 @@ function planHtml() {
     (ig.hned ? '' : '<label><span class="label">' + (volba ? 'Datum a čas' : 'Kdy') + '</span><input class="field" type="datetime-local" data-pl-ig="kdy" value="' + esc(ig.kdy) + '"></label>') +
     (umiMotor('igJenPribeh') ? '<div class="rp-kdy"><span class="label">Kam</span>' + segment([['prispevek', 'Příspěvek'], ['oba', 'Příspěvek + příběh'],
       ['pribeh', 'Jen příběh']], ig.jenPribeh ? 'pribeh' : ig.pribeh ? 'oba' : 'prispevek', 'data-pl-ig-kam', 'Kam zveřejnit') + '</div>' : '') +
-    (sPlanem ? '<label><span class="label" data-pl-ig-oznacit-popis>' + (ig.jenPribeh ? 'Zmínit účty v příběhu' : 'Označit účty') + '</span><input class="field" data-pl-ig="oznacit" value="' + esc(ig.oznacit) + '" placeholder="např. @dorost_agro" ' +
-      'autocomplete="off" autocapitalize="off" spellcheck="false"></label>' : '') +
+    // účty k označení se skupinami (js/ig_skupiny.js) – klepnutí na skupinu přidá / ubere její lidi
+    (sPlanem ? skupiny.oznaceniHtml({ popisek: ig.jenPribeh ? 'Zmínit účty v příběhu' : 'Označit účty', popisekAtr: 'data-pl-ig-oznacit-popis', atribut: 'data-pl-ig="oznacit"', hodnota: ig.oznacit }) : '') +
     (umiMotor('igJenPribeh') ? '' : '<label class="prepinac-radek"><span><b>I do příběhu</b><small>plakát 1080 × 1920 na tmavém pozadí i do příběhu (story)</small></span>' +
       '<span class="prepinac"><input type="checkbox" data-pl-ig="pribeh"' + (ig.pribeh ? ' checked' : '') + '><span></span></span></label>') +
     '<div class="pl-ig-jen-prispevek" data-pl-ig-prispevek' + (ig.jenPribeh ? ' hidden' : '') + '>' +
