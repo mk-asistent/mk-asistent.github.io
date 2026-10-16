@@ -2366,7 +2366,8 @@ input.field[type="date"], input.field[type="time"] { min-width: 0; }
 code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; padding: 1px 5px; border-radius: 5px; background: var(--sand); word-break: break-all; }
 @media (min-width: 760px) {
     .panel.panel-okno.panel-nastaveni { width: min(var(--sirka-okna), 94vw); height: min(84vh, 760px); }
-    .panel-nastaveni .nast-zalozky { top: -14px; margin: 0 -20px; padding: 12px 20px; }
+    /* 9 záložek (od 16. 10. i Instagram) – na PC do dvou řádků, ať je vidět i poslední (Aplikace) bez posouvání do strany */
+    .panel-nastaveni .nast-zalozky { top: -14px; margin: 0 -20px; padding: 12px 20px; flex-wrap: wrap; overflow-x: visible; }
 }
 .nast { display: flex; flex-direction: column; gap: 14px; padding-top: 12px; }
 .nast-sekce { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
