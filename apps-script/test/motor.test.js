@@ -2410,7 +2410,7 @@ test('reely: seznam z REELY/reely.json, odkaz na video na Disku, skóre z FOTBAL
   let o = p.volej('reely');
   assert.strictEqual(o.ok, true, o.chyba);
   assert.deepStrictEqual(json(o.data), { aktualizovano: '', reely: [], zverejneno: {}, plan: {}, popiskyPlanu: {}, instagram: { nastaveno: false, ucet: '' },
-    pribehy: [], planPribehu: {} }); // export ještě neproběhl
+    pribehy: [], planPribehu: {}, skupiny: [] }); // export ještě neproběhl
   assert.ok(!p.schranka.deti.REELY, 'čtení složku REELY nezakládá');
   const reely = p.schranka.createFolder('REELY');
   reely.createFile('reely.json', JSON.stringify({ verze: 1, aktualizovano: '2026-10-05T08:05:02+02:00', reely: [
@@ -4571,4 +4571,108 @@ test('knihovna: značka změn podle Claudových souborů (karta přibude → zme
   assert.deepStrictEqual(json(moje('nesmysl')), { polozky: {}, pozadavky: [] });
 });
 
+
+// ---- Instagram 16. 10.: skupiny účtů k označení (Michal: „skupiny … k označení … přidávat si do těch skupin lidi“) – jména vymyšlená
+
+test('Instagram: skupiny k označení – uložit, přejmenovat, členové, kontrola jmen, limity, smazat a Vrátit (REELY/skupiny.json píše jen motor)', () => {
+  const p = prostredi();
+  reelyProInstagram(p);
+  const REELY = p.schranka.deti.REELY;
+  const akce = p.volej('info').data.akce;
+  assert.ok(['igSkupiny', 'igSkupinaUlozit', 'igSkupinaSmazat'].every((a) => akce.indexOf(a) >= 0), 'aplikace pozná nové akce');
+  let o = p.volej('igSkupiny');
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(json(o.data.skupiny), []);
+  assert.ok(!REELY.soubory.some((f) => f.getName() === 'skupiny.json'), 'čtení nic nezakládá');
+  // nová skupina: název bez mezer navíc, jména bez @, malými, bez opakování; první barva
+  o = p.volej('igSkupinaUlozit', { nazev: '  Dorost   – hráči ', ucty: '@Hrac_Ukazka1, hrac_ukazka2 hrac_ukazka1;@hrac.ukazka3' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  const s1 = o.data.skupina;
+  assert.ok(/^sk_[0-9a-z]{10}$/.test(s1.id), 'id: ' + s1.id);
+  assert.deepStrictEqual(json(s1), { id: s1.id, nazev: 'Dorost – hráči', ucty: ['hrac_ukazka1', 'hrac_ukazka2', 'hrac.ukazka3'], barva: 'zelena' });
+  const soubor = REELY.soubory.find((f) => f.getName() === 'skupiny.json');
+  assert.ok(soubor, 'REELY/skupiny.json');
+  assert.deepStrictEqual(JSON.parse(soubor.getBlob().getDataAsString()), { skupiny: [json(s1)] });
+  // přejmenování: členové zůstanou; členové: celý nový seznam (pole i text)
+  o = p.volej('igSkupinaUlozit', { id: s1.id, nazev: 'Dorost' });
+  assert.deepStrictEqual([o.data.skupina.nazev, json(o.data.skupina.ucty)], ['Dorost', ['hrac_ukazka1', 'hrac_ukazka2', 'hrac.ukazka3']]);
+  o = p.volej('igSkupinaUlozit', { id: s1.id, ucty: ['hrac_ukazka1', '@Hrac_Ukazka4'] });
+  assert.deepStrictEqual([o.data.skupina.nazev, json(o.data.skupina.ucty), o.data.skupiny.length], ['Dorost', ['hrac_ukazka1', 'hrac_ukazka4'], 1]);
+  // druhá skupina: další barva; stejný název (bez ohledu na velikost písmen) nejde
+  o = p.volej('igSkupinaUlozit', { nazev: 'Soupeři', ucty: [] });
+  assert.deepStrictEqual([o.data.skupina.barva, json(o.data.skupina.ucty), o.data.skupiny.map((s) => s.nazev).join()], ['modra', [], 'Dorost,Soupeři']);
+  const s2 = o.data.skupina;
+  const pred = soubor.getBlob().getDataAsString();
+  assert.ok(/už je/.test(p.volej('igSkupinaUlozit', { nazev: 'dorost' }).chyba));
+  assert.ok(/už je/.test(p.volej('igSkupinaUlozit', { id: s2.id, nazev: 'DOROST' }).chyba));
+  assert.ok(/Napiš název/.test(p.volej('igSkupinaUlozit', { nazev: '   ', ucty: ['a'] }).chyba));
+  assert.ok(/Napiš název/.test(p.volej('igSkupinaUlozit', { ucty: ['a'] }).chyba), 'nová bez názvu');
+  assert.ok(/40 znaků/.test(p.volej('igSkupinaUlozit', { nazev: 'x'.repeat(41) }).chyba));
+  // kontrola jmen jako u označení: bez diakritiky, mezer a jiných znaků; nejvýš 50 ve skupině
+  assert.ok(/Neplatné jméno účtu na Instagramu: špatné!/.test(p.volej('igSkupinaUlozit', { id: s1.id, ucty: 'hrac_ukazka1, špatné!' }).chyba));
+  assert.ok(/Neplatné jméno/.test(p.volej('igSkupinaUlozit', { id: s1.id, ucty: ['x'.repeat(31)] }).chyba), 'nejvýš 30 znaků');
+  const padesat = Array.from({ length: 50 }, (_, i) => 'hrac_ukazka' + i);
+  assert.ok(/nejvýš 50/.test(p.volej('igSkupinaUlozit', { id: s1.id, ucty: padesat.concat('hrac_navic') }).chyba));
+  assert.ok(/Neplatná skupina/.test(p.volej('igSkupinaUlozit', { id: '../x', nazev: 'A' }).chyba));
+  assert.ok(/Neznámá barva/.test(p.volej('igSkupinaUlozit', { id: s1.id, barva: 'red; x' }).chyba));
+  assert.strictEqual(soubor.getBlob().getDataAsString(), pred, 'chyby soubor nemění');
+  o = p.volej('igSkupinaUlozit', { id: s1.id, ucty: padesat });
+  assert.strictEqual(o.data.skupina.ucty.length, 50, '50 jde');
+  // skupiny jsou i v datech reely a plakaty (aplikace na ně zvlášť nemusí) – po zápisu hned nové (mezipaměť smazaná)
+  let r = p.volej('reely').data;
+  assert.deepStrictEqual(r.skupiny.map((s) => [s.nazev, s.ucty.length]), [['Dorost', 50], ['Soupeři', 0]]);
+  p.volej('igSkupinaUlozit', { id: s2.id, ucty: 'souper_ukazka' });
+  r = p.volej('reely').data;
+  assert.deepStrictEqual(json(r.skupiny[1].ucty), ['souper_ukazka'], 'reely po zápisu bez staré mezipaměti');
+  assert.deepStrictEqual(p.volej('plakaty').data.skupiny.map((s) => s.nazev), ['Dorost', 'Soupeři']);
+  // smazat: vrátí celou skupinu – Vrátit = uložit ji zpět se stejným id (i barvou a členy) na konec
+  o = p.volej('igSkupinaSmazat', { id: s1.id });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual([o.data.skupiny.map((s) => s.nazev).join(), o.data.smazana.nazev, o.data.smazana.ucty.length], ['Soupeři', 'Dorost', 50]);
+  o = p.volej('igSkupinaUlozit', o.data.smazana);
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(o.data.skupiny.map((s) => [s.id, s.nazev, s.barva, s.ucty.length]), [[s2.id, 'Soupeři', 'modra', 1], [s1.id, 'Dorost', 'zelena', 50]]);
+  assert.strictEqual(p.volej('igSkupinaSmazat', { id: 'sk_neniTady' }).chyba, 'Neplatná skupina.');
+  assert.strictEqual(p.volej('igSkupinaSmazat', { id: 'sk_0000000000' }).data.smazana, null, 'neznámá skupina – nic');
+  // nejvýš 30 skupin
+  for (let i = 3; i <= 30; i++) assert.strictEqual(p.volej('igSkupinaUlozit', { nazev: 'Skupina ' + i }).ok, true);
+  assert.ok(/nejvýš 30/.test(p.volej('igSkupinaUlozit', { nazev: 'Skupina 31' }).chyba));
+  assert.strictEqual(p.volej('igSkupiny', { znovu: true }).data.skupiny.length, 30);
+});
+
+test('Instagram: skupiny – každý zápis pod zámkem, poškozený soubor se nepřepíše, čisté funkce, velikost v kopii reelů', () => {
+  const p = prostredi();
+  reelyProInstagram(p);
+  const zamek = [];
+  p.ctx.LockService = { getScriptLock: () => ({ waitLock() { zamek.push('zamknout'); }, releaseLock() { zamek.push('odemknout'); } }) };
+  const id = p.volej('igSkupinaUlozit', { nazev: 'Rodiče', ucty: 'rodic_ukazka' }).data.skupina.id;
+  p.volej('igSkupinaSmazat', { id });
+  p.volej('igSkupiny', { znovu: true });
+  p.volej('reely', { znovu: true });
+  assert.deepStrictEqual(zamek, ['zamknout', 'odemknout', 'zamknout', 'odemknout'], 'zápisy pod zámkem, čtení bez');
+  // poškozený soubor (ruční úprava, konflikt Disku): čtení jede dál s prázdnými skupinami, zápis ho nepřepíše
+  const soubor = p.schranka.deti.REELY.soubory.find((f) => f.getName() === 'skupiny.json');
+  soubor.setContent('{ rozbity');
+  const r = p.volej('igSkupiny', { znovu: true });
+  assert.deepStrictEqual([r.ok, json(r.data.skupiny)], [true, []]);
+  assert.strictEqual(p.volej('reely', { znovu: true }).ok, true, 'reely jedou dál');
+  assert.ok(/není platný JSON/.test(p.volej('igSkupinaUlozit', { nazev: 'Nová' }).chyba));
+  assert.strictEqual(soubor.getBlob().getDataAsString(), '{ rozbity', 'nepřepsáno');
+  // čisté funkce: neplatné položky ze souboru tiše pryč, jména malými bez @ a opakování
+  const S = vm.runInContext('SKUPINY_', p.ctx);
+  assert.deepStrictEqual(json(S.vycisti({ skupiny: [
+    { id: 'sk_aaaa1111', nazev: ' A ', ucty: ['@X_y', 'x_y', 'špatně', 'b.c'], barva: 'fialova' },
+    { id: 'sk_aaaa1111', nazev: 'dvakrát' }, { id: 'spatne', nazev: 'B' }, { id: 'sk_bbbb2222', nazev: '' }, null,
+    { id: 'sk_cccc3333', nazev: 'C', ucty: 'nepole', barva: 'cerna' }] })),
+  [{ id: 'sk_aaaa1111', nazev: 'A', ucty: ['x_y', 'b.c'], barva: 'fialova' }, { id: 'sk_cccc3333', nazev: 'C', ucty: [] }]);
+  assert.deepStrictEqual(json(S.vycisti('nesmysl')), []);
+  assert.deepStrictEqual(json(S.ucty(' @A, b  c;;')), ['a', 'b', 'c']);
+  // nejhorší případ – 30 skupin po 50 jménech o 30 znacích – se do kopie reelů na serveru vejde s rezervou (dokument ≤ 1 MB)
+  let seznam = [];
+  for (let i = 0; i < 30; i++) {
+    seznam = S.uloz(seznam, { nazev: 'Skupina číslo ' + i, ucty: Array.from({ length: 50 }, (_, j) => ('u' + i + '_' + j).padEnd(30, 'x')) }, 'sk_' + String(1e9 + i)).skupiny;
+  }
+  const velikost = Buffer.byteLength(JSON.stringify(seznam), 'utf8');
+  assert.ok(seznam.length === 30 && velikost < 60000, 'velikost skupin: ' + velikost + ' B');
+});
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

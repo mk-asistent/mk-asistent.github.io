@@ -28,7 +28,8 @@
  *   Reely     – hotové reely z CLAUDE_SCHRANKA/REELY (zapisuje export z domácího PC): popisky, odkaz na video na Disku,
  *               stav „zveřejněno“ (vlastnost REELY_STAV); naplánované zveřejnění na Instagram (IG_TOKEN, REELY_PLAN,
  *               spouštěč instagramKazdych10Min); Michalovy úpravy popisků z aplikace (REELY/upravy.json – píše jen motor);
- *               příběhy z fotek z telefonu (REELY/pribehy, PRIBEHY_PLAN) a „jen příběh“ u reelu i plakátu se zmínkami
+ *               příběhy z fotek z telefonu (REELY/pribehy, PRIBEHY_PLAN) a „jen příběh“ u reelu i plakátu se zmínkami;
+ *               skupiny účtů k označení (REELY/skupiny.json – píše jen motor)
  *   Zdraví    – WHOOP (API v2, OAuth – návrat přes doGet) + Apple Zdraví ze zkratky v iPhonu (akce zdraviApple, klíč
  *               ZDRAVI_KLIC); data po měsících v CLAUDE_SCHRANKA/ZDRAVI; váha zapsaná z aplikace (ZDRAVI/VAHA.json,
  *               i s časem zápisu)
@@ -43,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-16.1';
+const VERZE = '2026-10-16.3';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -137,6 +138,7 @@ const CTENI_MOTORU = ['info', 'schranka', 'posta', 'vlakno', 'hledat', 'kalendar
   'postaDetaily', // pošta: přednačtení detailů posledních konverzací (nic neoznačí jako přečtené)
   'stitky', 'kontakty', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'davka', 'zmeny', 'plakaty',
   'igStav', // průběh zveřejňování na Instagram (aplikace se ptá každou minutu, když má něco brzy vyjít)
+  'igSkupiny', // skupiny účtů k označení (REELY/skupiny.json)
   'knihovna', 'knihovnaReserse']; // Knihovna: karty, index rešerší, můj stav a požadavky; celá rešerše
 
 /** Výsledek dřívějšího běhu téhož požadavku (JSON), nebo null; když ještě běží, počká na něj (nejvýš ~25 s). */
@@ -239,6 +241,10 @@ const AKCE = {
   // průběh zveřejňování na Instagram (reely, plakáty, příběhy z fotek): igStav jen čte, igKrok posune (Zveřejnit teď, Zkusit znovu)
   igStav: function () { return igPrehled_(); },
   igKrok: function (d) { return igKrok_(d); },
+  // Michal 16. 10.: „skupiny … k označení … a mít tam pak možnost přidávat si do těch skupin lidi“ – REELY/skupiny.json
+  igSkupiny: function (d) { return { skupiny: skupinyIg_(!!d.znovu) }; },
+  igSkupinaUlozit: function (d) { return igSkupinaUlozit_(d); },
+  igSkupinaSmazat: function (d) { return igSkupinaSmazat_(d); },
   vaha: function (d) { return vaha_(d); },
   doplnky: function (d) { return doplnky_(d); },
   pitiJidlo: function (d) { return pitiJidlo_(d); },
@@ -281,7 +287,8 @@ const AKCE = {
 
 // akce, které smí jít v dávce: jen čtení (zápisy a pošta zvlášť)
 // (zmeny chyběly – server je chtěl v dávce každých 10 min a dostával „Akci nejde poslat v dávce“, kopie značek nevznikla)
-const DAVKA_AKCE = ['info', 'schranka', 'kalendar', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky', 'kontakty', 'zmeny', 'plakaty', 'knihovna'];
+const DAVKA_AKCE = ['info', 'schranka', 'kalendar', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky', 'kontakty', 'zmeny', 'plakaty', 'knihovna',
+  'igSkupiny'];
 
 // ---------------------------------------------------------------- nastavení (spouští se ručně v editoru)
 
@@ -2865,7 +2872,7 @@ const MAX_UPRAV_REELU = 150;
 const REELY_UPRAVY = 'upravy.json';
 
 /** Akce reely: reely z REELY/reely.json s odkazem na video na Disku (popisek s Michalovou úpravou) + co už je zveřejněné,
- *  plán, příběhy z fotek (mezipaměť, d.znovu ji obejde). */
+ *  plán, příběhy z fotek a skupiny účtů k označení (mezipaměť, d.znovu ji obejde). */
 function reely_(znovu) {
   const KLIC = 'reely:seznam';
   let data = znovu ? null : nactiZCache_(KLIC);
@@ -2881,6 +2888,7 @@ function reely_(znovu) {
   data.instagram = igStav_();
   data.pribehy = seznamPribehu_(znovu);
   data.planPribehu = nactiPlan_('PRIBEHY_PLAN');
+  data.skupiny = skupinyIg_(znovu); // skupiny účtů k označení – aplikace na ně nemusí zvlášť
   return data;
 }
 
@@ -3137,6 +3145,137 @@ function igOznacit_(x) {
   });
   if (ven.length > IG_MAX_OZNACENI) throw new Error('Označit jde nejvýš ' + IG_MAX_OZNACENI + ' účtů.');
   return ven;
+}
+
+// ---------------------------------------------------------------- Instagram: skupiny účtů k označení (Michal 16. 10.)
+// „chtěl bych si udělat nějaké skupiny na Instagram reely k označení … a mít tam pak možnost přidávat si do těch skupin lidi“.
+// REELY/skupiny.json { skupiny: [ { id, nazev, ucty: ['uzivatelske_jmeno', …], barva? } ] } píše jen motor (pod zámkem);
+// aplikace je dostane v datech akcí reely a plakaty (pole skupiny) i samostatnou akcí igSkupiny; zápis igSkupinaUlozit
+// (nová, přejmenování, členové; neznámé platné id = Vrátit po smazání) a igSkupinaSmazat. Uživatelská jména jsou Michalova
+// data – jen na Disku, v zařízení a v soukromé kopii reelů na serveru, nikdy v repu (ukázka má vymyšlená).
+const REELY_SKUPINY = 'skupiny.json';
+const IG_MAX_SKUPIN = 30;
+const IG_MAX_VE_SKUPINE = 50; // 30 × 50 jmen po 30 znacích ≈ 50 kB – kopie reelů na serveru (limit 1 MB) to unese
+
+/** Čisté funkce skupin (testuje motor.test.js). */
+const SKUPINY_ = (function () {
+  const ID = /^sk_[0-9a-z]{4,24}$/;
+  const BARVY = ['zelena', 'modra', 'fialova', 'oranz', 'zluta', 'seda'];
+  const MAX_NAZEV = 40;
+  function txt(x) { return x == null ? '' : String(x); }
+  function nazev(x) { return txt(x).replace(/\s+/g, ' ').trim(); }
+  /** Účty skupiny: „@Dorost_Agro, klub“ nebo pole → ['dorost_agro', 'klub'] – kontrola jako igOznacit_, ale nejvýš 50. */
+  function ucty(x) {
+    const seznam = (Array.isArray(x) ? x : txt(x).split(/[\s,;]+/)).map(function (u) { return txt(u).trim().replace(/^@/, ''); }).filter(Boolean);
+    const ven = [];
+    seznam.forEach(function (u) {
+      if (!IG_UCET_JMENO.test(u)) throw new Error('Neplatné jméno účtu na Instagramu: ' + u + ' – jen písmena bez diakritiky, číslice, tečka a podtržítko.');
+      if (ven.indexOf(u.toLowerCase()) < 0) ven.push(u.toLowerCase());
+    });
+    if (ven.length > IG_MAX_VE_SKUPINE) throw new Error('Ve skupině může být nejvýš ' + IG_MAX_VE_SKUPINE + ' účtů.');
+    return ven;
+  }
+  /** Platné skupiny ze souboru – ruční úprava souboru nebo konflikt Disku nesmí shodit aplikaci (neplatné tiše pryč). */
+  function vycisti(data) {
+    const pole = data && Array.isArray(data.skupiny) ? data.skupiny : [];
+    const ven = [];
+    pole.forEach(function (s) {
+      if (!s || !ID.test(txt(s.id)) || ven.some(function (x) { return x.id === s.id; }) || ven.length >= IG_MAX_SKUPIN) return;
+      const n = nazev(s.nazev).slice(0, MAX_NAZEV);
+      if (!n) return;
+      const u = (Array.isArray(s.ucty) ? s.ucty : []).map(function (x) { return txt(x).trim().replace(/^@/, '').toLowerCase(); })
+        .filter(function (x, i, a) { return IG_UCET_JMENO.test(x) && a.indexOf(x) === i; }).slice(0, IG_MAX_VE_SKUPINE);
+      const sk = { id: s.id, nazev: n, ucty: u };
+      if (BARVY.indexOf(s.barva) >= 0) sk.barva = s.barva;
+      ven.push(sk);
+    });
+    return ven;
+  }
+  function stejnyNazev(seznam, n, id) {
+    return seznam.filter(function (s) { return s.id !== id && s.nazev.toLowerCase() === n.toLowerCase(); })[0] || null;
+  }
+  /**
+   * Uložení skupiny: d = { id?, nazev?, ucty?, barva? }. Bez id = nová (noveId), s id známé skupiny = přejmenování / členové /
+   * barva (co chybí, zůstává), s platným neznámým id = nová s tím id (Vrátit po smazání). Vrací { skupiny, skupina }.
+   */
+  function uloz(seznam, d, noveId) {
+    d = d || {};
+    const ven = seznam.map(function (s) { return Object.assign({}, s, { ucty: s.ucty.slice() }); });
+    const id = txt(d.id);
+    if (id && !ID.test(id)) throw new Error('Neplatná skupina.');
+    let s = id ? ven.filter(function (x) { return x.id === id; })[0] : null;
+    const novy = !s;
+    if (novy) {
+      if (ven.length >= IG_MAX_SKUPIN) throw new Error('Skupin může být nejvýš ' + IG_MAX_SKUPIN + '.');
+      s = { id: id || noveId, nazev: '', ucty: [] };
+    }
+    if (d.nazev != null || novy) {
+      const n = nazev(d.nazev);
+      if (!n) throw new Error('Napiš název skupiny.');
+      if (n.length > MAX_NAZEV) throw new Error('Název skupiny je nejvýš ' + MAX_NAZEV + ' znaků.');
+      if (stejnyNazev(ven, n, s.id)) throw new Error('Skupina „' + n + '“ už je.');
+      s.nazev = n;
+    }
+    if (d.ucty != null) s.ucty = ucty(d.ucty);
+    if (d.barva != null && d.barva !== '') {
+      if (BARVY.indexOf(d.barva) < 0) throw new Error('Neznámá barva skupiny.');
+      s.barva = d.barva;
+    } else if (novy) {
+      // nová skupina: první barva, kterou ještě žádná nemá (pak dokola)
+      const volne = BARVY.filter(function (b) { return !ven.some(function (x) { return x.barva === b; }); });
+      s.barva = volne[0] || BARVY[ven.length % BARVY.length];
+    }
+    if (novy) ven.push(s);
+    return { skupiny: ven, skupina: s };
+  }
+  /** Smazání: { skupiny, smazana } (smazana = celá skupina pro Vrátit; neznámá → null). */
+  function smaz(seznam, id) {
+    const smazana = seznam.filter(function (s) { return s.id === id; })[0] || null;
+    return { skupiny: seznam.filter(function (s) { return s.id !== id; }), smazana: smazana };
+  }
+  return { ID: ID, BARVY: BARVY, ucty: ucty, vycisti: vycisti, uloz: uloz, smaz: smaz };
+})();
+
+/** Skupiny z REELY/skupiny.json (mezipaměť 10 min, zápis ji smaže); bez souboru [] (nic nezakládá). */
+function skupinyIg_(znovu) {
+  const KLIC = 'reely:skupiny';
+  const c = znovu ? null : nactiZCache_(KLIC);
+  if (c && Array.isArray(c.skupiny)) return c.skupiny;
+  const it = koren_().getFoldersByName('REELY');
+  const skupiny = SKUPINY_.vycisti(it.hasNext() ? nactiJson_(it.next(), REELY_SKUPINY).data : null);
+  ulozDoCache_(KLIC, { skupiny: skupiny }, 600);
+  return skupiny;
+}
+
+/** Úprava REELY/skupiny.json pod zámkem (jediný zapisovatel je motor): fn(skupiny) → { skupiny, … }. */
+function upravSkupinyIg_(fn) {
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(20000);
+  try {
+    const slozka = podslozka_(koren_(), 'REELY');
+    const v = nactiJson_(slozka, REELY_SKUPINY);
+    if (v.soubor && v.data === null) throw new Error('REELY/skupiny.json není platný JSON – oprav ho na Disku (motor ho nepřepíše).');
+    const vysledek = fn(SKUPINY_.vycisti(v.data));
+    const obsah = JSON.stringify({ skupiny: vysledek.skupiny });
+    if (v.soubor) v.soubor.setContent(obsah); else slozka.createFile(REELY_SKUPINY, obsah, MimeType.PLAIN_TEXT);
+    smazCache_('reely:skupiny');
+    return vysledek;
+  } finally {
+    zamek.releaseLock();
+  }
+}
+
+/** Akce igSkupinaUlozit { id?, nazev?, ucty?, barva? } → { skupiny, skupina }. */
+function igSkupinaUlozit_(d) {
+  const noveId = 'sk_' + Utilities.getUuid().replace(/-/g, '').slice(0, 10).toLowerCase();
+  return upravSkupinyIg_(function (skupiny) { return SKUPINY_.uloz(skupiny, d, noveId); });
+}
+
+/** Akce igSkupinaSmazat { id } → { skupiny, smazana } (smazana = celá skupina – aplikace ji Vrátit uloží zpět se stejným id). */
+function igSkupinaSmazat_(d) {
+  const id = String((d && d.id) || '');
+  if (!SKUPINY_.ID.test(id)) throw new Error('Neplatná skupina.');
+  return upravSkupinyIg_(function (skupiny) { return SKUPINY_.smaz(skupiny, id); });
 }
 
 /** Kontejner příběhu: { image_url } nebo { video_url } + zmínky (user_tags jen se jménem – u příběhu Instagram x, y nechce). */
@@ -3853,7 +3992,7 @@ function plakaty_() {
   const slozka = slozkaPlakatu_();
   const d = nactiPlakaty_(slozka).data;
   return { nastaveni: d.nastaveni, kola: d.kola, popisky: popiskyPlakatu_(d.popisky, popiskyClauda_(slozka)),
-    plan: nactiPlan_('PLAKATY_PLAN'), obrazky: obrazkyPlakatu_(slozka), ig: igStav_() };
+    plan: nactiPlan_('PLAKATY_PLAN'), obrazky: obrazkyPlakatu_(slozka), ig: igStav_(), skupiny: skupinyIg_() };
 }
 
 /** Akce plakatUlozit: { tyden, stav } = ruční úprava kola; { tyden, smazat } = zpět podle rozlosování. */
