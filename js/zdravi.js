@@ -4,14 +4,14 @@
 
 import { stav, zmeneno, umiMotor, staryMotor, hooky } from './stav.js';
 import { volej } from './api.js';
-import { esc, uloziste, pulnoc, pridejDny, zacatekTydne, isoDatum, DNY, DNY_KR, dm, hhmm, kdyKratce, trvani, rozdilDni, tvar } from './pomocne.js';
+import { esc, uloziste, pulnoc, pridejDny, zacatekTydne, isoDatum, DNY, DNY_KR, dm, hhmm, kdyKratce, trvani, rozdilDni, tvar, prepisSPolem } from './pomocne.js';
 import { IKONY } from './ikony.js';
 import { kostra, chybaHtml, hlavickaKarty, toast, toastAkce, okno, potvrd, kopiruj } from './ui.js';
 import { otevriPanel, zavriPanel, elementPanelu } from './panely.js';
 import { udalostiVRozsahu, jeZapas } from './kalendar.js';
-import { odhadniJidlo, denJidla } from './jidlo_odhad.js';
+import { odhadniJidlo, denJidla, stavJidla, rozpadPoznamky } from './jidlo_odhad.js';
 import { bublina, grafAtr } from './grafy.js';
-import { karta, registruj, hlavaKarty } from './bubliny.js';
+import { karta, registruj, hlavaKarty, pataKarty } from './bubliny.js';
 import { pripoj as pripojNabidku } from './nabidka.js';
 
 const ULOZISTE = 'asistent.data.zdravi';
@@ -345,7 +345,7 @@ export function vykresliZdravi(el) {
     ' · Apple Zdraví' + (z.apple && z.apple.kdy ? ' (' + esc(kdyKratce(z.apple.kdy)) + ')' : '') + ' · ukládá se jen na tvém Disku Google.</p>';
   // rozepsaná váha nesmí zmizet, když se stránka mezitím překreslí (dorazí data)
   const pise = document.activeElement && el.contains(document.activeElement) && document.activeElement.matches('[data-vaha-pole]');
-  el.innerHTML = h;
+  prepisSPolem(el, h); // odpověď Claudovi u jídla ([data-pole]) se při překreslení nezavře (klávesnice v iPhonu)
   const pole = el.querySelector('[data-vaha-pole]');
   if (pole && pise) { pole.focus({ preventScroll: true }); pole.setSelectionRange(pole.value.length, pole.value.length); }
 }
@@ -600,6 +600,7 @@ export function vstupZdravi(e) {
     prekresliDenJidla(); // „Jiný den…“ bez dne = výběr zůstane, jak byl
     return true;
   }
+  if (e.target.matches('[data-jidlo-odpoved-pole]')) { rozepsaneOdpovedi[e.target.dataset.jidloOdpovedPole] = e.target.value; return true; }
   if (!e.target.matches('[data-vaha-pole]')) return false;
   rozepsanaVaha = e.target.value;
   return true;
@@ -617,6 +618,12 @@ export function klavesaZdravi(e) {
     e.preventDefault();
     const b = document.querySelector('[data-panel="vaha"] [data-vaha-okno-zapsat]');
     if (b) b.click();
+    return true;
+  }
+  // odpověď Claudovi u jídla: Enter = Odeslat
+  if (e.target.matches('[data-jidlo-odpoved-pole]')) {
+    e.preventDefault();
+    odesliOdpoved(e.target.dataset.jidloOdpovedPole, e.target.value);
     return true;
   }
   if (!e.target.matches('[data-vaha-pole]')) return false;
@@ -928,20 +935,128 @@ export function kartaPitiHtml() {
       '<div class="piti__pruh piti__pruh--b"><i style="width:' + pct(s.b, cilB) + '%"></i></div></div>' +
       '<div class="piti__akce"><button type="button" class="btn btn--sm btn--ghost" data-jidlo-pridat>' + IKONY.plus + '<span>Jídlo</span></button></div></div>';
   if (s.jidla.length) {
-    // ≈ = odhad aplikace (Claude ho upřesní), „Claude“ = upřesněno (v titulku jeho poznámka); u zápisu Přesunout na jiný den a Smazat
-    const stitek = (j) => (j.doplnek ? ' <small>doplněk</small>' : j.claude ? ' <small>z diktátu</small>' : j.odhad === 'claude' ? ' <small' + bublina('Upřesnil Claude', j.poznamka || 'odhad bílkovin a kcal') + '>Claude</small>' : '');
+    // ≈ = odhad aplikace (Claude ho zkontroluje); u každého jídla stav – kdo ho prošel (cipStavu) a otázka od Clauda;
+    // u zápisu Přesunout na jiný den a Smazat
     const akce = (j) => '<span class="piti__akce-zapisu' + (presun ? ' piti__akce-zapisu--dve' : '') + '">' + (!j.id ? '' :
       (presun ? '<button type="button" class="btn btn--ikona btn--sm" data-jidlo-presun="' + esc(j.id) + '" aria-label="Přesunout na jiný den: ' + esc(j.co) +
         '" title="Přesunout na jiný den">' + IKONY.kalendar + '</button>' : '') +
       '<button type="button" class="btn btn--ikona btn--sm" data-jidlo-smazat="' + esc(j.id) + '" aria-label="Smazat ' + esc(j.co) + '">' + IKONY.zavrit + '</button>') + '</span>';
-    h += '<ul class="piti__jidla">' + s.jidla.map((j) => '<li' + (j.id ? ' data-jidlo-zapis="' + esc(j.id) + '"' : '') + '><span class="orez-1">' + esc(j.co) + stitek(j) + '</span>' +
-      '<b class="cisla"' + (j.odhad === 'mistni' ? bublina('Odhad aplikace', 'Claude ho upřesní') : '') + '>' + (j.odhad === 'mistni' ? '≈ ' : '') + j.bilkoviny + ' g</b>' +
-      akce(j) + '</li>').join('') + '</ul>';
+    h += '<ul class="piti__jidla">' + s.jidla.map((j) => {
+      const st = stavJidla(j);
+      return '<li' + (j.id ? ' data-jidlo-zapis="' + esc(j.id) + '"' : '') + ' class="piti-jidlo piti-jidlo--' + st.druh + '"><span class="piti-jidlo__text"><span class="orez-1">' +
+        esc(j.co) + (j.doplnek ? ' <small>doplněk</small>' : '') + '</span>' + cipStavu(j, st) + '</span>' +
+        '<b class="cisla"' + (j.odhad === 'mistni' ? bublina('Odhad aplikace', 'Claude ho zkontroluje') : '') + '>' + (j.odhad === 'mistni' ? '≈ ' : '') + j.bilkoviny + ' g</b>' +
+        akce(j) + (st.druh === 'otazka' ? otazkaHtml(j) : st.druh === 'prepocet' && j.odpoved ? '<p class="jidlo-odpoved">' + (j.odpoved.otazka ? 'Odpověděl' : 'Upřesnil') + ' jsi: „' + esc(j.odpoved.text) +
+          '“ · Claude přepočítá</p>' : '') + '</li>';
+    }).join('') + '</ul>';
   }
   h += hodnoceniHtml(d) + tydenPitiHtml(d, cilPiti, cilB) +
-    '<p class="napoveda">Jídlo stačí napsat („3 vejce a chleba“, „včera večer pizza“) – bílkoviny odhadnu hned a den poznám z textu, Claude je upřesní ' +
-    'a večer zhodnotí den. Jde to i diktátem pro Clauda.</p></div>';
+    '<p class="napoveda">Jídlo stačí napsat („3 vejce a chleba“, „včera večer pizza“) – bílkoviny odhadnu hned a den poznám z textu. Claude každé ' +
+    'jídlo projde, a když něco nebude jasné, zeptá se tady; tvoje recepty a porce si pamatuje. Večer zhodnotí den. Jde to i diktátem pro Clauda.</p></div>';
   return h;
+}
+
+// ---- Jídlo probrané s Claudem (Michal 16. 10.: „chci, aby se jídlo vždy probralo s tebou, abys to zkontroloval … a nebylo to
+// jen přednastavené věci“): u každého jídla stav – odhad aplikace · Claude zkontroluje → ✓ Claude (rozpad ve vyjeté kartě) →
+// ❓ Claude se ptá (otázka s možnostmi a polem, motor jidloOdpoved) → Odpověděl jsi · Claude přepočítá. Co se Claude naučí,
+// zapíše do ZDRAVI/JIDLA_MICHAL.json a místní odhad to bere přednostně (js/jidlo_odhad.js).
+
+const TRIDA_STAVU = { aplikace: 'tag--seda', claude: 'tag--fialova', otazka: 'tag--danger', prepocet: 'tag--seda', rucne: 'tag--seda' };
+const rozepsaneOdpovedi = {}; // id jídla → rozepsaná odpověď (přežije překreslení i odchod ze stránky)
+const jidlaMichal = () => (stav.zdravi && stav.zdravi.jidlaMichal) || null;
+
+/** Čip stavu u jídla (tlačítko s vyjetou kartou – myš najetím, dotyk klepnutím). Doplněk čip nemá. */
+function cipStavu(j, st) {
+  if (!st || st.druh === 'doplnek' || !j.id) return '';
+  return '<button type="button" class="tag ' + TRIDA_STAVU[st.druh] + ' jidlo-stav jidlo-stav--' + st.druh + '"' + karta('jidlo', false, j.id) + '>' + esc(st.text) + '</button>';
+}
+
+/** Otázka od Clauda pod jídlem: možnosti jako čipy (jedno klepnutí = odpověď) a pole pro vlastní slova. */
+function otazkaHtml(j) {
+  const q = j.otazka, id = esc(j.id);
+  const moznosti = q.moznosti && q.moznosti.length ? q.moznosti : [];
+  return '<div class="jidlo-otazka" data-jidlo-otazka="' + id + '"><p class="jidlo-otazka__text">' + IKONY.claude + '<span><b>Claude se ptá:</b> ' + esc(q.text) + '</span></p>' +
+    (umiMotor('jidloOdpoved')
+      ? (moznosti.length ? '<div class="jidlo-otazka__moznosti" role="group" aria-label="Odpověď Claudovi">' + moznosti.map((m) =>
+        '<button type="button" class="chip chip--mala" data-jidlo-moznost="' + id + '" data-text="' + esc(m) + '">' + esc(m) + '</button>').join('') + '</div>' : '') +
+        '<div class="jidlo-otazka__pole"><input class="field" data-pole="jidlo-odpoved-' + id + '" data-jidlo-odpoved-pole="' + id + '" value="' +
+        esc(rozepsaneOdpovedi[j.id] || '') + '" maxlength="300" enterkeyhint="send" autocomplete="off" placeholder="' +
+        (moznosti.length ? 'Jinak – napiš vlastními slovy' : 'Napiš odpověď') + '" aria-label="Odpověď Claudovi: ' + esc(q.text) + '">' +
+        '<button type="button" class="btn btn--sm btn--primary" data-jidlo-odeslat="' + id + '">Odeslat</button></div>'
+      : '<p class="jidlo-otazka__stary">Odpovědět půjde po nasazení nové verze motoru.</p>') + '</div>';
+}
+
+/** Jídlo podle id v datech Zdraví (kterýkoli den) → { j, den } nebo null. */
+function najdiJidlo(id) {
+  const dny = (stav.zdravi && stav.zdravi.pitiJidlo) || {};
+  for (const den of Object.keys(dny)) {
+    const j = (dny[den].jidlo || []).find((x) => x.id === id);
+    if (j) return { j, den };
+  }
+  return null;
+}
+
+/**
+ * Odpověď Claudovi (čip možnosti, pole, okno Upřesnit): hned v kartě „Odpověděl jsi: … · Claude přepočítá“, pak motor
+ * jidloOdpoved (uloží k jídlu do PITI_JIDLO.json a založí Claudovi poznámku). Při chybě se karta vrátí a text zůstane v poli.
+ */
+function odesliOdpoved(id, text) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!t) { toast('Napiš odpověď.', true); return Promise.resolve(); }
+  if (!umiMotor('jidloOdpoved') || !stav.zdravi) return Promise.resolve();
+  const puvodni = stav.zdravi.pitiJidlo;
+  const dny = JSON.parse(JSON.stringify(puvodni || {}));
+  Object.keys(dny).forEach((den) => (dny[den].jidlo || []).forEach((j) => {
+    if (j.id !== id) return;
+    j.odpoved = { text: t, kdy: Date.now(), otazka: j.otazka ? j.otazka.text : '' };
+    delete j.otazka;
+    j.prepocet = true;
+  }));
+  stav.zdravi.pitiJidlo = dny;
+  delete rozepsaneOdpovedi[id];
+  zmeneno();
+  return volej('jidloOdpoved', { id, text: t })
+    .then((r) => {
+      stav.zdravi.pitiJidlo = r.dny || {};
+      uloziste.pis(ULOZISTE, { data: stav.zdravi, kdy: Date.now() });
+      toast('Claude to při další schránce přepočítá ✓');
+      zmeneno();
+    })
+    .catch((e) => { stav.zdravi.pitiJidlo = puvodni; rozepsaneOdpovedi[id] = t; zmeneno(); toast(e.message, true); });
+}
+
+/** Okno „Upřesnit pro Clauda“ (nabídka jídla, vyjetá karta): otázka s možnostmi, když visí, jinak volné upřesnění. */
+function upresnitJidlo(id) {
+  const n = najdiJidlo(id);
+  if (!n || !umiMotor('jidloOdpoved')) return;
+  const q = n.j.otazka;
+  okno({ ikona: IKONY.claude, nadpis: q ? 'Claude se ptá' : 'Upřesnit pro Clauda', text: q ? q.text : n.j.co,
+    volby: q && q.moznosti && q.moznosti.length ? q.moznosti.map((m) => [m, m]) : undefined,
+    pole: { popisek: q ? 'Nebo vlastními slovy' : 'Co má Claude vědět', hodnota: rozepsaneOdpovedi[id] || '',
+      placeholder: q ? 'napiš odpověď' : 'např. byla to ¾ krabičky, s klobásou, můj recept…' },
+    ano: 'Odeslat' }).then((text) => { if (typeof text === 'string' && text.trim()) odesliOdpoved(id, text); });
+}
+
+/** Vyjetá karta jídla (čip stavu): čísla, kdo je prošel, Claudův rozpad, otázka a odpověď, Upřesnit pro Clauda. */
+function kartaJidlaJednoho(el) {
+  const k = el.closest('[data-piti-den]');
+  const den = k ? k.dataset.pitiDen : isoDatum(Date.now());
+  const j = souctyDne(den).jidla.find((x) => x.id === el.dataset.kartaKlic);
+  if (!j) return '';
+  const st = stavJidla(j);
+  const pribl = j.odhad === 'mistni' ? '≈ ' : '';
+  const radky = [];
+  const rozpad = rozpadPoznamky(j.poznamka);
+  if (st.druh === 'aplikace') radky.push([IKONY.info, 'Odhad aplikace z obecné tabulky – Claude ho při další schránce zkontroluje a zeptá se, když nebude něco jasné.']);
+  if (st.druh === 'rucne') radky.push([IKONY.info, 'Bílkoviny jsi zadal sám.']);
+  rozpad.forEach((r) => radky.push([IKONY.jidlo, r]));
+  if (j.otazka) radky.push([IKONY.claude, 'Claude se ptá: ' + j.otazka.text]);
+  if (j.odpoved) radky.push([IKONY.fajfka, (j.odpoved.otazka ? 'Odpověděl jsi: „' : 'Upřesnil jsi: „') + j.odpoved.text + '“' + (j.prepocet ? ' · Claude přepočítá' : '')]);
+  return hlavaKarty(ikonaZdravi(IKONY.jidlo), 'Jídlo · ' + popisDne(den), pribl + j.bilkoviny + '<small> g bílkovin</small>',
+    esc((j.kcal ? pribl + j.kcal.toLocaleString('cs-CZ') + ' kcal · ' : '') + st.text)) +
+    '<p class="bk-jidlo">' + esc(j.co) + '</p>' +
+    (radky.length ? '<ul class="bk-radky">' + radky.map((r) => '<li>' + r[0] + '<span>' + esc(r[1]) + '</span></li>').join('') + '</ul>' : '') +
+    (umiMotor('jidloOdpoved') && !j.doplnek ? pataKarty([['data-jidlo-upresnit="' + esc(j.id) + '"', j.otazka ? 'Odpovědět Claudovi' : 'Upřesnit pro Clauda', !!j.otazka]]) : '');
 }
 
 /** Ke kterému dni patří tlačítko v kartě (data-piti-den); u minulého dne se vybraný den karty prodlouží o další čtvrthodinu. */
@@ -1032,12 +1147,13 @@ function nazevDoplnku(id) { const p = doplnkyRezimu().find((x) => x.id === id); 
 /** Odhad pod polem (překresluje se při psaní). */
 function odhadJidlaHtml(text) {
   if (!String(text || '').trim()) return '<p class="jidlo-odhad__prazdne">Napiš, co jsi měl – bílkoviny a kcal spočítám hned.</p>';
-  const o = odhadniJidlo(text, doplnkyRezimu());
+  const o = odhadniJidlo(text, doplnkyRezimu(), jidlaMichal());
   let h = '';
   if (o.polozky.length) {
     h += '<p class="jidlo-odhad__soucet"><b class="cisla">≈ ' + o.bilkoviny + ' g</b> bílkovin · <span class="cisla">' + o.kcal.toLocaleString('cs-CZ') + ' kcal</span>' +
       (o.jisty ? '' : ' <small>– část neznám, Claude doplní</small>') + '</p><ul class="jidlo-odhad__polozky">' + o.polozky.map((x) =>
-        '<li><span>' + esc(x.co) + (x.g ? ' <small>' + x.g + ' g</small>' : '') + (x.znamo === false ? ' <small>?</small>' : '') + '</span><b class="cisla">' + x.bilkoviny + ' g</b></li>').join('') + '</ul>';
+        '<li><span>' + esc(x.co) + (x.mnozstvi ? ' <small>' + esc(x.mnozstvi) + '</small>' : x.g ? ' <small>' + x.g + ' g</small>' : '') + (x.znamo === false ? ' <small>?</small>' : '') +
+        (x.michal ? ' <span class="tag tag--fialova jidlo-odhad__muj">tvůj recept</span>' : '') + '</span><b class="cisla">' + x.bilkoviny + ' g</b></li>').join('') + '</ul>';
   }
   if (o.doplnky.length) h += '<p class="jidlo-odhad__doplnky">' + IKONY.fajfka + '<span>Odškrtnu doplněk: <b>' + o.doplnky.map((id) => esc(nazevDoplnku(id))).join(', ') + '</b></span></p>';
   return h || '<p class="jidlo-odhad__prazdne">Tohle neznám – Claude to odhadne.</p>';
@@ -1089,7 +1205,8 @@ export function otevriJidlo(denMs) {
       '<div class="jidlo-odhad" data-jidlo-odhad aria-live="polite">' + odhadJidlaHtml('') + '</div>' +
       '<details class="jidlo-presne"><summary>Bílkoviny vím přesně</summary><div class="jidlo-cisla"><label><span class="label">Bílkoviny (g)</span>' +
         '<input class="field" data-jidlo-b inputmode="numeric"></label><label><span class="label">kcal</span><input class="field" data-jidlo-kcal inputmode="numeric"></label></div></details>' +
-      '<p class="napoveda">Claude odhad upřesní při další schránce a večer zhodnotí celý den.</p></div>',
+      '<p class="napoveda">Claude každé jídlo projde – upřesní odhad, a když nebude něco jasné (porce, recept), zeptá se tě v kartě Pití a jídlo. ' +
+        'Co se naučí, pamatuje si. Večer zhodnotí celý den.</p></div>',
     paticka: () => '<div class="akce"><button type="button" class="btn btn--ghost" data-zavrit-panel>Zrušit</button>' +
       '<button type="button" class="btn btn--primary" data-jidlo-ulozit>Uložit</button></div>',
     poOtevreni: (el) => { const p = el.querySelector('[data-jidlo-co]'); if (p) p.focus({ preventScroll: true }); }
@@ -1102,7 +1219,7 @@ function ulozJidlo(tlacitko) {
   const text = el.querySelector('[data-jidlo-co]').value.trim();
   if (!text) { toast('Napiš, co jsi jedl.', true); return; }
   const rucneB = String(el.querySelector('[data-jidlo-b]').value).trim(), rucneK = String(el.querySelector('[data-jidlo-kcal]').value).trim();
-  const o = odhadniJidlo(text, doplnkyRezimu());
+  const o = odhadniJidlo(text, doplnkyRezimu(), jidlaMichal());
   const kdy = denZapisuJidla(text).d;
   const den = isoDatum(kdy);
   const naDen = den === isoDatum(Date.now()) ? '' : ' na ' + DNY_KR[new Date(kdy).getDay()] + ' ' + dm(kdy);
@@ -1155,6 +1272,13 @@ export function klikZdravi(el) {
   if (el.dataset.jidloNa) { jidloDenRucne = pulnoc(Date.parse(el.dataset.jidloNa + 'T12:00:00')); prekresliDenJidla(); return true; }
   if (el.dataset.jidloPresun) { presunJidla(el.dataset.jidloPresun, denTlacitkaPiti(el)); return true; }
   if (el.dataset.jidloSmazat) { smazJidlo(denTlacitkaPiti(el), el.dataset.jidloSmazat); return true; }
+  if (el.dataset.jidloMoznost) { odesliOdpoved(el.dataset.jidloMoznost, el.dataset.text); return true; }
+  if (el.dataset.jidloOdeslat) {
+    const pole = el.closest('.jidlo-otazka').querySelector('[data-jidlo-odpoved-pole]');
+    odesliOdpoved(el.dataset.jidloOdeslat, pole ? pole.value : '');
+    return true;
+  }
+  if (el.dataset.jidloUpresnit) { upresnitJidlo(el.dataset.jidloUpresnit); return true; }
   if (el.dataset.doplnkyUkaz !== undefined) {
     const v = el.dataset.doplnkyUkaz;
     denDoplnku = /^\d{4}-\d{2}-\d{2}$/.test(v) ? pulnoc(Date.parse(v + 'T12:00:00')) : 0;
@@ -1300,9 +1424,11 @@ function nabidkaJidla(el) {
   const dnes = isoDatum(Date.now());
   const pol = [{ ikona: IKONY.plus, text: 'Zopakovat dnes', fn: () => {
     const co = j.co.length > 50 ? j.co.slice(0, 48) + '…' : j.co;
-    zapisPiti({ den: dnes, jak: 'jidlo', co: j.co, bilkoviny: j.bilkoviny || 0, kcal: j.kcal || 0, odhad: j.odhad === 'mistni' },
+    // jídlo s odhadem (aplikace i Claude) jde Claudovi znovu – každé jídlo má projít (porce mohla být jiná)
+    zapisPiti({ den: dnes, jak: 'jidlo', co: j.co, bilkoviny: j.bilkoviny || 0, kcal: j.kcal || 0, odhad: j.odhad === 'mistni' || j.odhad === 'claude' },
       () => oznamDen('Zapsáno znovu: ' + co + ' · ' + (j.odhad === 'mistni' ? '≈ ' : '') + (j.bilkoviny || 0) + ' g bílkovin', dnes)).catch(() => {});
   } }];
+  if (umiMotor('jidloOdpoved')) pol.push({ ikona: IKONY.claude, text: j.otazka ? 'Odpovědět Claudovi…' : 'Upřesnit pro Clauda…', fn: () => upresnitJidlo(j.id) });
   if (umiMotor('pitiJidloPresun')) pol.push({ ikona: IKONY.kalendar, text: 'Přesunout na jiný den…', fn: () => presunJidla(j.id, den) });
   pol.push({ ikona: IKONY.kopirovat, text: 'Kopírovat', fn: () => kopiruj(j.co + ' · ' + (j.odhad === 'mistni' ? '≈ ' : '') + (j.bilkoviny || 0) + ' g bílkovin' +
     (j.kcal ? ' · ' + j.kcal + ' kcal' : '')) });
@@ -1399,3 +1525,4 @@ function kartaVahyJedne(el) {
 
 registruj('doplnek', kartaDoplnkuJednoho);
 registruj('vaha', kartaVahyJedne);
+registruj('jidlo', kartaJidlaJednoho);

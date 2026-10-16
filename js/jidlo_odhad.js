@@ -3,6 +3,8 @@
 // Den z textu („včera“, „v pátek ráno“, „8. 10.“) – denJidla(), rozbor dne z js/rozbor.js (Michal 10. 10.: jídlo ze včerejška
 // se zapsalo do dneška). Jen odhad (Claude ho později upřesní). Čisté funkce bez DOM; tabulka se předzpracuje jednou při načtení.
 // Porovnává se na slovech bez diakritiky a velkých písmen, skloňování pokrývají kmeny (začátky slov), ne seznam tvarů.
+// Michalova jídla a recepty (ZDRAVI/JIDLA_MICHAL.json – píše je Claude, když se od Michala něco naučí) mají přednost před
+// obecnou tabulkou a jeho nádoby (krabička IKEA) jsou jednotky („¾ krabičky rýže“). stavJidla() = kdo jídlo prošel (karta Pití a jídlo).
 
 import { denZpet } from './rozbor.js';
 
@@ -505,16 +507,117 @@ function najdiDoplnek(tok, i, seznam, zapas) {
   return { ids: kandidati.map((d) => d.id), delka: nej };
 }
 
+// ---------------------------------------------------------------- Michalova jídla a recepty (ZDRAVI/JIDLA_MICHAL.json)
+// Michal 16. 10.: „chci, aby se jídlo vždy probralo s tebou, abys to zkontroloval … a nebylo to jen přednastavené věci“ – co se
+// Claude od Michala naučí (jeho recept, porce, nádoba), zapíše do JIDLA_MICHAL.json a motor ho pošle se Zdravím. Položka
+// { id, nazev, vzory: ['chleba ve vajíčku', …], jednotka: 'krajíc', porce: 1, g, bilkoviny, kcal, nadoba? } – g, bílkoviny a kcal
+// platí pro „porce“ jednotek (1 krajíc, ¾ krabičky); nádoba { id, nazev, typ: 'nadoba', vzory, ml (g) } je jednotka („¾ krabičky“).
+// Vzory se píšou normálně česky – porovnávají se kmeny slov (rýže = rýži, rýží), s/se, v/ve, k/ke, z/ze jako jedno.
+
+const DVOJICE = { s: ['s', 'se'], se: ['s', 'se'], v: ['v', 've'], ve: ['v', 've'], k: ['k', 'ke'], ke: ['k', 'ke'], z: ['z', 'ze'], ze: ['z', 'ze'] };
+const slovaTextu = (text) => bez(text).split(/[^a-z]+/).filter(Boolean);
+
+/** Slovo vzoru → krok pro najdi(): kmen (začátek slova, aspoň 3 písmena), krátká slova celá, s/se… jako jedno. */
+function krokVzoru(slovo) {
+  if (DVOJICE[slovo]) return DVOJICE[slovo].map((s) => ({ s, cele: true }));
+  if (slovo.length <= 2) return [{ s: slovo, cele: true }];
+  const k = slovo.replace(/(ami|ech|emi|em|ou|um|[aeiouy])+$/, '');
+  return [{ s: k.length >= 3 ? k : slovo, cele: false }];
+}
+
+/** Vzory psané česky → index jako u tabulky (podle prvních dvou písmen prvního slova). */
+function indexujMichal(vzory, cil, index) {
+  vzory.forEach((vzor) => {
+    const slova = slovaTextu(vzor);
+    if (!slova.length || DVOJICE[slova[0]] || slova[0].length < 2) return;
+    const kroky = slova.map(krokVzoru);
+    const v = { cil, kroky };
+    new Set(kroky[0].map((a) => a.s.slice(0, 2))).forEach((k) => (index[k] = index[k] || []).push(v));
+  });
+}
+
+/** Michalova položka → tvar jako v tabulce (na 100 g) + jeho jednotka; null = nedá se počítat. */
+function zMichalovy(p, M) {
+  const porce = Number(p.porce) > 0 ? Number(p.porce) : 1;
+  const jednotka = String(p.jednotka || '').trim();
+  // nádoba: výslovně (nadoba: id), nebo podle jednotky („krabička“ = Michalova krabička)
+  let nd = p.nadoba ? M.nadoby[p.nadoba] : null;
+  if (!nd && jednotka && !JEDNOTKY[bez(jednotka)]) { const f = najdi(rozdel(jednotka), 0, M.indexNadob); if (f) nd = f.cil; }
+  const g = Number(p.g) > 0 ? Number(p.g) : porce * (nd ? nd.g : 100);
+  const b = Number(p.bilkoviny) || 0, kcal = Number(p.kcal) || 0;
+  if (!(g > 0) || (!b && !kcal)) return null;
+  const naJednotku = g / porce;
+  return { id: 'michal:' + p.id, nazev: String(p.nazev || p.id), porce: g, b: b / g * 100, kcal: kcal / g * 100, ks: naJednotku, pl: naJednotku,
+    michal: true, jednotka, porceJednotek: porce, nadoba: nd ? nd.id : '',
+    jednotkaId: JEDNOTKY[bez(jednotka)] || (nd ? 'nadoba:' + nd.id : ''),
+    // přísady z názvu („… se šunkou a sýrem“) – v textu za položkou se nepočítají znovu
+    slovaNazvu: slovaTextu(p.nazev).filter((s) => s.length >= 3).map((s) => krokVzoru(s)[0].s) };
+}
+
+let michalMezi = { zdroj: null, klic: null, M: null };
+
+/** JIDLA_MICHAL.json ({ polozky } nebo pole) → { index, indexNadob, nadoby } (předzpracuje se znovu jen při změně), null = nic. */
+function pripravMichal(michal) {
+  const polozky = michal && Array.isArray(michal.polozky) ? michal.polozky : Array.isArray(michal) ? michal : [];
+  if (!polozky.length) return null;
+  if (michalMezi.zdroj === polozky) return michalMezi.M;
+  const klic = JSON.stringify(polozky);
+  if (klic === michalMezi.klic) { michalMezi.zdroj = polozky; return michalMezi.M; }
+  const M = { index: {}, indexNadob: {}, nadoby: {} };
+  const vzory = (p) => (Array.isArray(p.vzory) ? p.vzory : []).concat(p.nazev ? [p.nazev] : []).map(String);
+  polozky.forEach((p) => {
+    if (!p || p.typ !== 'nadoba' || !p.id) return;
+    const nd = { id: String(p.id), nazev: String(p.nazev || p.id), g: Number(p.g) > 0 ? Number(p.g) : Number(p.ml) || 0 };
+    if (!(nd.g > 0)) return;
+    M.nadoby[nd.id] = nd;
+    indexujMichal(vzory(p), nd, M.indexNadob);
+  });
+  polozky.forEach((p) => {
+    if (!p || p.typ === 'nadoba' || !p.id) return;
+    const z = zMichalovy(p, M);
+    if (z) indexujMichal(vzory(p), z, M.index);
+  });
+  michalMezi = { zdroj: polozky, klic, M };
+  return M;
+}
+
+const ZLOMKY_TEXT = { 0.25: '¼', 0.5: '½', 0.75: '¾' };
+/** „krabička“ k počtu: ¾ krabičky, 2 krabičky, 5 krabiček; krajíc: 1 krajíc, ½ krajíce, 5 krajíců (jen pro popis odhadu). */
+function tvarJednotky(j, n) {
+  const s = String(j || '').trim();
+  if (!s || n === 1) return s;
+  const pet = Number.isInteger(n) && n >= 5;
+  if (/a$/.test(s)) { const z = s.slice(0, -1); return pet ? z.replace(/([^aeiouyáéíóúůý])k$/, '$1ek') : z + (/[cčřšžj]$/.test(z) ? 'e' : 'y'); }
+  if (/e$/.test(s)) return pet ? s.slice(0, -1) + 'í' : s;
+  return pet ? s + 'ů' : s + (/[cčřšžjť]$/.test(s) ? 'e' : Number.isInteger(n) ? 'y' : 'u');
+}
+/** 0,75 + krabička → „¾ krabičky“ */
+function mnozstviText(n, jednotka) {
+  if (!jednotka) return '';
+  const cislo = ZLOMKY_TEXT[n] || (Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100).replace('.', ','));
+  return cislo + ' ' + tvarJednotky(jednotka, n);
+}
+
 // ---------------------------------------------------------------- rozbor textu
 
-const SLOVO = /\d+(?:[.,]\d+)?|\p{L}+|[,;+&\/.!?()\n]/gu;
+// zlomek „3/4“ (jedna číslice nad i pod – „8/10“ zlomek není) a znaky ¼ ½ ¾ jsou čísla
+const SLOVO = /\d\s?\/\s?\d(?!\d)|[¼½¾]|\d+(?:[.,]\d+)?|\p{L}+|[,;+&\/.!?()\n]/gu;
+const ZNAKY_ZLOMKU = { '¼': 0.25, '½': 0.5, '¾': 0.75 };
+
+/** Číslo z tokenu: „2,5“, „3/4“, „¾“. */
+function cisloZTokenu(o) {
+  if (ZNAKY_ZLOMKU[o] != null) return ZNAKY_ZLOMKU[o];
+  const z = /^(\d)\s?\/\s?(\d)$/.exec(o);
+  if (z) return Number(z[2]) ? Number(z[1]) / Number(z[2]) : NaN;
+  return parseFloat(o.replace(',', '.'));
+}
 
 /** Text → slova (s), čísla (c) a oddělovače (o) s pozicí v textu. */
 function rozdel(text) {
   const tok = [];
   for (const m of text.matchAll(SLOVO)) {
     const o = m[0];
-    const druh = /\d/.test(o[0]) ? 'c' : /\p{L}/u.test(o[0]) ? 's' : 'o';
+    const druh = /[\d¼½¾]/.test(o[0]) ? 'c' : /\p{L}/u.test(o[0]) ? 's' : 'o';
     tok.push({ o, t: druh === 's' ? bez(o) : o, od: m.index, do: m.index + o.length, druh });
   }
   return tok;
@@ -547,41 +650,57 @@ function uklid(tok, pryc, text) {
 }
 
 /**
- * text → odhad; doplnky = položky režimu [{ id, nazev }] (např. { id: 'elektrolyty', nazev: 'Elektrolyty' })
- * vrací { polozky: [{ co, g, bilkoviny, kcal, znamo }], bilkoviny, kcal, doplnky: [id], text, jisty }
- *   polozky – rozpoznaná jídla (co = hezký český název, g = odhad hmotnosti porce v g, bilkoviny a kcal zaokrouhlené na celé)
+ * text → odhad; doplnky = položky režimu [{ id, nazev }] (např. { id: 'elektrolyty', nazev: 'Elektrolyty' }),
+ * michal = ZDRAVI/JIDLA_MICHAL.json ({ polozky }) – Michalova jídla a nádoby, mají přednost před tabulkou
+ * vrací { polozky: [{ co, g, bilkoviny, kcal, znamo, michal?, mnozstvi? }], bilkoviny, kcal, doplnky: [id], text, jisty }
+ *   polozky – rozpoznaná jídla (co = hezký český název, g = odhad hmotnosti porce v g, bilkoviny a kcal zaokrouhlené na celé;
+ *             michal = podle Michalova receptu, mnozstvi = „¾ krabičky“, „3 krajíce“ – u nádob a Michalových jednotek)
  *   doplnky – id doplňků z předaného seznamu, které text zmiňuje (bez duplicit)
  *   text    – text bez doplňků (to, co se uloží jako jídlo), uklizený (čárky, „a“, mezery); '' = byly jen doplňky
  *   jisty   – true, když se rozpoznala všechna jídla (žádné neznámé slovo, které vypadá jako jídlo)
  */
-export function odhadniJidlo(text, doplnky = []) {
+export function odhadniJidlo(text, doplnky = [], michal = null) {
   const puvodni = String(text == null ? '' : text).normalize('NFC');
   const tok = rozdel(puvodni);
   const seznam = pripravDoplnky(Array.isArray(doplnky) ? doplnky : []);
+  const M = pripravMichal(michal);
   const zapas = tok.some((x) => x.druh === 's' && x.t.startsWith('zapas'));
   const polozky = [], ids = [], pryc = new Set();
   let veta = 0, cekajici = null, posledni = null;
   let usek = { jidel: 0, doplnek: false, nezname: [], mnozstvi: null }; // úsek mezi spojkami a čárkami
 
-  // množství na slově i: číslo nebo číslovka (+ „a půl“) (+ jednotka) → { n, j, ti, konec }
+  // jednotka na slově k: z tabulky (krajíc, hrnek…), nebo Michalova nádoba („krabička“, „krabička z IKEA“) → { j, g?, konec }
+  const jednotka = (k) => {
+    const y = tok[k];
+    if (!y || y.druh !== 's') return null;
+    if (JEDNOTKY[y.t]) return { j: JEDNOTKY[y.t], konec: k + 1 };
+    const nd = M && najdi(tok, k, M.indexNadob);
+    return nd ? { j: 'nadoba:' + nd.cil.id, g: nd.cil.g, konec: k + nd.delka } : null;
+  };
+  // množství na slově i: číslo, zlomek (¾, 3/4) nebo číslovka (+ „a půl“, „tři čtvrtě“) (+ jednotka) → { n, j, gNadoby, ti, jOd, konec }
   const mnozstvi = (i) => {
     const x = tok[i];
     if (!x) return null;
-    let n = x.druh === 'c' ? parseFloat(x.o.replace(',', '.')) : x.druh === 's' && CISLOVKY[x.t] != null ? CISLOVKY[x.t] : null;
+    let n = x.druh === 'c' ? cisloZTokenu(x.o) : x.druh === 's' && CISLOVKY[x.t] != null ? CISLOVKY[x.t] : null;
     if (n == null || !(n > 0)) return null;
     let k = i + 1;
     if (n >= 1 && tok[k] && tok[k].t === 'a' && tok[k + 1] && tok[k + 1].t === 'pul') { n += 0.5; k += 2; }
-    const j = tok[k] && tok[k].druh === 's' && JEDNOTKY[tok[k].t];
-    return { n, j: j || null, ti: i, konec: j ? k + 1 : k };
+    else if (n >= 1 && n <= 4 && tok[k] && tok[k].druh === 's' && /^(ctvrt|tretin)/.test(tok[k].t)) { n /= /^ctvrt/.test(tok[k].t) ? 4 : 3; k++; }
+    const j = jednotka(k);
+    return { n, j: j ? j.j : null, gNadoby: j ? j.g || 0 : 0, ti: i, jOd: k, konec: j ? j.konec : k };
   };
   const gramy = (z, m) => {
     let g = z.porce;
-    if (m && m.n != null) g = m.n * (m.j ? gramyJednotky(m.j, z) : z.ks || z.porce);
+    if (m && m.n != null) {
+      if (m.j && z.jednotkaId && m.j === z.jednotkaId) g = m.n * z.ks;         // vlastní jednotka položky (3 krajíce, ¾ krabičky)
+      else if (m.j && m.j.indexOf('nadoba:') === 0) g = m.n * m.gNadoby;       // nádoba u jiného jídla – podle jejího objemu
+      else g = m.n * (m.j ? gramyJednotky(m.j, z) : z.ks || z.porce);
+    }
     if (m && m.nasob) g *= m.nasob > 1 && z.vel ? z.vel : m.nasob;
     return g;
   };
   const pridej = (z, m) => {
-    posledni = { z, g: gramy(z, m), veta };
+    posledni = { z, g: gramy(z, m), veta, m };
     polozky.push(posledni);
     usek.jidel++;
   };
@@ -610,6 +729,32 @@ export function odhadniJidlo(text, doplnky = []) {
       k++;
     }
   };
+  // „… se šunkou a sýrem“ za Michalovou položkou – přísady, které má v názvu, jsou v ní (šunka se nepočítá podruhé)
+  const preskocPrisady = (z, k) => {
+    const vNazvu = (y) => !!y && y.druh === 's' && z.slovaNazvu.some((s) => y.t.startsWith(s));
+    let s = false;
+    for (;;) {
+      const a = tok[k];
+      if (!a || a.druh !== 's') return k;
+      if ((a.t === 's' || a.t === 'se') && vNazvu(tok[k + 1])) { s = true; k += 2; continue; }
+      if (s && (a.t === 'a' || a.t === 'i') && vNazvu(tok[k + 1])) { k += 2; continue; }
+      return k;
+    }
+  };
+  const dalsiJidlo = (k) => najdi(tok, k, INDEX_JIDEL) || (M && najdi(tok, k, M.index));
+  // nalezené jídlo f na slově i (tabulka i Michalovo) s množstvím mm před ním, nebo za ním → index za ním
+  const pridejNalezene = (f, i, mm) => {
+    let k = i + f.delka;
+    if (f.cil.michal) k = preskocPrisady(f.cil, k);
+    if (!mm || mm.n == null) {
+      // množství za jídlem: „tvaroh 250g“, „vejce 3“, „rohlík 2x“, „rýže ¾ krabičky“; číslo bez jednotky před dalším jídlem patří k němu
+      const za = mnozstvi(k);
+      if (za && (VAHA[za.j] || !dalsiJidlo(za.konec))) { mm = Object.assign({}, mm, za); k = za.konec; }
+    }
+    pridej(f.cil, mm);
+    cekajici = null;
+    return k;
+  };
 
   let i = 0;
   while (i < tok.length) {
@@ -621,9 +766,22 @@ export function odhadniJidlo(text, doplnky = []) {
       i++;
       continue;
     }
-    const jedn = x.druh === 's' && JEDNOTKY[x.t];
-    const m = mnozstvi(i) || (jedn && !VAHA[jedn] && jedn !== 'ks' ? { n: 1, j: jedn, ti: i, konec: i + 1 } : null); // „hrnek kávy“
+    // Michalovo jídlo má přednost: stejně dlouhý nebo delší vzor než v tabulce vyhraje („chleba ve vajíčku“, „domácí buchta“);
+    // přísady z jeho názvu za ním („… se sýrem a šunkou“) se počítají do délky
+    if (M && x.druh === 's') {
+      const fm = najdi(tok, i, M.index);
+      const fo = fm && najdi(tok, i, INDEX_JIDEL);
+      if (fm && (!fo || preskocPrisady(fm.cil, i + fm.delka) - i >= fo.delka)) { i = pridejNalezene(fm, i, cekajici); continue; }
+    }
+    let m = mnozstvi(i);
+    if (!m && x.druh === 's') { // „hrnek kávy“, „krabička rýže“ – jednotka bez čísla
+      const u = jednotka(i);
+      if (u && !VAHA[u.j] && u.j !== 'ks') m = { n: 1, j: u.j, gNadoby: u.g || 0, ti: i, jOd: i, konec: u.konec };
+    }
     if (m) {
+      // Michalova položka začíná jednotkou („3 krajíce ve vajíčku“) – množství je v jejích jednotkách
+      const fm = M && m.j ? najdi(tok, m.jOd, M.index) : null;
+      if (fm && fm.delka > m.konec - m.jOd) { i = pridejNalezene(fm, m.jOd, Object.assign({ nasob: cekajici && cekajici.nasob }, m)); continue; }
       cekajici = Object.assign({ nasob: cekajici && cekajici.nasob }, m, { ti: cekajici ? cekajici.ti : m.ti });
       i = m.konec;
       continue;
@@ -676,18 +834,7 @@ export function odhadniJidlo(text, doplnky = []) {
     }
     // přídavné jméno před jiným jídlem jen upřesňuje („hovězí guláš“, „zeleninový salát“, „tvarohový koláč“)
     if (f && f.delka === 1 && PRIDAVNE.test(x.t) && najdi(tok, i + 1, INDEX_JIDEL)) { i++; continue; }
-    if (f) {
-      let k = i + f.delka, mm = cekajici;
-      if (!mm || mm.n == null) {
-        // množství za jídlem: „tvaroh 250g“, „vejce 3“, „rohlík 2x“; číslo bez jednotky před dalším jídlem patří k němu
-        const za = mnozstvi(k);
-        if (za && (VAHA[za.j] || !najdi(tok, za.konec, INDEX_JIDEL))) { mm = Object.assign({}, mm, za); k = za.konec; }
-      }
-      pridej(f.cil, mm);
-      cekajici = null;
-      i = k;
-      continue;
-    }
+    if (f) { i = pridejNalezene(f, i, cekajici); continue; }
     if (!NEJIDLO.some((s) => x.t.startsWith(s)) && x.t.length >= 2) {
       if (!usek.nezname.length) usek.mnozstvi = cekajici;
       usek.nezname.push(x);
@@ -709,7 +856,14 @@ export function odhadniJidlo(text, doplnky = []) {
     const g = p.g + (s ? s.g : 0);
     const b = (p.g * z.b + (s ? s.g * s.z.b : 0)) / 100;
     const kcal = (p.g * z.kcal + (s ? s.g * s.z.kcal : 0)) / 100;
-    return { co: s ? s.nazev : p.z ? z.nazev : p.nazev, g: Math.round(g), bilkoviny: Math.round(b), kcal: Math.round(kcal), znamo: !!p.z };
+    const x = { co: s ? s.nazev : p.z ? z.nazev : p.nazev, g: Math.round(g), bilkoviny: Math.round(b), kcal: Math.round(kcal), znamo: !!p.z };
+    // jak se množství řeklo: „¾ krabičky“ (nádoba, Michalova jednotka) – u Michalova jídla bez množství jeho obvyklá porce
+    const m = p.m;
+    if (m && m.j && (m.j.indexOf('nadoba:') === 0 || (z.michal && m.j === z.jednotkaId))) x.mnozstvi = tok.slice(m.ti, m.konec).map((t) => t.o).join(' ');
+    else if (z.michal) x.mnozstvi = mnozstviText(m && m.n != null ? m.n : z.porceJednotek, z.jednotka);
+    if (z.michal) x.michal = true;
+    if (!x.mnozstvi) delete x.mnozstvi;
+    return x;
   });
   return {
     polozky: vysledek,
@@ -721,4 +875,26 @@ export function odhadniJidlo(text, doplnky = []) {
   };
 }
 
-export const _test = { pocetJidel: JIDLA.length, PODLE_ID };
+// ---------------------------------------------------------------- kdo jídlo prošel (karta Pití a jídlo)
+
+/**
+ * Stav jídla v kartě (Michal 16. 10.: „ať je jasně vidět, co Claude prošel“) z dat motoru (pitiJidloDny_ / claudovoKJidlu_):
+ * → { druh, text } – 'doplnek' | 'otazka' (❓ Claude se ptá – j.otazka) | 'prepocet' (Michal odpověděl, Claude přepočítá) |
+ *   'claude' (✓ Claude – upřesnil odhad, nebo zapsal z diktátu) | 'aplikace' (odhad aplikace, Claude zkontroluje) | 'rucne' (čísla zadal Michal)
+ */
+export function stavJidla(j) {
+  if (!j) return null;
+  if (j.doplnek) return { druh: 'doplnek', text: 'doplněk' };
+  if (j.otazka && j.otazka.text) return { druh: 'otazka', text: '❓ Claude se ptá' };
+  if (j.prepocet) return { druh: 'prepocet', text: 'Claude přepočítá' };
+  if (j.odhad === 'claude' || j.claude) return { druh: 'claude', text: '✓ Claude' + (j.claude ? ' · z diktátu' : '') };
+  if (j.odhad === 'mistni') return { druh: 'aplikace', text: 'odhad aplikace · Claude zkontroluje' };
+  return { druh: 'rucne', text: 'tvoje čísla' };
+}
+
+/** Claudova poznámka s rozpadem („3 vejce ~19 g, 2 krajíce chleba ~5 g; olej“) → části do řádků karty (čárka v čísle „1,5“ nedělí). */
+export function rozpadPoznamky(text) {
+  return String(text || '').split(/\s*;\s*|,\s+|\s\+\s/).map((s) => s.trim()).filter(Boolean).slice(0, 8);
+}
+
+export const _test = { pocetJidel: JIDLA.length, PODLE_ID, tvarJednotky };

@@ -2617,6 +2617,130 @@ test('pití a jídlo: přesun na jiný den – vlastní i Claudův zápis, odhad
   assert.ok(/Neznámá akce/.test(p.volej('pitiJidlo', { den: '2026-10-09', jak: 'prevest', id: 'c-7' }).chyba));
 });
 
+// Michal 16. 10.: „chci, aby se jídlo vždy probralo s tebou, abys to zkontroloval … a nebylo to jen přednastavené věci“
+test('jídlo probrané s Claudem: otázka s možnostmi → odpověď z aplikace (píše jen motor), poznámka pro Clauda s otázkou i odpovědí, přepočet, další otázka', () => {
+  const p = prostredi();
+  const souborZdravi = (n) => p.schranka.deti.ZDRAVI.soubory.find((f) => f.getName() === n);
+  const obsah = (n) => souborZdravi(n).getBlob().getDataAsString();
+  p.nastavCas(Date.parse('2026-10-14T12:00:00+02:00'));
+  assert.ok(p.volej('info').data.akce.indexOf('jidloOdpoved') >= 0, 'akce v info');
+  let o = p.volej('pitiJidlo', { den: '2026-10-14', jak: 'jidlo', co: 'rýže s masem', bilkoviny: 30, kcal: 600, odhad: true });
+  const j = o.data.dny['2026-10-14'].jidlo[0];
+  // Claude: nejlepší odhad s rozpadem a otázka (množství není jasné)
+  const claude = { zapisy: [], odhady: { [j.id]: { bilkoviny: 40, kcal: 700, poznamka: 'rýže ~300 g ~8 g, maso ~150 g ~32 g', kdy: '2026-10-14T12:30:00+02:00',
+    otazka: { text: 'Kolik toho bylo?', moznosti: ['¾ krabičky', ' celá krabička ', 'talíř', '', 'x'.repeat(60)], kdy: '2026-10-14T12:30:00+02:00' } } } };
+  p.schranka.deti.ZDRAVI.createFile('PITI_JIDLO_CLAUDE.json', JSON.stringify(claude));
+  p.cache.delete('zmena:claude');
+  let z = p.volej('zdravi').data.pitiJidlo['2026-10-14'].jidlo[0];
+  assert.deepStrictEqual([z.bilkoviny, z.kcal, z.odhad, z.poznamka, !!z.prepocet], [40, 700, 'claude', 'rýže ~300 g ~8 g, maso ~150 g ~32 g', false]);
+  assert.deepStrictEqual(json(z.otazka), { text: 'Kolik toho bylo?', moznosti: ['¾ krabičky', 'celá krabička', 'talíř', 'x'.repeat(40)], kdy: Date.parse('2026-10-14T12:30:00+02:00') });
+  // Michal klepne na možnost → odpověď k jídlu do PITI_JIDLO.json (Claudův soubor beze změny), hned „Claude přepočítá“
+  p.nastavCas(Date.parse('2026-10-14T13:00:00+02:00'));
+  const predClaude = obsah('PITI_JIDLO_CLAUDE.json');
+  o = p.volej('jidloOdpoved', { id: j.id, text: '  ¾   krabičky ' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  z = o.data.dny['2026-10-14'].jidlo[0];
+  assert.deepStrictEqual([json(z.odpoved), !!z.otazka, z.prepocet], [{ text: '¾ krabičky', kdy: Date.parse('2026-10-14T13:00:00+02:00'), otazka: 'Kolik toho bylo?' }, false, true]);
+  assert.strictEqual(obsah('PITI_JIDLO_CLAUDE.json'), predClaude, 'Claudův soubor motor nemění');
+  assert.deepStrictEqual(json(JSON.parse(obsah('PITI_JIDLO.json')).dny['2026-10-14'].jidlo[0].odpoved), { text: '¾ krabičky', kdy: Date.parse('2026-10-14T13:00:00+02:00'), otazka: 'Kolik toho bylo?' });
+  // poznámka pro Clauda: jedna (jídlo k odhadu i odpověď), skrytá v aplikaci, s otázkou i odpovědí a pokynem
+  const nove = p.schranka.deti.NOVE.soubory.filter((f) => /_jidl\.md$/.test(f.getName()));
+  assert.strictEqual(nove.length, 1, 'odpověď se připsala do čekající poznámky');
+  const text = nove[0].getBlob().getDataAsString();
+  assert.ok(/„rýže s masem“ \(aplikace odhadla 30 g/.test(text) &&
+    new RegExp('- id ' + j.id + ', 2026-10-14: „rýže s masem“ – ptal ses: „Kolik toho bylo\\?“ → Michal odpověděl: „¾ krabičky“ \\(teď 40 g bílkovin, 700 kcal – tvůj odhad\\)').test(text), text);
+  assert.ok(/JIDLA_MICHAL\.json/.test(text) && /otazka/.test(text) && /typ: jidlo/.test(text), 'pokyn: recepty, otázky');
+  assert.strictEqual(p.volej('schranka').data.nove.length, 0, 'aplikace poznámku neukazuje');
+  assert.strictEqual(p.volej('zdravi').data.pitiJidlo['2026-10-14'].jidlo[0].prepocet, true, 'i ve Zdraví (nová verze dat po zápisu)');
+  // Claude přepočítá a otázku smaže → ✓ (odpověď zůstane vidět)
+  claude.odhady[j.id] = { bilkoviny: 60, kcal: 850, poznamka: '¾ krabičky: rýže ~380 g ~10 g, maso ~190 g ~50 g', kdy: '2026-10-14T13:30:00+02:00' };
+  souborZdravi('PITI_JIDLO_CLAUDE.json').setContent(JSON.stringify(claude));
+  p.cache.delete('zmena:claude');
+  z = p.volej('zdravi').data.pitiJidlo['2026-10-14'].jidlo[0];
+  assert.deepStrictEqual([z.bilkoviny, z.kcal, !!z.prepocet, !!z.otazka, z.odpoved.text], [60, 850, false, false, '¾ krabičky']);
+  // další otázka (novější než odpověď) se ukáže; upřesnění bez otázky jde taky
+  claude.odhady[j.id].otazka = { text: 'Bylo to s omáčkou?', moznosti: ['ano', 'ne'], kdy: '2026-10-14T13:40:00+02:00' };
+  souborZdravi('PITI_JIDLO_CLAUDE.json').setContent(JSON.stringify(claude));
+  p.cache.delete('zmena:claude');
+  assert.strictEqual(p.volej('zdravi').data.pitiJidlo['2026-10-14'].jidlo[0].otazka.text, 'Bylo to s omáčkou?');
+  p.nastavCas(Date.parse('2026-10-14T14:00:00+02:00'));
+  o = p.volej('jidloOdpoved', { id: j.id, text: 'ne' });
+  assert.deepStrictEqual([o.data.dny['2026-10-14'].jidlo[0].odpoved.otazka, o.data.dny['2026-10-14'].jidlo[0].prepocet], ['Bylo to s omáčkou?', true]);
+  // ruční jídlo bez Clauda: upřesnění bez otázky → čeká na Clauda
+  o = p.volej('pitiJidlo', { den: '2026-10-14', jak: 'jidlo', co: 'tvaroh', bilkoviny: 30, kcal: 250 });
+  const t = o.data.dny['2026-10-14'].jidlo[1];
+  o = p.volej('jidloOdpoved', { id: t.id, text: 'byl to celý kelímek 500 g' });
+  assert.deepStrictEqual([o.data.dny['2026-10-14'].jidlo[1].odpoved.otazka, o.data.dny['2026-10-14'].jidlo[1].prepocet], ['', true]);
+  assert.ok(/„tvaroh“ – Michal upřesnil: „byl to celý kelímek 500 g“ \(teď 30 g bílkovin, 250 kcal – odhad aplikace\)/.test(
+    p.schranka.deti.NOVE.soubory.find((f) => /_jidl\.md$/.test(f.getName())).getBlob().getDataAsString()));
+  // chyby: neznámé jídlo, prázdná odpověď, divné id
+  assert.ok(/už není/.test(p.volej('jidloOdpoved', { id: 'j-nic', text: 'x' }).chyba));
+  assert.ok(/Napiš/.test(p.volej('jidloOdpoved', { id: j.id, text: '  ' }).chyba));
+  assert.ok(/už není/.test(p.volej('jidloOdpoved', { id: '../x', text: 'x' }).chyba));
+});
+
+test('jídlo z diktátu: otázka k Claudovu zápisu (c-…) → odpověď v PITI_JIDLO.json → odpovedi; bez „kdy“ platí čas úpravy Claudova souboru', () => {
+  const p = prostredi();
+  p.nastavCas(Date.parse('2026-10-14T10:00:00+02:00'));
+  p.volej('pitiJidlo', { den: '2026-10-14', jak: 'piti', ml: 250 }); // ať složka ZDRAVI existuje
+  const claude = { zapisy: [{ id: 'c-a1-1', den: '2026-10-14', kdy: '2026-10-14T08:00:00+02:00', druh: 'jidlo', co: 'Buchta', bilkoviny: 10, kcal: 400, poznamka: 'buchta ~150 g' }],
+    odhady: { 'c-a1-1': { otazka: { text: 'Jaká buchta?', moznosti: ['tvarohová', 's mákem'] } } } }; // Claude zapomněl „kdy“
+  const f = p.schranka.deti.ZDRAVI.createFile('PITI_JIDLO_CLAUDE.json', JSON.stringify(claude));
+  let upraveno = Date.parse('2026-10-14T10:05:00+02:00');
+  f.getLastUpdated = () => new Date(upraveno);
+  p.cache.delete('zmena:claude');
+  let z = p.volej('zdravi').data.pitiJidlo['2026-10-14'].jidlo[0];
+  assert.deepStrictEqual([z.claude, z.bilkoviny, z.poznamka, z.otazka.text, z.otazka.kdy, z.odhad], [true, 10, 'buchta ~150 g', 'Jaká buchta?', upraveno, undefined]);
+  p.nastavCas(Date.parse('2026-10-14T10:30:00+02:00'));
+  const o = p.volej('jidloOdpoved', { id: 'c-a1-1', text: 'tvarohová s proteinem' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  z = o.data.dny['2026-10-14'].jidlo[0];
+  assert.deepStrictEqual([z.odpoved.text, z.odpoved.otazka, z.prepocet, !!z.otazka], ['tvarohová s proteinem', 'Jaká buchta?', true, false]);
+  const ulozeno = JSON.parse(p.schranka.deti.ZDRAVI.soubory.find((x) => x.getName() === 'PITI_JIDLO.json').getBlob().getDataAsString());
+  assert.strictEqual(ulozeno.odpovedi['c-a1-1'].text, 'tvarohová s proteinem', 'k zápisu z diktátu v odpovedi (Claudův soubor beze změny)');
+  assert.ok(/„Buchta“ – ptal ses: „Jaká buchta\?“/.test(p.schranka.deti.NOVE.soubory.find((x) => /_jidl\.md$/.test(x.getName())).getBlob().getDataAsString()));
+  // Claude přepočítá bez „kdy“ a bez otázky → čas úpravy souboru je po odpovědi → ✓
+  claude.odhady['c-a1-1'] = { bilkoviny: 24, kcal: 420, poznamka: 'tvarohová buchta s proteinem ~150 g' };
+  f.setContent(JSON.stringify(claude));
+  upraveno = Date.parse('2026-10-14T11:00:00+02:00');
+  p.cache.delete('zmena:claude');
+  z = p.volej('zdravi').data.pitiJidlo['2026-10-14'].jidlo[0];
+  assert.deepStrictEqual([z.bilkoviny, z.kcal, z.poznamka, !!z.prepocet, !!z.otazka, z.claude], [24, 420, 'tvarohová buchta s proteinem ~150 g', false, false, true]);
+  // smazaný zápis z diktátu už odpověď nebere
+  p.volej('pitiJidlo', { den: '2026-10-14', jak: 'smazat', id: 'c-a1-1' });
+  assert.ok(/už není/.test(p.volej('jidloOdpoved', { id: 'c-a1-1', text: 'x' }).chyba));
+});
+
+test('JIDLA_MICHAL.json: motor ho jen čte (vyčištěný) a posílá se Zdravím, změna souboru = nová data; píše ho jen Claude', () => {
+  const p = prostredi();
+  p.nastavCas(Date.parse('2026-10-14T10:00:00+02:00'));
+  assert.deepStrictEqual(json(p.volej('zdravi').data.jidlaMichal), { polozky: [], aktualizovano: '' }, 'bez souboru prázdné');
+  const data = { aktualizovano: '2026-10-16T10:00:00+02:00', polozky: [
+    { id: 'box', nazev: 'Box na oběd', typ: 'nadoba', vzory: ['box', 'obědový box'], ml: 800, pozn: 'vymyšlený' },
+    { id: 'kuskus', nazev: 'Kuskus s cizrnou', vzory: ['kuskus s cizrnou', 7, ''], jednotka: 'box', nadoba: 'box', porce: 0.5, g: 350, bilkoviny: 20.04, kcal: 480, tajne: 'x' },
+    { id: 'chleb', nazev: 'Chleba', vzory: ['chleba'], jednotka: 'krajíc', g: 50, bilkoviny: 4, kcal: 120 },
+    { id: 'chleb', nazev: 'Dvakrát', vzory: ['x'], bilkoviny: 1, kcal: 1 }, { id: 'a b', nazev: 'Špatné id', bilkoviny: 1 }, { id: 'nic', nazev: 'Bez hodnot' },
+    { id: 'n2', typ: 'nadoba', nazev: 'Bez objemu' }, 'text', null] };
+  const f = p.schranka.deti.ZDRAVI.createFile('JIDLA_MICHAL.json', JSON.stringify(data));
+  p.cache.delete('zmena:claude');
+  const m = p.volej('zdravi').data.jidlaMichal;
+  assert.deepStrictEqual(json(m), { aktualizovano: '2026-10-16T10:00:00+02:00', polozky: [
+    { id: 'box', nazev: 'Box na oběd', vzory: ['box', 'obědový box'], typ: 'nadoba', ml: 800, pozn: 'vymyšlený' },
+    { id: 'kuskus', nazev: 'Kuskus s cizrnou', vzory: ['kuskus s cizrnou', '7'], jednotka: 'box', porce: 0.5, g: 350, bilkoviny: 20.04, kcal: 480, nadoba: 'box' },
+    { id: 'chleb', nazev: 'Chleba', vzory: ['chleba'], jednotka: 'krajíc', porce: 1, g: 50, bilkoviny: 4, kcal: 120 }] });
+  assert.ok(p.volej('zmeny').data.zdravi >= f.getLastUpdated().getTime(), 'změna souboru = značka změny zdraví');
+  // zápisy z aplikace (jídlo, odpověď) soubor nemění – píše ho jen Claude
+  const pred = f.getBlob().getDataAsString();
+  const o = p.volej('pitiJidlo', { den: '2026-10-14', jak: 'jidlo', co: 'kuskus s cizrnou', bilkoviny: 20, kcal: 480, odhad: true });
+  p.volej('jidloOdpoved', { id: o.data.dny['2026-10-14'].jidlo[0].id, text: 'celý box' });
+  assert.strictEqual(f.getBlob().getDataAsString(), pred);
+  // rozbitý soubor nic nerozbije
+  f.setContent('{ nedopsané');
+  p.cache.delete('zmena:claude');
+  const z = p.volej('zdravi');
+  assert.deepStrictEqual([z.ok, json(z.data.jidlaMichal.polozky)], [true, []]);
+});
+
 test('hodnocení dne: od 21:30 jednou denně poznámka pro Clauda, jen když se jedlo nebo pilo', () => {
   const p = prostredi();
   const hodn = () => p.schranka.deti.NOVE ? p.schranka.deti.NOVE.soubory.filter((f) => /_hodn\.md$/.test(f.getName())) : [];

@@ -1368,6 +1368,28 @@ a.reel__nahled:hover .reel__play { background: var(--limetka); }
 .piti__akce-zapisu { flex: none; display: flex; justify-content: flex-end; gap: 4px; min-width: 38px; }
 .piti__akce-zapisu--dve { min-width: 80px; }
 @media (pointer: coarse) { .piti__akce-zapisu { min-width: 42px; } .piti__akce-zapisu--dve { min-width: 88px; } }
+/* jídlo probrané s Claudem (16. 10.): stav u každého jídla (čip s vyjetou kartou), otázka od Clauda s možnostmi a polem */
+.piti__jidla li.piti-jidlo { flex-wrap: wrap; row-gap: 3px; }
+.piti__jidla li > .piti__akce-zapisu { flex: none; } /* tlačítka se neroztahují – gramy stojí vpravo u nich, ne uprostřed řádku */
+.piti-jidlo__text { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.piti-jidlo__text .orez-1 { max-width: 100%; }
+.jidlo-stav { max-width: 100%; border: 0; padding: 0 7px; font: inherit; font-size: 10.5px; font-weight: 650; line-height: 1.65; white-space: normal;
+    text-align: left; cursor: default; }
+.jidlo-stav:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.jidlo-otazka, .jidlo-odpoved { flex: 1 0 100%; margin: 2px 0 4px; }
+.jidlo-otazka { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--oranz-tint); }
+.jidlo-otazka__text { display: flex; align-items: flex-start; gap: 7px; margin: 0; font-size: 13px; line-height: 1.45; }
+.jidlo-otazka__text svg { width: 16px; height: 16px; flex: none; margin-top: 1px; color: var(--fialova); }
+.jidlo-otazka__text b { font-size: inherit; font-weight: 650; }
+.jidlo-otazka__moznosti { display: flex; flex-wrap: wrap; gap: 6px; }
+.jidlo-otazka__pole { display: flex; align-items: center; gap: 6px; }
+.jidlo-otazka__pole .field { flex: 1; min-width: 0; min-height: 34px; padding: 6px 10px; font-size: 13.5px; }
+@media (pointer: coarse) { .jidlo-otazka__pole .field { min-height: 40px; font-size: 16px; } } /* iPhone jinak přibližuje */
+.jidlo-otazka__stary { margin: 0; font-size: 12px; color: var(--muted); }
+.jidlo-odpoved { font-size: 12px; font-style: italic; color: var(--muted); }
+.jidlo-odhad__muj { padding: 0 6px; font-size: 10.5px; }
+.bk-jidlo { margin: 2px 0 6px; font-size: 13px; font-weight: 600; }
+.bublina--karta[data-druh="jidlo"] { --o: var(--o-zdravi); }
 /* týden po dnech: voda a bílkoviny jako podíl cíle, čárkovaná čára = cíl (3/4 výšky), klepnutí na den ho otevře */
 .piti-tyden { display: flex; flex-direction: column; gap: 6px; }
 .piti-tyden__hlava { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; font-size: 12px; color: var(--muted); }

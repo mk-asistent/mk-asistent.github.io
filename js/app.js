@@ -5,7 +5,7 @@
 import { stav, priZmene, zmeneno, prejdi, umiMotor, staryMotor } from './stav.js';
 import { jePripojeno, jeDemo, volej } from './api.js';
 import { esc, pulnoc, pridejDny, datumDlouhe, iniciala, odstin, tvar, velkePrvni, rozdilDni, uloziste, terminDatum, dm, isoDatum, DNY_KR, kdyKratce,
-  prvniRadek } from './pomocne.js';
+  prvniRadek, prepisSPolem } from './pomocne.js';
 import { kostra, chybaHtml, hlavickaKarty, okno, toastAkce } from './ui.js';
 import { IKONY, ikonaPocasi } from './ikony.js';
 import { zavriPanel, horniPanel, otevriPanel, zavriAPak, jeOtevreny, obnovPanel, elementPanelu } from './panely.js';
@@ -997,7 +997,7 @@ const posledniObsah = new WeakMap();
 function nastavHtml(el, html) {
   if (posledniObsah.get(el) === html) return;
   posledniObsah.set(el, html);
-  el.innerHTML = html;
+  prepisSPolem(el, html); // pole, do kterého se píše ([data-pole] – odpověď Claudovi u jídla), zůstane i s klávesnicí
 }
 
 /** Když se při překreslení přece jen vymění pole, do kterého se píše (odpověď Claudovi), vrátit do nového fokus a kurzor. */

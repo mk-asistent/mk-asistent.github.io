@@ -339,17 +339,31 @@ let vahaUkazka = [[-33, 81.3], [-26, 81.0], [-19, 80.7], [-12, 80.9], [-6, 80.5]
 // odškrtnuté doplňky (v aplikaci ZDRAVI/DOPLNKY.json na Disku): včera všechno kromě hořčíku
 const doplnkyUkazka = { [iso(den(-1))]: { multivitamin: true, kreatin: true, omega3: true } };
 // pití a jídlo (v aplikaci ZDRAVI/PITI_JIDLO.json; diktované zapisuje Claude) – posledních pár dní, ať jsou ve sloupcích týdne
-// voda i bílkoviny (vymyšlená jídla); včerejšek zhodnotil Claude
+// voda i bílkoviny (vymyšlená jídla); včerejšek zhodnotil Claude. Dnes jídla ve všech stavech (16. 10.): z diktátu, odhad
+// aplikace (Claude zkontroluje), ✓ Claude s rozpadem a ❓ Claude se ptá (odpověď = akce jidloOdpoved níž)
 const pitiUkazka = { [iso(den(0))]: { piti: [{ id: 'p1', kdy: den(0, 8), ml: 250 }, { id: 'c-1', kdy: den(0, 10), ml: 500, claude: true }],
-  jidlo: [{ id: 'c-2', kdy: den(0, 7.5), co: 'Tvaroh s ovocem', bilkoviny: 28, kcal: 300, claude: true }] },
-  [iso(den(-1))]: { piti: [{ id: 'p0', kdy: den(-1, 9), ml: 1750 }], jidlo: [{ id: 'j-u1', kdy: den(-1, 12.5), co: 'Kuřecí prsa s rýží', bilkoviny: 52, kcal: 640 },
-    { id: 'j-u2', kdy: den(-1, 19), co: '3 vejce a chleba', bilkoviny: 27, kcal: 480 }],
+  jidlo: [{ id: 'c-2', kdy: den(0, 7.5), co: 'Tvaroh s ovocem', bilkoviny: 28, kcal: 300, claude: true, poznamka: 'tvaroh 250 g ~28 g, ovoce ~100 g' },
+    { id: 'j-u10', kdy: den(0, 9.5), co: 'Banán a rohlík', bilkoviny: 5, kcal: 230, odhad: 'mistni' },
+    { id: 'j-u11', kdy: den(0, 11), co: 'Kuskus s cizrnou', bilkoviny: 22, kcal: 520, odhad: 'claude', poznamka: 'kuskus ~200 g ~8 g, cizrna ~120 g ~10 g, olej ~10 g',
+      otazka: { text: 'Kolik toho bylo – půl boxu, nebo celý?', moznosti: ['půl boxu', 'celý box', 'talíř'], kdy: den(0, 11.5) } }] },
+  [iso(den(-1))]: { piti: [{ id: 'p0', kdy: den(-1, 9), ml: 1750 }], jidlo: [{ id: 'j-u1', kdy: den(-1, 12.5), co: 'Kuřecí prsa s rýží', bilkoviny: 52, kcal: 640,
+      odhad: 'claude', poznamka: 'kuřecí prsa ~200 g ~47 g, rýže ~200 g ~5 g' },
+    { id: 'j-u2', kdy: den(-1, 19), co: '3 vejce a chleba', bilkoviny: 27, kcal: 480, odhad: 'claude', poznamka: '3 vejce ~19 g, 2 krajíce chleba ~8 g' }],
     hodnoceni: { znamka: 'B', text: 'Bílkovin 79 g ze 130 – oběd dobrý, k večeři přidej tvaroh nebo kuře. Vody 1,75 l, zkus aspoň 2,5 l.', kdy: den(-1, 21.75) } },
   [iso(den(-2))]: { piti: [{ id: 'p-u2', kdy: den(-2, 10), ml: 2250 }], jidlo: [{ id: 'j-u5', kdy: den(-2, 8), co: 'Vločky s mlékem', bilkoviny: 15, kcal: 380 },
     { id: 'j-u3', kdy: den(-2, 13), co: 'Guláš s knedlíkem', bilkoviny: 46, kcal: 920 }, { id: 'j-u4', kdy: den(-2, 20), co: 'Skyr a banán', bilkoviny: 16, kcal: 190 }] },
   [iso(den(-3))]: { piti: [{ id: 'p-u3', kdy: den(-3, 10), ml: 2750 }], jidlo: [{ id: 'j-u8', kdy: den(-3, 8), co: 'Míchaná vejce a rohlík', bilkoviny: 22, kcal: 420 },
     { id: 'j-u6', kdy: den(-3, 13), co: 'Losos s bramborem', bilkoviny: 38, kcal: 560 }, { id: 'j-u9', kdy: den(-3, 16), co: 'Proteinová tyčinka', bilkoviny: 20, kcal: 200 },
     { id: 'j-u7', kdy: den(-3, 19), co: 'Tvaroh s ořechy', bilkoviny: 35, kcal: 420 }] } };
+
+// jídla a recepty, které se Claude „naučil“ (ve skutečnosti ZDRAVI/JIDLA_MICHAL.json jen na Disku) – vymyšlené: místní odhad
+// je bere přednostně („¾ boxu kuskusu s cizrnou“, „ranní kaše“)
+const JIDLA_UKAZKA = { polozky: [
+  { id: 'box_obed', nazev: 'Box na oběd', typ: 'nadoba', vzory: ['box', 'obědový box'], ml: 800, pozn: 'ukázka' },
+  { id: 'kuskus_cizrna', nazev: 'Kuskus s cizrnou', vzory: ['kuskus s cizrnou', 'cizrnový kuskus'], jednotka: 'box', nadoba: 'box_obed', porce: 0.5, g: 320,
+    bilkoviny: 22, kcal: 520, pozn: 'ukázka: ½ boxu' },
+  { id: 'ranni_kase', nazev: 'Ovesná kaše s proteinem a borůvkami', vzory: ['ranní kaše', 'proteinová kaše s borůvkami'], jednotka: 'miska', g: 350,
+    bilkoviny: 32, kcal: 480, pozn: 'ukázka' }] };
 
 /** Auto v ukázce: vymyšlené auto, tankování zhruba každé dva týdny s kolísající cenou nafty, pár výdajů (nic skutečného). */
 const autoUkazka = (() => {
@@ -423,7 +437,7 @@ function zdraviUkazka() {
     text: 'Solidní týden – **bílkoviny** jsi měl u cíle ve třech dnech ze sedmi, voda kolem 2 litrů.\n\n- Doplňky: večerní hořčík chyběl dvakrát.\n' +
       '- Spánek se proti minulému týdnu prodloužil o čtvrt hodiny.\n- Na příští týden: k večeři přidej tvaroh nebo kuře.' };
   return { vytvoreno: Date.now(), dny: dnyZ, treninky: treninky.sort((a, b) => b.start - a.start), vaha: kopie(vahaUkazka), doplnky: kopie(doplnkyUkazka),
-    pitiJidlo: kopie(pitiUkazka), tydenni,
+    pitiJidlo: kopie(pitiUkazka), tydenni, jidlaMichal: kopie(JIDLA_UKAZKA),
     whoop: { nastaveno: true, propojeno: true, sync: { kdy: Date.now() - 12 * 6e4, chyba: '' } }, apple: { kdy: Date.now() - 3 * H },
     // obecný ukázkový režim doplňků (skutečný je jen v ZDRAVI_REZIM.json na Disku); hlavni = počítají se do plnění
     rezim: { kofeinDo: '14:00', treninkDny: [2, 4], zapasTymy: ['dorost'], hlavni: ['multivitamin', 'kreatin', 'omega3', 'horcik'], polozky: [
@@ -992,6 +1006,18 @@ const akce = {
         if (d.jak === 'presun') { zDne(d.den)[n.druh].push(zapis); zDne(d.den)[n.druh].sort((a, b) => a.kdy - b.kdy); }
       }
     } else throw new Error('Neznámá akce.');
+    return { dny: kopie(pitiUkazka) };
+  },
+  // odpověď Claudovi k jídlu (otázka v kartě, Upřesnit pro Clauda) – jako motor: odpověď k jídlu, „Claude přepočítá“
+  jidloOdpoved: (d) => {
+    const text = String(d.text || '').replace(/\s+/g, ' ').trim();
+    if (!text) throw new Error('Napiš odpověď.');
+    let j = null;
+    Object.keys(pitiUkazka).forEach((k) => (pitiUkazka[k].jidlo || []).forEach((x) => { if (x.id === d.id) j = x; }));
+    if (!j) throw new Error('Jídlo už není – obnov stránku.');
+    j.odpoved = { text, kdy: Date.now(), otazka: j.otazka ? j.otazka.text : '' };
+    delete j.otazka;
+    j.prepocet = true;
     return { dny: kopie(pitiUkazka) };
   },
   doplnky: (d) => {
