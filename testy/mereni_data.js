@@ -201,7 +201,15 @@ function vytvorData(T) {
   const jmeniny = [['Petra', 'kamarádka'], ['Josef', 'děda'], ['Veronika', ''], ['Pavel', 'z práce'], ['Hana', 'sousedka'], ['Marie', 'babička'], ['Jan', ''],
     ['Tereza', 'sestřenice'], ['Lukáš', 'trenér'], ['Eva', '']].map(([jmeno, kdo]) => ({ jmeno, kdo }));
 
-  return { posta, detail, schranka, kalendar, KALENDARE, zdravi, fotbal, reely, plakaty, auto, pocasi, kontakty, stitky, jmeniny,
+  // knihovna: karty filmů, seriálů a knih + index rešerší (testy/mereni_pripravenosti.js – stránka Knihovna)
+  const DRUHY_KNIH = ['film', 'film', 'serial', 'kniha'];
+  const knihovna = { karty: Array.from({ length: 36 }, (x, i) => ({ id: 'karta-' + i, druh: DRUHY_KNIH[i % 4], nazev: veta(2).replace(/\.$/, ''), rok: 1980 + i,
+      kratce: text(1), obsah: text(4), tvurci: [{ role: i % 4 === 3 ? 'autor' : 'režie', jmena: [vyber(LIDE)] }], hodnoceni: [{ zdroj: 'ČSFD', hodnota: (60 + i) + ' %' }],
+      pripraveno: new Date(T - i * 30 * H).toISOString() })),
+    reserse: Array.from({ length: 10 }, (x, i) => ({ id: 'reserse-' + i, nazev: veta(4).replace(/\.$/, '?'), kratce: text(1), stitky: ['test'], pripraveno: new Date(T - i * 50 * H).toISOString() })),
+    moje: { 'karta-1': { stav: 'chci' }, 'karta-3': { stav: 'hotovo', hvezdy: 4 } }, pozadavky: [], chybne: [], ted: T };
+
+  return { posta, detail, schranka, kalendar, KALENDARE, zdravi, fotbal, reely, plakaty, auto, pocasi, kontakty, stitky, jmeniny, knihovna,
     dochazka: { udalosti: [], aktualizovano: new Date(T).toISOString(), chyba: '' } };
 }
 
@@ -224,10 +232,11 @@ function vytvorMotor(data) {
     kalendare: () => kopie(data.KALENDARE),
     zdravi: () => kopie(data.zdravi),
     zmeny: () => ({ auto: 0, zdravi: 0 }),
-    fotbal: () => kopie(data.fotbal),
+    fotbal: (d) => (d && d.plne ? kopie(data.fotbal) : Object.assign(kopie(data.fotbal), { data: Object.assign(kopie(data.fotbal.data), { tabulky: undefined, detaily: {}, maTabulky: true }) })),
     reely: () => kopie(data.reely),
     plakaty: () => kopie(data.plakaty),
     auto: () => kopie(data.auto),
+    knihovna: () => Object.assign(kopie(data.knihovna), { ted: Date.now() }),
     pocasi: () => data.pocasi(),
     dochazka: () => kopie(data.dochazka),
     upozorneni: () => ({ zapnuto: false, tema: '' }),

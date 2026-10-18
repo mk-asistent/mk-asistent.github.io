@@ -171,7 +171,9 @@ function posli(req, res, telo, typ, hlavicky) {
 function server() {
   return http2.createSecureServer(Object.assign(certifikat(), { allowHTTP1: true }), (req, res) => {
     const u = decodeURIComponent(req.url.split('?')[0]);
+    if (process.env.LADIT && u !== '/__motor') console.log('  [server] ' + req.method + ' ' + u + ' ' + (Date.now() % 1e5));
     if (u === '/__motor' && req.method === 'POST') {
+      if (process.env.LADIT) console.log('  [server] POST motor ' + (Date.now() % 1e5));
       let telo = '';
       req.on('data', (c) => { telo += c; });
       req.on('end', () => {
@@ -184,8 +186,9 @@ function server() {
           if (d.klic !== KLIC) v = { ok: false, chyba: 'klic' };
           else if (!S.motor[d.akce]) v = { ok: false, chyba: 'Neznámá akce: ' + d.akce };
           else { try { v = { ok: true, data: S.motor[d.akce](d) }; } catch (e) { v = { ok: false, chyba: e.message }; } }
+          if (process.env.LADIT) console.log('  [server] odpověď ' + d.akce + ' ' + (Date.now() % 1e5) + (res.destroyed ? ' (zavřeno)' : ''));
           if (!res.destroyed) posli(req, res, Buffer.from(JSON.stringify(v)), 'application/json', { 'cache-control': 'no-store' });
-        });
+        }).catch((e) => { if (process.env.LADIT) console.log('  [server] chyba odpovědi: ' + e.message); }); // zavřená stránka nesmí zastavit frontu
       });
       return;
     }
@@ -454,7 +457,11 @@ function souhrn(behy) {
   return vysledek;
 }
 
-(async () => {
+// testy/mereni_pripravenosti.js bere odsud server, napodobený motor a Firebase (stejné prostředí jako tady)
+module.exports = { server, S, novaData, ulozKopie, fbObsluha, PRIPRAVA, stranka, WEB, KLIC, UZIVATEL, PORT,
+  vynulujFrontu: () => { frontaMotoru = Promise.resolve(); } };
+
+if (require.main === module) (async () => {
   const srv = server();
   await new Promise((hotovo) => srv.listen(PORT, '127.0.0.1', hotovo));
   // všechno mimo 127.0.0.1 neexistuje – skutečný motor, Firebase ani písma se nikdy nezavolají
