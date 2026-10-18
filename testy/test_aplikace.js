@@ -8403,8 +8403,10 @@ function vychoziVikendTestu() {
       // v1 otázka + v6 hoří (v2 „čekáš na ně“ se nepočítá)
       await cekejVeStrance(page, () => (window.__odznak || []).slice(-1)[0] === 2, null, 9000);
       await page.evaluate(() => import('/js/nastaveni.js').then((m) => m.otevriNastaveni('aplikace')));
-      await page.waitForSelector('[data-panel="nastaveni"] [data-nast-odznak="pozornost"][aria-pressed="true"]');
+      // výchozí „hoří + nové k odpovědi“ (18. 10.) a vysvětlení, z čeho je číslo
+      await page.waitForSelector('[data-panel="nastaveni"] [data-nast-odznak="nove"][aria-pressed="true"]');
       const text = await page.textContent('[data-panel="nastaveni"]');
+      jistota(/Teď na ikoně: 2 = 1 hoří \+ 1 nových k odpovědi/.test(text), 'rozpad čísla: ' + (text.match(/Teď na ikoně[^.]{0,80}/) || [''])[0]);
       jistota(/Na tomhle PC/.test(text) && /chrome:\/\/apps/.test(text) && /Spustit aplikaci při přihlášení/.test(text) && /Připnout na hlavní panel/.test(text), 'návod instalace');
       await page.click('[data-panel="nastaveni"] [data-nast-odznak="hori"]');
       await cekejVeStrance(page, () => window.__odznak.slice(-1)[0] === 1);

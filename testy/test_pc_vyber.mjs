@@ -141,6 +141,11 @@ test('číslo na ikonu: hoří + čeká + otázka / jen hoří / vypnuto; bez Ap
   const z = [zprava('a', 'hori'), zprava('b', 'ceka', { neprectena: false }), zprava('c', 'otazka'), zprava('d', 'cekas'), zprava('e', 'hori', { tiche: true }),
     zprava('f', 'info', { vedomi: true }), zprava('g', 'resi')];
   assert.strictEqual(V.pocetNaIkonu(z, 'pozornost'), 3);
+  // výchozí 'nove' = hoří + nepřečtené k odpovědi; rozpad pro Nastavení
+  const r = V.rozpadIkony(z, 'nove');
+  assert.strictEqual(r.celkem, r.hori + r.nove);
+  assert.strictEqual(r.hori + r.nove + r.ostatni, 3);
+  assert.strictEqual(V.pocetNaIkonu(z, 'nove'), r.hori + r.nove);
   assert.strictEqual(V.pocetNaIkonu(z, 'hori'), 1);
   assert.strictEqual(V.pocetNaIkonu(z, 'vypnuto'), 0);
   assert.strictEqual(V.pocetNaIkonu([], 'pozornost'), 0);
