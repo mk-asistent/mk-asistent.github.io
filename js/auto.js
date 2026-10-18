@@ -67,11 +67,30 @@ export function nactiAuto(znovu) {
 const AUTO_CERSTVA = 6 * 3600e3;
 let nactenoKdy = 0;
 
-/** Server hlásí zápis k autu (značka AUTO_ZMENA) novější než naše data → na stránce Auto hned, jinak při otevření. */
+/** Server hlásí zápis k autu (značka AUTO_ZMENA) novější než naše data → načíst hned, i když stránka Auto není otevřená
+ *  (Michal 18. 10.: „ať je všechno hned ready“ – po přepnutí na Auto už nic nečeká). Značka chodí jen po zápisu (vzácně). */
 export function zkontrolujZmenu(znacka) {
   if (!znacka || znacka <= nactenoKdy) return;
+  const v = uloziste.cti(ULOZISTE);
+  if (v && v.kdy && znacka <= v.kdy) { nactenoKdy = v.kdy; return; } // jiné okno už načetlo (data v zařízení jsou novější)
   nactenoKdy = 0;
-  dotahni();
+  if (stav.pohled === 'auto') { dotahni(); return; }
+  if (!umiMotor('auto') || stav.nacita.auto) return;
+  nactenoKdy = Date.now();
+  nactiAuto();
+}
+
+/** Přednačtení na pozadí (js/pripravenost.js): data v zařízení starší než mez → z motoru; otevření stránky pak nic nečeká. */
+export function prednacti() {
+  if (!umiMotor('auto') || stav.nacita.auto) return Promise.resolve();
+  nactenoKdy = Date.now();
+  return nactiAuto();
+}
+
+/** Data z jiného okna téhož zařízení (událost storage) – i s časem, ať je stránka znovu nečte. */
+export function zUloziste() {
+  const v = uloziste.cti(ULOZISTE);
+  if (v && v.data) { stav.auto = v.data; nactenoKdy = Math.max(nactenoKdy, v.kdy || 0); }
 }
 export function dotahni() {
   if (stav.pohled !== 'auto' || !umiMotor('auto') || stav.nacita.auto || stav.chyby.auto) return;
@@ -388,12 +407,12 @@ function zapisyHtml(d) {
       const nazev = tank ? 'Tankování' : (z.polozka && z.polozka !== z.kategorie ? z.polozka : z.kategorie || z.polozka || 'Výdaj');
       const pod = [tank ? (z.litry != null ? JEDNO.format(z.litry) + ' l' : '') + (z.cenaLitr ? ' · ' + DVE.format(z.cenaLitr) + ' Kč/l' : '') :
         (z.polozka && z.polozka !== z.kategorie ? z.kategorie : ''), z.km != null ? CELE.format(z.km) + ' km' : '', z.poznamka].filter(Boolean).join(' · ');
-      const smazat = posledni[z.list] === z && z.datum != null && z.castka != null && umiMotor('autoSmazat');
-      const upravit = z.datum != null && z.castka != null && umiMotor('autoUpravit');
+      const smazat = !z.ceka && posledni[z.list] === z && z.datum != null && z.castka != null && umiMotor('autoSmazat');
+      const upravit = !z.ceka && z.datum != null && z.castka != null && umiMotor('autoUpravit');
       const obsah = '<span class="kruh kruh--' + (tank ? 'auto' : 'oranz') + '">' +
         (tank ? IKONY.palivo : IKONY.auto) + '</span><div class="auto-zapis__text"><b>' + esc(nazev) + (z.uctenka ? ' <i class="auto-zapis__foto"' + bublina('Účtenka', 'zápis má fotku účtenky') + '>' +
         IKONY.foto + '</i>' : '') + '</b><small>' +
-        esc((z.datum != null ? dm(z.datum) + ' ' + new Date(z.datum).getFullYear() : z.datumText) + (pod ? ' · ' + pod : '')) + '</small></div>' +
+        esc((z.datum != null ? dm(z.datum) + ' ' + new Date(z.datum).getFullYear() : z.datumText) + (pod ? ' · ' + pod : '') + (z.ceka ? ' · zapisuji do tabulky…' : '')) + '</small></div>' +
         '<span class="auto-zapis__castka cisla">' + (z.castka != null ? kc(z.castka) : '—') + (z.kdo ? '<i class="auto-kdo auto-kdo--' + (z.kdo === 'K' ? 'k' : 'm') +
         '"' + bublina('Platil(a)', z.kdo === 'K' ? 'Katka' : 'Michal') + '>' + esc(z.kdo) + '</i>' : '') + '</span>';
       const klic = z.list + ':' + z.radek;
@@ -876,7 +895,8 @@ function zapisHtml() {
   }
   h += '<div class="formular__radek"><span class="label">Platil</span>' + segment([['M', 'Michal'], ['K', 'Katka']], f.kdo, 'data-az-kdo', 'Kdo platil') + '</div>';
   if (frontaUctenek.length) h += '<p class="napoveda">Po zavření se otevře další účtenka k doplnění (zbývá ' + frontaUctenek.length + ').</p>';
-  h += '<p class="pruh pruh-varovani" data-az-chyba hidden></p></div>';
+  // chyba z minulého pokusu (zápis na pozadí se nepovedl – okno se otevřelo znovu se vším napsaným)
+  h += '<p class="pruh pruh-varovani" data-az-chyba' + (f.chyba ? '>' + esc(f.chyba) : ' hidden>') + '</p></div>';
   if (!vedle) return h;
   // fotka vedle formuláře (na telefonu nad ním): klepnutí do fotky ji zvětší / zmenší, celá obrazovka v liště
   return '<div class="auto-zapis-mrizka">' + h + '<figure class="auto-zapis-foto' + (f.fotoZoom ? ' zvetseno' : '') + '">' +
@@ -901,19 +921,36 @@ async function ulozZapis() {
   if (!castka) { ukaz('Napiš částku v Kč.'); return; }
   if (f.druh === 'tankovani' && !cislo(f.cenaLitr)) { ukaz('Napiš cenu za litr – z ní se spočítají litry a spotřeba.'); return; }
   if (f.km && cislo(f.km) == null) { ukaz('Stav km piš jen číslem.'); return; }
-  f.ukladam = true;
-  obnovPanel('auto-zapis');
-  try {
-    const udaje = { druh: f.druh, datum: f.datum, castka, cenaLitr: f.druh === 'tankovani' ? cislo(f.cenaLitr) : undefined,
-      km: f.km ? cislo(f.km) : '', kdo: f.kdo, kategorie: f.druh === 'naklad' ? f.kategorie : undefined, polozka: f.polozka, poznamka: f.poznamka,
-      uctenka: f.uctenka || undefined };
-    const data = f.uprava ? await volej('autoUpravit', Object.assign(udaje, f.uprava)) : await volej('autoZapsat', udaje);
-    const oprava = !!f.uprava;
-    uloz(data);
+  const udaje = { druh: f.druh, datum: f.datum, castka, cenaLitr: f.druh === 'tankovani' ? cislo(f.cenaLitr) : undefined,
+    km: f.km ? cislo(f.km) : '', kdo: f.kdo, kategorie: f.druh === 'naklad' ? f.kategorie : undefined, polozka: f.polozka, poznamka: f.poznamka,
+    uctenka: f.uctenka || undefined };
+  const oprava = !!f.uprava;
+  // Michal 18. 10.: „ať je to vše hned“ – zápis se hned ukáže v přehledu (s „zapisuji…“) a okno se zavře, tabulka Google ho dožene
+  // na pozadí (2–10 s). Když se nepovede, zápis zmizí a okno se otevře znovu se vším napsaným a s důvodem.
+  const zaloha = Object.assign({}, f, { ukladam: false, chyba: '' });
+  const docasny = stav.auto ? sDocasnym(stav.auto, udaje, f.uprava) : null;
+  if (docasny) {
+    stav.auto = docasny.data;
     zavriPanel();
+    toast(oprava ? 'Ukládám změnu do tabulky…' : 'Zapisuji do tabulky…');
+    zmeneno();
+  } else {
+    f.ukladam = true;
+    obnovPanel('auto-zapis');
+  }
+  try {
+    const data = oprava ? await volej('autoUpravit', Object.assign(udaje, zaloha.uprava)) : await volej('autoZapsat', udaje);
+    uloz(data);
+    if (!docasny) zavriPanel();
     toast(oprava ? 'Změna zapsaná do tabulky ✓' : 'Zapsáno do tabulky ✓');
     zmeneno();
   } catch (e) {
+    if (docasny) {
+      stav.auto = bezDocasneho(stav.auto, docasny);
+      zmeneno();
+      vratZapis(zaloha, e.message);
+      return;
+    }
     if (!f) return;
     f.ukladam = false;
     obnovPanel('auto-zapis');
@@ -921,6 +958,40 @@ async function ulozZapis() {
     const ch = p2 && p2.querySelector('[data-az-chyba]');
     if (ch) { ch.textContent = e.message; ch.hidden = false; }
   }
+}
+
+// dočasné zápisy (ještě nejsou v tabulce): značka ceka, řádek za posledním – motor pak pošle celý přehled s opravdovým řádkem
+let poradiZapisu = 0;
+function sDocasnym(d, udaje, uprava) {
+  const id = 'ceka-' + (++poradiZapisu);
+  const list = uprava ? uprava.list : udaje.druh === 'tankovani' ? 'tankovani' : 'naklady';
+  const seznam = (d[list] || []).slice();
+  const puvodni = uprava ? seznam.find((z) => z.radek === uprava.radek) || null : null;
+  const radek = uprava ? uprava.radek : seznam.reduce((m, z) => Math.max(m, z.radek || 0), 1) + 1;
+  const tank = list === 'tankovani';
+  const z = Object.assign({}, puvodni, { list, radek, datum: zIso(udaje.datum), datumText: '', castka: udaje.castka, km: udaje.km === '' || udaje.km == null ? null : udaje.km,
+    kdo: udaje.kdo, poznamka: udaje.poznamka || '', ceka: id },
+    tank ? { polozka: 'Tankování', kategorie: 'Palivo', cenaLitr: udaje.cenaLitr, litry: udaje.cenaLitr ? Math.round(udaje.castka / udaje.cenaLitr * 100) / 100 : null }
+      : { kategorie: udaje.kategorie || (puvodni && puvodni.kategorie) || '', polozka: udaje.polozka || '' },
+    udaje.uctenka ? { uctenka: udaje.uctenka } : {});
+  const novy = puvodni ? seznam.map((x) => (x === puvodni ? z : x)) : seznam.concat(z);
+  return { data: Object.assign({}, d, { [list]: novy }), id, list, puvodni };
+}
+/** Dočasný zápis pryč (úprava = zpět původní řádek); data, která mezitím přišla z motoru, zůstanou. */
+function bezDocasneho(d, t) {
+  const seznam = (d && d[t.list]) || [];
+  if (!seznam.some((x) => x.ceka === t.id)) return d;
+  return Object.assign({}, d, { [t.list]: t.puvodni ? seznam.map((x) => (x.ceka === t.id ? t.puvodni : x)) : seznam.filter((x) => x.ceka !== t.id) });
+}
+/** Zápis se do tabulky nedostal: okno znovu se vším napsaným a s chybou (když je otevřené jiné okno, nabídka v oznámení). */
+function vratZapis(zaloha, chyba) {
+  const otevri = () => {
+    otevriZapis(zaloha.druh, { datum: zaloha.datum, castka: zaloha.castka, cenaLitr: zaloha.cenaLitr, km: zaloha.km, kdo: zaloha.kdo, kategorie: zaloha.kategorie,
+      polozka: zaloha.polozka, poznamka: zaloha.poznamka, uctenka: zaloha.uctenka, nahled: zaloha.nahled, velka: zaloha.velka, uprava: zaloha.uprava });
+    if (f) { f.chyba = chyba; obnovPanel('auto-zapis'); }
+  };
+  if (horniPanel()) toastAkce('Do tabulky se to nezapsalo – ' + chyba, 'Otevřít', otevri);
+  else { otevri(); toast('Do tabulky se to nezapsalo – zkontroluj a zkus znovu', true); }
 }
 
 /// ---------------------------------------------------------------- účtenky z fotek: stálé pole, fronta v zařízení, stav
@@ -1509,9 +1580,17 @@ function smazZapis(z) {
   potvrd('Smazat poslední zápis?', { text: (z.list === 'tankovani' ? 'Tankování' : z.kategorie || 'Výdaj') + ' ' + dm(z.datum) + ' za ' + kc(z.castka) +
     ' se smaže i z tabulky.', ton: 'nebezpeci', ano: 'Smazat' }).then((ano) => {
     if (!ano) return;
+    // hned pryč z přehledu, tabulka na pozadí; při chybě zpět
+    if (stav.auto) stav.auto = Object.assign({}, stav.auto, { [z.list]: (stav.auto[z.list] || []).filter((x) => x !== z) });
+    toast('Zápis smazaný');
+    zmeneno();
     volej('autoSmazat', { list: z.list, radek: Number(z.radek), datum: z.datum, castka: z.castka })
-      .then((data) => { uloz(data); toast('Zápis smazaný'); zmeneno(); })
-      .catch((e) => toast(e.message, true));
+      .then((data) => { uloz(data); zmeneno(); })
+      .catch((e) => {
+        if (stav.auto && !(stav.auto[z.list] || []).some((x) => x.radek === z.radek)) stav.auto = Object.assign({}, stav.auto, { [z.list]: (stav.auto[z.list] || []).concat(z) });
+        zmeneno();
+        toast('Nesmazáno – ' + e.message, true);
+      });
   });
 }
 

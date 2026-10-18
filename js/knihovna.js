@@ -111,6 +111,24 @@ function prijmi(data) {
   obnovOtevrene();
 }
 
+/**
+ * Přednačtení na pozadí po startu (js/pripravenost.js – modul se načte v klidu po startu, ne až na stránce): data v zařízení
+ * starší než mez → z motoru. S účtem hlídají změny značky (zmeny.knihovna – Claude přidal kartu, jiné zařízení), takže
+ * čerstvá data ze zařízení se při otevření stránky už znovu nečtou; bez účtu se stránka při otevření obnoví jako dřív.
+ */
+export function prednacti(mezMin, sZnackami) {
+  if (!umiMotor('knihovna') || stav.nacita.knihovna) return Promise.resolve();
+  const v = uloziste.cti(ULOZISTE);
+  if (v && v.kdy && Date.now() - v.kdy < mezMin * 60e3) { if (sZnackami) k.nacteno = true; return Promise.resolve(); }
+  return nactiKnihovnu();
+}
+
+/** Data z jiného okna téhož zařízení (událost storage). */
+export function zUloziste() {
+  const v = uloziste.cti(ULOZISTE);
+  if (v && v.data && !k.zapisu) { stav.knihovna = v.data; obnovOtevrene(); }
+}
+
 /** Volá se při každém překreslení stránky: poprvé načíst z motoru, hlídat čekající požadavky, náhledy z Wikipedie. */
 export function dotahni() {
   if (!umiMotor('knihovna')) return;

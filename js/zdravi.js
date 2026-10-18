@@ -514,7 +514,7 @@ export function kartaVahyHtml() {
     '<div class="dlazdice__telo">' + posledniVahaHtml(z) + cilVahyHtml() + vahaZapisHtml() +
       (z.length > 1 ? grafVahy(z) : '') +
       (z.length ? '<ul class="vaha-seznam">' + z.slice(-6).reverse().map((x) => '<li data-vaha-kdy="' + x.kdy + '"' + karta('vaha', true, x.kdy) + '><span>' + esc(kdyZapsano(x.kdy)) + '</span><b class="cisla">' + kgCz(x.kg) + ' kg</b>' +
-        '<button type="button" class="vaha-smazat" data-vaha-smazat="' + x.kdy + '" aria-label="Smazat zápis ' + esc(kdyZapsano(x.kdy)) + '" title="Smazat zápis">' + IKONY.zavrit + '</button></li>').join('') + '</ul>' : '') +
+        (x.ceka ? '<small class="muted">zapisuji…</small>' : '<button type="button" class="vaha-smazat" data-vaha-smazat="' + x.kdy + '" aria-label="Smazat zápis ' + esc(kdyZapsano(x.kdy)) + '" title="Smazat zápis">' + IKONY.zavrit + '</button>') + '</li>').join('') + '</ul>' : '') +
     '</div>';
 }
 
@@ -526,22 +526,33 @@ function poVaze(zaznamy) {
   zmeneno();
 }
 
-/** Zapíše váhu (kdy = čas vážení v ms, když se vážil dřív; jinak čas dá motor). Vrací true, když se povedlo. */
+/**
+ * Zapíše váhu (kdy = čas vážení v ms, když se vážil dřív; jinak čas dá motor). Hned v kartě, grafu i na Přehledu (Michal 18. 10.:
+ * „ať je to vše hned“), motor na pozadí – při chybě zápis zmizí, hodnota se vrátí do pole a řekne proč. Vrací true = zapsáno
+ * v aplikaci (okno se může zavřít).
+ */
 export function zapisVahu(text, kdy) {
   const kg = kgZTextu(text);
   if (kg == null) { toast('Napiš váhu v kg, třeba 80,4', true); return Promise.resolve(false); }
-  return volej('vaha', kdy ? { kg, kdy } : { kg })
-    .then((v) => {
-      rozepsanaVaha = '';
-      // pole pustit (zavře klávesnici na telefonu) – karta se pak překreslí s novou váhou
-      const a = document.activeElement;
-      if (a && a.matches && a.matches('[data-vaha-pole]')) a.blur();
-      poVaze(v.zaznamy || []);
-      const posl = (v.zaznamy || []).slice(-1)[0];
-      toast('Zapsáno ' + kgCz(kg) + ' kg' + (posl ? ' · ' + kdyZapsano(posl.kdy) : ''));
-      return true;
-    })
-    .catch((e) => { toast(e.message, true); return false; });
+  const zapis = { kdy: kdy || Date.now(), kg, ceka: true };
+  rozepsanaVaha = '';
+  // pole pustit (zavře klávesnici na telefonu) – karta se pak překreslí s novou váhou
+  const a = document.activeElement;
+  if (a && a.matches && a.matches('[data-vaha-pole]')) a.blur();
+  if (stav.zdravi) stav.zdravi.vaha = vahy().concat(zapis).sort((x, y) => x.kdy - y.kdy);
+  toast('Zapsáno ' + kgCz(kg) + ' kg · ' + kdyZapsano(zapis.kdy));
+  zmeneno();
+  const motor = volej('vaha', kdy ? { kg, kdy } : { kg })
+    .then((v) => { poVaze(v.zaznamy || []); return true; })
+    .catch((e) => {
+      if (stav.zdravi) stav.zdravi.vaha = vahy().filter((x) => x !== zapis);
+      if (!rozepsanaVaha) rozepsanaVaha = String(text);
+      zmeneno();
+      toast('Váha se nezapsala – ' + e.message, true);
+      return false;
+    });
+  // bez dat zdraví (prázdné zařízení) není kam zápis ukázat – počkat na motor jako dřív
+  return stav.zdravi ? Promise.resolve(true) : motor;
 }
 
 /** Datum a čas pro pole datetime-local (místní čas, bez vteřin). */
@@ -1082,15 +1093,39 @@ function ukazDenPiti(den) {
   zmeneno();
 }
 
+// Zápisy pití a jídla, které motor ještě nepotvrdil: +0,25 l dvakrát rychle za sebou – první odpověď motoru (bez druhého
+// zápisu) by druhý na chvíli schovala, proto se k ní čekající přidají (každý zmizí s vlastní odpovědí).
+const cekajiciPiti = new Map(); // značka → { den, druh, zapis }
+let poradiPiti = 0;
+function sCekajicimi(dny) {
+  if (!cekajiciPiti.size) return dny || {};
+  const v = JSON.parse(JSON.stringify(dny || {}));
+  cekajiciPiti.forEach((c) => {
+    const d = (v[c.den] = v[c.den] || { piti: [], jidlo: [] });
+    if (!(d[c.druh] || []).some((x) => x.ceka === c.zapis.ceka)) (d[c.druh] = d[c.druh] || []).push(c.zapis);
+  });
+  return v;
+}
+
 /** Přidat / smazat / přesunout zápis: hned v kartě, pak motor (při chybě zpět). zprava = text oznámení, nebo funkce, která ho ukáže sama. */
 function zapisPiti(data, zprava) {
   const den = data.den;
   const puvodni = stav.zdravi && stav.zdravi.pitiJidlo;
+  let znacka = '';
   if (data.jak === 'piti' || data.jak === 'jidlo') {
+    znacka = 'ceka-' + (++poradiPiti);
     const z = JSON.parse(JSON.stringify(pitiDne(den)));
-    if (data.jak === 'piti') z.piti.push({ ml: data.ml, kdy: Date.now() });
-    else z.jidlo.push({ co: data.co, bilkoviny: data.bilkoviny, kcal: data.kcal, kdy: Date.now(), odhad: data.odhad ? 'mistni' : undefined });
+    const zapis = data.jak === 'piti' ? { ml: data.ml, kdy: Date.now(), ceka: znacka }
+      : { co: data.co, bilkoviny: data.bilkoviny, kcal: data.kcal, kdy: Date.now(), odhad: data.odhad ? 'mistni' : undefined, ceka: znacka };
+    z[data.jak].push(zapis);
+    cekajiciPiti.set(znacka, { den, druh: data.jak, zapis });
     stav.zdravi.pitiJidlo = Object.assign({}, puvodni, { [den]: z });
+    zmeneno();
+  } else if (data.jak === 'smazat') {
+    // hned pryč (voda „zpět“, smazané jídlo) – při chybě se vrátí původní stav
+    const dny = JSON.parse(JSON.stringify(puvodni || {}));
+    Object.keys(dny).forEach((k) => ['jidlo', 'piti'].forEach((druh) => { if (dny[k][druh]) dny[k][druh] = dny[k][druh].filter((x) => x.id !== data.id); }));
+    stav.zdravi.pitiJidlo = dny;
     zmeneno();
   } else if (data.jak === 'presun') {
     // zápis najít v kterémkoli dni a dát do nového (seřazený podle času zápisu jako v motoru)
@@ -1110,13 +1145,26 @@ function zapisPiti(data, zprava) {
   }
   return volej('pitiJidlo', data)
     .then((r) => {
-      stav.zdravi.pitiJidlo = r.dny || {};
+      cekajiciPiti.delete(znacka);
+      stav.zdravi.pitiJidlo = sCekajicimi(r.dny);
       if (r.doplnky) stav.zdravi.doplnky = r.doplnky; // přesun jídla vzal s sebou i doplňky z jeho textu
-      uloziste.pis(ULOZISTE, { data: stav.zdravi, kdy: Date.now() });
+      // do zařízení jen potvrzené (čekající by se po zavření aplikace ukazovaly, jako by byly zapsané)
+      uloziste.pis(ULOZISTE, { data: Object.assign({}, stav.zdravi, { pitiJidlo: r.dny || {} }), kdy: Date.now() });
       if (typeof zprava === 'function') zprava(); else if (zprava) toast(zprava);
       zmeneno();
     })
-    .catch((e) => { stav.zdravi.pitiJidlo = puvodni; zmeneno(); toast(e.message, true); throw e; });
+    .catch((e) => {
+      if (znacka) {
+        // jen tenhle zápis pryč (další čekající zůstanou)
+        cekajiciPiti.delete(znacka);
+        const dny = JSON.parse(JSON.stringify(stav.zdravi.pitiJidlo || {}));
+        Object.keys(dny).forEach((k) => ['jidlo', 'piti'].forEach((druh) => { if (dny[k][druh]) dny[k][druh] = dny[k][druh].filter((x) => x.ceka !== znacka); }));
+        stav.zdravi.pitiJidlo = dny;
+      } else stav.zdravi.pitiJidlo = sCekajicimi(puvodni);
+      zmeneno();
+      toast(e.message, true);
+      throw e;
+    });
 }
 
 /** Oznámení o zápisu k jinému dni, než karta ukazuje – s „Ukázat“ (karta ten den otevře). */
@@ -1362,7 +1410,15 @@ function smazVahu(kdy) {
   if (!x) return;
   potvrd('Smazat zápis ' + kgCz(x.kg) + ' kg?', { ikona: IKONY.smazat, ton: 'nebezpeci', text: 'Zapsáno ' + kdyZapsano(x.kdy) + '.', ano: 'Smazat' }).then((ano) => {
     if (!ano) return;
-    volej('vaha', { smazat: kdy }).then((v) => { poVaze(v.zaznamy || []); toast('Zápis smazán'); }).catch((e) => toast(e.message, true));
+    // hned pryč z karty i grafu, motor na pozadí (při chybě zpět)
+    if (stav.zdravi) stav.zdravi.vaha = vahy().filter((v) => v !== x);
+    toast('Zápis smazán');
+    zmeneno();
+    volej('vaha', { smazat: kdy }).then((v) => poVaze(v.zaznamy || [])).catch((e) => {
+      if (stav.zdravi && !vahy().some((v) => v.kdy === x.kdy)) stav.zdravi.vaha = vahy().concat(x).sort((a, b) => a.kdy - b.kdy);
+      zmeneno();
+      toast('Nesmazáno – ' + e.message, true);
+    });
   });
 }
 

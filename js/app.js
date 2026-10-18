@@ -29,6 +29,7 @@ import * as krouzky from './krouzky.js';
 import * as bubliny from './bubliny.js';
 import { vstupAdresy, klavesaAdresy } from './adresy.js';
 import * as ucet from './ucet.js';
+import * as pripravenost from './pripravenost.js';
 
 // Hlavní stránka se od 10. 10. jmenuje Přehled (Michal: „hlavní stránku pojmenuj jinak než Dnes“) – klíč „dnes“ zůstal
 // (odkazy data-cil, uložená stránka asistent.pohled, snímek, testy); ikona dlaždic, slunce zůstalo znakem aplikace.
@@ -86,6 +87,8 @@ function start() {
   vykresli();
   if (performance.mark) performance.mark('asistent-vykresleno');
   obnovVse(false);
+  // přednačtení na pozadí po startu a obnova, dokud aplikace běží (js/pripravenost.js) – start na nic z toho nečeká
+  pripravenost.spust(oblastiPripravenosti(), { naProbuzeni: () => obnovVse(false), obnovRychle, moduly: () => (umiMotor('knihovna') ? knihovna() : null) });
   if (zAdresy) zAdresy();
   // Asistent na PC: odznak na ikoně a oznámení ve Windows – modul až po startu, když je co dělat (start na něj nečeká)
   if (naPc()) {
@@ -256,7 +259,9 @@ function hlidejVelikostOkna() {
 // ještě než se stáhnou a spustí moduly; start() ho pak smaže a vykreslí aplikaci s aktuálními daty. Jen stránky bez
 // vložených e-mailů a videí, nejvýš ~600 000 znaků; klíč asistent.data.* = smaže se s uloženými daty i při odpojení.
 const SNIMEK = 'asistent.data.snimek';
-const SNIMEK_STRANKY = ['dnes', 'schranka', 'posta', 'kalendar', 'zdravi'];
+// Fotbal a Auto od 18. 10. (připravenost: start rovnou na nich byl na telefonu ~0,5 s prázdný); Knihovna ne – její modul se načítá
+// až po startu, snímek by blikl prázdnou stránkou; Reely a Plakáty ne (náhledy videí, plakát)
+const SNIMEK_STRANKY = ['dnes', 'schranka', 'posta', 'kalendar', 'zdravi', 'fotbal', 'auto'];
 let casovacSnimku = 0;
 
 const rozlozeni = () => (TELEFON.matches ? 'telefon' : SIROKY.matches ? 'pc' : 'ipad');
@@ -277,7 +282,9 @@ function ulozSnimek() {
   // otevřená vyjetá karta (js/bubliny.js) je mimo snímek – a zvýrazněná dlaždice, u které je, do něj taky nepatří
   const horni = $('horni').cloneNode(true);
   [horni, stranka].forEach((el) => el.querySelectorAll('[data-karta][aria-expanded]').forEach((x) => { x.removeAttribute('aria-expanded'); x.removeAttribute('aria-controls'); }));
-  const casti = { rail: $('rail').innerHTML, horni: horni.innerHTML, hlava: $('hlava').innerHTML, pruhy: $('pruhy').innerHTML,
+  const hlava = $('hlava').cloneNode(true);
+  hlava.querySelectorAll('.aktualizuji').forEach((x) => x.remove()); // „aktualizuji…“ ze snímku ne (při dalším startu by zamrzlo)
+  const casti = { rail: $('rail').innerHTML, horni: horni.innerHTML, hlava: hlava.innerHTML, pruhy: $('pruhy').innerHTML,
     lista: $('lista').innerHTML, stranka: stranka.innerHTML };
   const d = new Date();
   const snimek = { den: d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(), kdy: Date.now(), pohled: stav.pohled, rozlozeni: rozlozeni(),
@@ -318,6 +325,51 @@ function obnovVse(znovu) {
   if (znovu) ucet.obnovNaServeru(true);
   else ucet.obnovStare();
 }
+
+// ---------------------------------------------------------------- připravenost (js/pripravenost.js)
+// Michal 18. 10.: „ať je to vše vždy ready“. Pomalé oblasti (jen z motoru) se po startu přednačtou v jedné dávce, i když stránka
+// není otevřená, a dokud aplikace běží, obnovují se, když zestárnou (meze v minutách; s účtem hlásí změny zdraví, auta
+// a knihovny značky – stačí delší meze). Pošta, schránka, kalendář, fotbal a reely mají s účtem kopie na serveru (živě).
+let knihovnaPrednactena = false; // v tomhle běhu už přednačtení knihovnu prošlo (modul ji jinak čte až na své stránce)
+function oblastiPripravenosti() {
+  const sUctem = () => ucet.zapnuty();
+  const nacita = (id) => () => !!stav.nacita[id];
+  return {
+    pocasi: { klic: 'asistent.data.pocasi', davka: true, mez: () => 15, umi: () => umiMotor('pocasi'), nacita: nacita('pocasi'),
+      nacti: () => pocasi.nactiPocasi(false), zUloziste: pocasi.nactiZUloziste },
+    zdravi: { klic: 'asistent.data.zdravi', davka: true, mez: () => (sUctem() ? 30 : 10), umi: () => umiMotor('zdravi'), nacita: nacita('zdravi'),
+      nacti: () => zdravi.nactiZdravi(false), zUloziste: zdravi.nactiZUloziste },
+    plakaty: { klic: 'asistent.data.plakaty', davka: true, mez: () => 30, umi: () => umiMotor('plakaty'), nacita: nacita('plakaty'),
+      nacti: () => plakaty.nactiPlakaty(false), zUloziste: plakaty.nactiZUloziste },
+    dochazka: { klic: 'asistent.data.dochazka', davka: true, mez: () => 360, umi: () => umiMotor('dochazka'), nacita: nacita('dochazka'),
+      nacti: () => dochazka.nactiDochazku(false), zUloziste: dochazka.nactiZUloziste },
+    // tabulky a detaily zápasů (kopie na serveru je nemá – stránka Fotbal je jinak čte až při otevření)
+    fotbal: { klic: '', davka: true, mez: () => 30, umi: () => umiMotor('fotbal'), nacita: nacita('fotbal'),
+      stari: () => (fotbal.chybiPlne() ? Infinity : 0), nacti: () => fotbal.prednactiPlne() },
+    // modul se načte ze zařízení před dávkou (moduly níž), čtení jde s ostatními
+    knihovna: { klic: 'asistent.data.knihovna', davka: true, mez: () => (sUctem() ? 360 : 60), umi: () => umiMotor('knihovna'), nacita: nacita('knihovna'),
+      stari: () => (knihovnaPrednactena ? null : Infinity),
+      nacti: () => { knihovnaPrednactena = true; return knihovnaModul ? knihovnaModul.prednacti(sUctem() ? 360 : 60, sUctem()) : null; },
+      zUloziste: () => { if (knihovnaModul) knihovnaModul.zUloziste(); } },
+    // motor auto v dávce neumí (tabulka Google trvá déle) – jde zvlášť po dávce
+    auto: { klic: 'asistent.data.auto', davka: false, mez: () => (sUctem() ? 360 : 60), umi: () => umiMotor('auto'), nacita: nacita('auto'),
+      nacti: () => auto.prednacti(), zUloziste: auto.zUloziste }
+  };
+}
+
+/** Bez účtu (pošta, schránka a kalendář nemají kopie ze serveru) obnovit i je – jen ve viditelném okně a nejvýš jednou za 10 min. */
+function obnovRychle() {
+  if (!ucet.zapnuty() && document.visibilityState === 'visible' && Date.now() - stav.naposledy > 10 * 60e3) obnovVse(false);
+}
+
+/** Oblasti otevřené stránky pro „aktualizuji…“: [oblast, načítá se, má data] (js/pripravenost.js aktualizujiHtml). */
+function oblastiStranky() {
+  const o = (id) => [id, !!stav.nacita[id], !!stav[id]];
+  const kalendar = ['kalendar', kal.nacitaSe(), kal.mameData(stav.pohled === 'kalendar' ? stav.kal.vybrany : Date.now())];
+  return { dnes: [o('posta'), o('schranka'), o('pocasi'), o('zdravi'), kalendar], schranka: [o('schranka')], posta: [o('posta')], kalendar: [kalendar],
+    zdravi: [o('zdravi')], fotbal: [o('fotbal')], reely: [o('reely')], plakaty: [o('plakaty')], auto: [o('auto')], knihovna: [o('knihovna')] }[stav.pohled] || [];
+}
+const aktualizujiHtml = () => pripravenost.aktualizujiHtml(oblastiStranky);
 
 /** Data v zařízení starší než … minut (nebo žádná)? */
 function stara(klic, minut) {
@@ -652,7 +704,8 @@ function vykresliHlavu(p) {
         '<button type="button" class="btn btn--ikona' + (tociSe() ? ' toci' : '') + '" data-obnovit aria-label="Obnovit">' + IKONY.obnovit + '</button>' +
       '</div></div>' +
     '<div class="hlava-radek"><div class="hlava-titul"><h1>' + (stav.pohled !== 'dnes' ? '<span class="hlava-ikona" data-oblast="' +
-      (stav.pohled === 'reely' ? 'fotbal' : stav.pohled) + '">' + IKONY[stav.pohled] + '</span>' : '') + esc(nadpis) + '</h1>' + (pod ? '<p>' + pod + '</p>' : '') + '</div></div>');
+      (stav.pohled === 'reely' ? 'fotbal' : stav.pohled) + '">' + IKONY[stav.pohled] + '</span>' : '') + esc(nadpis) + '</h1>' + (pod ? '<p>' + pod + '</p>' : '') + '</div>' +
+      aktualizujiHtml() + '</div>');
 }
 
 function pozdrav() {
@@ -1301,10 +1354,17 @@ function knihovna(fn) {
   }
   return knihovnaSlib.then((m) => { if (m && fn) fn(m); return m; });
 }
+let knihovnaCekaOd = 0;
 function vykresliKnihovnu(el) {
   if (knihovnaModul) { knihovnaModul.vykresliKnihovnu(el); return; }
   const chyba = stav.chyby.knihovnaModul;
-  nastavHtml(el, '<section class="card">' + (chyba ? chybaHtml({ message: 'Knihovna se nenačetla – zkontroluj připojení.' }, 'data-kn-modul-znovu') : kostra(5)) + '</section>');
+  // modul se po startu přednačte (js/pripravenost.js); když se stránka otevře dřív, načte se ze zařízení za desítky ms –
+  // kostřička až po 0,3 s, ať při otevření s daty z minula neblikne (Michal 18. 10.: „ať je to vše hned“)
+  if (!knihovnaCekaOd) knihovnaCekaOd = Date.now();
+  const kostraTed = Date.now() - knihovnaCekaOd > 300;
+  if (!chyba && !kostraTed) setTimeout(zmeneno, 320);
+  nastavHtml(el, chyba ? '<section class="card">' + chybaHtml({ message: 'Knihovna se nenačetla – zkontroluj připojení.' }, 'data-kn-modul-znovu') + '</section>'
+    : kostraTed ? '<section class="card">' + kostra(5) + '</section>' : '');
   if (!chyba) knihovna();
 }
 /** Klepnutí na Knihovnu (pás, menu), když je otevřená podstránka karty: zpět na seznam (jako „← Knihovna“). */
@@ -1489,8 +1549,10 @@ document.addEventListener('visibilitychange', () => {
     if (Date.now() - stav.naposledy > 30 * 60000) novinkyUkazany = false;
     obnovVse(false);
   }
+  // pomalé oblasti, které mezitím zestárly (telefon nejdřív po 10 min od posledního přednačtení – js/pripravenost.js)
+  if (document.visibilityState === 'visible' && jePripojeno() && window.asistentBezi) pripravenost.poNavratu();
 });
-window.addEventListener('online', () => { zmeneno(); if (jePripojeno()) obnovVse(false); });
+window.addEventListener('online', () => { zmeneno(); if (jePripojeno()) { obnovVse(false); if (window.asistentBezi) pripravenost.poNavratu(); } });
 window.addEventListener('offline', zmeneno);
 // telefon ↔ iPad/PC (otočení, změna okna): jiná hlavička a přehled Dnes; přes 1180 px celý / úzký levý pás
 TELEFON.addEventListener('change', zmeneno);

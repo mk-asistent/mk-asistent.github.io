@@ -138,6 +138,18 @@ let pohledTabulky = 'celkem';
 let plneZkouseno = false;
 const otevreneZapasy = {};
 
+/** Tabulky a detaily chybí (lehká data z kopie na serveru) → přednačíst na pozadí (js/pripravenost.js), ať stránka Fotbal
+ *  ukáže tabulku hned. Vrací stáří ve smyslu přednačtení: Infinity = chybí, 0 = není potřeba. */
+export function chybiPlne() {
+  const d = data();
+  return d && !d.tabulky && d.maTabulky ? Infinity : 0;
+}
+export function prednactiPlne() {
+  if (!chybiPlne() || stav.nacita.fotbal) return Promise.resolve();
+  plneZkouseno = true;
+  return nactiFotbalPlne();
+}
+
 /** Plná data (tabulky, detaily všech zápasů) – jen pro stránku Fotbal. */
 export function nactiFotbalPlne() {
   if (!umiMotor('fotbal') || stav.nacita.fotbal) return Promise.resolve();

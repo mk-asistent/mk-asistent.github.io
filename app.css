@@ -231,6 +231,15 @@ main { padding: 4px var(--mezera) calc(var(--lista-h) + env(safe-area-inset-bott
 .hlava-titul h1 { margin: 0; font-size: 28px; line-height: 1.15; font-weight: 700; letter-spacing: -.02em; }
 .hlava-titul p { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
 .hlava-akce { display: flex; align-items: center; gap: 6px; padding-top: 2px; }
+/* „aktualizuji…“ – data stránky (z minula) se obnovují na pozadí (js/pripravenost.js); mimo tok stránky, nic neposkočí */
+.hlava-radek { position: relative; }
+.aktualizuji { position: absolute; top: 6px; right: 0; display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px;
+  font-size: 12px; line-height: 16px; color: var(--muted); background: var(--bg, transparent); white-space: nowrap; pointer-events: none;
+  animation: aktualizuji-ukaz .25s ease-out; }
+.aktualizuji i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: aktualizuji-tep 1.2s ease-in-out infinite; }
+@keyframes aktualizuji-ukaz { from { opacity: 0; } to { opacity: 1; } }
+@keyframes aktualizuji-tep { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .aktualizuji, .aktualizuji i { animation: none; } }
 
 .pruhy { padding: 0 var(--mezera); }
 .pruhy:empty { display: none; }

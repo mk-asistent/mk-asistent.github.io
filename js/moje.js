@@ -118,7 +118,9 @@ function polozkaHtml(p) {
   const cely = !!rozbalene[p.id];
   const kdy = esc(kdyKratce(p.kdy));
   return '<li class="moje-polozka" data-moje-id="' + esc(p.id) + '">' +
-    '<button type="button" class="moje-hotovo" data-moje-hotovo="' + esc(p.id) + '" aria-label="Hotovo: ' + esc(prvniRadek(p.text, 60)) + '" title="Hotovo">' + IKONY.fajfka + '</button>' +
+    // ještě neuložená (motor ji dožene za chvilku) – Hotovo a nabídka až s opravdovým id
+    '<button type="button" class="moje-hotovo" data-moje-hotovo="' + esc(p.id) + '" aria-label="Hotovo: ' + esc(prvniRadek(p.text, 60)) + '" title="Hotovo"' +
+      (p.ceka ? ' disabled' : '') + '>' + IKONY.fajfka + '</button>' +
     (cely
       // rozbalená: celý text s klikacími odkazy, pod ním kdy a odkud + Sbalit
       ? '<div class="moje-obsah"><div class="moje-text moje-text--cely">' + sOdkazy(p.text) + '</div>' +
@@ -132,10 +134,39 @@ function polozkaHtml(p) {
 
 // ---------------------------------------------------------------- akce
 
-/** Přidá poznámku (pole na kartě, okno z „+“). Vrací true, když se uložila. */
+/**
+ * Přidá poznámku (pole na kartě, okno z „+“): hned v seznamu (Michal 18. 10.: „ať je to vše hned“), motor na pozadí – při chybě
+ * zmizí, text se vrátí do pole a řekne proč. Vrací true = je v seznamu.
+ */
 async function pridej(text) {
   text = String(text || '').trim();
   if (!text || ukladam) return false;
+  if (stav.schranka) {
+    const docasna = { id: 'ceka-' + Date.now().toString(36), text, kdy: Date.now(), odkud: 'aplikace', ceka: true };
+    stav.schranka.moje = [docasna].concat(mojePoznamky());
+    if (rozepsano.trim() === text) {
+      rozepsano = '';
+      document.querySelectorAll('[data-moje-pole]').forEach((x) => { x.value = ''; });
+    }
+    toast('Uloženo do Mých poznámek');
+    zmeneno();
+    volej('mojePridat', { text })
+      .then((p) => {
+        if (stav.schranka) {
+          const ted = mojePoznamky().filter((x) => x !== docasna && x.id !== p.id);
+          stav.schranka.moje = [p].concat(ted).sort((a, b) => (b.kdy || 0) - (a.kdy || 0));
+          ulozMistne();
+        }
+        zmeneno();
+      })
+      .catch((e) => {
+        if (stav.schranka) stav.schranka.moje = mojePoznamky().filter((x) => x !== docasna);
+        if (!rozepsano.trim()) rozepsano = text;
+        toast('Neuloženo – ' + e.message, true);
+        zmeneno();
+      });
+    return true;
+  }
   ukladam = true;
   document.querySelectorAll('[data-moje-pridat]').forEach((b) => { b.disabled = true; });
   try {
@@ -232,7 +263,7 @@ function kopirovat(p) {
 export function nabidkaMoje(cil) {
   const li = cil && cil.closest && cil.closest('[data-moje-id]');
   const p = li && najdi(li.dataset.mojeId);
-  if (!p) return null;
+  if (!p || p.ceka) return null; // ještě neuložená – nabídka až s opravdovým id
   return { nadpis: prvniRadek(p.text, 60), polozky: [
     { ikona: IKONY.fajfka, text: 'Hotovo', fn: () => odeber(p.id, 'hotovo') },
     { ikona: IKONY.claude, text: 'Předat Claudovi', fn: () => predatClaudovi(p.id) },

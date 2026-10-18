@@ -495,6 +495,7 @@ const vedomiTest = {};              // Beru na vědomí v napodobeném motoru: i
 const STITKY_VYCHOZI = [{ nazev: 'Fotbal', neprectenych: 1 }, { nazev: 'Účty', neprectenych: 0 }];
 let stitkyMotoru = STITKY_VYCHOZI;   // štítky Gmailu (test lišty skupin je rozšíří)
 const zpozdeniMotoru = {};          // akce → ms (pomalý motor: test přednačtení měří klepnutí s ním a bez něj)
+const chybaMotoru = {};             // akce → text chyby, kterou motor vrátí (zápis na pozadí se nepovedl – aplikace ho má vrátit)
 const promoVlakna = [
   { id: 'k1', ucet: 'osobni', stav: 'info', od: 'Obchod Test', predmet: 'Dárek k svátku', ukazka: 'Kredit 200 Kč do neděle.', kdy: ted - 3 * H, neprectena: true, pocet: 1, odkaz: '#' },
   { id: 'k2', ucet: 'osobni', stav: 'info', od: 'CK Test', predmet: 'Lyže v Alpách', ukazka: 'Zájezdy od 9 990 Kč.', kdy: ted - 20 * H, neprectena: false, pocet: 1, odkaz: '#' }];
@@ -768,6 +769,7 @@ async function pripravMotor(page) {
     if (data.rid && odpovediRid.has(data.rid)) telo = odpovediRid.get(data.rid);
     else if (data.klic !== KLIC) telo = { ok: false, chyba: 'klic' };
     else if (!motor[data.akce]) telo = { ok: false, chyba: 'Neznámá akce.' };
+    else if (chybaMotoru[data.akce]) { volano.push(data); telo = { ok: false, chyba: chybaMotoru[data.akce] }; }
     else {
       volano.push(data);
       // jako motor: chyba akce = { ok: false, chyba } (aplikace ji ukáže; jinak by požadavek zůstal viset)
@@ -884,6 +886,9 @@ async function cekejVeStrance(page, fn, arg, ms) {
     await new Promise((r) => setTimeout(r, 60));
   }
 }
+/** Po startu se na pozadí přednačtou pomalé oblasti (js/pripravenost.js) a stránka se pak ještě jednou překreslí (v prázdném
+ *  zařízení třeba připomínky auta na Přehledu) – testy, které najíždějí myší, drží prst nebo měří karty, nejdřív počkají. */
+const pripraveno = (page) => page.waitForFunction(() => window.asistentPripraveno === true, null, { timeout: 10000 });
 const PRAHA = { timezoneId: 'Europe/Prague' };
 /** Výchozí víkend jako v aplikaci (nejbližší nadcházející; v sobotu a v neděli ten probíhající). */
 function vychoziVikendTestu() {
@@ -1563,6 +1568,7 @@ function vychoziVikendTestu() {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
     await page.goto(WEB);
     await page.waitForSelector('#dl-fotbal .fotbal-vysledek--P');
+    await pripraveno(page);
     jistota(!(await page.locator('#dl-fotbal .fotbal-vysledek[title]').count()), 'title u výsledku');
     await page.locator('#dl-fotbal .fotbal-vysledek--P').first().hover();
     await page.waitForSelector('#bublina-karta.videt[data-druh="zapas"]');
@@ -1589,9 +1595,12 @@ function vychoziVikendTestu() {
       let { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
       await page.goto(WEB);
       await page.waitForSelector('#dl-posta:not([hidden]) [data-vlakno="v1"]');
+      // po startu se přednačte i auto (js/pripravenost.js) – jeho připomínka (přezutí) přibude do Vyžaduje pozornost
+      await pripraveno(page);
       jistota(/Pošta · 1/.test(await page.textContent('#dl-posta .card-hlava')) && !(await page.locator('#dl-posta [data-vlakno="v2"]').count()), 'karta Pošta: jen co čeká');
-      jistota(/2 věci čekají na tebe · 1 e-mail k vyřízení/.test(await page.textContent('#hlava')), 'podnadpis: ' + await page.textContent('#hlava'));
-      jistota(/Vyžaduje pozornost · 2/.test(await page.textContent('#dl-pozornost .card-hlava')), 'Vyžaduje pozornost sedí s podnadpisem');
+      jistota(/3 věci čekají na tebe · 1 e-mail k vyřízení/.test(await page.textContent('#hlava')), 'podnadpis: ' + await page.textContent('#hlava'));
+      jistota(/Vyžaduje pozornost · 3/.test(await page.textContent('#dl-pozornost .card-hlava')) && /Přezout na zimní/.test(await page.textContent('#dl-pozornost')),
+        'Vyžaduje pozornost sedí s podnadpisem (2 úkoly + přezutí z přednačteného auta)');
       await page.locator('#dl-posta').screenshot({ path: path.join(VYSTUP, 'pc_dnes_posta.png') });
       jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
       await ctx.close();
@@ -2431,6 +2440,7 @@ function vychoziVikendTestu() {
     try {
       await page.goto(WEB);
       await page.waitForSelector('.pozornost--posta [data-vlakno="v1"]');
+      await pripraveno(page);
       await page.$eval('.pozornost--posta [data-vlakno="v1"]', (b) => {
         const r = b.getBoundingClientRect();
         b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', isPrimary: true, clientX: r.x + 30, clientY: r.y + 15 }));
@@ -2898,6 +2908,7 @@ function vychoziVikendTestu() {
       const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
       await page.goto(WEB);
       await page.waitForSelector('#dl-moje:not([hidden]) .moje-polozka');
+      await pripraveno(page);
       // + v liště → Moje poznámka → okno s polem
       await page.click('#lista [data-rychle]');
       await page.click('[data-panel="rychle"] [data-rychle-akce="moje"]');
@@ -2906,6 +2917,8 @@ function vychoziVikendTestu() {
       await page.click('.okno-pozadi [data-okno="ano"]');
       await cekej(() => volano.some((d) => d.akce === 'mojePridat' && d.text === 'Zavolat babičce v neděli'), 3000, 'z okna do motoru');
       await page.waitForFunction(() => /Zavolat babičce/.test(document.querySelector('#dl-moje').textContent));
+      // poznámka je v seznamu hned, motor ji potvrdí (opravdové id) – karta se pak jednou překreslí
+      await page.waitForFunction(() => !document.querySelector('#dl-moje [data-moje-id^="ceka-"]'));
       // dlouhé podržení prstu na mé poznámce → nabídka; klepnutí po podržení poznámku nerozbalí
       const podrz = async (sel) => {
         await page.locator(sel).first().scrollIntoViewIfNeeded();
@@ -3000,6 +3013,7 @@ function vychoziVikendTestu() {
         try {
           await page.goto(WEB);
           await page.waitForSelector('#aplikace:not([hidden])');
+          await pripraveno(page);
           await page.click(v.sirka >= 760 ? '#rail [data-cil="zdravi"]' : '.hlava-ja [data-cil="zdravi"]');
           await page.waitForSelector('#p-zdravi .zd-tyden .tyden-claude');
           const t = await page.innerHTML('#p-zdravi .tyden-claude');
@@ -3045,6 +3059,7 @@ function vychoziVikendTestu() {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
     try {
       await page.goto(WEB);
+      await pripraveno(page);
       await page.click('#rail [data-cil="zdravi"]');
       await page.waitForSelector('#p-zdravi .graf14 .graf14__den');
       const bublina = () => page.evaluate(() => { const b = document.getElementById('graf-bublina'); if (!b || b.hidden) return null;
@@ -6622,7 +6637,7 @@ function vychoziVikendTestu() {
   }, [id, klic, vychozi || 'prehled']);
   const PC1500 = { nazev: 'pc1500', sirka: 1500, vyska: 850, dotyk: false };
 
-  await test('Knihovna na PC: modul i data až po otevření stránky, záložky, karty s plakátem (líně, zástupná plocha) přes celou šířku, filtr stavu, hledání i v Hledat', async () => {
+  await test('Knihovna na PC: modul při startu ne (start na něj nečeká), přednačte se po startu i s daty; záložky, karty s plakátem (líně, zástupná plocha) přes celou šířku, filtr stavu, hledání i v Hledat', async () => {
     knihovnaTest = KNIHOVNA_VYCHOZI();
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, PC1500);
     try {
@@ -6630,12 +6645,16 @@ function vychoziVikendTestu() {
       const pred = volano.length;
       await page.goto(WEB);
       await page.waitForSelector('#p-dnes .card');
-      await page.waitForTimeout(700);
-      jistota(!(await page.evaluate(() => performance.getEntriesByType('resource').some((e) => /\/js\/knihovna(_stranka)?\.js/.test(e.name)))), 'knihovna.js se při startu nemá načítat');
-      jistota(!volano.slice(pred).some((d) => d.akce === 'knihovna'), 'knihovna se při startu nemá číst z motoru');
+      // první vykreslení bez knihovny (modul ani čtení) – přednačte se až po startu v klidu (js/pripravenost.js)
+      const pri = await page.evaluate(() => { const v = (performance.getEntriesByName('asistent-vykresleno')[0] || {}).startTime || 0;
+        return performance.getEntriesByType('resource').filter((e) => /\/js\/knihovna(_stranka)?\.js/.test(e.name)).map((e) => Math.round(e.startTime - v)); });
+      jistota(pri.every((t) => t > 0), 'knihovna.js se má načíst až po prvním vykreslení: ' + pri.join());
+      await cekejVeStrance(page, () => import('/js/stav.js').then((m) => !!(m.stav.pripravenost && m.stav.knihovna)), null, 8000);
+      jistota(volano.slice(pred).filter((d) => d.akce === 'knihovna').length === 1, 'knihovna se po startu přednačte jednou: ' + volano.slice(pred).map((d) => d.akce).join());
+      const poPrednacteni = volano.length;
       await page.click('#rail [data-cil="knihovna"]');
-      await page.waitForSelector('#p-knihovna .kn-karta');
-      jistota(volano.slice(pred).some((d) => d.akce === 'knihovna'), 'po otevření stránky se knihovna čte z motoru');
+      await page.waitForSelector('#p-knihovna .kn-karta', { timeout: 300 });
+      jistota(!volano.slice(poPrednacteni).some((d) => d.akce === 'knihovna'), 'po otevření stránky se knihovna už znovu nečte (přednačtená)');
       jistota(/Knihovna/.test(await page.textContent('#hlava h1')) && /filmy a seriály 2 · knihy 1 · rešerše 1/i.test(await page.textContent('#hlava p')), 'nadpis: ' + await page.textContent('#hlava'));
       const zalozky = (await page.locator('#kn-zalozky .chip').allTextContents()).map((t) => t.replace(/\s+/g, ''));
       jistota(zalozky.join('|') === 'Filmy2|Knihy1|Rešerše1', 'záložky: ' + zalozky.join('|'));
@@ -7431,21 +7450,236 @@ function vychoziVikendTestu() {
   });
 
   // ---------- start: rychlá čtení v jedné dávce (méně souběžných dotazů na motor)
-  await test('start: rychlá čtení jdou v jedné dávce', async () => {
+  await test('start: rychlá čtení jdou v jedné dávce; přednačtení po startu jednou dávkou a auto zvlášť', async () => {
     const pozadavky = [];
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
     page.on('request', (r) => { if (r.url() === MOTOR) { try { pozadavky.push(JSON.parse(r.postData()).akce); } catch (e) { /* nic */ } } });
     await page.goto(WEB); // první start: info ještě není uložené → bez dávky
     await page.waitForSelector('#dl-pozornost .seznam');
+    await cekejVeStrance(page, () => import('/js/stav.js').then((m) => !!m.stav.pripravenost), null, 8000);
     pozadavky.length = 0;
     await page.reload();
     await page.waitForSelector('#dl-pozornost .seznam');
+    // start (do vykreslení a dočtení) – přednačtení čeká, až start doběhne
+    const start = await page.evaluate(() => (performance.getEntriesByName('asistent-vykresleno')[0] || {}).startTime || 0);
+    jistota(start > 0, 'aplikace se nevykreslila');
     await page.waitForTimeout(1500);
     jistota(pozadavky.indexOf('davka') >= 0, 'dávka se neposlala: ' + pozadavky.join());
-    jistota(['info', 'pocasi', 'zdravi', 'fotbal'].every((a) => pozadavky.indexOf(a) < 0), 'rychlá čtení samostatně: ' + pozadavky.join());
+    jistota(['info', 'pocasi', 'zdravi', 'fotbal', 'plakaty', 'knihovna', 'dochazka'].every((a) => pozadavky.indexOf(a) < 0), 'rychlá čtení samostatně: ' + pozadavky.join());
+    // čerstvá data z minulého otevření → přednačtení nemá co číst (nic navíc)
     jistota(pozadavky.length <= 6, 'při startu moc požadavků: ' + pozadavky.join());
     jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
     await ctx.close();
+  });
+
+  // ---------- připravenost (Michal 18. 10.: „stále mi celkem nevyhovuje, že to není vše vždy ready, že se to načítá“ – js/pripravenost.js)
+  // kdy se na otevřené stránce poprvé ukázal obsah (ms od startu modulů), jestli mezitím byla kostřička a kdy „aktualizuji…“
+  const SLEDUJ_OBSAH = () => {
+    const p = window.__obsah = { kostra: false, t: null, aktualizuji: null };
+    const VYBER = { zdravi: '#p-zdravi .zdravi-hero', auto: '#p-auto .auto-zapisy', knihovna: '#p-knihovna .kn-karta', plakaty: '#p-plakaty .plakat-stage .poster .design',
+      fotbal: '#p-fotbal .fotbal-tabulka tr.nas', dnes: '#dl-pozornost .seznam' };
+    const cil = () => { try { return JSON.parse(localStorage.getItem('asistent.pohled')) || 'dnes'; } catch (e) { return 'dnes'; } };
+    new MutationObserver(() => {
+      const c = cil(), el = document.getElementById('p-' + c);
+      if (!el || el.hidden) return;
+      if (el.querySelector('.kostra')) p.kostra = true;
+      const start = (performance.getEntriesByName('asistent-start')[0] || {}).startTime;
+      if (start == null) return;
+      if (p.t == null && document.querySelector(VYBER[c])) p.t = Math.round(performance.now() - start);
+      if (p.aktualizuji == null && document.querySelector('#hlava .aktualizuji')) p.aktualizuji = Math.round(performance.now() - start);
+    }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
+  };
+  const ZESTARNI_DATA = (st) => {
+    Object.keys(localStorage).filter((k) => /^asistent\.data\./.test(k)).forEach((k) => {
+      try { const v = JSON.parse(localStorage.getItem(k)); if (v && typeof v.kdy === 'number') { v.kdy -= 10 * 3600e3; localStorage.setItem(k, JSON.stringify(v)); } } catch (e) { /* nic */ }
+    });
+    localStorage.setItem('asistent.pohled', JSON.stringify(st));
+  };
+  const POMALE = ['davka', 'auto', 'zdravi', 'pocasi', 'knihovna', 'plakaty', 'fotbal'];
+
+  await test('připravenost: data z minula hned – Zdraví, Auto, Knihovna, Plakáty, Fotbal a Přehled se zpožděným motorem (3 s) do 200 ms bez kostřičky, „aktualizuji…“, pak čerstvá data', async () => {
+    knihovnaTest = KNIHOVNA_VYCHOZI();
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, PC1500);
+    try {
+      await knihovnaSit(page);
+      await ctx.addInitScript(SLEDUJ_OBSAH);
+      await page.goto(WEB);
+      // první otevření: start a přednačtení na pozadí uloží do zařízení i stránky, které nejsou otevřené
+      await cekejVeStrance(page, () => import('/js/stav.js').then((m) => !!(m.stav.pripravenost && m.stav.knihovna && m.stav.auto && m.stav.plakaty && m.stav.zdravi)), null, 10000);
+      await page.waitForTimeout(300);
+      POMALE.forEach((a) => { zpozdeniMotoru[a] = 3000; });
+      const vysledek = [];
+      for (const st of ['zdravi', 'auto', 'knihovna', 'plakaty', 'fotbal', 'dnes']) {
+        await page.evaluate(ZESTARNI_DATA, st);
+        await page.reload();
+        await cekejVeStrance(page, () => window.__obsah && window.__obsah.t != null, null, 3000).catch(() => { /* níž */ });
+        const o = await page.evaluate(() => window.__obsah);
+        vysledek.push(st + ' ' + o.t + ' ms');
+        jistota(o.t != null && o.t <= 200, st + ': obsah za ' + o.t + ' ms od startu (data z minula mají být hned, motor odpovídá za 3 s)');
+        jistota(!o.kostra, st + ': kostřička, i když zařízení data má');
+        // obnova potichu na pozadí: malé „aktualizuji…“ (po 0,7 s, mimo tok stránky) a po odpovědi motoru zase pryč
+        await page.waitForSelector('#hlava .aktualizuji', { timeout: 3000 });
+        const poloha = await page.evaluate(() => getComputedStyle(document.querySelector('#hlava .aktualizuji')).position);
+        jistota(poloha === 'absolute', '„aktualizuji…“ nemá posouvat stránku: ' + poloha);
+        await page.waitForSelector('#hlava .aktualizuji', { state: 'detached', timeout: 12000 });
+      }
+      console.log('    (obsah od startu: ' + vysledek.join(', ') + ')');
+      jistota(!chybyKnihovny(chybyStranky).length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      POMALE.forEach((a) => { delete zpozdeniMotoru[a]; });
+      await ctx.close();
+    }
+  });
+
+  await test('připravenost: po startu přednačtení na pozadí (jedna dávka, auto zvlášť) – přepnutí na Zdraví, Auto, Knihovnu a Plakáty hned a bez motoru; obnova po ~10 / 15 min každé oblasti jednou, po probuzení PC hned, druhé okno nic znovu nečte', async () => {
+    knihovnaTest = KNIHOVNA_VYCHOZI();
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, PC1500);
+    try {
+      await knihovnaSit(page);
+      await page.clock.install(); // čas běží dál, testy ho jen popoženou (runFor = minuty po minutě, fastForward = probuzení)
+      const pozadavky = [];
+      page.on('request', (r) => { if (r.url() === MOTOR) { try { const d = JSON.parse(r.postData()); pozadavky.push(d.akce === 'davka' ? 'davka:' + d.polozky.map((y) => y.akce).join('+') : d.akce); } catch (e) { /* nic */ } } });
+      const pred = volano.length;
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-pozornost .seznam');
+      await cekejVeStrance(page, () => import('/js/stav.js').then((m) => !!(m.stav.pripravenost && m.stav.pripravenost.duvod === 'start')), null, 10000);
+      await page.waitForTimeout(300);
+      const pr = await page.evaluate(() => import('/js/stav.js').then((m) => m.stav.pripravenost.nactene));
+      ['plakaty', 'knihovna', 'auto', 'dochazka'].forEach((o) => jistota(pr.indexOf(o) >= 0, 'přednačtení po startu: ' + pr.join()));
+      const cteni = (a, od) => volano.slice(od).filter((d) => d.akce === a).length;
+      jistota(['knihovna', 'plakaty', 'auto', 'zdravi', 'pocasi'].every((a) => cteni(a, pred) === 1), 'každá pomalá oblast jednou: ' + volano.slice(pred).map((d) => d.akce).join());
+      jistota(pozadavky.filter((a) => a === 'auto').length === 1 && pozadavky.filter((a) => /^davka:/.test(a) && ['plakaty', 'knihovna', 'dochazka'].every((y) => a.indexOf(y) >= 0)).length === 1,
+        'přednačtení jednou dávkou, auto zvlášť: ' + pozadavky.join());
+      // přepnutí: obsah hned (bez kostřičky), motor nic nečte
+      const poStartu = volano.length;
+      for (const [st, sel] of [['zdravi', '#p-zdravi .zdravi-hero'], ['auto', '#p-auto .auto-zapisy'], ['knihovna', '#p-knihovna .kn-karta'], ['plakaty', '#p-plakaty .plakat-stage .poster .design']]) {
+        await page.click('#rail [data-cil="' + st + '"]');
+        jistota(await page.evaluate(([c, q]) => !!document.querySelector(q) && !document.querySelector('#p-' + c + ' .kostra'), [st, sel]), st + ': po přepnutí hned obsah (bez kostřičky)');
+        jistota(!(await page.$('#hlava .aktualizuji')), st + ': přednačtená data nemají „aktualizuji…“');
+      }
+      await page.waitForTimeout(400);
+      const poPrepnuti = volano.slice(poStartu).map((d) => d.akce).filter((a) => ['zdravi', 'auto', 'knihovna', 'plakaty', 'pocasi'].indexOf(a) >= 0);
+      jistota(!poPrepnuti.length, 'přepnutí četlo z motoru: ' + poPrepnuti.join());
+      await page.click('#rail [data-cil="dnes"]');
+      // obnova na pozadí (bez účtu): po 11 min zdraví (mez 10 min), po dalších 5 min počasí (15 min) – každé jednou, nic dvakrát
+      let od = volano.length;
+      await page.clock.runFor('11:30');
+      await page.waitForTimeout(900);
+      let x = volano.slice(od).map((d) => d.akce);
+      jistota(x.filter((a) => a === 'zdravi').length === 1 && x.indexOf('pocasi') < 0 && x.indexOf('auto') < 0 && x.indexOf('knihovna') < 0, 'obnova po 11 min: ' + x.join());
+      od = volano.length;
+      await page.clock.runFor('05:00');
+      await page.waitForTimeout(900);
+      x = volano.slice(od).map((d) => d.akce);
+      jistota(x.filter((a) => a === 'pocasi').length === 1 && x.indexOf('zdravi') < 0, 'obnova po 16 min: ' + x.join());
+      // probuzení PC (kontroly 20 min stály) → hned pošta, schránka, zdraví, počasí a plakáty – každé jednou
+      od = volano.length;
+      await page.clock.fastForward('20:00');
+      await page.waitForTimeout(1500);
+      x = volano.slice(od).map((d) => d.akce);
+      ['posta', 'schranka', 'zdravi', 'pocasi', 'plakaty'].forEach((a) => jistota(x.filter((y) => y === a).length === 1, 'po probuzení ' + a + ' jednou: ' + x.join()));
+      jistota(await page.evaluate(() => import('/js/stav.js').then((m) => m.stav.pripravenost.duvod)) === 'probuzeni', 'přednačtení po probuzení');
+      // druhé okno téhož zařízení (záložka, mini okno): data mu přijdou ze zařízení – samo zdraví nečte
+      const p2 = await ctx.newPage();
+      const pozadavky2 = [];
+      p2.on('request', (r) => { if (r.url() === MOTOR) { try { const d = JSON.parse(r.postData()); pozadavky2.push(d.akce === 'davka' ? 'davka:' + d.polozky.map((y) => y.akce).join('+') : d.akce); } catch (e) { /* nic */ } } });
+      await p2.goto(WEB);
+      await p2.waitForSelector('#dl-pozornost .seznam');
+      await p2.waitForTimeout(1500);
+      jistota(!pozadavky2.some((a) => /zdravi|pocasi|knihovna|plakaty|auto/.test(a)), 'druhé okno četlo pomalé oblasti znovu: ' + pozadavky2.join());
+      vahaZaznamy = [{ kdy: Date.now() - 864e5, kg: 79.9 }];
+      await page.evaluate(() => import('/js/zdravi.js').then((m) => m.nactiZdravi(true)));
+      await cekejVeStrance(p2, () => import('/js/stav.js').then((m) => !!(m.stav.zdravi && (m.stav.zdravi.vaha || []).some((v) => v.kg === 79.9))), null, 4000);
+      jistota(!pozadavky2.some((a) => /zdravi/.test(a)), 'druhé okno dostalo zdraví ze zařízení, ne z motoru: ' + pozadavky2.join());
+      await p2.close();
+      jistota(!chybyKnihovny(chybyStranky).length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      vahaZaznamy = [];
+      await ctx.close();
+    }
+  });
+
+  await test('hned v aplikaci, motor na pozadí (motor 2 s): voda, zpět, jídlo, doplněk, váha, tankování, smazání tankování, moje poznámka; chyba motoru zápis vrátí (váha, tankování)', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, PC1500);
+    const ZAPISY = ['pitiJidlo', 'vaha', 'doplnky', 'autoZapsat', 'autoSmazat', 'mojePridat'];
+    try {
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-piti:not([hidden]) [data-piti="250"]');
+      await page.waitForSelector('#dl-vaha:not([hidden]) [data-vaha-pole]');
+      await cekejVeStrance(page, () => import('/js/stav.js').then((m) => !!(m.stav.pripravenost && m.stav.auto)), null, 10000);
+      ZAPISY.forEach((a) => { zpozdeniMotoru[a] = 2000; });
+      const hned = async (popis, akce, podminka, arg) => {
+        await akce();
+        await page.waitForFunction(podminka, arg, { timeout: 400 }).catch(() => { throw new Error(popis + ': v aplikaci se nic neukázalo do 400 ms (motor odpovídá za 2 s)'); });
+      };
+      const text = (s) => page.evaluate((q) => (document.querySelector(q) || {}).textContent || '', s);
+      // voda +0,25 l dvakrát rychle za sebou – obě hned, po odpovědích motoru nic neproblikne zpátky
+      const pred = await text('#dl-piti .piti__text b');
+      await hned('voda', () => page.click('#dl-piti [data-piti="250"]'), (p) => document.querySelector('#dl-piti .piti__text b').textContent !== p, pred);
+      const po1 = await text('#dl-piti .piti__text b');
+      await hned('voda podruhé', () => page.click('#dl-piti [data-piti="250"]'), (p) => document.querySelector('#dl-piti .piti__text b').textContent !== p, po1);
+      const po2 = await text('#dl-piti .piti__text b');
+      const videno = new Set();
+      for (let i = 0; i < 30; i++) { videno.add(await text('#dl-piti .piti__text b')); await page.waitForTimeout(100); }
+      jistota(videno.size === 1 && videno.has(po2), 'voda po odpovědích motoru problikla: ' + Array.from(videno).join(' → '));
+      // zpět (smazání posledního zápisu vody) – hned
+      await page.waitForSelector('#dl-piti [data-piti-zpet]');
+      await hned('voda zpět', () => page.click('#dl-piti [data-piti-zpet]'), (p) => document.querySelector('#dl-piti .piti__text b').textContent === p, po1);
+      // doplněk
+      const dopl = '#dl-doplnky [data-doplnek]';
+      const stisknuto = await page.getAttribute(dopl, 'aria-pressed');
+      await hned('doplněk', () => page.click(dopl), ([q, a]) => document.querySelector(q).getAttribute('aria-pressed') !== a, [dopl, stisknuto]);
+      // váha z karty na Přehledu
+      await page.fill('#dl-vaha [data-vaha-pole]', '80,4');
+      await hned('váha', () => page.click('#dl-vaha [data-vaha-zapsat]'), () => /80,4/.test(document.querySelector('#dl-vaha').textContent));
+      // moje poznámka
+      await page.fill('#p-dnes [data-moje-pole]', 'Koupit hřebíky');
+      await hned('moje poznámka', () => page.press('#p-dnes [data-moje-pole]', 'Enter'), () => /Koupit hřebíky/.test(document.querySelector('#dl-moje').textContent));
+      // tankování: okno se zavře hned, zápis je v přehledu se „zapisuji…“, po odpovědi motoru bez něj
+      await page.click('#rail [data-cil="auto"]');
+      await page.waitForSelector('#p-auto .auto-zapisy');
+      await page.click('[data-auto-zapis="tankovani"]');
+      await page.fill('[data-panel="auto-zapis"] [data-az="castka"]', '1 234');
+      await page.fill('[data-panel="auto-zapis"] [data-az="cenaLitr"]', '36,50');
+      await hned('tankování', () => page.click('[data-panel="auto-zapis"] [data-auto-ulozit]'),
+        () => !document.querySelector('[data-panel="auto-zapis"]') && /1 234 Kč/.test(document.querySelector('.auto-zapisy').textContent.replace(/\s+/g, ' ')));
+      jistota(/zapisuji do tabulky/.test(await text('.auto-zapisy')), 'tankování na cestě do tabulky: „zapisuji…“');
+      await page.waitForFunction(() => !/zapisuji do tabulky/.test(document.querySelector('.auto-zapisy').textContent), null, { timeout: 5000 });
+      // smazání posledního zápisu – hned pryč
+      const palivo = await page.$$eval('.auto-zapisy .auto-zapis--palivo', (s) => s.length);
+      await page.click('[data-auto-smazat^="tankovani:"]');
+      await hned('smazání tankování', () => page.click('.okno-pozadi [data-okno="ano"]'), (n) => document.querySelectorAll('.auto-zapisy .auto-zapis--palivo').length === n - 1, palivo);
+      await page.waitForTimeout(2300);
+      // chyba motoru: tankování zmizí a okno se otevře znovu se vším napsaným a s důvodem
+      chybaMotoru.autoZapsat = 'Tabulka Google teď neodpovídá.';
+      const palivoPred = await page.$$eval('.auto-zapisy .auto-zapis--palivo', (s) => s.length);
+      await page.click('[data-auto-zapis="tankovani"]');
+      await page.fill('[data-panel="auto-zapis"] [data-az="castka"]', '999');
+      await page.fill('[data-panel="auto-zapis"] [data-az="cenaLitr"]', '35');
+      await page.click('[data-panel="auto-zapis"] [data-auto-ulozit]');
+      await page.waitForSelector('[data-panel="auto-zapis"] [data-az-chyba]:not([hidden])', { timeout: 5000 });
+      jistota(/neodpovídá/.test(await text('[data-panel="auto-zapis"] [data-az-chyba]')) && await page.inputValue('[data-panel="auto-zapis"] [data-az="castka"]') === '999',
+        'okno znovu s chybou a s částkou: ' + await text('[data-panel="auto-zapis"] [data-az-chyba]'));
+      jistota(await page.$$eval('.auto-zapisy .auto-zapis--palivo', (s) => s.length) === palivoPred, 'nezapsané tankování zmizelo z přehledu');
+      await page.click('[data-panel="auto-zapis"] [data-zavrit-panel]');
+      delete chybaMotoru.autoZapsat;
+      // chyba motoru u váhy: zápis zmizí, hodnota zpátky v poli, oznámení proč
+      await page.click('#rail [data-cil="dnes"]');
+      await page.waitForSelector('#dl-vaha [data-vaha-pole]');
+      chybaMotoru.vaha = 'Disk teď neodpovídá.';
+      await page.fill('#dl-vaha [data-vaha-pole]', '81,7');
+      await hned('váha (chyba)', () => page.click('#dl-vaha [data-vaha-zapsat]'), () => /81,7/.test(document.querySelector('#dl-vaha').textContent));
+      await page.waitForFunction(() => document.querySelector('#dl-vaha [data-vaha-pole]').value === '81,7' && /nezapsala/.test(document.body.textContent), null, { timeout: 5000 });
+      jistota(!(await page.evaluate(() => import('/js/stav.js').then((m) => (m.stav.zdravi.vaha || []).some((v) => v.kg === 81.7)))), 'nezapsaná váha zmizela');
+      delete chybaMotoru.vaha;
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      ZAPISY.forEach((a) => { delete zpozdeniMotoru[a]; });
+      delete chybaMotoru.vaha; delete chybaMotoru.autoZapsat;
+      vahaZaznamy = [];
+      vycistiSchranku();
+      await ctx.close();
+    }
   });
 
   // ---------- Co je nového: po návratu ukáže, co přibylo (tady nová pošta, která čeká), Ukázat vede do Pošty
@@ -8003,6 +8237,7 @@ function vychoziVikendTestu() {
     };
     try {
       await page.goto(WEB);
+      await pripraveno(page);
       await page.click('.hlava-ja [data-cil="zdravi"]');
       const kreatin = '#p-zdravi .zd-doplnky [data-doplnek="kreatin"]';
       await page.waitForSelector(kreatin);

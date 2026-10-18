@@ -717,11 +717,31 @@ na ně nečeká.
 | Fotbal, nastavení (`info`) | jednou za hodinu | kopie platí 3 h |
 | Reely, plakáty | jednou za půl hodiny; když se zveřejňuje na Instagram (`zmeny.instagramBezi`), každou obnovu | kopie platí 90 min; průběh zveřejňování přímo z motoru (`igStav` / `igKrok`), když něco běží nebo vyjde do 30 min |
 | Značky změn (`zmeny`) | každá obnova (v dávce – do 9. 10. ji motor v dávce odmítal, aplikace se proto ptala zvlášť) | auto a zdraví se načtou, když se k nim zapisovalo odjinud (i zkratka, Claude, WHOOP) |
-| Zdraví (voda, jídlo, doplňky, váha) | – (jen motor, zdravotní data jen na Disku; motor drží hotový přehled v mezipaměti) | s účtem jen po signálu / značce změny (záloha po 6 h), bez účtu při návratu nejvýš 1× za 15 min |
+| Zdraví (voda, jídlo, doplňky, váha) | – (jen motor, zdravotní data jen na Disku; motor drží hotový přehled v mezipaměti) | po signálu / značce změny hned; na pozadí (přednačtení) s účtem po 30 min, bez účtu po 10 min |
 | WHOOP | spouštěč motoru každých 10 min stáhne nová data nejvýš 1× za 30 min | čtení Zdraví na WHOOP nečeká (dřív 10 s) |
-| Počasí | – (jen motor, podle polohy zařízení) | při návratu nejvýš 1× za 30 min |
-| Auto (tabulka) | – | na stránce Auto: poprvé, po 6 h, podle značky změny nebo hned po signálu |
-| Knihovna | – (jen motor; značka `zmeny.knihovna` jde s ostatními značkami) | na stránce Knihovna: při otevření, při návratu do aplikace, podle značky změny; dokud něco čeká na Clauda, každých 5 min |
+| Počasí | – (jen motor, podle polohy zařízení) | na pozadí po 15 min (i „teď“ z Open-Meteo, to je uložené i v zařízení) |
+| Auto (tabulka) | – | přednačte se po startu (v zařízení starší než 6 h, bez účtu 1 h), po značce změny nebo signálu hned (i mimo stránku); na stránce Auto poprvé za běh |
+| Knihovna | – (jen motor; značka `zmeny.knihovna` jde s ostatními značkami) | modul i data se přednačtou po startu (starší než 6 h, bez účtu 1 h – bez účtu se stránka při otevření ještě obnoví), podle značky změny; dokud něco čeká na Clauda, na stránce každých 5 min |
+
+**Všechno hned – připravenost** (Michal 18. 10.: „stále mi celkem nevyhovuje, že to není vše vždy ready, že se to načítá“;
+`js/pripravenost.js`, měření `testy/mereni_pripravenosti.js`):
+- **Data z minula hned:** každá stránka ukáže, co zařízení zná (localStorage, i „teď“ počasí), a obnoví se potichu – v hlavičce
+  malé „aktualizuji…“, když obnova trvá déle než 0,7 s (mimo tok stránky, nic neposkočí). Kostřička jen v úplně prázdném
+  zařízení (Knihovna až po 0,3 s, modul se načítá ze zařízení).
+- **Přednačtení po startu:** až doběhne start, v klidu (`requestIdleCallback`) jedna dávka k motoru se vším pomalým, co je
+  v zařízení staré nebo chybí – zdraví, počasí, plakáty, knihovna (i modul), docházka, tabulky fotbalu; auto zvlášť (motor ho
+  v dávce neumí). Přepnutí na Zdraví, Auto, Knihovnu… pak nic nečeká.
+- **Obnova, dokud aplikace běží** (nainstalovaná na PC celý den): kontrola každou minutu, oblast se načte, až je starší než
+  její mez (tabulka výš); i v minimalizovaném okně, ne když PC spí – po probuzení (mezera v kontrolách > 3 min) hned. Jedno
+  okno naráz (`navigator.locks`), druhé okno (mini okno, záložka) si data vezme ze zařízení (událost `storage`), nic nečte
+  znovu. Motor nejde → další pokus nejdřív za 10 min. Bez účtu se po 10 min obnoví i pošta, schránka a kalendář (jen
+  ve viditelném okně).
+- **Telefon šetrně:** přednačtení ne v úsporném režimu dat, na mobilních datech ani se slabou baterií (kde to prohlížeč řekne –
+  Android Chrome); iPhone to neřekne → jednou za start a po návratu z pozadí nejdřív po 10 min; obnova po minutách jen na
+  PC a na Wi-Fi.
+- **Zápisy hned:** voda (i dvakrát rychle za sebou), zpět, jídlo a jeho smazání, doplňky, váha a její smazání, tankování /
+  výdaj / úprava / smazání zápisu auta, moje poznámka, Hotovo v poště – v aplikaci hned, motor je dožene na pozadí; když
+  se zápis nepovede, zmizí a řekne proč (váha zpátky v poli, okno tankování znovu se vším napsaným).
 
 **Start** (Michal 9. 10.: „dostat načtení na sekundu“): aplikace se ukáže hned z dat v zařízení a obnoví se potichu –
 kolečko u Obnovit jen po klepnutí. Knihovny Firebase stahuje index.html hned (`modulepreload`) a service worker je po prvním
@@ -731,7 +751,7 @@ použití vydává ze zařízení; funkce Firebase (obnovHned) až při první o
 - **Okamžitý snímek:** při odchodu z aplikace (do pozadí, zavření) a 4 s po posledním překreslení se uloží HTML viditelné
   stránky a lišt (`asistent.data.snimek`, `ulozSnimek` v app.js). Při dalším otevření ho `js/start.js` ukáže hned po
   načtení HTML – ještě než se stáhnou a spustí moduly; `start()` ho pak smaže a ve stejném kroku vykreslí aplikaci
-  (`zrusSnimek`). Jen ze stejného dne, pro stejnou stránku (Dnes, Schránka, Pošta, Kalendář, Zdraví) a stejné rozložení
+  (`zrusSnimek`). Jen ze stejného dne, pro stejnou stránku (Dnes, Schránka, Pošta, Kalendář, Zdraví, od 18. 10. i Fotbal a Auto) a stejné rozložení
   (telefon / iPad / PC); klepnutí čekají na aplikaci; záchrana „Načíst znovu“ platí i pod snímkem. Maže se s uloženými
   daty, při odpojení a u nové verze (`asistentBezSnimku`); vypnout jde `asistent.bezSnimku` v localStorage.
 - **Moduly naráz:** index.html přednačte všech 30 modulů, které app.js při startu importuje (`modulepreload`) – **nový modul
@@ -839,6 +859,7 @@ node testy/test_pc_vyber.mjs           # PC: co ohlásit oznámením ve Windows 
 node testy/sw_verze.js --zapsat        # po změně souborů aplikace: VERZE service workeru podle obsahu
 node firebase/functions/test.js        # server: obnova kopií z napodobeného motoru
 node testy/mereni_rychlosti.js         # rychlost: studený/teplý start, přepínání stránek, e-mail, psaní (telefon CPU 4×, pomalé 4G)
+node testy/mereni_pripravenosti.js     # připravenost: kdy má každá stránka obsah a čerstvá data (motor 3 s; data z minula, přepnutí, prázdné zařízení)
 ```
 Testy aplikace běží i s účtem – Firebase je v nich napodobený (knihovny přes `page.route`, data v testu), skutečný
 projekt se nevolá.

@@ -8,6 +8,9 @@ import { IKONY, ikonaPocasi } from './ikony.js';
 import { okno } from './ui.js';
 
 const ULOZISTE = 'asistent.data.pocasi';
+// „teď“ z Open-Meteo (teplota, příštích 12 h) – i v zařízení, ať karta po startu neukazuje nejdřív předpověď a pak neskočí na teď
+// (platí 2 h jako ted() níž; poloha jen zaokrouhlená v datech není – jen čísla počasí)
+const ULOZISTE_TED = 'asistent.data.pocasiTed';
 const VIDENO = 'asistent.pocasi.videno'; // výstrahy, které už ukázalo „Co je nového“
 
 /** Úroveň → [popisek, třída barvy] */
@@ -19,12 +22,14 @@ export const UROVNE = {
 export function nactiZUloziste() {
   const v = uloziste.cti(ULOZISTE);
   if (v && v.data) stav.pocasi = v.data;
+  const t = uloziste.cti(ULOZISTE_TED);
+  if (t && t.kdy && polohaZapnuta()) stav.pocasiTed = t;
 }
 
 // ---------------------------------------------------------------- poloha (zapíná se v Nastavení → Počasí, na každém zařízení zvlášť)
 const POLOHA = 'asistent.pocasi.poloha';
 export function polohaZapnuta() { return uloziste.cti(POLOHA) === true; }
-export function nastavPolohu(zapnuto) { uloziste.pis(POLOHA, !!zapnuto); stav.pocasiTed = null; stav.chybaPolohy = ''; return nactiPocasi(true); }
+export function nastavPolohu(zapnuto) { uloziste.pis(POLOHA, !!zapnuto); stav.pocasiTed = null; uloziste.smaz(ULOZISTE_TED); stav.chybaPolohy = ''; return nactiPocasi(true); }
 
 /**
  * Poloha z telefonu zaokrouhlená na 0,01° (~1 km) s přesností měření (m); null = vypnuto, nepovoleno nebo nezjištěno.
@@ -89,6 +94,7 @@ function nactiTed(p) {
     stav.pocasiTed = { kdy: Date.now(), teplota: Math.round(j.current.temperature_2m), ikona: ikonaWmo(j.current.weather_code), srazky: j.current.precipitation,
       vitr: j.current.wind_speed_10m, hodiny: (h.time || []).map((t, i) => ({ t: Date.parse(t), teplota: Math.round(h.temperature_2m[i]), ikona: ikonaWmo(h.weather_code[i]),
         pst: h.precipitation_probability ? h.precipitation_probability[i] : null, mm: h.precipitation ? h.precipitation[i] : 0 })) };
+    uloziste.pis(ULOZISTE_TED, stav.pocasiTed);
     zmeneno();
   }).catch(() => { /* bez „teď“ – přehled ČHMÚ zůstává */ });
 }
