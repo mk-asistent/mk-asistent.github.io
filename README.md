@@ -757,7 +757,7 @@ použití vydává ze zařízení; funkce Firebase (obnovHned) až při první o
 - **Moduly naráz:** index.html přednačte všech 30 modulů, které app.js při startu importuje (`modulepreload`) – **nový modul
   `js/*.js` = řádek do index.html i do `SOUBORY` v sw.js** (test „index.html: modulepreload“ to hlídá). Ukázková data
   (`ukazka.js`) se načtou až v ukázkovém režimu.
-- **Překresluje se jen změna:** Dnes (karty), Pošta (lišty a seznam), Schránka, Kalendář, hlavička a lišty se přepíšou, jen
+- **Překresluje se jen změna:** Dnes (karty), Pošta (lišty a seznam), Schránka, Kalendář, Zdraví (od 18. 10.), hlavička a lišty se přepíšou, jen
   když se jejich HTML změnilo (`nastavHtml` v app.js) – načtení jiných dat nemaže rozepsanou odpověď Claudovi (text, fokus
   i kurzor se vrátí, i když se karta vymění), otevřenou bublinu grafu ani posun časové osy. Nový kód, který mění DOM přímo
   (třída, `hidden`, hodnota pole), musí počítat s tím, že ho překreslení nemusí vrátit zpět.

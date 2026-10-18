@@ -111,9 +111,13 @@ function kontrola() {
   posledniKontrola = ted;
   if (!jePripojeno() || jeDemo()) return;
   if (mezera > PROBUZENI) {
-    // PC se probudilo (nebo okno dlouho stálo) – nejdřív to, co se při návratu obnovuje vždy, pak pomalé oblasti
-    if (volby.naProbuzeni) volby.naProbuzeni();
-    prednacti('probuzeni');
+    // telefon / iPad: časovače stály, protože byla aplikace v pozadí – návrat obslouží visibilitychange (app.js), tady jen
+    // pomalé oblasti se šetřením (mobilní data, baterie, nejdřív po 10 min)
+    if (!naPc()) { poNavratu(); return; }
+    // PC se probudilo (okno zůstává viditelné, visibilitychange nepřijde) – nejdřív to, co se při návratu obnovuje vždy
+    // (pokud to mezitím neudělal návrat do okna), pak pomalé oblasti
+    if (volby.naProbuzeni && ted - stav.naposledy > 60e3) volby.naProbuzeni();
+    if (rezim() !== 'ne') prednacti('probuzeni');
     return;
   }
   const r = rezim();

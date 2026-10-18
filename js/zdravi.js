@@ -285,14 +285,19 @@ function textTydne(text) {
   }).join('');
 }
 
+// poslední HTML stránky Zdraví – stejné se znovu nepřepisuje (obnova na pozadí, kopie ze serveru a přednačtení překreslují
+// aplikaci často; přepsání by zavřelo bublinu grafu a na telefonu vyměnilo karty, které prohlížeč ještě neskládal)
+let posledniZdravi = '';
 export function vykresliZdravi(el) {
   if (staryMotor()) {
+    posledniZdravi = '';
     el.innerHTML = '<div class="card"><div class="prazdne">Zdraví ukáže nová verze motoru – návod je v Nastavení → Připojení.</div>' +
       '<div class="akce" style="padding:0 16px 16px"><button type="button" class="btn btn--primary" data-otevri-nastaveni="pripojeni">Otevřít návod</button></div></div>';
     return;
   }
   const z = stav.zdravi;
   if (!z) {
+    posledniZdravi = '';
     el.innerHTML = '<div class="card">' + (stav.chyby.zdravi ? chybaHtml(stav.chyby.zdravi, 'data-zdravi="znovu"') : kostra(5)) + '</div>';
     return;
   }
@@ -344,6 +349,8 @@ export function vykresliZdravi(el) {
   h += '<p class="zdravi-paticka">Data: WHOOP' + (z.whoop && z.whoop.sync && z.whoop.sync.kdy ? ' (' + esc(kdyKratce(z.whoop.sync.kdy)) + ')' : '') +
     ' · Apple Zdraví' + (z.apple && z.apple.kdy ? ' (' + esc(kdyKratce(z.apple.kdy)) + ')' : '') + ' · ukládá se jen na tvém Disku Google.</p>';
   // rozepsaná váha nesmí zmizet, když se stránka mezitím překreslí (dorazí data)
+  if (h === posledniZdravi && el.querySelector('.zdravi-mrizka-karet')) return;
+  posledniZdravi = h;
   const pise = document.activeElement && el.contains(document.activeElement) && document.activeElement.matches('[data-vaha-pole]');
   prepisSPolem(el, h); // odpověď Claudovi u jídla ([data-pole]) se při překreslení nezavře (klávesnice v iPhonu)
   const pole = el.querySelector('[data-vaha-pole]');
