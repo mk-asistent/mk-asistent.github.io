@@ -2,11 +2,11 @@
 // hlavní stránka Přehled (čísla, grafy, co čeká; interní klíč „dnes“) a ovládání (klepnutí, klávesy).
 // Vzhled: styl „Fixtrack“, skill osobni-vzhled.
 
-import { stav, priZmene, zmeneno, prejdi, umiMotor, staryMotor } from './stav.js';
+import { stav, priZmene, zmeneno, prejdi, umiMotor, staryMotor, hooky, naPc } from './stav.js';
 import { jePripojeno, jeDemo, volej } from './api.js';
 import { esc, pulnoc, pridejDny, datumDlouhe, iniciala, odstin, tvar, velkePrvni, rozdilDni, uloziste, terminDatum, dm, isoDatum, DNY_KR, kdyKratce,
   prvniRadek, prepisSPolem } from './pomocne.js';
-import { kostra, chybaHtml, hlavickaKarty, okno, toastAkce } from './ui.js';
+import { kostra, chybaHtml, hlavickaKarty, okno, toastAkce, toast } from './ui.js';
 import { IKONY, ikonaPocasi } from './ikony.js';
 import { zavriPanel, horniPanel, otevriPanel, zavriAPak, jeOtevreny, obnovPanel, elementPanelu } from './panely.js';
 import * as schranka from './schranka.js';
@@ -46,6 +46,7 @@ const $ = (id) => document.getElementById(id);
 
 function start() {
   if (performance.mark) performance.mark('asistent-start');
+  const otevreno = Date.now(); // co přišlo dřív, oznámení ve Windows neohlásí (ukáže to Co je nového)
   window.asistentBezi = true; // js/start.js: aplikace nastartovala (žádná záchrana) a rozepsaný text hlídá při nové verzi
   window.asistentNovaVerze = () => toastAkce('Nová verze aplikace – načte se, až ji zavřeš', 'Načíst teď', () => {
     window.asistentBezSnimku = true; // snímek staré verze nová neukáže
@@ -54,6 +55,7 @@ function start() {
   });
   $('uvod').hidden = true;
   $('aplikace').hidden = false;
+  if (MINI_OKNO) prepniMini(true, true); // okno otevřené rovnou jako mini (zástupce na ikoně, Otevřít mini okno)
   stav.info = uloziste.cti('asistent.info');
   schranka.nactiZUloziste();
   posta.nactiZUloziste();
@@ -68,6 +70,7 @@ function start() {
   // odkaz na kartu nebo rešerši knihovny (#knihovna/<id> – sdílený, znovunačtení) otevře stránku Knihovna, modul pak kartu
   if (/^#knihovna\//.test(location.hash)) stav.pohled = 'knihovna';
   if (!SEKCE.some((s) => s[0] === stav.pohled)) stav.pohled = 'dnes';
+  const zAdresy = zkratkaZAdresy(); // rychlé akce z ikony aplikace (manifest shortcuts) a klepnutí na oznámení
   kal.pripravGesta($('p-kalendar'));
   priZmene(vykresli);
   // účet Firebase: kopie dat ze serveru (načtou se hned, změny chodí živě) – bez účtu se nic nestahuje
@@ -83,6 +86,168 @@ function start() {
   vykresli();
   if (performance.mark) performance.mark('asistent-vykresleno');
   obnovVse(false);
+  if (zAdresy) zAdresy();
+  // Asistent na PC: odznak na ikoně a oznámení ve Windows – modul až po startu, když je co dělat (start na něj nečeká)
+  if (naPc()) {
+    pcStart = otevreno;
+    const n = nast.pcNastaveni();
+    if (('setAppBadge' in navigator && n.odznak !== 'vypnuto') || n.oznameni) {
+      const nacti = () => nactiPc();
+      if (window.requestIdleCallback) requestIdleCallback(nacti, { timeout: 3000 }); else setTimeout(nacti, 1500);
+    }
+    hlidejVelikostOkna();
+  }
+}
+
+// ---------------------------------------------------------------- rychlé akce z ikony, oznámení, mini okno (Asistent na PC)
+// Michal 18. 10.: „widget na PC … oznámení na e-maily, rychle se podívat na věci na mém webu“. Pravým na ikonu aplikace
+// (manifest shortcuts): ?zkratka=posta | prehled | jidlo, ./#mini = mini okno. Klepnutí na oznámení otevře ?otevri=<cíl>
+// (když žádné okno aplikace neběží – sw.js notificationclick), jinak přijde zpráva ze služby (otevriCil níž).
+
+/** Zkratka v adrese → stránka hned (před prvním vykreslením), akce po startu (vrací funkci). Adresa se pak uklidí. */
+function zkratkaZAdresy() {
+  let q;
+  try { q = new URLSearchParams(location.search); } catch (e) { return null; }
+  const z = q.get('zkratka'), cil = q.get('otevri');
+  if (!z && !cil) return null;
+  try { history.replaceState(history.state, '', location.pathname + location.hash); } catch (e) { /* nic */ }
+  if (z === 'posta') { stav.pohled = 'posta'; stav.filtrPosty = 'vse'; uloziste.pis('asistent.pohled', 'posta'); }
+  if (z === 'prehled') { stav.pohled = 'dnes'; uloziste.pis('asistent.pohled', 'dnes'); }
+  // zápis jídla: info z motoru (seznam akcí) může dorazit až po startu – počkat na něj nejvýš 10 s
+  if (z === 'jidlo') {
+    return () => {
+      const konec = Date.now() + 10000;
+      const zkus = () => {
+        if (umiMotor('pitiJidlo')) zdravi.otevriJidlo();
+        else if (!stav.info && Date.now() < konec) setTimeout(zkus, 250);
+        else toast('Zápis jídla ukáže nová verze motoru', true);
+      };
+      zkus();
+    };
+  }
+  if (cil) return () => otevriCil(cil);
+  return null;
+}
+
+/**
+ * Otevřít věc z oznámení, mini okna nebo plovoucího okna: 'vlakno:<id>', 'jidlo:<id>', 'ig:<typ>:<id>', 'doplnky', 'posta',
+ * 'pocasi', 'aplikace' (jen ukázat okno) nebo stránka ('dnes', 'kalendar', 'zdravi', 'fotbal', 'reely'). Samostatné mini okno
+ * to pošle hlavnímu (js/mini.js doHlavnihoOkna); hlavní okno přepnuté na mini se vrátí do celé aplikace.
+ */
+function otevriCil(cil) {
+  cil = String(cil || '');
+  if (MINI_OKNO && miniRezim && cil !== 'aplikace') { mini((m) => m.doHlavnihoOkna(cil)); return; }
+  if (cil === 'aplikace') { try { window.focus(); } catch (e) { /* nic */ } return; }
+  const dal = () => {
+    if (miniRezim) prepniMini(false);
+    const i = cil.indexOf(':');
+    const druh = i < 0 ? cil : cil.slice(0, i), id = i < 0 ? '' : cil.slice(i + 1);
+    if (druh === 'vlakno' && id) otevriEmail(id);
+    else if (druh === 'jidlo') prejdi('zdravi');
+    else if (druh === 'doplnky') prejdi('dnes');
+    else if (druh === 'pocasi') pocasi.ukazDetail();
+    else if (druh === 'ig') {
+      const typ = id.split(':')[0], cisloId = id.slice(typ.length + 1);
+      if (typ === 'plakat') prejdi('plakaty');
+      else { prejdi('reely'); if (typ === 'reel' && cisloId) reely.otevriDetail(cisloId); }
+    } else if (druh === 'posta') { stav.filtrPosty = 'vse'; stav.kategoriePosty = 'primarni'; stav.stitekPosty = ''; prejdi('posta'); }
+    else if (SEKCE.some((x) => x[0] === druh)) prejdi(druh);
+    zmeneno();
+    try { window.focus(); } catch (e) { /* nic */ }
+  };
+  // otevřené okno (Nastavení, psaní) nejdřív zavřít – jinak by se věc otevřela pod ním
+  if (horniPanel()) zavriAPak(dal); else dal();
+}
+hooky.otevriCil = otevriCil;
+window.asistentOtevri = otevriCil; // samostatné mini okno otevřené odsud (window.opener)
+
+/** E-mail z oznámení nebo mini okna: hořící jako „hoří“ (Pošta s filtrem Hoří), ostatní v Poště se vším. */
+function otevriEmail(id) {
+  const m = posta.najdiSouhrn(id);
+  if (m && posta.stavZpravy(m) === 'hori') { otevriHorici(id); return; }
+  if (SIROKA_POSTA.matches) {
+    stav.filtrPosty = 'vse';
+    stav.stitekPosty = '';
+    stav.kategoriePosty = m && m.aktualizace && umiMotor('postaKategorie') ? 'aktualizace' : 'primarni';
+    if (m) ukazUctyHoricich([m]);
+    prejdi('posta');
+  }
+  posta.otevriVlakno(id);
+}
+
+// klepnutí na oznámení, když už okno běží (sw.js notificationclick → postMessage)
+if (navigator.serviceWorker) {
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data && e.data.typ === 'asistent-oznameni' && jePripojeno()) otevriCil(e.data.cil);
+  });
+  try { navigator.serviceWorker.startMessages(); } catch (e) { /* zprávy začnou chodit samy po načtení */ }
+}
+// samostatné mini okno ze zástupce (bez opener) se ptá hlavních oken přes BroadcastChannel (js/mini.js doHlavnihoOkna)
+try {
+  const kanal = new BroadcastChannel('asistent-okna');
+  kanal.onmessage = (e) => {
+    if (!e.data || e.data.typ !== 'otevri' || MINI_OKNO || !jePripojeno() || !window.asistentBezi) return;
+    otevriCil(e.data.cil);
+    kanal.postMessage({ typ: 'otevreno', cil: e.data.cil });
+  };
+} catch (e) { /* starší prohlížeč – mini okno otevře nové hlavní */ }
+
+// ---- odznak a oznámení (js/pc.js – líně)
+let pcModul = null, pcSlib = null, pcStart = 0;
+function nactiPc() {
+  if (!pcSlib) {
+    pcSlib = import('./pc.js').then((m) => { pcModul = m; m.spust({ start: pcStart || Date.now() }); return m; })
+      .catch(() => { pcSlib = null; return null; });
+  }
+  return pcSlib;
+}
+hooky.nactiPc = nactiPc;
+
+// ---- mini stránka a plovoucí okno (js/mini.js – líně, až při prvním použití)
+// MINI_OKNO = tohle okno se otevřelo rovnou jako mini (#mini) – samostatné malé okno. miniRezim = teď ukazuje mini.
+const MINI_OKNO = location.hash === '#mini' && naPc();
+let miniRezim = false;
+let miniModul = null, miniSlib = null;
+function mini(fn) {
+  if (!miniSlib) {
+    miniSlib = import('./mini.js').then((m) => { miniModul = m; zmeneno(); return m; })
+      .catch((e) => { miniSlib = null; toast('Mini okno se nenačetlo – zkontroluj připojení', true); throw e; });
+  }
+  return miniSlib.then((m) => { if (fn) fn(m); return m; });
+}
+hooky.mini = mini;
+
+/** Mini ↔ celá aplikace v tomhle okně (Ctrl+Shift+A, tlačítko Celá aplikace, Nastavení → Přepnout sem na mini). */
+function prepniMini(zap, priStartu) {
+  if (zap && !naPc()) return;
+  if (!!zap === miniRezim) return;
+  if (zap && !priStartu) ulozSnimek(); // snímek celé aplikace pro další otevření (v mini se neukládá ani nemaže)
+  miniRezim = !!zap;
+  try { history.replaceState(history.state, '', location.pathname + location.search + (miniRezim ? '#mini' : '')); } catch (e) { /* nic */ }
+  document.documentElement.classList.toggle('s-mini', miniRezim);
+  $('aplikace').hidden = miniRezim;
+  $('mini').hidden = !miniRezim;
+  if (miniRezim) mini();
+  else if (!MINI_OKNO) window.scrollTo(0, 0);
+  if (!priStartu) zmeneno();
+}
+hooky.prepniMini = prepniMini;
+
+// Samostatné mini okno ze zástupce na ikoně se otevře ve velikosti posledního okna aplikace – zmenšit na mini; hlavní okno,
+// které by po zavřeném mini zdědilo malou velikost, se vrátí na svou (Chrome pamatuje jednu velikost na aplikaci).
+const OKNO = 'asistent.okno';
+function hlidejVelikostOkna() {
+  if (!nast.nainstalovano()) return;
+  try {
+    if (MINI_OKNO) { if (window.outerWidth > 520) window.resizeTo(390, 720); return; }
+    const v = uloziste.cti(OKNO);
+    if (v && window.outerWidth < 600 && v.w >= 600) window.resizeTo(v.w, v.h);
+  } catch (e) { /* prohlížeč změnu velikosti nedovolil */ }
+  let casovac = 0;
+  window.addEventListener('resize', () => {
+    clearTimeout(casovac);
+    casovac = setTimeout(() => { if (!miniRezim && window.outerWidth >= 600) uloziste.pis(OKNO, { w: window.outerWidth, h: window.outerHeight }); }, 800);
+  });
 }
 
 // ---------------------------------------------------------------- okamžitý snímek (js/start.js ho ukáže při dalším otevření)
@@ -102,7 +267,7 @@ function naplanujSnimek() {
 
 function ulozSnimek() {
   clearTimeout(casovacSnimku);
-  if (window.asistentBezSnimku || !window.asistentBezi) return;
+  if (window.asistentBezSnimku || !window.asistentBezi || miniRezim) return; // mini okno snímek celé aplikace nemaže ani nepřepisuje
   if (!jePripojeno() || $('aplikace').hidden || SNIMEK_STRANKY.indexOf(stav.pohled) < 0 || uloziste.cti('asistent.bezSnimku')) {
     uloziste.smaz(SNIMEK);
     return;
@@ -242,6 +407,9 @@ function vykresli() {
   fotbal.dotahni();
   reely.dotahni();
   auto.dotahni();
+  if (pcModul) pcModul.poVykresleni(); // odznak na ikoně, oznámení ve Windows (jen při nových datech)
+  if (miniModul) miniModul.poVykresleni(); // plovoucí okno živě
+  if (miniRezim) { if (miniModul) miniModul.vykresli($('mini')); return; } // mini stránka místo celé aplikace
   if (stav.pohled === 'kalendar') dochazka.dotahni();
   if (stav.pohled === 'plakaty') plakaty.dotahni();
   if (stav.pohled === 'knihovna' && knihovnaModul) knihovnaModul.dotahni();
@@ -283,7 +451,7 @@ let novinkyUkazany = false;
  *  Při prvním spuštění jen zapamatuje čas (nic neukazuje). */
 function zkontrolujNovinky(p) {
   const cerstve = (data) => data && data.ted >= stav.naposledy - 60000;
-  if (novinkyUkazany || jeDemo() || !cerstve(stav.posta) || !cerstve(stav.schranka) || horniPanel()) return;
+  if (novinkyUkazany || jeDemo() || !cerstve(stav.posta) || !cerstve(stav.schranka) || horniPanel() || MINI_OKNO) return;
   novinkyUkazany = true;
   const videno = uloziste.cti('asistent.videno');
   uloziste.pis('asistent.videno', Date.now());
@@ -389,6 +557,8 @@ function vykresliRail(p) {
       '<span class="znak">' + IKONY.dnes + '</span><div><b>Asistent</b><small>osobní přehled</small></div></button>' + pripnout + '</div>' +
     SEKCE.filter(viditelna).map((s) => tl('data-cil="' + s[0] + '"', s[1], ikonaSekce(s[0]), odznakSekce(s[0], p), stav.pohled === s[0])).join('') +
     '<div class="rail__spodek">' +
+      // mini přehled (jen PC – Asistent na PC, js/mini.js): stejné okno přepne na malý přehled, Ctrl+Shift+A zpět
+      (naPc() ? tl('data-mini-sem', 'Mini přehled', IKONA_MINI, 0, false) : '') +
       tl('data-otevri-nastaveni', 'Nastavení', IKONY.nastaveni, 0, false) +
       '<div class="rail__ja">' +
         '<span class="avatar" style="--h:' + odstin(ucet || 'A') + '">' + esc(iniciala(String(ucet || 'A').split('@')[0].replace(/[._\d]+/g, ' '))) + '</span>' +
@@ -410,6 +580,9 @@ function hlavniAkce() {
 
 /** Horní lišta (iPad, PC): hledání vlevo, obnovit a hlavní akce vpravo; na Dnes mezi nimi malé přehledové dlaždice. */
 let horniHtml = '';
+// mini přehled (PC, levý pás): malé okno s kartami
+const IKONA_MINI = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<rect x="6.5" y="3" width="11" height="18" rx="2.5"/><path d="M9.5 7.5h5M9.5 11h5M9.5 14.5h3"/></svg>';
 function vykresliHorni(p) {
   const dnes = stav.pohled === 'dnes' && !TELEFON.matches;
   const html = '<button type="button" class="hledat-tl" data-hledat aria-label="Hledat v poště, schránce a kalendáři">' + IKONY.hledat +
@@ -1148,7 +1321,13 @@ function klikKnihovna(el) {
 document.addEventListener('click', (e) => {
   const el = e.target.closest('button, a[data-cil], [data-udalost]');
   if (!el || el.closest('#uvod')) return;
+  if (miniModul && el.closest('#mini') && miniModul.klikMini(el)) return; // mini stránka (js/mini.js)
+  obsluhaKliku(el);
+});
 
+/** Klepnutí na prvek aplikace – i z plovoucího okna (js/mini.js předá, co samo neobslouží: voda, doplněk, Obnovit). */
+function obsluhaKliku(el) {
+  if (el.hasAttribute('data-mini-sem')) { prepniMini(true); return; }
   // levý pás: připnout / odepnout; výběr sekce rozbalený pás sbalí (jinak by zakrýval otevřenou stránku)
   if (el.hasAttribute('data-rail-pripnout')) { prepniPripnuti(); return; }
   if (el.closest('#rail')) sbalRail();
@@ -1197,7 +1376,8 @@ document.addEventListener('click', (e) => {
   if (udalost.klikUdalost(el)) return;
   if (kal.klikKalendar(el)) return;
   nast.klikNastaveni(el);
-});
+}
+hooky.klik = obsluhaKliku;
 
 document.addEventListener('input', (e) => {
   vstupAdresy(e);
@@ -1264,6 +1444,12 @@ function pise(e) {
 }
 
 document.addEventListener('keydown', (e) => {
+  // Ctrl+Shift+A (⌘⇧A) = mini přehled ↔ celá aplikace (jen PC; v záložce Chromu tu zkratku bere Chrome – v nainstalované aplikaci jde)
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.code === 'KeyA' && naPc() && jePripojeno() && window.asistentBezi) {
+    e.preventDefault();
+    if (miniRezim) prepniMini(false); else if (horniPanel()) zavriAPak(() => prepniMini(true)); else prepniMini(true);
+    return;
+  }
   if ($('aplikace').hidden) return;
   if (klavesaAdresy(e)) return;
   if (zdravi.klavesaZdravi(e)) return; // Enter v poli váhy = Zapsat
@@ -1286,6 +1472,12 @@ document.addEventListener('keydown', (e) => {
   if (!horniPanel() && /^[1-9]$/.test(e.key)) { const s = SEKCE.filter(viditelna)[Number(e.key) - 1]; if (s) prejdi(s[0]); return; }
   if (!horniPanel() && stav.pohled === 'kalendar' && e.key.toLowerCase() === 'n') { udalost.otevriFormular({ den: stav.kal.vybrany }); return; }
   if (posta.klavesaPosta(e)) e.preventDefault();
+});
+
+// #mini v adrese (ruční změna, Zpět) → mini, bez něj celá aplikace
+window.addEventListener('hashchange', () => {
+  if (!window.asistentBezi) return;
+  if (location.hash === '#mini') prepniMini(true); else if (miniRezim && !/^#knihovna\//.test(location.hash)) prepniMini(false);
 });
 
 // odchod z aplikace (do pozadí, zavření, přenačtení): snímek pro okamžitý start příště (js/start.js)

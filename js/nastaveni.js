@@ -1,9 +1,9 @@
 // Připojení k motoru (úvodní obrazovka), Nastavení (pošta, kalendáře z iPhonu, vzhled) a barva akcentu.
 
-import { stav, zmeneno, staryMotor, umiMotor } from './stav.js';
+import { stav, zmeneno, staryMotor, umiMotor, hooky, naPc, umiPlovouci } from './stav.js';
 import { volej, pripojeni, jeDemo, ulozPripojeni, zapomenPripojeni } from './api.js';
 import { esc, uloziste, kdyKratce } from './pomocne.js';
-import { otevriPanel, obnovPanel, jeOtevreny, elementPanelu } from './panely.js';
+import { otevriPanel, obnovPanel, jeOtevreny, elementPanelu, zavriAPak } from './panely.js';
 import { toast, potvrd, segment } from './ui.js';
 import { IKONY } from './ikony.js';
 import { smazUlozene as smazKalendar, nactiKalendar } from './kalendar.js';
@@ -416,7 +416,117 @@ function sekceVzhledu() {
 function sekceAplikace() {
   return '<section class="card nast-sekce" data-sekce="aplikace"><h3>Aplikace</h3>' +
     '<p>Verze ' + VERZE_APLIKACE + '. Nové verze se načtou samy při dalším otevření.</p>' +
-    '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="smazat-data">Smazat uložená data v zařízení</button></div></section>';
+    '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="smazat-data">Smazat uložená data v zařízení</button></div>' +
+    (naPc() ? sekcePc() : '') + '</section>';
+}
+
+// ---------------------------------------------------------------- Asistent na PC (Michal 18. 10.: „widget na PC … oznámení na e-maily“)
+// Instalace jako aplikace (Chrome / Edge), odznak na ikoně, oznámení ve Windows, mini okno a plovoucí okno. Volby jsou v zařízení
+// (asistent.pc); chování v js/pc.js (odznak, oznámení) a js/mini.js (mini stránka, plovoucí okno) – načtou se až po startu.
+
+const PC = 'asistent.pc';
+const PC_VYCHOZI = { odznak: 'pozornost', oznameni: false, druhy: {}, predmet: false, ticho: true };
+/** Volby PC v zařízení: odznak ('pozornost' | 'hori' | 'vypnuto'), oznameni (zapnutá), druhy { druh: false = vypnutý },
+ *  predmet (i předmět v oznámení a mini okně), ticho (22–6 nic). */
+export function pcNastaveni() {
+  const v = uloziste.cti(PC) || {};
+  return Object.assign({}, PC_VYCHOZI, v, { druhy: Object.assign({}, v.druhy) });
+}
+function ulozPc(zmena) {
+  uloziste.pis(PC, Object.assign(pcNastaveni(), zmena));
+  if (hooky.pc) hooky.pc.zmenaNastaveni(); else nactiPcModul();
+  zmeneno();
+}
+/** Modul odznaku a oznámení (js/pc.js) – po zapnutí v Nastavení, když ho app.js po startu nenačetl. */
+function nactiPcModul() {
+  return hooky.nactiPc ? hooky.nactiPc() : import('./pc.js').then((m) => { if (!hooky.pc) m.spust({}); return m; });
+}
+/** Běží jako nainstalovaná aplikace ve vlastním okně (ne v záložce prohlížeče)? */
+export function nainstalovano() {
+  return ['standalone', 'window-controls-overlay', 'minimal-ui'].some((m) => window.matchMedia('(display-mode: ' + m + ')').matches);
+}
+// druhy oznámení – stejné jako js/pc_vyber.js DRUHY (tady bez importu, ať Nastavení nenačítá modul oznámení při startu)
+const DRUHY_OZNAMENI = [['hori', 'Pošta – hoří', 'nová konverzace, která hoří'],
+  ['ceka', 'Pošta – čeká na tebe', 'nepřečtená konverzace, která čeká na odpověď (i otázky)'],
+  ['hlidani', 'Hlídaní odesílatelé', 'e-mail od někoho, koho hlídáš'],
+  ['jidlo', 'Claude se ptá k jídlu', 'otázka k jídlu, které jsi zapsal'],
+  ['instagram', 'Instagram', 'reel, plakát nebo příběh vyšel – nebo nevyšel'],
+  ['doplnek', 'Připomínka doplňku', 've stejný čas jako upozornění do iPhonu, když doplněk není odškrtnutý']];
+
+function sekcePc() {
+  const n = pcNastaveni();
+  const app = nainstalovano();
+  const instalace = window.asistentInstalace;
+  let h = '<h3>Na tomhle PC</h3>' +
+    (app ? '<p class="nast-stav ok"><i></i>Běží jako aplikace ve vlastním okně</p>'
+      : '<p class="nast-stav"><i></i>Otevřené v prohlížeči' + (instalace ? ' – jde nainstalovat jako aplikace' : '') + '</p>') +
+    (!app && instalace ? '<div class="akce"><button type="button" class="btn btn--primary btn--sm" data-nast="pc-instalovat">' + IKONY.plus + '<span>Nainstalovat na PC</span></button></div>' : '') +
+    detail('pc-instalace', !app) + '<summary>Jak ji mít jako aplikaci ve Windows (Chrome nebo Edge)</summary><ol class="kroky">' +
+    '<li><b>Nainstalovat:</b> tlačítko výš, nebo v Chromu vpravo v adresním řádku ikona <b>Nainstalovat</b> (monitor se šipkou) – případně ⋮ → ' +
+      '<b>Přenést, sdílet a nainstalovat</b> → <b>Nainstalovat stránku jako aplikaci</b>. V Edgi ⋯ → <b>Aplikace</b> → <b>Nainstalovat tento web jako aplikaci</b>.</li>' +
+    '<li><b>Připnout na hlavní panel:</b> když aplikace běží, klepni pravým na její ikonu dole v hlavním panelu → <b>Připnout na hlavní panel</b>.</li>' +
+    '<li><b>Spouštět po zapnutí PC:</b> do adresního řádku Chromu napiš <code>chrome://apps</code> → pravým na <b>Asistent</b> → ' +
+      '<b>Spustit aplikaci při přihlášení</b> (anglicky „Start app when you sign in“). V Edgi <code>edge://apps</code> → ⋯ u Asistenta → ' +
+      '<b>Automaticky spustit při přihlášení zařízení</b>.</li>' +
+    '<li><b>Rychlé akce:</b> pravým na ikonu v hlavním panelu → Pošta, Přehled, Mini okno, Nový zápis jídla.</li>' +
+    '<li>Totéž na pracovním i domácím PC – volby níž si pamatuje každé PC samo.</li></ol></details>';
+  // odznak na ikoně (Badging API) – jen nainstalovaná aplikace, dokud běží
+  if ('setAppBadge' in navigator) {
+    h += '<h3>Odznak na ikoně</h3>' +
+      segment([['pozornost', 'Hoří + čeká na odpověď'], ['hori', 'Jen hoří'], ['vypnuto', 'Vypnuto']], n.odznak, 'data-nast-odznak', 'Odznak na ikoně') +
+      '<p class="napoveda">Číslo na ikoně v hlavním panelu: e-maily, které hoří a čekají na tvou odpověď (stejně jako „čeká“ na Přehledu). ' +
+      'Jen u nainstalované aplikace, dokud běží – i minimalizovaná.</p>';
+  }
+  h += '<h3>Oznámení ve Windows</h3>' + oznameniHtml(n);
+  // mini okno a plovoucí okno (js/mini.js)
+  h += '<h3>Mini okno</h3><p class="napoveda">Malý přehled 360 × 640: co hoří a čeká v poště, dnešní program, pití a doplňky s tlačítky, ' +
+    'další zápas, Instagram, počasí a připravenost. <b>Plovoucí okno</b> zůstane vždy navrchu i nad jinými programy a obnovuje se samo. ' +
+    'V aplikaci přepne na mini <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> (v záložce Chromu tu zkratku bere Chrome – v nainstalované aplikaci jde).</p>' +
+    '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="pc-mini-okno">Otevřít mini okno</button>' +
+    '<button type="button" class="btn btn--ghost btn--sm" data-nast="pc-mini-sem">Přepnout sem na mini</button>' +
+    (umiPlovouci() ? '<button type="button" class="btn btn--primary btn--sm" data-nast="pc-plovouci">Plovoucí okno – vždy navrchu</button>' : '') + '</div>';
+  return h;
+}
+
+function oznameniHtml(n) {
+  const o = typeof Notification === 'function' ? Notification.permission : '';
+  if (!o) return '<p class="nast-stav chyba"><i></i>Tenhle prohlížeč oznámení neumí.</p>';
+  if (o === 'denied') {
+    return '<p class="nast-stav chyba"><i></i>Oznámení jsou v prohlížeči zakázaná</p>' +
+      '<ol class="napoveda kroky"><li>V aplikaci ⋮ (v Chromu ikona vlevo v adresním řádku) → <b>Nastavení webu</b> / <b>Oprávnění</b> → <b>Oznámení: Povolit</b>.</li>' +
+      '<li>Ve Windows Nastavení → Systém → <b>Oznámení</b> → zapnutý <b>Google Chrome</b> (nebo Edge) a vypnuté <b>Nerušit</b>.</li>' +
+      '<li>Pak sem a <b>Zkontrolovat znovu</b>.</li></ol>' +
+      '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="pc-oznameni-znovu">Zkontrolovat znovu</button></div>';
+  }
+  if (o !== 'granted' || !n.oznameni) {
+    return '<p class="nast-stav"><i></i>Vypnuto</p><p class="napoveda">Přijde oznámení ve Windows, když začne hořet e-mail, přijde nový, který čeká na ' +
+      'tebe, napíše hlídaný odesílatel, Claude se zeptá k jídlu, reel nebo plakát vyjde (nebo nevyjde) a připomínka doplňku. Prohlížeč se po klepnutí ' +
+      'zeptá na povolení.</p>' + bezUctu() +
+      '<div class="akce"><button type="button" class="btn btn--primary btn--sm" data-nast="pc-oznameni-zapnout">Zapnout oznámení</button></div>';
+  }
+  return '<p class="nast-stav ok"><i></i>Zapnuto – dokud aplikace běží (i minimalizovaná)</p>' + bezUctu() +
+    '<div class="nast-druhy">' + DRUHY_OZNAMENI.map((d) => '<label class="prepinac-radek"><span><b>' + d[1] + '</b><small>' + d[2] + '</small></span>' +
+      '<span class="prepinac"><input type="checkbox" data-nast-pc-druh="' + d[0] + '"' + (n.druhy[d[0]] === false ? '' : ' checked') + ' aria-label="' + d[1] + '"><span></span></span></label>').join('') + '</div>' +
+    '<h4>Co ukazovat v oznámeních a v mini okně</h4>' +
+    segment([['ne', 'Jen odesílatel a stav'], ['ano', 'I předmět']], n.predmet ? 'ano' : 'ne', 'data-nast-pc-predmet', 'Co ukazovat') +
+    '<p class="napoveda">Výchozí je jen kdo a v jakém stavu – PC v práci vidí i ostatní. „I předmět“ přidá předmět e-mailu, otázku k jídlu, název reelu a doplňku.</p>' +
+    '<label class="prepinac-radek"><span><b>Tiché hodiny 22–6</b><small>v noci nic nevyskočí (a ráno nepřijde najednou)</small></span>' +
+      '<span class="prepinac"><input type="checkbox" data-nast-pc-ticho' + (n.ticho ? ' checked' : '') + ' aria-label="Tiché hodiny"><span></span></span></label>' +
+    '<div class="akce"><button type="button" class="btn btn--ghost btn--sm" data-nast="pc-oznameni-vypnout">Vypnout</button>' +
+    '<button type="button" class="btn btn--primary btn--sm" data-nast="pc-oznameni-test">Zkušební oznámení</button></div>';
+}
+
+/** Bez účtu se data obnovují jen při otevření a Obnovit – oznámení by chodila pozdě. */
+function bezUctu() {
+  return ucet.nastaveno() && !ucet.zapnuty() && !jeDemo()
+    ? '<p class="pruh pruh-varovani">Oznámení potřebují data živě ze serveru – přihlas se účtem (záložka Připojení → Účet). Bez něj se pošta obnoví jen při otevření a Obnovit.</p>' : '';
+}
+
+/** Mini okno jako samostatné malé okno (v nainstalované aplikaci okno aplikace bez lišty prohlížeče). Volat přímo v klepnutí. */
+export function otevriMiniOkno() {
+  const w = window.open('./#mini', 'asistent-mini', 'popup,width=380,height=700');
+  if (!w) toast('Prohlížeč okno zablokoval – povol vyskakovací okna pro Asistenta', true);
+  return w;
 }
 
 /** Motor bez seznamu akcí = starší kód. Nové věci (počasí, zdraví…) ukáže až Nová verze nasazení. */
@@ -621,6 +731,40 @@ export function klikNastaveni(el) {
     return true;
   }
   if (akce === 'ucet-obnovit') { ucet.obnovNaServeru(true); return true; }
+  if (el.dataset.nastOdznak) { ulozPc({ odznak: el.dataset.nastOdznak }); obnovPanel('nastaveni'); return true; }
+  if (el.dataset.nastPcPredmet) { ulozPc({ predmet: el.dataset.nastPcPredmet === 'ano' }); obnovPanel('nastaveni'); return true; }
+  if (akce === 'pc-instalovat') {
+    const e = window.asistentInstalace;
+    if (!e) { obnovPanel('nastaveni'); return true; }
+    e.prompt();
+    Promise.resolve(e.userChoice).then((v) => {
+      if (v && v.outcome === 'accepted') { window.asistentInstalace = null; toast('Asistent je nainstalovaný – najdeš ho v nabídce Start'); }
+      obnovPanel('nastaveni');
+    }).catch(() => obnovPanel('nastaveni'));
+    return true;
+  }
+  if (akce === 'pc-oznameni-zapnout') {
+    // povolení se ptá přímo v klepnutí (prohlížeč jinak dotaz schová); oprávnění nikdy samo bez klepnutí
+    const o = typeof Notification === 'function' ? Notification.permission : '';
+    Promise.resolve(o && o !== 'granted' ? Notification.requestPermission() : o).then((v) => {
+      if (v === 'granted') { ulozPc({ oznameni: true }); toast('Oznámení zapnutá – nové věci přijdou do Windows'); }
+      else toast(v === 'denied' ? 'Oznámení jsou zakázaná – návod je v Nastavení' : 'Bez povolení oznámení nepůjdou', true);
+      obnovPanel('nastaveni');
+    });
+    return true;
+  }
+  if (akce === 'pc-oznameni-vypnout') { ulozPc({ oznameni: false }); obnovPanel('nastaveni'); toast('Oznámení vypnutá'); return true; }
+  if (akce === 'pc-oznameni-znovu') { obnovPanel('nastaveni'); return true; }
+  if (akce === 'pc-oznameni-test') {
+    nactiPcModul().then(() => hooky.pc.zkusebni()).then((ok) => { if (!ok) toast('Oznámení se nepodařilo ukázat – zkontroluj povolení', true); });
+    return true;
+  }
+  if (akce === 'pc-mini-okno') { otevriMiniOkno(); return true; }
+  if (akce === 'pc-mini-sem') { zavriAPak(() => { if (hooky.prepniMini) hooky.prepniMini(true); }); return true; }
+  if (akce === 'pc-plovouci') { // přes app.js (hooky.mini) – aplikace pak plovoucí okno obnovuje po každém překreslení
+    (hooky.mini ? hooky.mini() : import('./mini.js')).then((m) => m.plovouci()).catch((e) => toast(e.message, true));
+    return true;
+  }
   if (akce === 'ucet-odhlasit') {
     potvrd('Odhlásit účet?', { text: 'Toto zařízení zůstane připojené k motoru, jen bez dat ze serveru (načítá se zase jen z motoru).', ano: 'Odhlásit' })
       .then((ano) => { if (ano) ucet.odhlas().then(() => { toast('Účet odhlášen'); obnovPanel('nastaveni'); }); });
@@ -829,6 +973,13 @@ export function zmenaNastaveni(e) {
     volej('kalendarUpravit', { id: t.dataset.nastKalDruh, druh: t.value }).then(poZmeneKalendaru).catch((chyba) => toast(chyba.message, true));
     return true;
   }
+  if (t.dataset && t.dataset.nastPcDruh) {
+    const druhy = pcNastaveni().druhy;
+    if (t.checked) delete druhy[t.dataset.nastPcDruh]; else druhy[t.dataset.nastPcDruh] = false;
+    ulozPc({ druhy });
+    return true;
+  }
+  if (t.matches && t.matches('[data-nast-pc-ticho]')) { ulozPc({ ticho: t.checked }); return true; }
   if (t.matches && t.matches('[data-nast-poloha]')) {
     // první zapnutí = iPhone / prohlížeč se zeptá na povolení polohy
     pocasi.nastavPolohu(t.checked).then(() => {

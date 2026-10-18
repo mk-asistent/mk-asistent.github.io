@@ -913,6 +913,14 @@ function tydenPitiHtml(d, cilPiti, cilB) {
     }).join('') + '</ol></div>';
 }
 
+/** Dnešní voda a bílkoviny pro mini okno na PC (js/mini.js): { ml, cil, b, cilB, odhad } – null bez dat nebo se starším motorem. */
+export function pitiDnes() {
+  if (!umiMotor('pitiJidlo') || !stav.zdravi) return null;
+  const rezim = stav.zdravi.rezim || {};
+  const s = souctyDne(isoDatum(Date.now()));
+  return { ml: s.ml, cil: Number(rezim.pitiCil) || CIL_PITI, b: s.b, cilB: Number(rezim.bilkovinyCil) || CIL_BILKOVIN, odhad: s.odhad };
+}
+
 export function kartaPitiHtml() {
   if (!umiMotor('pitiJidlo') || !stav.zdravi) return '';
   const rezim = stav.zdravi.rezim || {};

@@ -12,11 +12,16 @@
     var cti = function (k) { var v = localStorage.getItem(k); return v == null ? null : JSON.parse(v); };
     var s = cti('asistent.data.snimek'), p = cti('asistent.pripojeni');
     var pohled = /^#knihovna\//.test(location.hash) ? 'knihovna' : cti('asistent.pohled') || 'dnes'; // odkaz na kartu knihovny
+    // rychlé akce z ikony aplikace (manifest shortcuts): Pošta / Přehled rovnou svou stránku; mini okno (#mini) snímek celé aplikace ne
+    var zkratka = (/[?&]zkratka=(\w+)/.exec(location.search) || [])[1];
+    if (zkratka === 'posta') pohled = 'posta';
+    if (zkratka === 'prehled') pohled = 'dnes';
+    if (location.hash === '#mini') pohled = '';
     var d = new Date();
     var den = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
     var rozlozeni = matchMedia('(max-width: 759px)').matches ? 'telefon' : matchMedia('(min-width: 1180px)').matches ? 'pc' : 'ipad';
     var a = document.getElementById('aplikace');
-    var cil = document.getElementById('p-' + pohled);
+    var cil = pohled && document.getElementById('p-' + pohled);
     if (s && s.casti && p && (p.demo || (p.url && p.klic)) && !cti('asistent.bezSnimku') && s.den === den && s.pohled === pohled &&
         s.rozlozeni === rozlozeni && a && cil) {
       var html = document.documentElement;
@@ -89,6 +94,11 @@
       }).catch(function () { /* aplikace jede i bez něj */ });
     });
   }
+
+  // instalace na PC (Nastavení → Aplikace → Nainstalovat na PC): Chrome / Edge nabídku pošle jednou hned po načtení – zachytit
+  // ji tady, dřív než se načtou moduly (ikona Nainstalovat v adresním řádku zůstane)
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); window.asistentInstalace = e; });
+  window.addEventListener('appinstalled', function () { window.asistentInstalace = null; });
 
   // záchrana: když se do 8 s neukáže aplikace ani úvod (moduly se nenačetly), nabídnout čisté načtení ze sítě
   // (snímek není aplikace – i pod ním se záchrana nabídne)

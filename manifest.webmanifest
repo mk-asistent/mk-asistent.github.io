@@ -1,16 +1,61 @@
 {
+  "id": "./",
   "name": "Asistent",
   "short_name": "Asistent",
-  "description": "Osobní přehled: schránka pro Clauda, pošta a kalendář.",
+  "description": "Osobní přehled: schránka pro Clauda, pošta, kalendář, zdraví a fotbal.",
   "lang": "cs",
+  "dir": "ltr",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f5f3ee",
   "theme_color": "#f5f3ee",
+  "categories": ["productivity", "lifestyle"],
   "icons": [
     { "src": "ikony/ikona-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "ikony/ikona-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "ikony/ikona-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Pošta",
+      "short_name": "Pošta",
+      "description": "Co hoří a čeká na odpověď",
+      "url": "./?zkratka=posta",
+      "icons": [
+        { "src": "ikony/zkratka-posta.png", "sizes": "96x96", "type": "image/png" },
+        { "src": "ikony/zkratka-posta-192.png", "sizes": "192x192", "type": "image/png" }
+      ]
+    },
+    {
+      "name": "Přehled",
+      "short_name": "Přehled",
+      "description": "Hlavní stránka – co dnes čeká",
+      "url": "./?zkratka=prehled",
+      "icons": [
+        { "src": "ikony/zkratka-prehled.png", "sizes": "96x96", "type": "image/png" },
+        { "src": "ikony/zkratka-prehled-192.png", "sizes": "192x192", "type": "image/png" }
+      ]
+    },
+    {
+      "name": "Mini okno",
+      "short_name": "Mini",
+      "description": "Malý přehled: pošta, dnešek, pití, zápas, Instagram",
+      "url": "./#mini",
+      "icons": [
+        { "src": "ikony/zkratka-mini.png", "sizes": "96x96", "type": "image/png" },
+        { "src": "ikony/zkratka-mini-192.png", "sizes": "192x192", "type": "image/png" }
+      ]
+    },
+    {
+      "name": "Nový zápis jídla",
+      "short_name": "Jídlo",
+      "description": "Napiš, co jsi jedl – bílkoviny spočítám",
+      "url": "./?zkratka=jidlo",
+      "icons": [
+        { "src": "ikony/zkratka-jidlo.png", "sizes": "96x96", "type": "image/png" },
+        { "src": "ikony/zkratka-jidlo-192.png", "sizes": "192x192", "type": "image/png" }
+      ]
+    }
   ]
 }

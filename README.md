@@ -660,7 +660,10 @@ Adresa: <https://mk-asistent.github.io> (organizace `mk-asistent`, vlastní adre
 - **Účet:** založí se v konzoli Firebase (registrace je vypnutá). Na připojeném zařízení Nastavení → Připojení → Účet →
   přihlásit – adresa motoru a klíč se uloží do účtu (odtud je bere server a nová zařízení). Po novém klíči motoru
   (`novyKlic`) na připojeném zařízení „Změnit adresu nebo klíč“ – uloží se i do účtu.
-- **PC:** Chrome nebo Edge → v adresním řádku **Nainstalovat aplikaci**.
+- **PC (Windows, Chrome nebo Edge):** Nastavení → Aplikace → **Nainstalovat na PC** (nebo ikona Nainstalovat v adresním
+  řádku) → pravým na ikonu v hlavním panelu → **Připnout na hlavní panel** → `chrome://apps` → pravým na Asistent →
+  **Spustit aplikaci při přihlášení** (Edge: `edge://apps` → ⋯ → Automaticky spustit při přihlášení zařízení). Odznak,
+  oznámení ve Windows a mini okno: oddíl **Asistent na PC** níž.
 - Bez motoru jde aplikaci vyzkoušet s ukázkovými daty („Jen vyzkoušet“).
 - **Nové verze:** service worker posílá aplikaci vždy celou z jedné uložené verze (moduly k sobě sedí, start hned
   i bez sítě); novou verzi stáhne na pozadí a aplikace se sama jednou znovu načte (`js/start.js`, rozepsaný text
@@ -668,6 +671,44 @@ Adresa: <https://mk-asistent.github.io> (organizace `mk-asistent`, vlastní adre
   selže). Když se aplikace přesto nespustí (prázdná obrazovka), za 8 s nabídne **Načíst znovu** (smaže uložené soubory
   aplikace, data i přihlášení zůstanou). Dřív šel každý soubor zvlášť ze sítě s limitem 3 s a při pomalé síti se
   míchaly dvě verze – aplikace v mobilu se pak nespustila (5. 10.).
+
+## Asistent na PC – odznak, oznámení ve Windows, mini okno (od 18. 10. 2026)
+Michal 18. 10.: „něco jako widget na PC … oznámení na e-maily, rychle se podívat na věci na mém webu“. Postavené na téhle
+PWA (žádný nový program, žádná nová serverová infrastruktura). Jen na PC s myší (`naPc()` v `js/stav.js` – telefon a iPad
+nic z toho neukazují). Moduly se načtou až po startu nebo při použití (`js/pc.js`, `js/mini.js`, `mini.css`), start aplikace
+na ně nečeká.
+- **Instalace:** `manifest.webmanifest` (okno `standalone`, ikony any + maskable, `id`) a **rychlé akce** pravým na ikonu:
+  Pošta (`?zkratka=posta`), Přehled (`?zkratka=prehled`), **Mini okno** (`./#mini`), Nový zápis jídla (`?zkratka=jidlo`) –
+  ikony `ikony/zkratka-*.png` 96 a 192 px. Nastavení → Aplikace → oddíl **Na tomhle PC**: Nainstalovat na PC (zachycená
+  `beforeinstallprompt` v `js/start.js`), návod (připnout, spustit při přihlášení), odznak, oznámení, mini okno.
+  Překryv titulku okna (`window-controls-overlay`) záměrně ne: tlačítka okna by ležela přes horní lištu a v malém mini okně
+  přes zavírací tlačítka oken; titulek má barvu `theme_color` (krémová / tmavá) i tak.
+- **Odznak na ikoně** (Badging API, `navigator.setAppBadge`): počet e-mailů, které **hoří + čekají na odpověď** (jako „čeká“
+  na Přehledu – hoří, čeká, otázka), nebo **jen hoří**, nebo vypnuto. Jen nainstalovaná aplikace, dokud běží (i minimalizovaná).
+- **Oznámení ve Windows** (`showNotification` ze služby – jdou i při minimalizovaném okně): nová konverzace **hoří**, nová
+  nepřečtená **čeká na tebe** / otázka, **hlídaný odesílatel**, **Claude se ptá k jídlu**, **reel / plakát / příběh vyšel nebo
+  nevyšel**, **připomínka doplňku** (stejné pravidlo jako ntfy: `ZDRAVI_REZIM.json → pripomenout`). Zdroj = data, která
+  aplikace už má (kopie ze serveru přes `onSnapshot` → `poNovychKopiich` → překreslení → `pc.poVykresleni`). Pravidla
+  (`js/pc_vyber.js`, test `testy/test_pc_vyber.mjs`): první vyhodnocení po otevření jen zapamatuje, co už je; co přišlo do
+  zavřené aplikace, ukáže okno Co je nového, ne oznámení; konverzace, kterou aplikace znala, a začne hořet = oznámení; každá
+  věc jednou (`asistent.data.oznameno` v zařízení, 30 dní); víc než 3 naráz = jedno souhrnné; **tiché hodiny 22–6**; každý
+  druh jde vypnout. **Soukromí:** výchozí jen odesílatel a stav (PC v práci vidí ostatní), volba „I předmět“. Oprávnění se
+  žádá až klepnutím na Zapnout oznámení. Klepnutí na oznámení: `sw.js notificationclick` → okno aplikace se ukáže a otevře
+  ten e-mail / věc (`app.js otevriCil`), když žádné neběží, otevře nové s `?otevri=…`. Dvě okna (hlavní + mini) se střídají
+  přes Web Locks. **Zavřená aplikace = nic** (do iPhonu dál ntfy) – proto „Spustit aplikaci při přihlášení“. Bez účtu se
+  pošta obnoví jen při otevření a Obnovit (Nastavení to řekne).
+- **Mini okno** (`#mini`, `js/mini.js`, `mini.css`): ~360 × 640 – hoří a čeká v poště (klepnutí otevře e-mail v hlavním
+  okně), dnešní program, pití (+0,5 l) a doplňky dnes (odškrtnout), další zápas a poslední výsledek, co dnes vyjde na
+  Instagramu, počasí a připravenost. Tři podoby: **Ctrl+Shift+A** (nebo Mini přehled dole v levém pásu) přepne hlavní okno na mini a zpět
+  (v záložce Chromu tu zkratku bere Chrome, v nainstalované aplikaci jde); **samostatné okno** – zástupce Mini okno z ikony
+  nebo Nastavení → Otevřít mini okno (`window.open` popup 380 × 700; okno ze zástupce se samo zmenší, hlavní okno si pamatuje
+  svou velikost `asistent.okno`), e-mail z něj se otevře v hlavním okně (opener, jinak `BroadcastChannel('asistent-okna')`,
+  když se nikdo neozve, nové okno); **plovoucí okno vždy navrchu** – Document Picture-in-Picture (Chrome / Edge 116+),
+  obsah se obnovuje po každém překreslení aplikace, styly se do okna zkopírují; bez API se tlačítko neukazuje. Mini neukládá
+  snímek pro rychlý start (celé aplikaci ho nemaže) a neukazuje okno Co je nového.
+- **Widgety přímo v panelu Widgety Windows 11** (Edge, manifest `widgets`, šablony Adaptive Cards) zatím ne: aplikace by se
+  musela zabalit (PWABuilder) a vydat v Microsoft Store, widget je samostatný vzhled z Adaptive Cards (ne naše HTML) a data
+  by si musel stahovat service worker sám (s přihlášením k účtu) – podrobně ve skillu asistent-aplikace (oddíl PC).
 
 ## Co se jak často načítá (šetří limity Googlu – Michal 5. 10.)
 | Data | Server (Firebase, 6–23 h) | Aplikace |
@@ -794,6 +835,7 @@ JEN=telefon node test_aplikace.js      # jen testy, jejichž název obsahuje „
 PORT_TESTU=8776 node test_aplikace.js  # jiný port, když na PC zrovna běží testy z jiné kopie repa
 node testy/test_plakat.mjs             # plakát: víkendy, plakát podle rozlosování, znaky soupeřů, souhrn pro Clauda
 node testy/test_ig_prubeh.mjs          # Instagram: kroky s časy, zaseknutí, kdy se ptát motoru
+node testy/test_pc_vyber.mjs           # PC: co ohlásit oznámením ve Windows (nové, tiché hodiny, soukromí) a číslo na ikonu
 node testy/sw_verze.js --zapsat        # po změně souborů aplikace: VERZE service workeru podle obsahu
 node firebase/functions/test.js        # server: obnova kopií z napodobeného motoru
 node testy/mereni_rychlosti.js         # rychlost: studený/teplý start, přepínání stránek, e-mail, psaní (telefon CPU 4×, pomalé 4G)

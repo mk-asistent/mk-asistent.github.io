@@ -90,3 +90,23 @@ export function umiMotor(akce) {
 export function staryMotor() {
   return !jeDemo() && !!stav.info && !Array.isArray(stav.info.akce);
 }
+
+/**
+ * PC s myší (Windows, Mac) – ne telefon ani iPad (ani iPad s klávesnicí, ten hlásí platformu MacIntel s dotykem). Jen tam
+ * má smysl instalace na PC, odznak na ikoně, oznámení ve Windows a mini okno (js/pc.js, js/mini.js). Mini okno má šířku
+ * telefonu (360 px), proto podle zařízení, ne podle šířky.
+ */
+let naPcPamet = null; // zařízení se za běhu nemění – spočítat jednou (volá se při každém vykreslení levého pásu)
+export function naPc() {
+  if (naPcPamet === null) {
+    const ua = navigator.userAgent || '';
+    naPcPamet = !(/iPhone|iPad|iPod|Android|Mobile/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) &&
+      window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  }
+  return naPcPamet;
+}
+
+/** Plovoucí okno vždy navrchu (Document Picture-in-Picture, Chrome a Edge 116+) – jinak tlačítko vůbec neukazovat. */
+export function umiPlovouci() {
+  return !!(window.documentPictureInPicture && typeof window.documentPictureInPicture.requestWindow === 'function');
+}

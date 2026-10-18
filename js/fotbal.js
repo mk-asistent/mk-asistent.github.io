@@ -45,10 +45,10 @@ export function dotahni() {
 function data() { return stav.fotbal && stav.fotbal.data; }
 export function maData() { return !!(data() && data().zapasy && data().zapasy.length); }
 
-const cas = (z) => Date.parse(z.zacatek);
-function souper(z) { return klub(z.doma ? z.hoste : z.domaci); }
+export const cas = (z) => Date.parse(z.zacatek);
+export function souper(z) { return klub(z.doma ? z.hoste : z.domaci); }
 /** Výhra / remíza / prohra z pohledu našeho týmu. */
-function vrp(z) {
+export function vrp(z) {
   const m = /^(\d+)\s*:\s*(\d+)/.exec(z.vysledek || '');
   if (!m) return '';
   const my = +(z.doma ? m[1] : m[2]), oni = +(z.doma ? m[2] : m[1]);

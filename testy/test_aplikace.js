@@ -8092,6 +8092,348 @@ function vychoziVikendTestu() {
     }
   });
 
+  // ================================================================ Asistent na PC (Michal 18. 10.: „widget na PC … oznámení na e-maily“)
+  // Instalace jako aplikace (manifest, rychlé akce), odznak na ikoně, oznámení ve Windows, mini okno a plovoucí okno.
+  // Badging API, Notification / showNotification a Document Picture-in-Picture jsou napodobené (pcNapodob) – nic skutečného.
+  const pcNapodob = (volby) => {
+    window.__odznak = [];
+    navigator.setAppBadge = (n) => { window.__odznak.push(n == null ? 'tecka' : n); return Promise.resolve(); };
+    navigator.clearAppBadge = () => { window.__odznak.push(0); return Promise.resolve(); };
+    window.__oznameni = [];
+    let povoleni = (volby && volby.povoleni) || localStorage.getItem('test.povoleni') || 'default'; // přežije znovunačtení jako v prohlížeči
+    window.Notification = class {
+      constructor(titul, o) { window.__oznameni.push({ titul, text: o && o.body, tag: o && o.tag, cil: o && o.data && o.data.cil, primo: true, n: this }); }
+      close() { /* nic */ }
+      static get permission() { return povoleni; }
+      static requestPermission() { povoleni = 'granted'; localStorage.setItem('test.povoleni', 'granted'); return Promise.resolve('granted'); }
+    };
+    if (navigator.serviceWorker) {
+      navigator.serviceWorker.getRegistration = () => Promise.resolve(window.__bezSluzby ? undefined : {
+        showNotification: (titul, o) => { window.__oznameni.push({ titul, text: o.body, tag: o.tag, cil: o.data && o.data.cil }); return Promise.resolve(); } });
+    }
+    if (volby && volby.nastaveni && !localStorage.getItem('asistent.pc')) localStorage.setItem('asistent.pc', JSON.stringify(volby.nastaveni));
+    // plovoucí okno: napodobené Document Picture-in-Picture – „okno“ je iframe ve stránce (vlastní dokument, stejný původ)
+    if (volby && volby.pip === false) Object.defineProperty(window, 'documentPictureInPicture', { value: undefined, configurable: true });
+    else if (volby && volby.pip) {
+      Object.defineProperty(window, 'documentPictureInPicture', { configurable: true, value: { requestWindow: async (o) => {
+        window.__pipVolby = o;
+        const f = document.createElement('iframe');
+        f.id = 'test-pip';
+        f.style.cssText = 'position:fixed;right:8px;bottom:8px;width:' + o.width + 'px;height:' + o.height + 'px;border:1px solid #888;z-index:9999;background:#fff';
+        document.body.appendChild(f);
+        return f.contentWindow;
+      } } });
+    }
+  };
+  const PC_MALE = { nazev: 'pc-mini', sirka: 360, vyska: 640, dotyk: false };
+  const horiciPc = (id, od, predmet, navic) => Object.assign({ id, ucet: 'osobni', stav: 'hori', duvod: 'termín dnes', od, predmet, ukazka: 'Potřebuju odpověď.',
+    kdy: Date.now() - 60e3, neprectena: true, pocet: 1, odkaz: '#' }, navic);
+  const posledniOznameni = (page) => page.evaluate(() => (window.__oznameni || []).map((x) => ({ titul: x.titul, text: x.text, tag: x.tag, cil: x.cil, primo: !!x.primo })));
+  const nactiPostu = (page) => page.evaluate(() => import('/js/posta.js').then((m) => m.nactiPostu(true)));
+
+  await test('Asistent na PC: manifest – okno aplikace, ikony any i maskable, rychlé akce Pošta / Přehled / Mini okno / Jídlo s ikonami 96 × 96; zkratky z ikony v aplikaci', async () => {
+    const m = JSON.parse(fs.readFileSync(path.join(KOREN, 'manifest.webmanifest'), 'utf8'));
+    jistota(m.name === 'Asistent' && m.short_name === 'Asistent' && m.display === 'standalone' && m.start_url === './' && m.scope === './' && m.id === './', 'základ manifestu');
+    // překryv ovládacích prvků okna (WCO) by tlačítka okna položil přes horní lištu a okna přes celou obrazovku v malém mini okně
+    jistota(!(m.display_override || []).includes('window-controls-overlay'), 'window-controls-overlay bez rozvržení, které ho zvládne');
+    const rozmer = (f) => { const b = fs.readFileSync(path.join(KOREN, f)); return b.readUInt32BE(16) + 'x' + b.readUInt32BE(20); };
+    jistota(m.icons.some((i) => i.purpose === 'maskable') && m.icons.some((i) => i.sizes === '512x512' && i.purpose === 'any') && m.icons.some((i) => i.sizes === '192x192'), 'ikony');
+    m.icons.forEach((i) => jistota(rozmer(i.src) === i.sizes, 'ikona ' + i.src + ' má ' + rozmer(i.src)));
+    const z = m.shortcuts || [];
+    jistota(z.map((x) => x.name).join('|') === 'Pošta|Přehled|Mini okno|Nový zápis jídla', 'zkratky: ' + z.map((x) => x.name).join('|'));
+    jistota(z.map((x) => x.url).join(' ') === './?zkratka=posta ./?zkratka=prehled ./#mini ./?zkratka=jidlo', 'adresy zkratek: ' + z.map((x) => x.url).join(' '));
+    z.forEach((x) => {
+      jistota(x.short_name && x.icons && x.icons.some((i) => i.sizes === '96x96'), 'ikona 96 × 96 u ' + x.name);
+      x.icons.forEach((i) => jistota(rozmer(i.src) === i.sizes, i.src + ' má ' + rozmer(i.src)));
+    });
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      await page.goto(WEB + '?zkratka=posta');
+      await page.waitForSelector('#p-posta:not([hidden]) #posta-seznam [data-vlakno]');
+      jistota(!/zkratka/.test(page.url()), 'adresa po zkratce uklizená: ' + page.url());
+      await page.goto(WEB + '?zkratka=jidlo');
+      await page.waitForSelector('[data-panel="jidlo"] [data-jidlo-co]');
+      await page.goto(WEB + '?zkratka=prehled');
+      await page.waitForSelector('#p-dnes:not([hidden]) #dl-pozornost');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally { await ctx.close(); }
+  });
+
+  await test('Asistent na PC: odznak na ikoně – hoří + čeká na odpověď, jen hoří, vypnuto (Nastavení → Aplikace); telefon bez části Na tomhle PC', async () => {
+    postaNavic = { osobni: [vlaknoSouhrn.v1, horiciPc('v6', 'Stavbyvedoucí', 'Havárie vody')] };
+    try {
+      let { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+      await page.addInitScript(pcNapodob);
+      await page.goto(WEB);
+      // v1 otázka + v6 hoří (v2 „čekáš na ně“ se nepočítá)
+      await cekejVeStrance(page, () => (window.__odznak || []).slice(-1)[0] === 2, null, 9000);
+      await page.evaluate(() => import('/js/nastaveni.js').then((m) => m.otevriNastaveni('aplikace')));
+      await page.waitForSelector('[data-panel="nastaveni"] [data-nast-odznak="pozornost"][aria-pressed="true"]');
+      const text = await page.textContent('[data-panel="nastaveni"]');
+      jistota(/Na tomhle PC/.test(text) && /chrome:\/\/apps/.test(text) && /Spustit aplikaci při přihlášení/.test(text) && /Připnout na hlavní panel/.test(text), 'návod instalace');
+      await page.click('[data-panel="nastaveni"] [data-nast-odznak="hori"]');
+      await cekejVeStrance(page, () => window.__odznak.slice(-1)[0] === 1);
+      await page.click('[data-panel="nastaveni"] [data-nast-odznak="vypnuto"]');
+      await cekejVeStrance(page, () => window.__odznak.slice(-1)[0] === 0);
+      jistota(await page.evaluate(() => JSON.parse(localStorage.getItem('asistent.pc')).odznak) === 'vypnuto', 'volba v zařízení');
+      await page.click('[data-panel="nastaveni"] [data-nast-odznak="pozornost"]');
+      await cekejVeStrance(page, () => window.__odznak.slice(-1)[0] === 2);
+      await page.locator('[data-panel="nastaveni"] .panel-telo').screenshot({ path: path.join(VYSTUP, 'pc_nastaveni_aplikace.png') });
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+      // telefon: žádná část pro PC, žádný odznak ani mini
+      ({ ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]));
+      await page.addInitScript(pcNapodob);
+      await page.goto(WEB);
+      await page.waitForSelector('#dnes-mobil .hero');
+      await page.evaluate(() => import('/js/nastaveni.js').then((m) => m.otevriNastaveni('aplikace')));
+      await page.waitForSelector('[data-panel="nastaveni"] [data-sekce="aplikace"]');
+      jistota(!/Na tomhle PC|Mini okno/.test(await page.textContent('[data-panel="nastaveni"]')), 'telefon: bez části pro PC');
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Control+Shift+KeyA');
+      await page.waitForTimeout(400);
+      jistota(await page.evaluate(() => document.getElementById('mini').hidden && !document.getElementById('aplikace').hidden && !window.__odznak.length &&
+        !document.querySelector('[data-mini-sem]')), 'telefon: Ctrl+Shift+A nic, odznak nic, tlačítko mini není');
+      jistota(!chybyStranky.length, 'telefon: chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    } finally { postaNavic = {}; }
+  });
+
+  await test('Asistent na PC: oznámení ve Windows – zapnutí klepnutím, staré věci ne, nové hoří jednou bez předmětu, s volbou i předmět, hlídaný, klepnutí otevře e-mail (služba i bez ní), žádné opakování po novém otevření', async () => {
+    postaNavic = { osobni: [vlaknoSouhrn.v1, horiciPc('v6', 'Stavbyvedoucí', 'Havárie vody')] };
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      await page.addInitScript(pcNapodob);
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-pozornost .seznam');
+      jistota(await page.evaluate(() => Notification.permission) === 'default', 'oprávnění se samo nežádá');
+      await page.evaluate(() => import('/js/nastaveni.js').then((m) => m.otevriNastaveni('aplikace')));
+      await page.click('[data-panel="nastaveni"] [data-nast="pc-oznameni-zapnout"]');
+      await page.waitForSelector('[data-panel="nastaveni"] [data-nast-pc-druh="hori"]');
+      // první vyhodnocení jen zapamatuje, co už hoří (v6) – nic nevyskočí
+      await cekejVeStrance(page, () => /posta:v6:hori/.test(localStorage.getItem('asistent.data.oznameno') || ''), null, 9000);
+      jistota(!(await posledniOznameni(page)).length, 'staré věci se neohlásí: ' + JSON.stringify(await posledniOznameni(page)));
+      await page.locator('[data-panel="nastaveni"] [data-nast-pc-ticho]').setChecked(false); // test nesmí záviset na denní době
+      // nová konverzace hoří → jedno oznámení: odesílatel a stav, bez předmětu
+      postaNavic = { osobni: [vlaknoSouhrn.v1, horiciPc('v6', 'Stavbyvedoucí', 'Havárie vody'), horiciPc('v7', 'Úřad', 'Podpis smlouvy', { kdy: Date.now() })] };
+      await nactiPostu(page);
+      await cekejVeStrance(page, () => window.__oznameni.length === 1, null, 6000);
+      let o = await posledniOznameni(page);
+      jistota(o[0].titul === 'Hoří · Úřad' && !/Podpis smlouvy/.test(o[0].titul + o[0].text) && o[0].tag === 'posta:v7:hori' && o[0].cil === 'vlakno:v7', 'oznámení: ' + JSON.stringify(o[0]));
+      await nactiPostu(page);
+      await page.waitForTimeout(500);
+      jistota((await posledniOznameni(page)).length === 1, 'žádné opakování');
+      // „I předmět“ + hlídaný odesílatel
+      await page.click('[data-panel="nastaveni"] [data-nast-pc-predmet="ano"]');
+      postaNavic.osobni.push(horiciPc('v8', 'Investor', 'Kontrola zítra v 8', { kdy: Date.now() }),
+        horiciPc('v9', 'Pojišťovna', 'Pojistná událost', { kdy: Date.now(), hlidano: true, duvod: 'hlídáš: pojišťovna' }));
+      await nactiPostu(page);
+      await cekejVeStrance(page, () => window.__oznameni.length === 3, null, 6000);
+      o = await posledniOznameni(page);
+      const v8 = o.find((x) => x.tag === 'posta:v8:hori'), v9 = o.find((x) => x.tag === 'posta:v9:hlidani');
+      jistota(v8 && v8.titul === 'Hoří · Investor' && v8.text === 'Kontrola zítra v 8', 'i předmět: ' + JSON.stringify(v8));
+      jistota(v9 && v9.titul === 'Hlídaný odesílatel · Pojišťovna', 'hlídaný: ' + JSON.stringify(v9));
+      // zkušební oznámení z Nastavení
+      await page.click('[data-panel="nastaveni"] [data-nast="pc-oznameni-test"]');
+      await cekejVeStrance(page, () => window.__oznameni.some((x) => x.tag === 'zkusebni'));
+      await page.locator('[data-panel="nastaveni"] .panel-telo').screenshot({ path: path.join(VYSTUP, 'pc_nastaveni_oznameni.png') });
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.querySelector('[data-panel="nastaveni"]'));
+      // klepnutí na oznámení: služba pošle zprávu oknu → Pošta s tím e-mailem
+      await page.evaluate(() => navigator.serviceWorker.dispatchEvent(new MessageEvent('message', { data: { typ: 'asistent-oznameni', cil: 'vlakno:v7' } })));
+      await page.waitForSelector('#p-posta:not([hidden]) #posta-seznam li.aktivni [data-vlakno="v7"]');
+      await page.waitForSelector('#posta-detail .detail-telo');
+      // bez služby (http, starší prohlížeč): oznámení přímo ze stránky, klepnutí taky otevře e-mail
+      await page.click('#rail [data-cil="dnes"]');
+      await page.evaluate(() => { window.__bezSluzby = true; });
+      postaNavic.osobni.push(horiciPc('v10', 'Soused', 'Plot', { kdy: Date.now() }));
+      await nactiPostu(page);
+      await cekejVeStrance(page, () => window.__oznameni.some((x) => x.primo && x.tag === 'posta:v10:hori'), null, 6000);
+      await page.evaluate(() => window.__oznameni.find((x) => x.primo).n.onclick());
+      await page.waitForSelector('#p-posta:not([hidden]) #posta-seznam li.aktivni [data-vlakno="v10"]');
+      // nové otevření: nic znovu; konverzace, která přišla do zavřené aplikace, taky ne (ukáže ji Co je nového)
+      postaNavic.osobni.push(horiciPc('v11', 'Kolega', 'Výkaz', { kdy: Date.now() - 2 * H }));
+      await page.reload();
+      await page.waitForFunction(() => window.asistentBezi);
+      await cekejVeStrance(page, () => /posta:v11:hori/.test(localStorage.getItem('asistent.data.oznameno') || ''), null, 9000);
+      await page.waitForTimeout(400);
+      jistota(!(await posledniOznameni(page)).length, 'po novém otevření nic: ' + JSON.stringify(await posledniOznameni(page)));
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      postaNavic = {};
+      await ctx.close();
+    }
+  });
+
+  await test('Asistent na PC: oznámení – tiché hodiny 22–6 nic neukážou (jen zapamatují), vypnutý druh taky ne', async () => {
+    postaNavic = { osobni: [vlaknoSouhrn.v1] };
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      const noc = new Date(); noc.setHours(23, 30, 0, 0);
+      await page.clock.setSystemTime(noc);
+      await page.addInitScript(pcNapodob, { povoleni: 'granted', nastaveni: { oznameni: true, ticho: true, druhy: { ceka: false } } });
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-pozornost .seznam');
+      await cekejVeStrance(page, () => /posta:v1:ceka/.test(localStorage.getItem('asistent.data.oznameno') || ''), null, 9000);
+      const t = await page.evaluate(() => Date.now());
+      postaNavic.osobni.push(horiciPc('v7', 'Úřad', 'Podpis', { kdy: t + 60e3 }), Object.assign({}, vlaknoSouhrn.v1, { id: 'v12', stav: 'ceka', kdy: t + 60e3 }));
+      await nactiPostu(page);
+      await cekejVeStrance(page, () => /posta:v7:hori/.test(localStorage.getItem('asistent.data.oznameno') || '') && /posta:v12:ceka/.test(localStorage.getItem('asistent.data.oznameno') || ''), null, 6000);
+      jistota(!(await posledniOznameni(page)).length, 'v noci nic: ' + JSON.stringify(await posledniOznameni(page)));
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      postaNavic = {};
+      await ctx.close();
+    }
+  });
+
+  for (const motiv of ['light', 'dark']) {
+    await test('Mini okno na PC 360 × 640' + (motiv === 'dark' ? ' (tmavý)' : '') + ': sekce pošta, dnešek, pití a doplňky, fotbal, Instagram, počasí a připravenost; nic nepřetéká; +0,5 l a doplněk; e-mail v hlavním okně', async () => {
+      postaNavic = { osobni: [vlaknoSouhrn.v1, horiciPc('v6', 'Stavbyvedoucí Novák', 'Havárie vody')] };
+      reelyPlan[REELY_TEST[0].id] = { kdy: Date.now() + 2 * H, stav: 'ceka', oznacit: [] }; // vyjde dnes (nebo v noci)
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, PC_MALE, motiv);
+      try {
+        await page.addInitScript(pcNapodob, { pip: true });
+        await page.goto(WEB + '#mini');
+        await page.waitForSelector('#mini:not([hidden]) .mo-hlava');
+        await page.waitForSelector('#mini [data-oblast="posta"] [data-mini-vlakno="v6"]');
+        await page.waitForSelector('#mini [data-oblast="kalendar"] .mo-program, #mini [data-oblast="kalendar"] .mo-prazdne:not(.mo-prazdne--nacitam)');
+        await page.waitForSelector('#mini [data-oblast="zdravi"] [data-piti="500"]');
+        await page.waitForSelector('#mini .mo-cisla [data-mini-cil="pocasi"]');
+        await page.waitForSelector('#mini .mo-cisla [data-mini-cil="zdravi"]');
+        await page.waitForSelector('#mini [data-oblast="fotbal"] .mo-zapas');
+        await page.waitForSelector('#mini [data-mo="instagram"] [data-mini-cil="ig:reel:' + REELY_TEST[0].id + '"]');
+        jistota(await page.isHidden('#aplikace'), 'celá aplikace schovaná');
+        jistota(await page.locator('#mini [data-mini-plovouci]').count() === 1, 'tlačítko Plovoucí okno');
+        // soukromí: v mini okně bez předmětu (výchozí volba)
+        jistota(!/Havárie vody/.test(await page.textContent('#mini')), 'předmět jen s volbou');
+        const pretok = await page.evaluate(() => {
+          const sirka = document.documentElement.clientWidth;
+          const ven = [];
+          if (document.documentElement.scrollWidth > sirka + 1) ven.push('stránka ' + document.documentElement.scrollWidth);
+          document.querySelectorAll('#mini *').forEach((el) => { const r = el.getBoundingClientRect(); if (r.width && r.right > sirka + 1) ven.push(el.className + ' ' + Math.round(r.right)); });
+          return ven.slice(0, 6);
+        });
+        jistota(!pretok.length, 'přetéká: ' + pretok.join(' | '));
+        await page.screenshot({ path: path.join(VYSTUP, 'pc_mini_' + (motiv === 'dark' ? 'tmavy' : 'svetly') + '.png') });
+        await page.screenshot({ path: path.join(VYSTUP, 'pc_mini_' + (motiv === 'dark' ? 'tmavy' : 'svetly') + '_cela.png'), fullPage: true });
+        // rychlá tlačítka: voda a doplněk jdou do motoru stejně jako z Přehledu
+        const piti = pitiVolani.length, doplnky = doplnkyVolani.length;
+        await page.click('#mini [data-piti="500"]');
+        await cekej(() => pitiVolani.length > piti && pitiVolani[pitiVolani.length - 1].ml === 500, 5000, 'voda do motoru');
+        const prvni = page.locator('#mini .mo-doplnek').first();
+        const pred = await prvni.getAttribute('aria-pressed');
+        await prvni.click();
+        await cekejVeStrance(page, (p) => document.querySelector('#mini .mo-doplnek').getAttribute('aria-pressed') !== p, pred);
+        await cekej(() => doplnkyVolani.length > doplnky, 5000, 'doplněk do motoru');
+        if (motiv === 'light') {
+          // samostatné mini okno bez hlavního: e-mail otevře nové hlavní okno (?otevri=…) přímo na tom e-mailu
+          const [nova] = await Promise.all([ctx.waitForEvent('page'), page.click('#mini [data-mini-vlakno="v6"]')]);
+          await nova.waitForSelector('[data-panel="vlakno"].otevreny'); // ?otevri=vlakno:v6 → e-mail (adresa se pak uklidí)
+          jistota(!/otevri/.test(nova.url()) && await nova.isHidden('#mini'), 'nové hlavní okno: ' + nova.url());
+          await nova.close();
+          // s hlavním oknem: e-mail se otevře v něm (BroadcastChannel), mini okno zůstane mini
+          const hlavni = await ctx.newPage();
+          await hlavni.setViewportSize({ width: 1440, height: 900 });
+          await hlavni.goto(WEB);
+          await hlavni.waitForFunction(() => window.asistentBezi);
+          await hlavni.waitForSelector('#dl-pozornost .seznam');
+          await page.click('#mini [data-mini-vlakno="v1"]');
+          await hlavni.waitForSelector('#p-posta:not([hidden]) #posta-seznam li.aktivni [data-vlakno="v1"]');
+          await page.waitForSelector('#toast.videt');
+          jistota(/hlavním okně/.test(await page.textContent('#toast')), 'mini okno: otevřeno v hlavním');
+          jistota(await page.isVisible('#mini .mo-hlava'), 'mini zůstalo');
+          await hlavni.close();
+        }
+        jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      } finally {
+        postaNavic = {};
+        delete reelyPlan[REELY_TEST[0].id];
+        await ctx.close();
+      }
+    });
+  }
+
+  await test('Mini v hlavním okně: Ctrl+Shift+A a Mini přehled v levém pásu přepnou na mini a zpět, e-mail z mini otevře Pošta, snímek celé aplikace zůstane (PC)', async () => {
+    postaNavic = { osobni: [vlaknoSouhrn.v1, horiciPc('v6', 'Stavbyvedoucí', 'Havárie vody')] };
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      await page.addInitScript(pcNapodob);
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-pozornost .seznam');
+      await page.waitForSelector('#rail [data-mini-sem]');
+      await page.keyboard.press('Control+Shift+KeyA');
+      await page.waitForSelector('#mini:not([hidden]) [data-oblast="posta"] [data-mini-vlakno="v6"]');
+      jistota(await page.isHidden('#aplikace') && /#mini$/.test(page.url()), 'mini: ' + page.url());
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_mini_v_hlavnim_okne.png') });
+      await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+      const snimek = await page.evaluate(() => JSON.parse(localStorage.getItem('asistent.data.snimek') || 'null'));
+      jistota(snimek && snimek.pohled === 'dnes' && /dl-pozornost/.test(snimek.casti.stranka) && !/mo-hlava/.test(JSON.stringify(snimek.casti)), 'mini snímek celé aplikace nesmaže ani nepřepíše');
+      await page.keyboard.press('Control+Shift+KeyA');
+      await page.waitForSelector('#aplikace:not([hidden]) #dl-pozornost .seznam');
+      jistota(await page.isHidden('#mini') && !/#mini/.test(page.url()), 'zpět celá aplikace');
+      await page.click('#rail [data-mini-sem]');
+      await page.waitForSelector('#mini:not([hidden]) [data-mini-vlakno="v6"]');
+      await page.click('#mini [data-mini-vlakno="v6"]');
+      await page.waitForSelector('#aplikace:not([hidden]) #p-posta:not([hidden]) #posta-seznam li.aktivni [data-vlakno="v6"]');
+      jistota(await page.isHidden('#mini'), 'e-mail z mini: zpět v celé aplikaci');
+      // Celá aplikace z hlavičky mini
+      await page.keyboard.press('Control+Shift+KeyA');
+      await page.waitForSelector('#mini:not([hidden]) [data-mini-cela]');
+      await page.click('#mini [data-mini-cela]');
+      await page.waitForSelector('#aplikace:not([hidden])');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      postaNavic = {};
+      await ctx.close();
+    }
+  });
+
+  await test('Plovoucí okno (napodobené Document Picture-in-Picture): 360 × 640, obsah mini se styly, živě se obnovuje (+0,5 l), e-mail otevře hlavní okno, zavření; bez API tlačítko není', async () => {
+    postaNavic = { osobni: [vlaknoSouhrn.v1, horiciPc('v6', 'Stavbyvedoucí', 'Havárie vody')] };
+    let { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      await page.addInitScript(pcNapodob, { pip: true });
+      await page.goto(WEB);
+      await page.waitForSelector('#dl-pozornost .seznam');
+      await page.evaluate(() => import('/js/nastaveni.js').then((m) => m.otevriNastaveni('aplikace')));
+      await page.click('[data-panel="nastaveni"] [data-nast="pc-plovouci"]');
+      await page.waitForSelector('#test-pip');
+      const pip = page.frameLocator('#test-pip');
+      await pip.locator('#mini .mo-hlava').waitFor();
+      await pip.locator('#mini [data-oblast="zdravi"] [data-piti="500"]').waitFor();
+      jistota(JSON.stringify(await page.evaluate(() => window.__pipVolby)).indexOf('"width":360') >= 0, 'velikost okna');
+      jistota(await pip.locator('[data-mini-plovouci]').count() === 0 && await pip.locator('[data-mini-cil="aplikace"]').count() === 1, 'v plovoucím okně místo Plovoucí okno „Otevřít Asistenta“');
+      // styly zkopírované (karta má okraj a zaoblení jako v aplikaci)
+      jistota(await pip.locator('#mini .mo-karta').first().evaluate((el) => parseFloat(getComputedStyle(el).borderTopLeftRadius) >= 10), 'styly v plovoucím okně');
+      const voda = await pip.locator('#mini .mo-piti b').textContent();
+      const piti = pitiVolani.length;
+      await pip.locator('#mini [data-piti="500"]').click();
+      await cekej(() => pitiVolani.length > piti, 5000, 'voda z plovoucího okna do motoru');
+      await cekejVeStrance(page, (v) => { const f = document.getElementById('test-pip'); const b = f && f.contentDocument.querySelector('#mini .mo-piti b'); return b && b.textContent !== v; }, voda, 6000);
+      await page.locator('#test-pip').screenshot({ path: path.join(VYSTUP, 'pc_plovouci_okno.png') });
+      await page.click('[data-panel="nastaveni"] [data-zavrit-panel]'); // klávesnice je teď v plovoucím okně
+      await page.waitForFunction(() => !document.querySelector('[data-panel="nastaveni"]'));
+      await pip.locator('#mini [data-mini-vlakno="v6"]').click();
+      await page.waitForSelector('#p-posta:not([hidden]) #posta-seznam li.aktivni [data-vlakno="v6"]');
+      // zavření okna (pagehide) – další klepnutí otevře nové
+      await page.evaluate(() => { const f = document.getElementById('test-pip'); f.contentWindow.dispatchEvent(new Event('pagehide')); f.remove(); });
+      jistota(await page.evaluate(() => import('/js/mini.js').then((m) => !m.plovouciOtevrene())), 'po zavření zapomenuté');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+      // bez Document Picture-in-Picture (jiný prohlížeč): tlačítko v mini ani v Nastavení není
+      ({ ctx, page, chybyStranky } = await novaStranka(prohlizec, PC_MALE));
+      await page.addInitScript(pcNapodob, { pip: false });
+      await page.goto(WEB + '#mini');
+      await page.waitForSelector('#mini:not([hidden]) .mo-hlava');
+      jistota(await page.locator('#mini [data-mini-plovouci]').count() === 0, 'bez API bez tlačítka');
+      jistota(!chybyStranky.length, 'bez API: chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    } finally {
+      postaNavic = {};
+    }
+  });
+
   await prohlizec.close();
   server.close();
   console.log('\n' + ok + ' prošlo' + (chyb ? ', ' + chyb + ' SELHALO' : '') + ' · snímky: testy/vystup/');

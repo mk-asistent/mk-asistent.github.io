@@ -1,0 +1,125 @@
+/* Mini okno – widget na PC (js/mini.js): kompaktní přehled ~360 × 640 ve stylu Fixtrack (skill osobni-vzhled).
+   Krémová plocha, bílé karty s nádechem oblasti (pošta žlutá, kalendář modrá, zdraví červená, fotbal zelená), nadpisy
+   malými verzálkami, čísla tučně. Barvy jen přes proměnné z app.css – tmavý režim sedí sám. Načte se až s mini stránkou;
+   plovoucí okno (Document Picture-in-Picture) dostane kopii pravidel (kopirujStyly). */
+
+.mo {
+    display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 440px; min-height: 100vh; margin: 0 auto;
+    padding: 10px 10px 14px; background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.4; overflow-x: hidden;
+}
+.mo-telo { margin: 0; background: var(--bg); overflow-x: hidden; }
+/* hlavní okno přepnuté na mini (Ctrl+Shift+A): sloupec uprostřed, ať je vidět, že jde o mini podobu */
+html.s-mini body { background: var(--bg); }
+html.s-mini .mo { padding-top: 14px; }
+.mo *, .mo *::before, .mo *::after { box-sizing: border-box; }
+
+/* ---------------------------------------------------------------- hlavička */
+.mo-hlava { display: flex; align-items: center; gap: 9px; min-height: 40px; }
+.mo-hlava__logo { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: var(--tmava); color: #fff; flex: none; }
+.mo-hlava__logo svg { width: 18px; height: 18px; }
+.mo-hlava__text { flex: 1; min-width: 0; line-height: 1.15; }
+.mo-hlava__text b { display: block; font-size: 14.5px; font-weight: 700; letter-spacing: -.01em; }
+.mo-hlava__text small { display: block; margin-top: 2px; font-size: 11.5px; color: var(--muted); }
+.mo-hlava__akce { display: flex; gap: 5px; flex: none; }
+.mo-hlava .btn--ikona { width: 32px; height: 32px; min-height: 32px; }
+.mo-hlava .btn--ikona svg { width: 16px; height: 16px; }
+
+/* ---------------------------------------------------------------- počasí a připravenost */
+.mo-cisla { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px; }
+.mo-cislo {
+    display: flex; align-items: center; gap: 9px; min-width: 0; padding: 8px 10px; border-radius: 12px; text-align: left;
+    background: color-mix(in srgb, var(--o, var(--accent)) 7%, var(--surface)); border: 1px solid color-mix(in srgb, var(--o, var(--accent)) 22%, var(--line));
+}
+.mo-cislo:hover { border-color: color-mix(in srgb, var(--o, var(--accent)) 45%, var(--line)); }
+.mo-cislo__ikona { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; flex: none; background: var(--surface); color: var(--o, var(--accent)); }
+.mo-cislo__ikona svg { width: 18px; height: 18px; }
+.mo-cislo > span:last-child { min-width: 0; }
+.mo-cislo b { display: block; font-size: 19px; font-weight: 750; line-height: 1.1; letter-spacing: -.01em; }
+.mo-cislo b small { margin-left: 1px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.mo-cislo > span > small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--muted); }
+.mo-cislo--zelena b { color: var(--ok); }
+.mo-cislo--zluta b { color: var(--zluta-text); }
+.mo-cislo--cervena b { color: var(--danger); }
+.mo-pozor { font-style: normal; font-weight: 650; color: var(--oranz-text); }
+
+/* ---------------------------------------------------------------- karty */
+.mo-karta {
+    padding: 9px 11px 10px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); min-width: 0;
+}
+.mo-karta[data-oblast] { background: color-mix(in srgb, var(--o) 4%, var(--surface)); border-color: color-mix(in srgb, var(--o) 16%, var(--line)); }
+.mo-karta__hlava { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; min-height: 22px; font-size: 11px; font-weight: 700; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--muted); }
+.mo-karta__ikona { display: grid; place-items: center; color: var(--o, var(--accent)); }
+.mo-karta__ikona svg { width: 15px; height: 15px; }
+.mo-karta__nazev { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mo-karta__vpravo { display: flex; align-items: center; gap: 6px; flex: none; text-transform: none; letter-spacing: 0; font-weight: 600; }
+.mo-karta__vpravo .tag { font-size: 11px; }
+.mo-sipka { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border-radius: 7px; border: 1px solid var(--line); background: var(--surface); color: var(--text-soft); }
+.mo-sipka:hover { background: var(--sand); color: var(--text); }
+.mo-sipka svg { width: 13px; height: 13px; }
+.mo-prazdne { display: flex; align-items: center; gap: 7px; margin: 2px 0; font-size: 12.5px; color: var(--muted); }
+.mo-prazdne svg { width: 15px; height: 15px; color: var(--ok); flex: none; }
+.mo-prazdne--nacitam { display: block; }
+.mo-dalsi { margin: 4px 0 0; font-size: 11.5px; color: var(--muted); }
+.mo-seznam { list-style: none; margin: 0; padding: 0; }
+.mo-seznam li + li { border-top: 1px solid var(--line-soft); }
+
+/* pošta */
+.mo-zprava, .mo-ig {
+    display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 5px 2px; border: 0; background: none; text-align: left; border-radius: 8px;
+}
+.mo-zprava:hover, .mo-ig:hover { background: var(--bg-soft); }
+.mo-zprava__text, .mo-ig__text { flex: 1; min-width: 0; line-height: 1.25; }
+.mo-zprava__text b, .mo-zprava__text small, .mo-ig__text b, .mo-ig__text small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mo-zprava__text b { font-size: 13px; font-weight: 600; }
+.mo-zprava--nova .mo-zprava__text b { font-weight: 750; }
+.mo-zprava__text small, .mo-ig__text small { font-size: 11.5px; color: var(--muted); }
+.mo-zprava__vpravo { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; }
+.mo-zprava__vpravo .tag { font-size: 10.5px; padding: 0 7px; }
+.mo-zprava__vpravo em { font-style: normal; font-size: 11px; color: var(--muted); }
+.mo-ig .tag { flex: none; font-size: 10.5px; }
+
+/* program dne */
+.mo-program { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.mo-udalost { display: grid; grid-template-columns: 58px 8px minmax(0, 1fr); align-items: center; gap: 7px; font-size: 12.5px; }
+.mo-udalost em { font-style: normal; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.mo-udalost i { width: 8px; height: 8px; border-radius: 3px; background: var(--b); }
+.mo-udalost--ted em { color: var(--accent); font-weight: 700; }
+
+/* pití a doplňky */
+.mo-piti { display: flex; align-items: center; gap: 9px; }
+.mo-piti__ikona { font-size: 17px; line-height: 1; flex: none; }
+.mo-piti__text { flex: 1; min-width: 0; }
+.mo-piti__text b { font-size: 15px; font-weight: 750; }
+.mo-piti__text small { font-size: 11.5px; color: var(--muted); }
+.mo-pruh { display: block; height: 5px; margin-top: 4px; border-radius: 99px; background: var(--sand-2); overflow: hidden; }
+.mo-pruh i { display: block; height: 100%; border-radius: inherit; background: var(--o-kalendar, #2f68d6); }
+.mo-piti__plus { flex: none; background: var(--accent-btn); color: var(--na-akcentu); min-height: 30px; }
+.mo-piti__plus:hover { background: var(--accent-btn-hover); }
+.mo-doplnky { list-style: none; display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0 0; padding: 0; }
+.mo-doplnky li { min-width: 0; max-width: 100%; }
+.mo-doplnek {
+    display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 10px 4px 5px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    border: 1px solid var(--line); background: var(--surface); color: var(--text-soft);
+}
+.mo-doplnek > span { min-width: 0; }
+.mo-zaskrt { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--sand-2); color: transparent; flex: none; }
+.mo-zaskrt svg { width: 11px; height: 11px; }
+.mo-doplnek[aria-pressed="true"] { background: var(--ok-tint); border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); color: var(--ok); }
+.mo-doplnek[aria-pressed="true"] .mo-zaskrt { background: var(--ok); border-color: var(--ok); color: #fff; }
+.mo-doplnek--vedlejsi { opacity: .7; }
+
+/* fotbal */
+.mo-zapas { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: baseline; gap: 7px; margin: 0; font-size: 12.5px; }
+.mo-zapas + .mo-zapas { margin-top: 4px; }
+.mo-zapas small { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 650; }
+.mo-zapas b { font-weight: 600; }
+.mo-zapas em { font-style: normal; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.mo-vrp { display: inline-grid; place-items: center; width: 17px; height: 17px; margin-right: 5px; border-radius: 5px; font-size: 10.5px; font-weight: 800;
+    background: var(--sand); color: var(--muted); vertical-align: 1px; }
+.mo-vrp--V { background: var(--ok); color: #fff; }
+.mo-vrp--R { background: var(--zluta); color: #fff; }
+.mo-vrp--P { background: var(--oranz); color: #fff; }
+
+/* plovoucí okno: bez zbytečného okraje, vejde se do malého okna */
+.mo--plovouci { max-width: none; padding: 8px 8px 12px; }

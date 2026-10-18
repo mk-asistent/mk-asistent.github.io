@@ -56,6 +56,13 @@ function polozky() {
   return ven;
 }
 
+/** Plány všech druhů pro Asistenta na PC (mini okno, oznámení – js/mini.js, js/pc.js): [{ typ, id, z, nazev, cil, video }],
+ *  ted = čas motoru. */
+export function planyInstagramu() {
+  return polozky().map((x) => Object.assign(x, { nazev: zdroje[x.typ].nazev(x.id), cil: zdroje[x.typ].cil, video: !!zdroje[x.typ].video }));
+}
+export { tedMotoru };
+
 /** Výsledek igStav / igKrok: plány obou druhů do modulů (a do zařízení), stav spouštěče. */
 function prijmi(d) {
   if (!d || typeof d !== 'object' || !d.ted) return;
