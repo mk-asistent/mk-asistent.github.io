@@ -7,7 +7,7 @@ import { otevriPanel, obnovPanel, jeOtevreny, elementPanelu, zavriAPak } from '.
 import { toast, potvrd, segment } from './ui.js';
 import { IKONY } from './ikony.js';
 import { smazUlozene as smazKalendar, nactiKalendar } from './kalendar.js';
-import { nactiPostu } from './posta.js';
+import { nactiPostu, vsechnyZpravy, stavZpravy } from './posta.js';
 import { zapasyHtml } from './udalost.js';
 import { tymyHtml as fotbalTymyHtml } from './fotbal.js';
 import { DRUHY } from './kalendar.js';
@@ -421,11 +421,30 @@ function sekceAplikace() {
 }
 
 // ---------------------------------------------------------------- Asistent na PC (Michal 18. 10.: „widget na PC … oznámení na e-maily“)
+/** „Teď na ikoně: 3 = 1 hoří + 2 nové k odpovědi“ – ať je jasné, čeho je číslo (Michal 18. 10.). */
+function odznakRozpadHtml(rezim) {
+  if (rezim === 'vypnuto') return '';
+  // stejné počítání jako js/pc_vyber.js rozpadIkony (tady bez importu, ať Nastavení nenačítá modul oznámení při startu)
+  const r = { hori: 0, nove: 0, ostatni: 0 };
+  vsechnyZpravy().forEach((m) => {
+    if (!m || m.tiche || m.vedomi) return;
+    const st = stavZpravy(m);
+    if (st === 'hori') r.hori++;
+    else if (st === 'ceka' || st === 'otazka') { if (m.neprectena) r.nove++; else r.ostatni++; }
+  });
+  r.celkem = rezim === 'hori' ? r.hori : rezim === 'pozornost' ? r.hori + r.nove + r.ostatni : r.hori + r.nove;
+  const casti = [r.hori + ' hoří'];
+  if (rezim !== 'hori') casti.push(r.nove + ' nových k odpovědi');
+  if (rezim === 'pozornost') casti.push(r.ostatni + ' přečtených k odpovědi');
+  return '<p class="nast-odznak-rozpad"><b>Teď na ikoně: ' + r.celkem + '</b> = ' + casti.join(' + ') +
+    (rezim !== 'pozornost' && r.ostatni ? ' <span class="napoveda">(dalších ' + r.ostatni + ' přečtených čeká na odpověď v Poště)</span>' : '') + '</p>';
+}
+
 // Instalace jako aplikace (Chrome / Edge), odznak na ikoně, oznámení ve Windows, mini okno a plovoucí okno. Volby jsou v zařízení
 // (asistent.pc); chování v js/pc.js (odznak, oznámení) a js/mini.js (mini stránka, plovoucí okno) – načtou se až po startu.
 
 const PC = 'asistent.pc';
-const PC_VYCHOZI = { odznak: 'pozornost', oznameni: false, druhy: {}, predmet: false, ticho: true };
+const PC_VYCHOZI = { odznak: 'nove', oznameni: false, druhy: {}, predmet: false, ticho: true };
 /** Volby PC v zařízení: odznak ('pozornost' | 'hori' | 'vypnuto'), oznameni (zapnutá), druhy { druh: false = vypnutý },
  *  predmet (i předmět v oznámení a mini okně), ticho (22–6 nic). */
 export function pcNastaveni() {
@@ -473,9 +492,10 @@ function sekcePc() {
   // odznak na ikoně (Badging API) – jen nainstalovaná aplikace, dokud běží
   if ('setAppBadge' in navigator) {
     h += '<h3>Odznak na ikoně</h3>' +
-      segment([['pozornost', 'Hoří + čeká na odpověď'], ['hori', 'Jen hoří'], ['vypnuto', 'Vypnuto']], n.odznak, 'data-nast-odznak', 'Odznak na ikoně') +
-      '<p class="napoveda">Číslo na ikoně v hlavním panelu: e-maily, které hoří a čekají na tvou odpověď (stejně jako „čeká“ na Přehledu). ' +
-      'Jen u nainstalované aplikace, dokud běží – i minimalizovaná.</p>';
+      segment([['nove', 'Hoří + nové k odpovědi'], ['pozornost', 'Vše k vyřízení'], ['hori', 'Jen hoří'], ['vypnuto', 'Vypnuto']], n.odznak, 'data-nast-odznak', 'Odznak na ikoně') +
+      odznakRozpadHtml(n.odznak) +
+      '<p class="napoveda">Číslo na ikoně v hlavním panelu. Výchozí: e-maily, které hoří, a <b>nepřečtené</b>, které čekají na tvou odpověď ' +
+      '(přečtené čekající jsou v Poště, na ikonu nejdou). Jen u nainstalované aplikace, dokud běží – i minimalizovaná.</p>';
   }
   h += '<h3>Oznámení ve Windows</h3>' + oznameniHtml(n);
   // mini okno a plovoucí okno (js/mini.js)

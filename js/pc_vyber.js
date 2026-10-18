@@ -202,10 +202,22 @@ export function souhrn(seznam) {
  * posta.kPozornosti), 'hori' = jen hoří, 'vypnuto' = nic. Bez upozornění Apps Scriptu a „Beru na vědomí“ (mají stav informace).
  */
 export function pocetNaIkonu(zpravy, rezim) {
-  if (rezim === 'vypnuto') return 0;
-  return (zpravy || []).filter((m) => {
-    if (!m || m.tiche || m.vedomi) return false;
+  return rozpadIkony(zpravy, rezim).celkem;
+}
+
+/**
+ * Z čeho je číslo na ikoně: { hori, nove (nepřečtené čeká / otázka), ostatni (přečtené čeká / otázka), celkem }.
+ * rezim: 'nove' (výchozí – hoří + nepřečtené k odpovědi; Michal 18. 10.: „mám na ikoně 29 a nevím čeho“ – dřív všechny
+ * čekající za 30–90 dní), 'pozornost' (všechno k vyřízení), 'hori', 'vypnuto'.
+ */
+export function rozpadIkony(zpravy, rezim) {
+  const r = { hori: 0, nove: 0, ostatni: 0, celkem: 0 };
+  (zpravy || []).forEach((m) => {
+    if (!m || m.tiche || m.vedomi) return;
     const s = stavZpravy(m);
-    return rezim === 'hori' ? s === 'hori' : s === 'hori' || s === 'ceka' || s === 'otazka';
-  }).length;
+    if (s === 'hori') r.hori++;
+    else if (s === 'ceka' || s === 'otazka') { if (m.neprectena) r.nove++; else r.ostatni++; }
+  });
+  r.celkem = rezim === 'vypnuto' ? 0 : rezim === 'hori' ? r.hori : rezim === 'pozornost' ? r.hori + r.nove + r.ostatni : r.hori + r.nove;
+  return r;
 }
