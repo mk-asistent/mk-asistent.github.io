@@ -187,6 +187,9 @@ export function prepisSPolem(el, h) {
   sablona.innerHTML = h;
   const nove = pole && sablona.content.querySelector('[data-pole="' + CSS.escape(pole.dataset.pole) + '"]');
   if (!nove || nove.tagName !== pole.tagName) { el.innerHTML = h; return; }
+  // atributy pole podle nového HTML (placeholder, data-…) – hodnota, výška (style) a fokus zůstanou
+  Array.from(pole.attributes).forEach((x) => { if (x.name !== 'style' && !nove.hasAttribute(x.name)) pole.removeAttribute(x.name); });
+  Array.from(nove.attributes).forEach((x) => { if (x.name !== 'style' && pole.getAttribute(x.name) !== x.value) pole.setAttribute(x.name, x.value); });
   let s = pole, n = nove;
   while (s !== el && s.parentNode && n.parentNode) {
     const sp = s.parentNode, np = n.parentNode;

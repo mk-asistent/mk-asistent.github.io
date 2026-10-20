@@ -4157,7 +4157,8 @@ function vychoziVikendTestu() {
       zmeneno();
     }));
     await page.waitForSelector('#dl-pozornost [data-polozka-id="c-novy"]');
-    jistota(await page.evaluate(() => !window.__pole.isConnected), 'karta se měla vyměnit (test)');
+    // karta se změnila, pole s rozepsanou odpovědí ale zůstává stejný prvek (data-pole → prepisSPolem, od 20. 10.)
+    jistota(await page.evaluate(() => window.__pole.isConnected), 'pole s rozepsanou odpovědí se mělo zachovat');
     jistota(await page.inputValue(pole) === 'Ano, pošli', 'rozepsaná odpověď zmizela: „' + await page.inputValue(pole) + '“');
     jistota(await page.evaluate((s) => document.activeElement === document.querySelector(s), pole), 'fokus se nevrátil do pole');
     await page.keyboard.type(' to.');
@@ -4200,6 +4201,87 @@ function vychoziVikendTestu() {
       await ctx.close();
     } finally {
       motor.schranka = puvodni;
+    }
+  });
+
+  // ---------- konverzace v položce (Michal 20. 10.: „rozkliknu a nezobrazuje se to vůbec dobře … chtěl bych na to zareagovat
+  // v chatu … mělo by to být u sebe“): bubliny dřív měly třídu vyjetých karet (position: fixed) a kreslily se vlevo nahoře
+  await test('schránka: konverzace v položce – bubliny u sebe, odpověď z pole hned v chatu (Enter na PC), položka zůstane otevřená, Dopsat = pole', async () => {
+    const puvodni = motor.schranka, puvodniPolozka = motor.polozka;
+    // motor si odpovědi pamatuje: zpráva do vlákna, položka k Claudovi (NOVE) – jako skutečný upravPolozku_
+    const data = puvodni();
+    data.ceka[1].vlakno = [{ kdo: 'Claude', kdy: '2026-10-19 07:31', text: 'Připravil jsem e-mail.\n## Co dál\nStačí ho otevřít a [odeslat](https://example.com/psani).' }];
+    motor.schranka = () => Object.assign(JSON.parse(JSON.stringify(data)), { ted: Date.now() });
+    motor.polozka = (d) => {
+      if (d.jak === 'odpoved' || d.jak === 'dopsat' || d.jak === 'udelej') {
+        const vse = data.nove.concat(data.ceka, data.hotovo);
+        const p = vse.find((x) => x.id === d.id);
+        p.vlakno.push({ kdo: 'Michal', kdy: '2026-10-20 08:00', text: d.jak === 'udelej' ? 'Udělej to.' : d.text });
+        ['nove', 'ceka', 'hotovo'].forEach((k) => { data[k] = data[k].filter((x) => x.id !== d.id); });
+        p.slozka = 'NOVE';
+        data.nove.unshift(p);
+        return true;
+      }
+      return puvodniPolozka(d);
+    };
+    try {
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="schranka"]');
+      await page.waitForSelector('#p-schranka [data-prepni="c2"]');
+      await page.click('#p-schranka [data-prepni="c2"]');
+      const li = '#p-schranka [data-polozka-id="c2"]';
+      await page.waitForSelector(li + ' .chat .b-claude');
+      // bubliny leží v položce (ne přes hlavičku), Claude vlevo, ty vpravo; odkaz z [text](adresa), nadpis tučně
+      const r = await page.evaluate((sel) => {
+        const l = document.querySelector(sel).getBoundingClientRect();
+        return Array.from(document.querySelectorAll(sel + ' .chat-zprava')).map((z) => {
+          const b = z.getBoundingClientRect();
+          return { pos: getComputedStyle(z).position, uvnitr: b.top >= l.top && b.bottom <= l.bottom + 1 && b.left >= l.left && b.right <= l.right + 1, vlevo: b.left - l.left < l.right - b.right, claude: z.classList.contains('b-claude') };
+        });
+      }, li);
+      jistota(r.length === 2 && r.every((x) => x.pos !== 'fixed' && x.uvnitr) && r[1].claude && r[1].vlevo && !r[0].vlevo, 'bubliny: ' + JSON.stringify(r));
+      jistota(await page.locator(li + ' .b-claude a[href="https://example.com/psani"]').textContent() === 'odeslat' &&
+        await page.locator(li + ' .b-claude b.chat-nadpis').count() === 1, 'formát Claudovy zprávy');
+      // Shift+Enter = nový řádek, Enter = odeslat; bublina hned v konverzaci, položka otevřená i po přesunu k Claudovi
+      const pole = li + ' textarea[data-odpoved="c2"]';
+      const pred = volano.length; // volano se mezi testy nemaže
+      await page.click(pole);
+      await page.keyboard.type('Ano, pošli to');
+      await page.keyboard.press('Shift+Enter');
+      await page.keyboard.type('a přidej podpis.');
+      jistota(await page.inputValue(pole) === 'Ano, pošli to\na přidej podpis.', 'Shift+Enter má psát nový řádek');
+      jistota(!volano.slice(pred).some((d) => d.akce === 'polozka' && d.id === 'c2'), 'Shift+Enter nemá odeslat');
+      await page.keyboard.press('Enter');
+      await cekej(() => volano.some((d) => d.akce === 'polozka' && d.id === 'c2' && d.jak === 'odpoved' && d.text === 'Ano, pošli to\na přidej podpis.'), 3000, 'odpověď do motoru');
+      await page.waitForFunction(() => {
+        const l = document.querySelector('#p-schranka [data-polozka-id="c2"]');
+        return l && Array.from(l.querySelectorAll('.b-michal')).some((b) => /přidej podpis/.test(b.textContent)) &&
+          !l.querySelector('.chat-zprava--odesila') && l.querySelector('.chat-ceka') && l.querySelector('textarea[data-odpoved]').value === '' &&
+          l.querySelector('textarea[data-odpoved]').placeholder === 'Doplň pro Clauda…';
+      });
+      jistota(/U Clauda/.test(await page.evaluate(() => document.querySelector('#p-schranka [data-polozka-id="c2"]').closest('section').querySelector('h2').textContent)), 'položka má být u Clauda');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_schranka_chat.png') });
+      // chyba motoru: text se vrátí do pole a bublina „odesílám…“ zmizí
+      chybaMotoru.polozka = 'Disk teď neodpovídá.';
+      await page.fill(pole, 'Ještě jedna věc');
+      await page.click(li + ' .chat-odeslat');
+      await page.waitForFunction(() => /Neodesláno/.test(document.getElementById('toast').textContent));
+      await page.waitForFunction((s) => document.querySelector(s) && document.querySelector(s).value === 'Ještě jedna věc', pole);
+      jistota(!(await page.locator(li + ' .chat-zprava--odesila').count()), 'po chybě nemá zůstat „odesílám…“');
+      delete chybaMotoru.polozka;
+      // Dopsat z nabídky úkolu = pole v položce (žádné okno)
+      await page.click('#p-schranka [data-prepni="c1"]', { button: 'right' });
+      await page.waitForSelector('.nabidka.videt');
+      await page.click('.nabidka [data-nabidka-i="2"]'); // Dopsat
+      await page.waitForFunction(() => document.activeElement && document.activeElement.matches('#p-schranka textarea[data-odpoved="c1"]'));
+      jistota(!(await page.locator('.okno-pozadi').count()), 'Dopsat nemá otevřít okno');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    } finally {
+      delete chybaMotoru.polozka;
+      motor.schranka = puvodni;
+      motor.polozka = puvodniPolozka;
     }
   });
 

@@ -7,7 +7,7 @@
 
 import { stav, zmeneno, prejdi, umiMotor, hooky } from './stav.js';
 import { volej } from './api.js';
-import { esc, kdyKratce, prvniRadek, dm, hhmm, rozdilDni, terminDatum, DNY_KR, uloziste, odstin, sOdkazy, pulnoc, pridejDny } from './pomocne.js';
+import { esc, kdyKratce, prvniRadek, dm, hhmm, rozdilDni, terminDatum, DNY_KR, uloziste, odstin, sOdkazy, pulnoc, pridejDny, prepisSPolem } from './pomocne.js';
 import { toast, toastAkce, kostra, chybaHtml, prizpusobVysku, okno, hlavickaKarty } from './ui.js';
 import { IKONY } from './ikony.js';
 import { otevriFormular } from './udalost.js';
@@ -167,46 +167,178 @@ export function polozkaHtml(p, kompaktni) {
     temaHtml(p.tema) + terminZnacka(p) + (pod ? ' <span class="orez-2">' + esc(pod) + '</span>' : '') + '</span>' +
     '</button>';
 
-  if (otevrena) {
-    h += '<div class="detail">';
-    if (p.navrh) h += navrhHtml(p, p.navrh);
-    else if (mistni) h += navrhHtml(p, mistni, true);
-    h += '<div class="bublina b-michal"><span class="kdo">Ty · ' + esc(dm(p.kdy) + ' ' + hhmm(p.kdy)) + (p.odkud ? ' · ' + esc(p.odkud) : '') + '</span>' + sOdkazy(p.text) + '</div>';
-    p.vlakno.forEach((v) => {
-      h += '<div class="bublina ' + (v.kdo === 'Claude' ? 'b-claude' : 'b-michal') + '"><span class="kdo">' +
-        (v.kdo === 'Claude' ? 'Claude' : 'Ty') + (v.kdy ? ' · ' + esc(v.kdy) : '') + '</span>' + (v.kdo === 'Claude' ? textClauda(v.text) : sOdkazy(v.text)) + '</div>';
-    });
-    if (sk === 'rozhodni') {
-      h += '<textarea class="odpoved" data-odpoved="' + esc(p.id) + '" rows="2" placeholder="Odpověď pro Clauda…"></textarea>' +
-        '<div class="akce"><button type="button" class="btn btn--ghost" data-polozka="udelej" data-id="' + esc(p.id) + '">Udělej to</button>' +
-        '<button type="button" class="btn btn--primary" data-polozka="odpoved" data-id="' + esc(p.id) + '">Odeslat odpověď</button></div>';
-    } else if (sk === 'ukol') {
-      h += '<div class="akce">' + (umiMotor('polozkaTermin') ? '<button type="button" class="btn btn--ghost" data-polozka-akce="odlozit" data-id="' + esc(p.id) + '">' +
-        IKONY.pripomenout + '<span>' + (p.termin ? 'Změnit termín' : 'Termín') + '</span></button>' : '') +
-        '<button type="button" class="btn btn--primary" data-polozka="hotovo" data-id="' + esc(p.id) + '">Hotovo</button></div>';
-    } else if (sk === 'napad') {
-      h += '<div class="akce"><button type="button" class="btn btn--ghost" data-polozka="zahodit" data-id="' + esc(p.id) + '">Zahodit</button>' +
-        '<button type="button" class="btn btn--primary" data-polozka="udelej" data-id="' + esc(p.id) + '">Udělej to</button></div>';
-    } else if (sk === 'nove') {
-      h += '<p class="poznamka-pod">Zpracuju při další schránce (během dne každou půlhodinu).</p>';
-    }
-    // pro všechny: doplnit, nadpis, téma, smazat
-    if (umiMotor('polozkaUpravy')) {
-      const tl = (jak, ikona, text) => '<button type="button" class="btn btn--ghost btn--sm" data-polozka-akce="' + jak + '" data-id="' + esc(p.id) + '">' + ikona + '<span>' + text + '</span></button>';
-      h += '<div class="akce akce--vedlejsi">' + tl('dopsat', IKONY.psat, sk === 'hotovo' ? 'Navázat' : 'Dopsat') + tl('nadpis', IKONY.stitek, 'Nadpis') +
-        tl('tema', IKONY.slozka, 'Téma') + tl('smazat', IKONY.smazat, 'Smazat') + '</div>';
-    }
-    h += '</div>';
-  }
+  if (otevrena) h += '<div class="detail">' + chatHtml(p, sk, mistni) + '</div>';
   return h + '</li>';
 }
 
-/** Claudova odpověď: odkazy klikací, **tučně**, `kód`, řádky „- “ jako odrážky (text je napřed escapovaný). */
+// ---------------------------------------------------------------- konverzace s Claudem (Michal 20. 10.: „rozkliknu a nezobrazuje
+// se to vůbec dobře … chtěl bych na to zareagovat v chatu … mělo by to být u sebe“) – bubliny pod sebou jako v chatu, pod nimi
+// rychlé odpovědi a pole na odpověď přímo v položce (dřív jen u „Rozhodni“, jinde Dopsat v okně). Odeslaná zpráva se hned
+// ukáže v konverzaci a položka zůstane otevřená, i když se přesune k Claudovi.
+
+/** Zprávy, které se právě odesílají: id položky → [{ text, kdy }] (bublina „odesílám…“ do odpovědi motoru). */
+const odesila = {};
+
+/** Čas sekce „## Claude – RRRR-MM-DD HH:MM“ → ms, nebo null. */
+function casZpravy(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/.exec(s || '');
+  return m ? new Date(+m[1], m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)).getTime() : null;
+}
+
+/** „dnes 7:31“, „včera 21:30“, „17. 10. 9:05“ */
+function kdyZpravy(t) {
+  const r = rozdilDni(t);
+  return (r === 0 ? 'dnes ' : r === -1 ? 'včera ' : dm(t) + ' ') + hhmm(t);
+}
+
+function zpravaHtml(kdo, kdy, telo, navic) {
+  const claude = kdo === 'Claude';
+  return '<div class="chat-zprava ' + (claude ? 'b-claude' : 'b-michal') + (navic && navic.trida ? ' ' + navic.trida : '') + '">' +
+    '<span class="kdo">' + (claude ? IKONY.claude + 'Claude' : 'Ty') + (kdy ? ' · ' + esc(kdy) : '') + '</span>' + telo +
+    (navic && navic.stav ? '<span class="chat-zprava__stav">' + navic.stav + '</span>' : '') + '</div>';
+}
+
+/** Rozbalená položka: konverzace, návrh od Clauda, rychlé odpovědi, pole na odpověď, vedlejší úpravy. */
+function chatHtml(p, sk, mistni) {
+  const id = esc(p.id);
+  const zpravy = [zpravaHtml('Michal', kdyZpravy(p.kdy) + (p.odkud ? ' · ' + p.odkud : ''), sOdkazy(p.text))];
+  let posledniClaude = -1;
+  p.vlakno.forEach((v) => {
+    const t = casZpravy(v.kdy);
+    if (v.kdo === 'Claude') posledniClaude = zpravy.length;
+    zpravy.push(zpravaHtml(v.kdo, t ? kdyZpravy(t) : v.kdy, v.kdo === 'Claude' ? textClauda(v.text) : sOdkazy(v.text)));
+  });
+  // návrh (událost / e-mail) patří k poslední zprávě Clauda; rozpoznaný diktát k diktátu
+  const navrh = p.navrh ? navrhHtml(p, p.navrh) : mistni ? navrhHtml(p, mistni, true) : '';
+  if (navrh) zpravy.splice((posledniClaude >= 0 ? posledniClaude : 0) + 1, 0, navrh);
+  (odesila[p.id] || []).forEach((z) => {
+    zpravy.push(zpravaHtml('Michal', kdyZpravy(z.kdy), sOdkazy(z.text), { trida: 'chat-zprava--odesila', stav: 'odesílám…' }));
+  });
+  let h = '<div class="chat" role="log" aria-label="Konverzace s Claudem">' + zpravy.join('');
+  if (sk === 'nove') {
+    h += '<p class="chat-ceka"><i aria-hidden="true"><b></b><b></b><b></b></i><span>Claude odpoví při další schránce' +
+      ' (přes den každou půlhodinu)</span></p>';
+  }
+  h += '</div>';
+
+  // rychlé odpovědi podle druhu položky
+  const rychla = [];
+  const tl = (atr, ikona, text) => rychla.push('<button type="button" class="chip chat-rychla" ' + atr + ' data-id="' + id + '">' + ikona + '<span>' + text + '</span></button>');
+  if (sk === 'rozhodni') tl('data-polozka="udelej"', IKONY.fajfka, 'Udělej to');
+  if (sk === 'napad') { tl('data-polozka="udelej"', IKONY.fajfka, 'Udělej to'); tl('data-polozka="zahodit"', IKONY.smazat, 'Zahodit'); }
+  if (sk === 'ukol') {
+    tl('data-polozka="hotovo"', IKONY.fajfka, 'Hotovo');
+    if (umiMotor('polozkaTermin')) tl('data-polozka-akce="odlozit"', IKONY.pripomenout, p.termin ? 'Změnit termín' : 'Termín');
+  }
+  if (rychla.length) h += '<div class="chat-rychle">' + rychla.join('') + '</div>';
+
+  // pole na odpověď – u všech položek (vyřízená se odpovědí vrátí Claudovi)
+  if (sk === 'rozhodni' || umiMotor('polozkaUpravy')) {
+    const naPc = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+    const napoveda = { rozhodni: 'Odpověz Claudovi…', ukol: 'Napiš Claudovi…', napad: 'Napiš Claudovi…', nove: 'Doplň pro Clauda…', hotovo: 'Navázat – napiš Claudovi…' }[sk];
+    h += '<div class="chat-psani"><textarea class="chat-pole" data-odpoved="' + id + '" data-pole="odpoved-' + id + '" rows="1" placeholder="' +
+      napoveda + '" aria-label="Zpráva pro Clauda"></textarea>' +
+      '<button type="button" class="chat-odeslat" data-polozka="' + (sk === 'rozhodni' ? 'odpoved' : 'dopsat') + '" data-id="' + id + '" aria-label="Odeslat Claudovi" title="Odeslat' +
+      (naPc ? ' (Enter, nový řádek Shift+Enter)' : '') + '">' + IKONY.odeslat + '</button></div>';
+  }
+  // vedlejší úpravy: nadpis, téma, smazat
+  if (umiMotor('polozkaUpravy')) {
+    const vt = (jak, ikona, text) => '<button type="button" class="btn btn--ghost btn--sm" data-polozka-akce="' + jak + '" data-id="' + id + '">' + ikona + '<span>' + text + '</span></button>';
+    h += '<div class="akce akce--vedlejsi">' + vt('nadpis', IKONY.stitek, 'Nadpis') + vt('tema', IKONY.slozka, 'Téma') + vt('smazat', IKONY.smazat, 'Smazat') + '</div>';
+  }
+  return h;
+}
+
+/** Claudova odpověď: odkazy klikací (i [text](adresa)), **tučně**, `kód`, nadpisy „## …“ tučně, řádky „- “ jako odrážky
+ *  (text je napřed escapovaný). */
 function textClauda(t) {
   return sOdkazy(t)
+    .replace(/\[([^\]\n]+)\]\(<a href="([^"]+)" target="_blank" rel="noopener noreferrer">[^<]*<\/a>\)/g,
+      (m, text, adresa) => '<a href="' + adresa + '" target="_blank" rel="noopener noreferrer">' + text + '</a>')
     .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
     .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/^#{1,4}[ \t]+(.+)$/gm, '<b class="chat-nadpis">$1</b>')
     .replace(/^[ \t]*[-*] /gm, '• ');
+}
+
+/** Otevře položku a dá kurzor do pole na odpověď (nabídka Dopsat / Navázat, z telefonu přes stránku Schránka). */
+function napisK(id) {
+  if (stav.pohled !== 'schranka' && !document.querySelector('#p-' + stav.pohled + ' [data-polozka-id="' + CSS.escape(id) + '"]')) ukazPolozku(id);
+  else { stav.otevrene[id] = true; zmeneno(); }
+  setTimeout(() => {
+    const pole = document.querySelector('#p-' + stav.pohled + ' textarea[data-odpoved="' + CSS.escape(id) + '"]');
+    if (pole) { pole.scrollIntoView({ block: 'center', behavior: 'smooth' }); pole.focus({ preventScroll: true }); }
+  }, 60);
+}
+
+/** Odešle zprávu z pole položky (tlačítko vedle pole, Enter na PC) nebo pevný text rychlé odpovědi („Udělej to.“).
+ *  Bublina se ukáže hned, položka zůstane otevřená. */
+function odesliZpravu(tlacitko, pevnyText) {
+  const id = tlacitko.dataset.id, jak = tlacitko.dataset.polozka;
+  const pole = pevnyText ? null : tlacitko.closest('.chat-psani').querySelector('[data-odpoved]');
+  const text = pevnyText || (pole ? pole.value.trim() : '');
+  if (!text) { if (pole) pole.focus(); return; }
+  const z = { text, kdy: Date.now() };
+  (odesila[id] = odesila[id] || []).push(z);
+  if (pole) {
+    delete rozepsane[id];
+    pole.value = '';
+    prizpusobVysku(pole);
+  }
+  stav.otevrene[id] = true;
+  zmeneno();
+  volej('polozka', { id, jak, text }).then(() => {
+    // jako by to udělal motor: zpráva do konverzace, položka k Claudovi (NOVE); pak skutečná data z motoru
+    const p = najdi(id);
+    odesila[id] = (odesila[id] || []).filter((x) => x !== z);
+    if (p && stav.schranka) {
+      const d = new Date(z.kdy), d2 = (n) => String(n).padStart(2, '0');
+      const kdy = d.getFullYear() + '-' + d2(d.getMonth() + 1) + '-' + d2(d.getDate()) + ' ' + d2(d.getHours()) + ':' + d2(d.getMinutes());
+      const nova = Object.assign({}, p, { slozka: 'NOVE', vlakno: p.vlakno.concat([{ kdo: 'Michal', kdy, text }]) });
+      ['nove', 'ceka', 'hotovo'].forEach((k) => { stav.schranka[k] = stav.schranka[k].filter((x) => x.id !== id); });
+      stav.schranka.nove.unshift(nova);
+      ulozMistne();
+    }
+    zmeneno();
+    toast('Odesláno Claudovi');
+    ukazNaMiste(id);
+    return nactiSchranku();
+  }).catch((e) => {
+    odesila[id] = (odesila[id] || []).filter((x) => x !== z);
+    zmeneno();
+    if (!pevnyText) {
+      // text zpátky do pole, ať se neztratí
+      rozepsane[id] = text;
+      const p2 = document.querySelector('#p-' + stav.pohled + ' textarea[data-odpoved="' + CSS.escape(id) + '"]');
+      if (p2) { p2.value = text; prizpusobVysku(p2); }
+    }
+    toast('Neodesláno – ' + e.message, true);
+  });
+}
+
+/** Položka se po odpovědi přesune (k Claudovi) – dojet k ní, ať zůstane před očima. */
+function ukazNaMiste(id) {
+  setTimeout(() => {
+    const li = document.querySelector('#p-' + stav.pohled + ' [data-polozka-id="' + CSS.escape(id) + '"]');
+    if (!li) return;
+    const r = li.getBoundingClientRect();
+    if (r.top < 60 || r.bottom > window.innerHeight) li.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    li.classList.remove('blikni');
+    void li.offsetWidth;
+    li.classList.add('blikni');
+  }, 40);
+}
+
+/** Enter na PC odešle zprávu Claudovi (Shift+Enter = nový řádek); na dotyku Enter píše nový řádek, odesílá tlačítko. */
+export function klavesaSchranka(e) {
+  const t = e.target;
+  if (e.key !== 'Enter' || e.isComposing || !t.matches || !t.matches('textarea[data-odpoved]')) return false;
+  const naPc = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  if (e.shiftKey || (!naPc && !e.ctrlKey && !e.metaKey)) return false;
+  e.preventDefault();
+  const tl = t.closest('.chat-psani') && t.closest('.chat-psani').querySelector('.chat-odeslat');
+  if (tl) odesliZpravu(tl);
+  return true;
 }
 
 /** Pole pro zápis poznámky – vytváří se jednou, překreslování ho nemaže. */
@@ -264,6 +396,7 @@ export function obnovRozepsane(koren) {
   koren.querySelectorAll('textarea[data-odpoved]').forEach((t) => {
     const v = rozepsane[t.dataset.odpoved];
     if (v && t.value !== v) t.value = v;
+    if (t.value) prizpusobVysku(t);
   });
 }
 
@@ -325,7 +458,8 @@ export function vykresliSchranku(el) {
       (sbalit ? '<button type="button" class="agenda__vic" data-hotovo-vse>Ukázat všech ' + pol.length + ' vyřízených</button>' : '') + '</div></section>';
   });
   if (!neco) h += prazdnaHtml(napadyBokem && sk.napad.length);
-  if (h !== posledniObsah) { obsah.innerHTML = h; posledniObsah = h; obnovRozepsane(obsah); }
+  // prepisSPolem: pole s rozepsanou odpovědí, do kterého se píše, zůstane (fokus, kurzor, klávesnice v telefonu)
+  if (h !== posledniObsah) { prepisSPolem(obsah, h); posledniObsah = h; obnovRozepsane(obsah); }
   vykresliBok(el, sk);
 }
 
@@ -463,20 +597,11 @@ export function klikSchranka(el) {
   }
   if (el.dataset.polozka) {
     const jak = el.dataset.polozka, id = el.dataset.id;
-    let text = '';
-    if (jak === 'odpoved') {
-      // položka může být rozbalená ve dvou pohledech naráz – brát pole z té, kde se kliklo
-      const ta = el.closest('li').querySelector('[data-odpoved]');
-      text = ta ? ta.value.trim() : '';
-      if (!text) { if (ta) ta.focus(); return true; }
-    }
-    el.disabled = true;
-    volej('polozka', { id, jak, text }).then(() => {
-      delete stav.otevrene[id];
-      if (jak === 'odpoved') delete rozepsane[id];
-      toast({ hotovo: 'Hotovo', zahodit: 'Zahozeno', udelej: 'Předáno Claudovi', odpoved: 'Odpověď předána Claudovi' }[jak]);
-      return nactiSchranku();
-    }).catch((e) => { el.disabled = false; toast(e.message, true); });
+    // odeslat z pole (položka může být rozbalená ve dvou pohledech naráz – pole z té, kde se kliklo)
+    if (el.classList.contains('chat-odeslat')) { odesliZpravu(el); return true; }
+    // rychlé odpovědi: Udělej to = zpráva v konverzaci; Hotovo / Zahodit = hned mezi vyřízené
+    if (jak === 'udelej') { odesliZpravu(el, 'Udělej to.'); return true; }
+    vyriditPolozku(id);
     return true;
   }
   if (el.hasAttribute('data-schranka-znovu')) { nactiSchranku(); return true; }
@@ -485,7 +610,7 @@ export function klikSchranka(el) {
 
 export function vstupSchranka(e) {
   const t = e.target;
-  if (t.matches && t.matches('[data-odpoved]')) { rozepsane[t.dataset.odpoved] = t.value; return true; }
+  if (t.matches && t.matches('[data-odpoved]')) { rozepsane[t.dataset.odpoved] = t.value; prizpusobVysku(t); return true; }
   if (!t.matches || !t.matches('[data-zapis]')) return false;
   prizpusobVysku(t);
   const zapis = t.closest('.zapis');
@@ -564,14 +689,7 @@ async function upravPolozku(jak, id) {
   if (!p) return;
   try {
     if (jak === 'dopsat') {
-      const hotova = p.slozka === 'HOTOVO';
-      const text = await okno({ ikona: IKONY.psat, nadpis: hotova ? 'Navázat na vyřízenou poznámku' : 'Dopsat k poznámce',
-        text: (hotova ? 'Poznámka se vrátí ke zpracování a ' : '') + 'Claude doplnění vezme jako nový pokyn.',
-        pole: { popisek: 'Doplnění', radku: 4, placeholder: 'Co dalšího…' + (window.matchMedia('(hover: hover) and (pointer: fine)').matches ? ' (Ctrl+Enter uloží)' : '') }, ano: 'Uložit' });
-      if (!text) return;
-      await volej('polozka', { id, jak: 'dopsat', text });
-      toast('Doplněno – zpracuju při další schránce');
-      nactiSchranku();
+      napisK(id); // pole na odpověď přímo v položce (dřív okno)
     } else if (jak === 'nadpis') {
       const text = await okno({ ikona: IKONY.stitek, nadpis: 'Nadpis', text: 'Krátký název, podle kterého poznámku najdeš.',
         pole: { popisek: 'Nadpis', hodnota: nadpis(p), placeholder: 'např. Lešení – objednávka' }, ano: 'Uložit' });

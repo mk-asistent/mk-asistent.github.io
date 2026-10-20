@@ -1515,6 +1515,7 @@ document.addEventListener('keydown', (e) => {
   if (zdravi.klavesaZdravi(e)) return; // Enter v poli váhy = Zapsat
   if (auto.klavesaAuto(e)) return; // Enter v okně tankování / výdaje = Zapsat
   if (moje.klavesaMoje(e)) return; // Enter v poli Moje poznámky = Přidat
+  if (schranka.klavesaSchranka(e)) return; // Enter na PC v poli odpovědi Claudovi = Odeslat (Shift+Enter nový řádek)
   if (knihovnaModul && knihovnaModul.klavesaKnihovna(e)) return; // Enter v okně Přidat do knihovny, Esc v hledání knihovny
   // Ctrl/Cmd+K = hledání (všude)
   if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); hledat.otevriHledani(); return; }

@@ -155,7 +155,7 @@ svg { flex: none; width: 1.25em; height: 1.25em; } /* výchozí velikost – kon
 .fmr > * { min-width: 0; }
 .fmr__cely { grid-column: 1 / -1; }
 @media (pointer: coarse) {
-    .field, .psani input, .psani textarea, .zapis textarea, .odpoved, .hledat-pole input { font-size: 16px; } /* iPhone jinak přibližuje */
+    .field, .psani input, .psani textarea, .zapis textarea, .odpoved, .chat-pole, .hledat-pole input { font-size: 16px; } /* iPhone jinak přibližuje */
     .btn { min-height: 42px; }
     .btn--sm { min-height: 36px; }
     .btn--ikona { width: 42px; height: 42px; min-height: 42px; }
@@ -1622,12 +1622,47 @@ li.aktivni > .radek { background: var(--sand); box-shadow: inset 3px 0 0 var(--a
 .zapis-navrh .btn:hover { filter: brightness(.96); }
 @keyframes vyjed { from { opacity: 0; transform: translateY(-3px); } }
 .detail { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 10px; }
-.bublina { max-width: 92%; border-radius: 14px; padding: 10px 13px; font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--line-soft); }
-.bublina .kdo { display: block; font-size: 11px; font-weight: 650; color: var(--muted); margin-bottom: 2px; }
-.b-michal { align-self: flex-end; background: var(--sand); border-bottom-right-radius: 4px; }
-.b-claude { align-self: flex-start; background: var(--surface); border-bottom-left-radius: 4px; }
-.bublina code { font-size: 12px; background: var(--bg-soft); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
-.bublina a { color: var(--accent); }
+/* konverzace s Claudem v rozbalené položce schránky (20. 10.): dřív třída .bublina = stejná jako vyjeté karty (position: fixed)
+   → bubliny se kreslily vlevo nahoře přes hlavičku. Teď .chat-zprava, ty vpravo, Claude vlevo do fialova; pod nimi pole. */
+.chat { display: flex; flex-direction: column; gap: 8px; padding-top: 2px; }
+.chat-zprava { max-width: min(88%, 680px); border-radius: 18px; padding: 9px 14px 10px; font-size: 13.5px; line-height: 1.5; white-space: pre-wrap;
+    overflow-wrap: anywhere; border: 1px solid var(--line-soft); }
+.chat-zprava .kdo { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 650; color: var(--muted); margin-bottom: 3px; white-space: normal; }
+.chat-zprava .kdo svg { width: 13px; height: 13px; color: var(--fialova); }
+.b-michal { align-self: flex-end; background: var(--sand); border-bottom-right-radius: 6px; }
+.b-claude { align-self: flex-start; background: var(--fialova-tint); border-color: color-mix(in srgb, var(--fialova) 18%, transparent); border-bottom-left-radius: 6px; }
+.chat-zprava code { font-size: 12px; background: var(--bg-soft); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+.chat-zprava a { color: var(--accent); }
+.chat-zprava .chat-nadpis { display: inline-block; margin-top: 2px; }
+.chat-zprava--odesila { opacity: .65; }
+.chat-zprava__stav { display: block; margin-top: 3px; font-size: 11px; color: var(--muted); text-align: right; white-space: normal; }
+.chat .navrh { max-width: min(88%, 680px); }
+/* Claude ještě neodpověděl: tři tečky jako „píše…“ */
+.chat-ceka { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12px; color: var(--muted); }
+.chat-ceka i { display: inline-flex; gap: 3px; padding: 7px 10px; border-radius: 14px; background: var(--fialova-tint); }
+.chat-ceka b { width: 5px; height: 5px; border-radius: 50%; background: var(--fialova); opacity: .35; animation: chat-tecka 1.4s infinite ease-in-out; }
+.chat-ceka b:nth-child(2) { animation-delay: .2s; }
+.chat-ceka b:nth-child(3) { animation-delay: .4s; }
+@keyframes chat-tecka { 0%, 70%, 100% { opacity: .3; transform: none; } 35% { opacity: 1; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .chat-ceka b { animation: none; opacity: .6; } }
+/* rychlé odpovědi nad polem */
+.chat-rychle { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.chat-rychla { display: inline-flex; align-items: center; gap: 5px; }
+.chat-rychla svg { width: 14px; height: 14px; }
+/* pole na odpověď: zaoblené jako v chatu, tlačítko Odeslat vpravo uvnitř */
+.chat-psani { display: flex; align-items: flex-end; gap: 6px; padding: 5px 5px 5px 4px; border: 1px solid var(--line); border-radius: 22px; background: var(--surface); }
+.chat-psani:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+.chat-pole { flex: 1; min-width: 0; min-height: 34px; max-height: 40vh; border: 0; outline: 0; background: transparent; color: var(--text); resize: none;
+    padding: 7px 10px; font: inherit; font-size: 14px; line-height: 1.45; overflow-y: auto; }
+.chat-odeslat { flex: none; width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--accent-btn);
+    color: var(--na-akcentu); cursor: pointer; transition: opacity .15s, transform .1s; }
+.chat-odeslat:hover { background: var(--accent-btn-hover); }
+.chat-odeslat:active { transform: scale(.94); }
+.chat-odeslat svg { width: 16px; height: 16px; }
+.chat-psani:has(.chat-pole:placeholder-shown) .chat-odeslat { opacity: .4; }
+/* položka po odpovědi přejede k Claudovi – krátce se rozsvítí, ať je vidět, kde je */
+li.blikni { animation: blikni-polozku 1.2s ease-out; }
+@keyframes blikni-polozku { from { background: var(--fialova-tint); } to { background: transparent; } }
 .akce { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .akce--vedlejsi { justify-content: flex-start; gap: 6px; padding-top: 2px; border-top: 1px dashed var(--line); padding-top: 10px; }
 .akce--vedlejsi .btn { color: var(--muted); }
