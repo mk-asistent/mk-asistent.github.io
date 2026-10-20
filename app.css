@@ -1644,6 +1644,10 @@ li.aktivni > .radek { background: var(--sand); box-shadow: inset 3px 0 0 var(--a
 .chat-ceka b:nth-child(2) { animation-delay: .2s; }
 .chat-ceka b:nth-child(3) { animation-delay: .4s; }
 @keyframes chat-tecka { 0%, 70%, 100% { opacity: .3; transform: none; } 35% { opacity: 1; transform: translateY(-2px); } }
+.chat-ceka { flex-wrap: wrap; }
+.chat-hned { display: inline-flex; align-items: center; gap: 5px; margin-left: 4px; }
+.chat-hned svg { width: 14px; height: 14px; color: var(--fialova); }
+.chat-ceka--hned span { color: var(--text-soft); }
 @media (prefers-reduced-motion: reduce) { .chat-ceka b { animation: none; opacity: .6; } }
 /* rychlé odpovědi nad polem */
 .chat-rychle { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
@@ -1979,6 +1983,15 @@ li.vybrany > .radek-posta, li.vybrany > .radek-posta:hover { background: var(--a
 .prilohy li { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-soft); font-size: 12.5px; }
 .prilohy svg { width: 14px; height: 14px; color: var(--muted); }
 .prilohy small { color: var(--muted); }
+/* Pošta – co bylo vidět, zůstane na místě (20. 10.): čip s nulou ztlumený, nula u záložky / skupiny neviditelná (drží místo) */
+.posta-filtry .chip--nula[aria-pressed="false"] { opacity: .55; }
+.pocet-nula { visibility: hidden; }
+/* příloha s náhledem (js/priloha.js): celá dlaždice je tlačítko */
+.prilohy li:has(> .priloha) { padding: 0; border: 0; background: none; }
+.priloha { display: flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--bg-soft); color: inherit; font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; transition: border-color .15s, background .15s; }
+.priloha:hover { border-color: var(--accent); background: var(--surface); }
+.priloha:hover svg { color: var(--accent); }
 .vlakno-akce { display: flex; gap: 8px; }
 .vlakno-akce .btn { flex: 1; }
 
@@ -2395,6 +2408,35 @@ input.field[type="date"], input.field[type="time"] { min-width: 0; }
     .panel-hledat.panel-okno { top: 12vh; transform: translate(-50%, 0) scale(.98); max-height: 70vh; }
     .panel-hledat.panel-okno.otevreny { transform: translate(-50%, 0); }
     .panel-hledat.panel-okno.zavira { transform: translate(-50%, 0) scale(.98); }
+}
+
+/* náhled přílohy e-mailu (js/priloha.js, 20. 10.): PDF stránku po stránce na šedém podkladu, obrázek, jiný soubor jen
+   Stáhnout. Na PC velké okno uprostřed, na telefonu přes celou obrazovku. Zoom: šířka stránky = šířka okna × --pri-zoom
+   (cqw – kontejner), větší stránka přeteče a okno se posouvá i do strany (margin auto, ne centrování – levý okraj by
+   byl nedosažitelný). */
+.panel-priloha .panel-telo { padding: 0; background: var(--bg-soft); }
+.pri-pdf { container-type: inline-size; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding: 16px 0 24px; }
+.pri-pdf__stav { margin: 40px auto; color: var(--muted); font-size: 13px; }
+.pri-stranka { flex: none; width: calc((100cqw - 32px) * var(--pri-zoom, 1)); margin-inline: auto; background: #fff; border-radius: 3px; overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .12), 0 8px 22px -10px rgba(0, 0, 0, .3); color: #555; font-size: 12px; display: grid; place-items: center; }
+.pri-stranka canvas { display: block; width: 100%; height: auto; }
+.pri-obrazek { display: grid; place-items: center; padding: 16px; min-height: 100%; }
+.pri-obrazek img { max-width: 100%; height: auto; border-radius: 4px; background: #fff; box-shadow: 0 8px 22px -10px rgba(0, 0, 0, .3); }
+.pri-nacita { padding: 18px 20px; }
+.pri-nacita p { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+.pri-nacita svg, .pri-zprava .kruh svg { width: 16px; height: 16px; }
+.pri-zprava { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 420px; margin: 0 auto; padding: 48px 20px; text-align: center; }
+.pri-zprava span { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.pri-zprava .btn { margin-top: 6px; }
+.pri-zoom { display: flex; align-items: center; gap: 2px; }
+.pri-zoom .btn--ikona { font-size: 18px; font-weight: 600; }
+.akce--priloha { align-items: center; }
+.pri-stranek { margin-right: auto; color: var(--muted); font-size: 12.5px; }
+@media (min-width: 760px) {
+    .panel.panel-okno.panel-priloha { width: min(1000px, 94vw); height: min(92vh, 1400px); max-height: 92vh; }
+}
+@media (max-width: 759px) {
+    .akce--priloha .btn--ghost span { display: none; }
 }
 
 /* ================================================================ Nastavení a úvod */

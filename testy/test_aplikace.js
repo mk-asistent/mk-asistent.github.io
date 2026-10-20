@@ -1935,7 +1935,9 @@ function vychoziVikendTestu() {
     await page.click('.okno-pozadi [data-okno="ano"]');
     await page.waitForFunction(() => /Označeno jako přečtené: 1/.test(document.getElementById('toast').textContent));
     jistota(postaPrecteno.join() === 'promo', 'přečíst vše: ' + postaPrecteno.join());
-    jistota(!/Promoakce\s*\d/.test(await page.textContent('.posta-kategorie')), 'číslo u Promoakcí pryč');
+    // číslo pryč – místo drží neviditelná nula (záložky za ní neuskočí, od 20. 10.)
+    jistota(!/Promoakce\s*\d/.test(await page.innerText('.posta-kategorie')) &&
+      await page.locator('.posta-kategorie [data-kategorie-posty="promo"] .pocet-nula').count() === 1, 'číslo u Promoakcí pryč (místo drží neviditelná nula)');
     // položka přehledu jde skrýt (v zařízení)
     await page.click('#posta-seznam .posta-prehled [data-prehled-skryt="k1"]');
     await page.waitForFunction(() => !document.querySelector('#posta-seznam .posta-prehled [data-vlakno="k1"]'));
@@ -4206,6 +4208,131 @@ function vychoziVikendTestu() {
 
   // ---------- konverzace v položce (Michal 20. 10.: „rozkliknu a nezobrazuje se to vůbec dobře … chtěl bych na to zareagovat
   // v chatu … mělo by to být u sebe“): bubliny dřív měly třídu vyjetých karet (position: fixed) a kreslily se vlevo nahoře
+  // ---------- Pošta v klidu (Michal 20. 10.: „když na poště vyberu e-mail, tak se to přesune a posune … ať je vše na svém místě“):
+  // otevření posledního nepřečteného nesmí schovat čip Nepřečtené (čipy za ním by uskočily), ve filtru Nepřečtené otevřený
+  // e-mail zůstane v seznamu, ostatní řádky se nepřekreslí (rychlé akce pod myší zůstanou)
+  await test('pošta: otevření e-mailu nic neposune – čip s nulou zůstane, řádek ve filtru zůstane, ostatní řádky se nepřekreslí', async () => {
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    await page.goto(WEB);
+    await page.click('#rail [data-cil="posta"]');
+    await page.waitForSelector('#posta-seznam [data-vlakno]');
+    const cipy = () => page.evaluate(() => Array.from(document.querySelectorAll('#posta-filtry .segment [data-filtr-posty]'))
+      .map((b) => b.dataset.filtrPosty + '@' + Math.round(b.getBoundingClientRect().left)));
+    const pred = await cipy();
+    jistota(pred.some((x) => /^neprectene@/.test(x)), 'čip Nepřečtené na začátku: ' + pred.join(' '));
+    // všechny nepřečtené postupně otevřít
+    for (let i = 0; i < 5; i++) {
+      const b = page.locator('#posta-seznam li.neprect [data-vlakno]').first();
+      if (!(await b.count())) break;
+      // značka na ostatních řádcích: nepřekreslený řádek si ji nechá
+      await page.evaluate(() => document.querySelectorAll('#posta-seznam li').forEach((li) => { li.dataset.znacka = '1'; }));
+      const id = await b.getAttribute('data-vlakno');
+      await b.click();
+      await page.waitForFunction((x) => { const r = Array.from(document.querySelectorAll('#posta-seznam [data-vlakno]')).find((e) => e.dataset.vlakno === x); return r && r.closest('li').classList.contains('prect'); }, id);
+      const zustalo = await page.evaluate((x) => Array.from(document.querySelectorAll('#posta-seznam li')).filter((li) => {
+        const b2 = li.querySelector(':scope > [data-vlakno]');
+        return b2 && b2.dataset.vlakno !== x && !li.classList.contains('aktivni') && li.dataset.znacka !== '1';
+      }).length, id);
+      jistota(zustalo === 0, 'překreslily se i jiné řádky: ' + zustalo);
+    }
+    const po = await cipy();
+    jistota(JSON.stringify(po) === JSON.stringify(pred), 'čipy se posunuly: ' + pred.join(' ') + ' → ' + po.join(' '));
+    jistota(/0/.test(await page.textContent('#posta-filtry [data-filtr-posty="neprectene"]')), 'Nepřečtené s nulou');
+    // filtr Nepřečtené: označit jeden jako nepřečtený, otevřít – zůstane v seznamu
+    await page.click('#posta-filtry [data-filtr-posty="vse"]');
+    const prvni = page.locator('#posta-seznam li [data-vlakno]').first();
+    const idPrvni = await prvni.getAttribute('data-vlakno');
+    await page.evaluate((x) => import('/js/stav.js').then(({ stav, zmeneno }) => {
+      const m = (stav.posta.osobni || []).concat(stav.posta.pracovni || []).find((z) => z.id === x);
+      if (m) m.neprectena = true;
+      zmeneno();
+    }), idPrvni);
+    await page.click('#posta-filtry [data-filtr-posty="neprectene"]');
+    await page.waitForSelector('#posta-seznam li.neprect [data-vlakno="' + idPrvni + '"]');
+    await page.click('#posta-seznam [data-vlakno="' + idPrvni + '"]');
+    await page.waitForSelector('#posta-seznam li.prect [data-vlakno="' + idPrvni + '"]');
+    await page.waitForTimeout(300);
+    jistota(await page.locator('#posta-seznam [data-vlakno="' + idPrvni + '"]').count() === 1, 'otevřený e-mail má ve filtru Nepřečtené zůstat');
+    // jiný filtr a zpět – teprve teď zmizí
+    await page.click('#posta-filtry [data-filtr-posty="vse"]');
+    await page.click('#posta-filtry [data-filtr-posty="neprectene"]');
+    await page.waitForFunction((x) => !document.querySelector('#posta-seznam [data-vlakno="' + x + '"]'), idPrvni);
+    jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    await ctx.close();
+  });
+
+  // ---------- náhled přílohy (Michal 20. 10.: „dokážeme na gmailu náhled pdf? … v poště na webu“): klepnutí na přílohu →
+  // postaPriloha → okno s PDF po stránkách (pdf.js z js/vendor), zoom, Stáhnout; jiný typ jen Stáhnout; chyba motoru → Zkusit znovu
+  await test('pošta: náhled přílohy – PDF po stránkách v okně, zoom, Stáhnout, jiný soubor bez náhledu, chyba motoru, podruhé z paměti', async () => {
+    const puvodniVlakno = motor.vlakno;
+    const PDF = /UKAZKOVE_PDF = '([^']+)'/.exec(fs.readFileSync(path.join(KOREN, 'js', 'ukazka.js'), 'utf8'))[1];
+    motor.vlakno = (d) => {
+      const v = puvodniVlakno(d);
+      if (d.id === 'v2') v.zpravy[v.zpravy.length - 1].prilohy = [{ nazev: 'protokol.pdf', velikost: 1100 }, { nazev: 'tabulka.xlsx', velikost: 2300 }];
+      return v;
+    };
+    motor.postaPriloha = (d) => (d.i === 0 ? { nazev: 'protokol.pdf', typ: 'application/pdf', velikost: 1100, data: PDF }
+      : { nazev: 'tabulka.xlsx', typ: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', velikost: 2300, data: Buffer.from('xlsx').toString('base64') });
+    try {
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="posta"]');
+      await page.evaluate(() => import('/js/posta.js').then((m) => m.otevriVlakno('v2')));
+      await page.waitForSelector('.priloha[data-priloha-i="1"]');
+      const pred = volano.length;
+      await page.click('.priloha[data-priloha-i="0"]');
+      const okno = '[data-panel="priloha"]';
+      await page.waitForFunction((o) => document.querySelectorAll(o + ' .pri-stranka canvas').length === 2, okno);
+      jistota(volano.slice(pred).some((d) => d.akce === 'postaPriloha' && d.zprava === 'm-v2' && d.i === 0 && d.nazev === 'protokol.pdf'), 'požadavek na přílohu');
+      const pata = await page.textContent(okno + ' .panel-paticka');
+      jistota(/2 strany/.test(pata) && /Stáhnout/.test(pata) && /Otevřít v prohlížeči/.test(pata), 'patička: ' + pata);
+      jistota(/protokol\.pdf/.test(await page.textContent(okno + ' .panel-titul')), 'název v hlavičce');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_priloha_pdf.png') });
+      // zoom: stránka širší než okno → posun do strany; 100 % vrátí
+      await page.click(okno + ' [data-pri-zoom="1"]');
+      await page.click(okno + ' [data-pri-zoom="1"]');
+      await page.waitForFunction((o) => { const t = document.querySelector(o + ' .panel-telo'); return t.scrollWidth > t.clientWidth + 50; }, okno);
+      jistota(/200 %/.test(await page.textContent(okno + ' .pri-zoom')), 'zoom 200 %');
+      await page.waitForFunction((o) => Array.from(document.querySelectorAll(o + ' .pri-stranka')).some((s) => s.dataset.vykresleno === '2'), okno);
+      await page.click(okno + ' [data-pri-zoom="0"]');
+      await page.waitForFunction((o) => { const t = document.querySelector(o + ' .panel-telo'); return t.scrollWidth <= t.clientWidth + 1; }, okno);
+      // Stáhnout: soubor se jménem přílohy
+      const [stazeni] = await Promise.all([page.waitForEvent('download'), page.click(okno + ' [data-pri-stahnout]')]);
+      jistota(stazeni.suggestedFilename() === 'protokol.pdf', 'stažený soubor: ' + stazeni.suggestedFilename());
+      await page.keyboard.press('Escape');
+      await page.waitForSelector(okno, { state: 'detached' });
+      // podruhé z paměti – motor se znovu neptá
+      const pocet = volano.filter((d) => d.akce === 'postaPriloha').length;
+      await page.click('.priloha[data-priloha-i="0"]');
+      await page.waitForFunction((o) => document.querySelectorAll(o + ' .pri-stranka canvas').length === 2, okno);
+      jistota(volano.filter((d) => d.akce === 'postaPriloha').length === pocet, 'podruhé má jít z paměti');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector(okno, { state: 'detached' });
+      // jiný typ: bez náhledu, jen Stáhnout
+      await page.click('.priloha[data-priloha-i="1"]');
+      await page.waitForFunction((o) => document.querySelector(o + ' .pri-zprava') && /neumí/.test(document.querySelector(o + ' .pri-zprava').textContent), okno);
+      jistota(await page.locator(okno + ' [data-pri-stahnout]').count() === 1, 'xlsx: Stáhnout');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector(okno, { state: 'detached' });
+      // chyba motoru → hláška a Zkusit znovu (paměť drží jen úspěšné)
+      await page.evaluate(() => import('/js/stav.js').then(({ stav }) => { stav.vlakna.v2.data.zpravy.forEach((z) => { z.id = z.id + '-x'; }); stav.vlakna.v2.verze = (stav.vlakna.v2.verze || 0) + 1; }));
+      chybaMotoru.postaPriloha = 'Gmail teď neodpovídá.';
+      await page.evaluate(() => import('/js/stav.js').then(({ zmeneno }) => zmeneno()));
+      await page.waitForSelector('.priloha[data-priloha="m-v2-x"]');
+      await page.click('.priloha[data-priloha="m-v2-x"][data-priloha-i="0"]');
+      await page.waitForFunction((o) => document.querySelector(o + ' [data-pri-znovu]') && /neodpovídá/.test(document.querySelector(o).textContent), okno);
+      delete chybaMotoru.postaPriloha;
+      await page.click(okno + ' [data-pri-znovu]');
+      await page.waitForFunction((o) => document.querySelectorAll(o + ' .pri-stranka canvas').length === 2, okno);
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      await ctx.close();
+    } finally {
+      delete chybaMotoru.postaPriloha;
+      motor.vlakno = puvodniVlakno;
+      delete motor.postaPriloha;
+    }
+  });
+
   await test('schránka: konverzace v položce – bubliny u sebe, odpověď z pole hned v chatu (Enter na PC), položka zůstane otevřená, Dopsat = pole', async () => {
     const puvodni = motor.schranka, puvodniPolozka = motor.polozka;
     // motor si odpovědi pamatuje: zpráva do vlákna, položka k Claudovi (NOVE) – jako skutečný upravPolozku_

@@ -69,6 +69,7 @@ const Z_KOPIE = ['info', 'schranka', 'posta', 'fotbal', 'reely', 'zmeny', 'plaka
 // akce, které jen čtou – všechno ostatní mění data (i otevření konverzace: označí ji jako přečtenou)
 export const CTENI = ['info', 'schranka', 'posta', 'kalendar', 'kalendare', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka', 'stitky',
   'postaDetaily', // pošta: přednačtení detailů posledních konverzací (nic neoznačí jako přečtené)
+  'postaPriloha', // pošta: obsah přílohy pro náhled
   'kontakty', 'hledat', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'zmeny', 'plakaty',
   'igStav', // čtení bez kopie nic nezneplatní (igStav = průběh zveřejňování na Instagram, js/ig.js)
   'igSkupiny', // skupiny k označení (js/ig_skupiny.js) – jen když je kopie reelů ani plakátů nemá

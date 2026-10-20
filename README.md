@@ -139,6 +139,14 @@ později** (ve „Vše“ jen tady, ve filtru Nápady v seznamu). Od 1180 px dva
 Otevřít, Hotovo / Vyřízeno / Zahodit, Dopsat / Navázat, **Smazat** (`js/nabidka.js`; motor `schrankaSmazat` /
 `schrankaObnovit` – jen poznámky ze stromu schránky).
 
+**Konverzace jako chat** (od 20. 10.): rozbalená položka ukáže diktát a odpovědi pod sebou jako chat (ty vpravo, Claude
+vlevo fialově, návrh od Clauda u jeho zprávy), pod nimi rychlé odpovědi (Udělej to · Hotovo · Termín · Zahodit) a pole
+na odpověď u každé položky – Enter na PC odešle, Shift+Enter nový řádek, na telefonu tlačítko. Odeslaná zpráva je hned
+v konverzaci, položka zůstane otevřená (přesune se ke Claudovi a stránka k ní dojede). **Odpovědět hned** (motor
+`schrankaHned` → soubor `.hned` ve schránce): tlačítko se ukáže, až na PC poběží hlídač
+(`NASTROJE\asistent\schranka\hlidac_hned.py`, píše `.hlidac`) – zatím nezapnutý, čeká na Michalovo rozhodnutí
+(spouštěl by Clauda bez dozoru).
+
 **Moje poznámky** (Michal 9. 10.: „poznámka sám pro sebe na později … na hlavní stránce pro mě“): zkratka „Pro mě“
 v iPhonu, „+“ → Moje poznámka, pole na kartě (Enter). Jen pro Michala, Claude je nečte: `CLAUDE_SCHRANKA/MOJE` (stejný
 tvar jako NOVE), hotové `MOJE/HOTOVO`, smazané do koše. Karta na Dnes (5 nejnovějších) a vpravo ve Schránce: kroužek =
@@ -147,6 +155,14 @@ schránky), Kopírovat text, Smazat (Vrátit). Motor: `schranka` posílá i `moj
 `mojeHotovo` (`zpet` = vrátit z hotových), `mojeSmazat` (`js/moje.js`).
 
 ## Pošta jako případy
+**Náhled příloh** (od 20. 10.): klepnutí na přílohu v detailu e-mailu z Gmailu otevře okno s náhledem – PDF stránku po
+stránce (pdf.js 4.10.38 v `js/vendor`, ověřené npm × cdnjs, načte se až při prvním náhledu a pak jde i bez sítě),
+obrázek celý, jiný soubor jen **Stáhnout** (na telefonu **Uložit / sdílet**). Zoom − / % / +, **Otevřít v prohlížeči**
+(PC – hledání v textu, tisk), **Otevřít v Gmailu**. Motor `postaPriloha {zprava, i, nazev}` → base64 (nejvýš 15 MB),
+načtené přílohy si aplikace pamatuje do zavření (~60 MB). Pracovní pošta z WEDOS náhled zatím nemá.
+**Klid při klikání** (od 20. 10.): čip filtru s nulou zůstane (ztlumený), počet u záložky a skupiny drží místo,
+otevřený e-mail zůstane v seznamu filtru (Nepřečtené…) do změny filtru a překreslí se jen změněné řádky.
+
 Nápad převzatý z poštovního klienta [Mailer](https://www.fastmailer.one/) (pravidla jsou vlastní): každá konverzace
 v Doručené poště má stav, který motor určí hned a bez AI:
 

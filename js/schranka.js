@@ -215,10 +215,7 @@ function chatHtml(p, sk, mistni) {
     zpravy.push(zpravaHtml('Michal', kdyZpravy(z.kdy), sOdkazy(z.text), { trida: 'chat-zprava--odesila', stav: 'odesílám…' }));
   });
   let h = '<div class="chat" role="log" aria-label="Konverzace s Claudem">' + zpravy.join('');
-  if (sk === 'nove') {
-    h += '<p class="chat-ceka"><i aria-hidden="true"><b></b><b></b><b></b></i><span>Claude odpoví při další schránce' +
-      ' (přes den každou půlhodinu)</span></p>';
-  }
+  if (sk === 'nove') h += cekaHtml(p.id);
   h += '</div>';
 
   // rychlé odpovědi podle druhu položky
@@ -247,6 +244,84 @@ function chatHtml(p, sk, mistni) {
     h += '<div class="akce akce--vedlejsi">' + vt('nadpis', IKONY.stitek, 'Nadpis') + vt('tema', IKONY.slozka, 'Téma') + vt('smazat', IKONY.smazat, 'Smazat') + '</div>';
   }
   return h;
+}
+
+// ---------------------------------------------------------------- Odpovědět hned (Michal 20. 10.: „na stránce bych chtěl mít možnost
+// vyvolání Claudovy odpovědi hned a ne po půl hodině“): motor zapíše žádost .hned do schránky, hlídač na PC
+// (NASTROJE\asistent\schranka\hlidac_hned.py) spustí zpracování hned. Aplikace pak každých 15 s čte schránku přímo
+// z motoru, dokud Claude neodpoví (nejvýš 15 min). Stav hlídače (.hlidac) říká, jestli PC s Claudem běží.
+
+const HNED_KONTROLA = 15000, HNED_NEJDEL = 15 * 60000, HLIDAC_ZIVY = 3 * 60000;
+const hnedMistne = {}; // id ('' = vše) → čas žádosti z tohoto zařízení (než odpoví motor)
+let hnedCasovac = null, hnedOd = 0;
+
+/** { pozadano (ms) | 0, bezi, hlidac: 'zivy' | 'neprihlasen' | 'chyba' | 'nebezi' | '' } pro položku (id) nebo celou schránku (''). */
+export function stavHned(id) {
+  const s = stav.schranka || {};
+  const h = s.hned;
+  const pozadano = Math.max(hnedMistne[id] || 0, hnedMistne[''] || 0,
+    h && (h.ids.indexOf(id) >= 0 || !h.ids.length || !id) ? h.kdy : 0);
+  const hl = s.hlidac;
+  const hlidac = !hl ? '' : Date.now() - hl.kdy > HLIDAC_ZIVY ? 'nebezi' : hl.stav === 'neprihlasen' ? 'neprihlasen' : hl.stav === 'chyba' ? 'chyba' : 'zivy';
+  return { pozadano, bezi: !!(s.bezi || (hl && hl.stav === 'bezi' && hlidac !== 'nebezi')), hlidac };
+}
+
+/** Tlačítko Odpovědět hned jen tam, kde na PC běží hlídač (.hlidac – bez něj by žádost nikdo nevyřídil dřív než úloha). */
+function lzeHned() { return umiMotor('schrankaHned') && !!(stav.schranka && stav.schranka.hlidac); }
+
+/** Řádek pod konverzací u poznámky, která čeká na Clauda: kdy odpoví, tlačítko Odpovědět hned, nebo že už odpovídá. */
+function cekaHtml(id) {
+  const st = stavHned(id);
+  const tecky = '<i aria-hidden="true"><b></b><b></b><b></b></i>';
+  if (st.pozadano && Date.now() - st.pozadano < HNED_NEJDEL) {
+    const text = st.hlidac === 'nebezi' || st.hlidac === ''
+      ? 'Žádost „odpovědět hned“ je uložená, ale PC s Claudem teď neběží – odpoví, až se zapne.'
+      : st.hlidac === 'neprihlasen' ? 'Claude na PC není přihlášený – odpoví při další schránce. (Přihlášení: README → Odpovědět hned.)'
+        : 'Claude odpovídá' + (st.bezi ? '' : ' – spouští se') + ' · požádáno ' + hhmm(st.pozadano) + '. Odpověď se tu ukáže sama.';
+    return '<p class="chat-ceka chat-ceka--hned">' + tecky + '<span>' + esc(text) + '</span></p>';
+  }
+  return '<p class="chat-ceka">' + tecky + '<span>Claude odpoví při další schránce (přes den každou půlhodinu)</span>' +
+    (lzeHned() ? '<button type="button" class="chip chat-hned" data-schranka-hned="' + esc(id) + '">' + IKONY.blesk + '<span>Odpovědět hned</span></button>' : '') + '</p>';
+}
+
+/** Tlačítko Odpovědět hned (u položky, nebo '' = celá schránka). */
+function pozadatHned(id) {
+  hnedMistne[id] = Date.now();
+  zmeneno();
+  volej('schrankaHned', id ? { id } : {}).then((r) => {
+    if (stav.schranka && r && r.hned) stav.schranka.hned = r.hned;
+    const st = stavHned(id);
+    toast(st.hlidac === 'zivy' ? 'Claude začíná – odpověď tu bude za pár minut' : 'Uloženo – PC s Claudem teď neběží, odpoví po zapnutí');
+    zmeneno();
+    hlidejOdpoved(true);
+  }).catch((e) => {
+    delete hnedMistne[id];
+    zmeneno();
+    toast('Nepovedlo se – ' + e.message, true);
+  });
+}
+
+/** Po žádosti „hned“ číst schránku přímo z motoru, dokud žádná poznámka s žádostí nečeká u Clauda (nejvýš 15 min). */
+function hlidejOdpoved(znovu) {
+  if (znovu) hnedOd = Date.now();
+  if (hnedCasovac) return;
+  const kolo = () => {
+    hnedCasovac = null;
+    const s = stav.schranka;
+    const cekajici = s && s.nove.some((p) => stavHned(p.id).pozadano);
+    if (!cekajici || Date.now() - hnedOd > HNED_NEJDEL) return;
+    hnedCasovac = setTimeout(() => {
+      hnedCasovac = null;
+      volej('schranka', { znovu: true }).then((data) => {
+        stav.schranka = data;
+        ulozMistne();
+        // žádost z tohoto zařízení už motor zná – dál platí jen jeho záznam (po odpovědi zmizí)
+        Object.keys(hnedMistne).forEach((k) => { if (data.hned || data.bezi) delete hnedMistne[k]; });
+        zmeneno();
+      }).catch(() => { /* příští kolo */ }).then(kolo);
+    }, HNED_KONTROLA);
+  };
+  kolo();
 }
 
 /** Claudova odpověď: odkazy klikací (i [text](adresa)), **tučně**, `kód`, nadpisy „## …“ tučně, řádky „- “ jako odrážky
@@ -403,6 +478,7 @@ export function obnovRozepsane(koren) {
 // seznam a filtry se přepíšou jen při změně HTML (rozbalená položka s polem, fokus a posun zůstanou)
 let posledniFiltry = null, posledniObsah = null;
 export function vykresliSchranku(el) {
+  if (stav.schranka && stav.schranka.hned && !hnedCasovac && Date.now() - stav.schranka.hned.kdy < HNED_NEJDEL) { hnedOd = stav.schranka.hned.kdy; hlidejOdpoved(); }
   if (!el.querySelector('#schranka-obsah')) {
     posledniFiltry = posledniObsah = null;
     // vlevo zápis, filtry a seznam; vpravo přehled (na telefonu a iPadu na výšku pod seznamem). Pole pro zápis se
@@ -535,7 +611,8 @@ function tydenHtml() {
   const pozde = nejstarsi && Date.now() - nejstarsi > 3 * 36e5 && (!z || z < nejstarsi);
   const claude = '<p class="sb-claude' + (pozde ? ' sb-claude--pozde' : '') + '"><i aria-hidden="true"></i><span>' +
     (z ? 'Claude naposledy ' + esc(kdyClaude(z)) : 'Claude schránku ještě nezpracoval') +
-    (u.length ? ' · <button type="button" class="odkaz" data-sb-filtr="nove">u Clauda ' + u.length + '</button>' : ' · nic u něj nečeká') + '</span></p>';
+    (u.length ? ' · <button type="button" class="odkaz" data-sb-filtr="nove">u Clauda ' + u.length + '</button>' +
+      (lzeHned() && !stavHned('').pozadano ? ' · <button type="button" class="odkaz" data-schranka-hned="">odpovědět hned</button>' : '') : ' · nic u něj nečeká') + '</span></p>';
   return hlavickaKarty(IKONY.aktivita, 'Týden v číslech') +
     '<div class="sb-cisla">' + cislo('', 'Zadáno', zadano, 'za 7 dní') + cislo('data-sb-filtr="hotovo"', 'Vyřízeno', vyrizeno, 'za 7 dní') +
       cislo('data-sb-skoc="tebe" title="Tvoje úkoly a rozhodnutí"', 'Čeká', ceka, 'na tebe') + '</div>' + graf + claude;
@@ -574,6 +651,7 @@ export function klikSchranka(el) {
     return true;
   }
   if (el.dataset.sbPolozka) { ukazPolozku(el.dataset.sbPolozka); return true; }
+  if (el.dataset.schrankaHned !== undefined) { pozadatHned(el.dataset.schrankaHned); return true; }
   if (el.dataset.polozkaAkce) { upravPolozku(el.dataset.polozkaAkce, el.dataset.id); return true; }
   if (el.hasAttribute('data-hotovo-vse')) { stav.hotovoVse = true; zmeneno(); return true; }
   if (el.dataset.navrh) { pouzijNavrh(el.dataset.navrh); return true; }

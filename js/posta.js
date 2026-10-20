@@ -316,13 +316,30 @@ function upravVSeznamech(id, fn) {
   }));
 }
 
+// Všechno na svém místě (Michal 20. 10.: „když na poště vyberu e-mail, tak se to přesune a posune … ať je vše na svém místě,
+// ať tam není takový ten proklik“): otevřením se e-mail přečte – čip Nepřečtené s nulou by zmizel a čipy za ním uskočily
+// (o 125 px), u záložky a skupiny by zmizel počet, ve filtru Nepřečtené by zmizel i řádek. Co bylo jednou vidět, zůstane
+// (čip s nulou, místo pro počet, otevřený řádek ve filtru) až do změny účtu, skupiny, záložky nebo filtru.
+const drzene = {}; // druh → { kontext, sada }
+function drzeno(druh, kontext) {
+  const d = drzene[druh];
+  if (!d || d.kontext !== kontext) drzene[druh] = { kontext, sada: new Set() };
+  return drzene[druh].sada;
+}
+const kontextSeznamu = () => stav.filtrPosty + '|' + aktivniUcet() + '|' + (stav.stitekPosty || '') + '|' + (stav.kategoriePosty || '');
+/** Otevřený řádek zůstane v seznamu filtru, i když už do něj nepatří (přečtený ve filtru Nepřečtené). */
+function drzVSeznamu(id) { if (stav.filtrPosty !== 'vse') drzeno('radky', kontextSeznamu()).add(id); }
+/** Akce, po které má e-mail ze seznamu filtru odejít (Beru na vědomí, Hotovo…), ho přestane držet. */
+function pustZeSeznamu(ids) { const d = drzene.radky; if (d) ids.forEach((id) => d.sada.delete(id)); }
+
 function filtrovane() {
   let z = vlaknaStitku() || dorucena();
   const ucet = aktivniUcet();
   if (ucet !== 'oba') z = z.filter((m) => m.ucet === ucet);
   const f = stav.filtrPosty;
-  if (f === 'neprectene') return z.filter((m) => m.neprectena);
-  if (STAVY[f]) return z.filter((m) => stavZpravy(m) === f);
+  const drz = drzeno('radky', kontextSeznamu());
+  if (f === 'neprectene') return z.filter((m) => m.neprectena || drz.has(m.id));
+  if (STAVY[f]) return z.filter((m) => stavZpravy(m) === f || drz.has(m.id));
   return z;
 }
 
@@ -412,9 +429,15 @@ function filtryHtml() {
   const zUctu = (vlaknaStitku() || dorucena()).filter((m) => ucet === 'oba' || m.ucet === ucet);
   const pocet = (f) => (f === 'vse' ? zUctu.length : f === 'neprectene' ? zUctu.filter((m) => m.neprectena).length
     : zUctu.filter((m) => stavZpravy(m) === f).length);
-  const chipy = FILTRY.filter((f) => f[0] === 'vse' || f[0] === stav.filtrPosty || pocet(f[0]) > 0)
-    .map((f) => '<button type="button" class="chip' + (f[0] === 'hori' ? ' chip--hori' : '') + '" data-filtr-posty="' + f[0] + '" aria-pressed="' +
-      (stav.filtrPosty === f[0]) + '">' + f[1] + '<span class="pocet cisla">' + pocet(f[0]) + '</span></button>').join('');
+  // čip, který byl vidět, zůstane i s nulou (do změny účtu / skupiny / záložky) – čipy za ním neuskočí
+  const videt = drzeno('cipy', ucet + '|' + (stav.stitekPosty || '') + '|' + (stav.kategoriePosty || ''));
+  const chipy = FILTRY.filter((f) => f[0] === 'vse' || f[0] === stav.filtrPosty || pocet(f[0]) > 0 || videt.has(f[0]))
+    .map((f) => {
+      videt.add(f[0]);
+      const n = pocet(f[0]);
+      return '<button type="button" class="chip' + (f[0] === 'hori' ? ' chip--hori' : '') + (n ? '' : ' chip--nula') + '" data-filtr-posty="' + f[0] + '" aria-pressed="' +
+        (stav.filtrPosty === f[0]) + '">' + f[1] + '<span class="pocet cisla">' + n + '</span></button>';
+    }).join('');
   return '<div class="filtry posta-filtry"><div class="segment" role="group" aria-label="Stav konverzací">' + chipy + '</div>' +
     (maPracovni() ? segment([['oba', 'Oba účty'], ['osobni', 'Osobní'], ['pracovni', 'Pracovní']], ucet, 'data-ucet-posty', 'Účet') : '') + '</div>';
 }
@@ -453,9 +476,16 @@ function listaStitkuHtml() {
       ' title="' + esc(s.nazev) + (aktivni ? ' – klepnutím zpět do Doručené' : '') + '" style="--h:' + odstin(s.nazev) + '">' +
       (pod ? '<span class="stitek-cip__lomitko" aria-hidden="true">/</span>' : '<i class="stitek-cip__barva" aria-hidden="true"></i>') +
       '<span class="stitek-cip__nazev">' + esc(pod ? casti[casti.length - 1] : s.nazev) + '</span>' +
-      (s.neprectenych ? '<b class="cisla" aria-label="nepřečtených ' + s.neprectenych + '">' + s.neprectenych + '</b>' : '') +
+      pocetDrzeny('stitek:' + s.nazev, s.neprectenych, '<b class="cisla" aria-label="nepřečtených ' + s.neprectenych + '">' + s.neprectenych + '</b>') +
       (aktivni ? IKONY.zavrit : '') + '</button>';
   }).join('') + '</div>';
+}
+
+/** Počet u záložky / skupiny: když klesne na nulu, místo zůstane (neviditelná nula) – záložky a skupiny za ním neuskočí. */
+function pocetDrzeny(klic, n, html) {
+  const videt = drzeno('pocty', aktivniUcet());
+  if (n) { videt.add(klic); return html; }
+  return videt.has(klic) ? '<b class="cisla pocet-nula" aria-hidden="true">0</b>' : '';
 }
 
 /** Záložky jako v Gmailu s počtem nepřečtených (Primární a Aktualizace z Doručené, ostatní čísla posílá motor). */
@@ -470,7 +500,7 @@ function kategorieHtml() {
   return '<div class="posta-kategorie" role="tablist" aria-label="Kategorie pošty">' + KATEGORIE.map(([k, nazev, ikona]) => {
     const n = pocet[k] || 0;
     return '<button type="button" role="tab" class="posta-kategorie__tab" data-kategorie-posty="' + k + '" aria-selected="' + (aktivni === k) + '">' +
-      IKONY[ikona] + '<span>' + nazev + '</span>' + (n ? '<b class="cisla">' + (n >= 50 ? '50+' : n) + '</b>' : '') + '</button>';
+      IKONY[ikona] + '<span>' + nazev + '</span>' + pocetDrzeny('kat:' + k, n, '<b class="cisla">' + (n >= 50 ? '50+' : n) + '</b>') + '</button>';
   }).join('') + '</div>';
 }
 
@@ -575,6 +605,53 @@ function pracovniPrazdnaHtml() {
     '<button type="button" class="btn btn--ghost btn--sm" data-kategorie-posty="aktualizace">' + IKONY.info + '<span>Ukázat Aktualizace</span></button></div></div>' : '';
 }
 
+// poslední poloha myši – po překreslení dostane řádek pod ní zase rychlé akce (jinak by zmizely do dalšího pohybu)
+let mys = null;
+document.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') mys = [e.clientX, e.clientY]; }, { passive: true });
+
+/** Seznam pošty: má-li nový stejné řádky ve stejném pořadí (otevření, přečtení, výběr), vymění se jen řádky, které se
+ *  změnily – ostatní zůstanou i s rychlými akcemi pod myší a fokusem (dřív se přepsal celý seznam a pod rukou „problikl“).
+ *  Jinak celý; pak se vrátí fokus na stejný e-mail a řádku pod myší rychlé akce. */
+function prepisSeznam(kont, html) {
+  const radky = (koren) => Array.from(koren.querySelectorAll('li')).filter((li) => li.querySelector(':scope > [data-vlakno]'));
+  const idRadku = (li) => li.querySelector(':scope > [data-vlakno]').dataset.vlakno;
+  const a = document.activeElement;
+  const fokus = a && kont.contains(a) && a.dataset && a.dataset.vlakno ? a.dataset.vlakno : null;
+  const t = document.createElement('template');
+  t.innerHTML = html;
+  const stare = radky(kont), nove = radky(t.content);
+  let stejne = stare.length === nove.length && stare.length > 0 && stare.every((li, i) => idRadku(li) === idRadku(nove[i]));
+  if (stejne) {
+    // zbytek seznamu (nadpisy, přehled, tlačítka) musí být stejný – řádky se při porovnání vynechají
+    const kostra = (koren) => { const k = koren.cloneNode(true); radky(k).forEach((li) => li.replaceWith(document.createComment('r'))); return k.innerHTML; };
+    const k1 = document.createElement('div');
+    k1.appendChild(t.content.cloneNode(true));
+    stejne = kostra(kont) === kostra(k1);
+  }
+  if (stejne) {
+    stare.forEach((li, i) => {
+      const n = nove[i];
+      const h = n.outerHTML;
+      if (li._html === h) return;
+      n._html = h;
+      li.replaceWith(n);
+    });
+  } else {
+    kont.innerHTML = html;
+    radky(kont).forEach((li) => { li._html = li.outerHTML; });
+  }
+  // fokus z klávesnice (j/k, Tab) na stejný e-mail; řádek pod myší znovu s rychlými akcemi
+  if (fokus && !kont.contains(document.activeElement)) {
+    const b = Array.from(kont.querySelectorAll('[data-vlakno]')).find((x) => x.dataset.vlakno === fokus);
+    if (b) b.focus({ preventScroll: true });
+  }
+  if (mys) {
+    const pod = document.elementFromPoint(mys[0], mys[1]);
+    const li = pod && pod.closest && pod.closest(RADEK_S_AKCEMI);
+    if (li && kont.contains(li)) pridejAkceRadku(li);
+  }
+}
+
 /** Pohled Pošta: filtry nahoře, pod nimi seznam | detail. Detail se překresluje jen při změně vlákna.
  *  Lišty a seznam se přepíší, jen když se jejich HTML změnilo (rychlost: překreslení kvůli jiným datům – zdraví, počasí –
  *  nesahá na 150 řádků pošty, prohlížeč je nemusí znovu skládat; fokus z klávesnice a posun lišt zůstanou). */
@@ -596,7 +673,7 @@ export function vykresliPostu(el) {
   const noveFiltry = filtry !== posledniFiltry;
   if (noveFiltry) { el.querySelector('#posta-filtry').innerHTML = filtry; posledniFiltry = filtry; }
   const seznam = seznamHtml();
-  if (seznam !== posledniSeznam) { el.querySelector('#posta-seznam').innerHTML = seznam; posledniSeznam = seznam; }
+  if (seznam !== posledniSeznam) { prepisSeznam(el.querySelector('#posta-seznam'), seznam); posledniSeznam = seznam; }
   // úzký displej: vybraná záložka (třeba Fóra) a vybraná skupina musí být vidět – nové lišty začínají vlevo. Jen když je
   // vybraná jiná než první záložka nebo skupina (čtení rozměrů nutí prohlížeč složit stránku hned – u Primární zbytečně).
   if (noveFiltry && (stav.stitekPosty || stav.kategoriePosty !== 'primarni')) {
@@ -669,6 +746,7 @@ export function otevriVlakno(id) {
   if (psaniPoNacteni && psaniPoNacteni.id !== id) psaniPoNacteni = null;
   stav.otevreneVlakno = id;
   stav.rozbaleneZpravy = {};
+  drzVSeznamu(id);
   const bylaNeprectena = !!(m && m.neprectena);
   if (m && m.neprectena) {
     upravVSeznamech(id, (x) => { x.neprectena = false; });
@@ -903,7 +981,9 @@ function vlaknoHtml(id) {
   const krok = d && d.navrhOdpovedi && !(souhrn && souhrn.vedomi) ? navrhOdpovediHtml(d.navrhOdpovedi, souhrn) : souhrn && !souhrn.zPc ? dalsiKrokHtml(souhrn) : '';
   if (d) {
     // nejnovější nahoře (Michal 2. 10.), rozbalená; pod ní krok; starší zprávy pod tím sbalené
-    h += d.zpravy.slice().reverse().map((z, i) => zpravaHtml(z, i === 0 || !!stav.rozbaleneZpravy[z.id]) + (i === 0 ? krok : '')).join('');
+    // náhled příloh jen z Gmailu (WEDOS přílohy motor nemá)
+    const nahled = d.zdroj !== 'wedos' && !wedos.jeWedos(id) && umiMotor('postaPriloha') ? id : '';
+    h += d.zpravy.slice().reverse().map((z, i) => zpravaHtml(z, i === 0 || !!stav.rozbaleneZpravy[z.id], nahled) + (i === 0 ? krok : '')).join('');
     if (!d.zpravy.length) h += krok;
     if (d.skryto) h += '<p class="vlakno-skryto">Starších zpráv: ' + d.skryto + ' – jsou v ' + (d.zdroj === 'wedos' ? 'poště WEDOS' : 'Gmailu') + '.</p>';
   } else if (st.chyba) {
@@ -914,7 +994,8 @@ function vlaknoHtml(id) {
   return h + '</div>';
 }
 
-function zpravaHtml(z, rozbalena) {
+/** vlaknoNahled = id vlákna, když jdou přílohy otevřít v náhledu (js/priloha.js), jinak '' */
+function zpravaHtml(z, rozbalena, vlaknoNahled) {
   const kdo = z.odeMe ? 'Já' : z.od;
   const hlava = '<button type="button" class="zprava-hlava" data-rozbal-zpravu="' + esc(z.id) + '" aria-expanded="' + rozbalena + '">' +
     '<span class="avatar maly" style="--h:' + odstin(z.od) + '" aria-hidden="true">' + esc(iniciala(z.od)) + '</span>' +
@@ -931,7 +1012,10 @@ function zpravaHtml(z, rozbalena) {
       '<div class="zprava-html"><iframe sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" data-html-zpravy="' + esc(z.id) + '" title="Text e-mailu"></iframe></div>'
     : '<div class="zprava-text">' + sOdkazy(z.text || '') + '</div>';
   const prilohy = z.prilohy && z.prilohy.length
-    ? '<ul class="prilohy">' + z.prilohy.map((p) => '<li>' + IKONY.priloha + '<span class="orez-1">' + esc(p.nazev) + '</span><small>' + esc(velikost(p.velikost)) + '</small></li>').join('') + '</ul>'
+    ? '<ul class="prilohy">' + z.prilohy.map((p, i) => vlaknoNahled
+      ? '<li><button type="button" class="priloha" data-priloha="' + esc(z.id) + '" data-priloha-i="' + i + '" data-priloha-vlakno="' + esc(vlaknoNahled) + '" title="Náhled přílohy">' +
+        IKONY.priloha + '<span class="orez-1">' + esc(p.nazev) + '</span><small>' + esc(velikost(p.velikost)) + '</small></button></li>'
+      : '<li>' + IKONY.priloha + '<span class="orez-1">' + esc(p.nazev) + '</span><small>' + esc(velikost(p.velikost)) + '</small></li>').join('') + '</ul>'
     : '';
   return '<article class="zprava">' + hlava + telo + prilohy + '</article>';
 }
@@ -1287,6 +1371,7 @@ function akceNad(idy, jak) {
   idy.forEach((id) => { const m = najdiSouhrn(id); if (m && lzeAkce(m, jak) && !souhrny.some((x) => x.id === m.id)) souhrny.push(m); });
   if (!souhrny.length) return Promise.resolve(false);
   const ids = souhrny.map((m) => m.id);
+  if (jak !== 'prectene' && jak !== 'neprectene') pustZeSeznamu(ids); // Beru na vědomí, Hotovo… → ze seznamu filtru pryč
   const gm = souhrny.filter((m) => !wedos.jeWedos(m.id)), wd = souhrny.filter((m) => wedos.jeWedos(m.id));
   // co poslat motoru a serveru – ze souhrnů PŘED změnou (Beru na vědomí přečte jen nepřečtené, Vrátit je zase označí)
   const zprava = (m) => ({ id: m.id, kdy: m.kdy, neprectena: !!m.neprectena });
@@ -1911,7 +1996,20 @@ pripojNabidku(nabidkaPosty);
 
 // ---------------------------------------------------------------- ovládání
 
+/** Náhled přílohy (js/priloha.js – načte se až teď): PDF, obrázek, jiný soubor ke stažení. */
+function otevriPrilohu(el) {
+  const vid = el.dataset.prilohaVlakno, zid = el.dataset.priloha, i = Number(el.dataset.prilohaI);
+  const d = stav.vlakna[vid] && stav.vlakna[vid].data;
+  const z = d && d.zpravy.find((x) => x.id === zid);
+  const p = z && z.prilohy && z.prilohy[i];
+  if (!p) return;
+  import('./priloha.js')
+    .then((m) => m.otevriPrilohu({ zprava: zid, i, nazev: p.nazev, velikost: p.velikost, odkaz: d.odkaz || '' }))
+    .catch((e) => toast('Náhled se nenačetl – ' + e.message, true));
+}
+
 export function klikPosta(el) {
+  if (el.dataset.priloha) { otevriPrilohu(el); return true; }
   if (el.dataset.postaRychle && el.dataset.id) { akceNad([el.dataset.id], el.dataset.postaRychle); return true; }
   if (el.dataset.hromadne) { akceVyberu(el.dataset.hromadne); return true; }
   if (el.hasAttribute('data-vyber-zrusit')) { zrusVyber(); return true; }

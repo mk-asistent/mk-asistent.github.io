@@ -24,7 +24,8 @@ function prostredi() {
     getHeader: (h) => (h === 'Message-ID' ? '<' + o.id + '@mail.test>' : h === 'Delivered-To' ? (o.dorucenoNa || '') : ''),
     getPlainBody: () => o.text, getBody: () => (o.html != null ? o.html : '<p>' + o.text + '</p>'), getDate: () => new Date(o.kdy),
     getSubject: () => o.predmet, isInTrash: () => false, isDraft: () => false, isUnread: () => !!o.neprectena, isStarred: () => !!o.hvezdicka,
-    getAttachments: () => (o.priloha ? [{ getName: () => 'nabidka.pdf', getSize: () => 12345 }] : []),
+    getAttachments: () => (o.priloha ? [{ getName: () => 'nabidka.pdf', getSize: () => (o.velka ? 16 * 1024 * 1024 : 12345), getContentType: () => 'application/pdf',
+      getBytes: () => Array.from(Buffer.from('%PDF-1.4 ukazka', 'utf8')) }] : []),
     reply: (t, m) => log.odeslano.push({ jak: 'reply', id: o.id, t, m }),
     replyAll: (t, m) => log.odeslano.push({ jak: 'replyAll', id: o.id, t, m }),
     forward: (komu, m) => log.odeslano.push({ jak: 'forward', id: o.id, komu, m })
@@ -563,6 +564,47 @@ test('vlákno: celé zprávy, účet podle adresy, přílohy, otevřením přeč
   assert.strictEqual(o.data.ucet, 'osobni');
   assert.deepStrictEqual(p.log.precteno, ['v1']);
   assert.strictEqual(p.volej('vlakno', { id: 'neni' }).ok, false);
+});
+
+test('Odpovědět hned: žádost .hned (sloučí položky, stará neplatí), stav hlídače a běžícího zpracování ve schránce', () => {
+  const p = prostredi();
+  let o = p.volej('schranka');
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.strictEqual(o.data.hned, undefined);
+  assert.strictEqual(o.data.hlidac, undefined);
+  o = p.volej('schrankaHned', { id: 'a1' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(o.data.hned.ids, ['a1']);
+  o = p.volej('schrankaHned', { id: 'b2' });
+  assert.deepStrictEqual(o.data.hned.ids, ['a1', 'b2']);
+  assert.strictEqual(p.schranka.soubory.filter((f) => f.getName() === '.hned').length, 1);
+  // stará žádost (přes 2 h) se nesloučí
+  p.schranka.soubory.find((f) => f.getName() === '.hned').setContent(JSON.stringify({ kdy: Date.now() - 3 * 3600e3, ids: ['stara'] }));
+  assert.deepStrictEqual(p.volej('schrankaHned', {}).data.hned.ids, []);
+  // hlídač na PC a zámek zpracování
+  p.schranka.createFile('.hlidac', JSON.stringify({ kdy: 1790000000000, pc: 'domácí PC', stav: 'ceka', posledni: { kdy: 1789999990000, ok: true, text: 'Zpracováno 1.' } }));
+  p.schranka.createFile('.zpracovava', 'domácí PC 20:00');
+  o = p.volej('schranka');
+  assert.deepStrictEqual(o.data.hlidac, { kdy: 1790000000000, pc: 'domácí PC', stav: 'ceka', posledni: { kdy: 1789999990000, ok: true, text: 'Zpracováno 1.' } });
+  assert.ok(o.data.bezi > 0);
+  assert.ok(o.data.hned && Array.isArray(o.data.hned.ids));
+  // zápis (žádost) – ne čtení
+  assert.ok(p.volej('info').data.akce.indexOf('schrankaHned') >= 0);
+});
+
+test('příloha pro náhled: obsah v base64 podle pořadí a názvu, nic nepřečte; neznámá zpráva / příloha → chyba', () => {
+  const p = prostredi();
+  let o = p.volej('postaPriloha', { zprava: 'm2', i: 0, nazev: 'nabidka.pdf' });
+  assert.strictEqual(o.ok, true, o.chyba);
+  assert.deepStrictEqual(o.data, { nazev: 'nabidka.pdf', typ: 'application/pdf', velikost: 12345, data: Buffer.from('%PDF-1.4 ukazka', 'utf8').toString('base64') });
+  // pořadí nesedí, název ano
+  assert.strictEqual(p.volej('postaPriloha', { zprava: 'm2', i: 3, nazev: 'nabidka.pdf' }).data.nazev, 'nabidka.pdf');
+  assert.ok(/Příloha nenalezena/.test(p.volej('postaPriloha', { zprava: 'm2', i: 0, nazev: 'jina.pdf' }).chyba));
+  assert.ok(/Zpráva nenalezena/.test(p.volej('postaPriloha', { zprava: 'neni', i: 0 }).chyba));
+  assert.ok(/Příloha nenalezena/.test(p.volej('postaPriloha', { zprava: 'm1', i: 0 }).chyba));
+  assert.deepStrictEqual(p.log.precteno, []);
+  // čtení – mezi akcemi, které nic nemění (kopie dat se kvůli němu nezahodí)
+  assert.ok(p.volej('info').data.akce.indexOf('postaPriloha') >= 0);
 });
 
 test('odpověď na pracovní poštu: bez „Odesílat jako“ odmítne, s ním jde z pracovní adresy', () => {

@@ -11,7 +11,7 @@
 //
 // VERZE = otisk obsahu souborů aplikace: po každé změně `node testy/sw_verze.js --zapsat` (testy jinak selžou).
 
-const VERZE = 'asistent-427d6fe0b228';
+const VERZE = 'asistent-ac253ba333f3';
 const SOUBORY = [
   './', 'index.html', 'app.css', 'manifest.webmanifest',
   'js/start.js', 'js/app.js', 'js/krouzky.js', 'js/api.js', 'js/pomocne.js', 'js/stav.js', 'js/ui.js', 'js/ikony.js', 'js/panely.js',
@@ -25,6 +25,7 @@ const SOUBORY = [
   'js/pribehy.js', 'js/pribeh_obrazek.js', // příběhy z fotek z telefonu
   'js/knihovna.js', 'js/knihovna_stranka.js', 'js/knihovna_data.js', 'knihovna.css', // Knihovna (filmy, knihy, rešerše) – knihovna.js a knihovna_stranka.js se načtou až na své stránce
   'js/pripravenost.js', // přednačtení a obnova pomalých oblastí na pozadí, „aktualizuji…“
+  'js/priloha.js', // náhled přílohy e-mailu (PDF přes js/vendor/pdfjs-…, načte se až při klepnutí na přílohu)
   'js/pc.js', 'js/pc_vyber.js', 'js/mini.js', 'mini.css', // Asistent na PC – odznak, oznámení ve Windows, mini okno (načtou se až po startu / při použití)
   'ikony/ikona-192.png', 'ikony/apple-touch-icon.png'
 ];
@@ -34,6 +35,9 @@ const FIREBASE = 'https://www.gstatic.com/firebasejs/12.19.0/';
 const FIREBASE_CACHE = 'firebase-12.19.0';
 // znaky klubů a QR na plakát – nová verze aplikace je nemaže
 const ZNAKY = 'plakat-znaky';
+// knihovny v js/vendor (html2canvas, pdf.js – velké, načtou se až při použití): verze je v názvu souboru / složky,
+// nová verze aplikace je nemaže; uloží se při prvním použití, pak jdou i bez sítě
+const VENDOR = 'vendor';
 
 self.addEventListener('install', (e) => {
   // cache: 'reload' – mimo mezipaměť prohlížeče, ať se nová verze neposkládá ze starých kusů
@@ -45,7 +49,7 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((klice) => Promise.all(klice.filter((k) => k !== VERZE && k !== FIREBASE_CACHE && k !== ZNAKY).map((k) => caches.delete(k))))
+      .then((klice) => Promise.all(klice.filter((k) => k !== VERZE && k !== FIREBASE_CACHE && k !== ZNAKY && k !== VENDOR).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -56,6 +60,7 @@ self.addEventListener('fetch', (e) => {
   if (e.request.url.indexOf(FIREBASE) === 0) { e.respondWith(knihovnaFirebase(e.request)); return; }
   if (url.origin !== self.location.origin) return;
   if (/\/plakat\/(znaky|qr)\//.test(url.pathname)) { e.respondWith(znakPlakatu(e.request)); return; }
+  if (/\/js\/vendor\//.test(url.pathname)) { e.respondWith(zMezipameti(VENDOR, e.request)); return; }
   e.respondWith(zUlozeneVerze(e.request));
 });
 
@@ -66,6 +71,16 @@ async function knihovnaFirebase(pozadavek) {
   if (ulozena) return ulozena;
   const odpoved = await fetch(pozadavek);
   if (odpoved.ok) cache.put(pozadavek.url, odpoved.clone()).catch(() => { /* příště */ });
+  return odpoved;
+}
+
+/** Knihovna z js/vendor: ze zařízení, jinak ze sítě a uložit (jen úspěšnou odpověď). */
+async function zMezipameti(nazev, pozadavek) {
+  const cache = await caches.open(nazev);
+  const ulozena = await cache.match(pozadavek, { ignoreSearch: true });
+  if (ulozena) return ulozena;
+  const odpoved = await fetch(pozadavek);
+  if (odpoved.ok) cache.put(pozadavek, odpoved.clone()).catch(() => { /* příště */ });
   return odpoved;
 }
 

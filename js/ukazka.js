@@ -9,6 +9,9 @@ const dnes = pulnoc(ted);
 const den = (posun, hod = 0, min = 0) => pridejDny(dnes, posun) + (hod * 60 + min) * 6e4;
 const iso = (t) => { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 const kopie = (o) => JSON.parse(JSON.stringify(o));
+let hnedUkazky = null; // žádost „Odpovědět hned“ v ukázce
+// malé PDF (2 strany A4, vymyšlený text) pro náhled přílohy
+const UKAZKOVE_PDF = 'JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUiA1IDAgUl0gL0NvdW50IDIgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA1OTUgODQyXSAvUmVzb3VyY2VzIDw8IC9Gb250IDw8IC9GMSA3IDAgUiA+PiA+PiAvQ29udGVudHMgNCAwIFIgPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCAxODkgPj4Kc3RyZWFtCkJUIC9GMSAyMiBUZiA2MCA3NjAgVGQgKFByZWRhdmFjaSBwcm90b2tvbCAtIHVrYXprYSkgVGogL0YxIDEzIFRmIDAgLTM0IFRkIChTdHJhbmEgMSB6ZSAyKSBUaiAwIC0yMiBUZCAoVnlteXNsZW5hIGRhdGEgcHJvIG5haGxlZCBwcmlsb2h5LikgVGogRVQKMC4xMiAwLjI0IDAuMTcgUkcgMyB3IDYwIDY5MCBtIDUzNSA2OTAgbCBTCmVuZHN0cmVhbQplbmRvYmoKNSAwIG9iago8PCAvVHlwZSAvUGFnZSAvUGFyZW50IDIgMCBSIC9NZWRpYUJveCBbMCAwIDU5NSA4NDJdIC9SZXNvdXJjZXMgPDwgL0ZvbnQgPDwgL0YxIDcgMCBSID4+ID4+IC9Db250ZW50cyA2IDAgUiA+PgplbmRvYmoKNiAwIG9iago8PCAvTGVuZ3RoIDE3OCA+PgpzdHJlYW0KQlQgL0YxIDIyIFRmIDYwIDc2MCBUZCAoU291cGlzIHZhZCAtIHVrYXprYSkgVGogL0YxIDEzIFRmIDAgLTM0IFRkIChTdHJhbmEgMiB6ZSAyKSBUaiAwIC0yMiBUZCAoTmFobGVkIFBERiB2IGFwbGlrYWNpIEFzaXN0ZW50LikgVGogRVQKMC4xMiAwLjI0IDAuMTcgUkcgMyB3IDYwIDY5MCBtIDUzNSA2OTAgbCBTCmVuZHN0cmVhbQplbmRvYmoKNyAwIG9iago8PCAvVHlwZSAvRm9udCAvU3VidHlwZSAvVHlwZTEgL0Jhc2VGb250IC9IZWx2ZXRpY2EgPj4KZW5kb2JqCnhyZWYKMCA4CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDU4IDAwMDAwIG4gCjAwMDAwMDAxMjEgMDAwMDAgbiAKMDAwMDAwMDI0NyAwMDAwMCBuIAowMDAwMDAwNDg2IDAwMDAwIG4gCjAwMDAwMDA2MTIgMDAwMDAgbiAKMDAwMDAwMDg0MCAwMDAwMCBuIAp0cmFpbGVyCjw8IC9TaXplIDggL1Jvb3QgMSAwIFIgPj4Kc3RhcnR4cmVmCjkxMAolJUVPRgo=';
 
 const schranka = {
   nove: [
@@ -596,7 +599,13 @@ const akce = {
     pocasi: { misto: domovUkazka || 'Veselí nad Moravou', domov: !!domovUkazka } }),
   pocasiDomov: (d) => { domovUkazka = d.smazat ? '' : String(d.nazev || ''); return { misto: domovUkazka || 'Veselí nad Moravou', domov: domovUkazka ? { lat: d.lat, lon: d.lon } : null }; },
   nastavPostu: (d) => { posta.pracovniAdresa = String(d.pracovniAdresa || '').trim(); return akce.info().posta; },
-  schranka: () => Object.assign(kopie(schranka), { ted: Date.now() }),
+  schranka: () => Object.assign(kopie(schranka), { ted: Date.now(), hlidac: { kdy: Date.now() - 20000, pc: 'domácí PC', stav: 'ceka' } }, hnedUkazky ? { hned: hnedUkazky } : {}),
+  schrankaHned: (d) => {
+    const ids = hnedUkazky && Date.now() - hnedUkazky.kdy < 2 * H ? hnedUkazky.ids.slice() : [];
+    if (d.id && ids.indexOf(d.id) < 0) ids.push(d.id);
+    hnedUkazky = { kdy: Date.now(), ids };
+    return { hned: hnedUkazky };
+  },
   poznamka: (d) => {
     const text = String(d.text || '').trim();
     if (!text) throw new Error('Prázdná poznámka.');
@@ -656,6 +665,15 @@ const akce = {
     // otevřením přečteno (přednačtení – postaDetaily – ne)
     vsechnyKategorie().concat(posta.osobni, posta.pracovni, archivovane).forEach((m) => { if (m.id === d.id) m.neprectena = false; });
     return detail;
+  },
+  // obsah přílohy pro náhled (js/priloha.js): malé PDF o dvou stranách, ostatní typy kousek textu
+  postaPriloha: (d) => {
+    const z = Object.keys(zpravyVlaken).map((k) => zpravyVlaken[k].zpravy).reduce((a, b) => a.concat(b), []).find((x) => x.id === d.zprava);
+    const p = z && z.prilohy && z.prilohy[d.i];
+    if (!p) throw new Error('Příloha nenalezena.');
+    return /\.pdf$/i.test(p.nazev)
+      ? { nazev: p.nazev, typ: 'application/pdf', velikost: p.velikost, data: UKAZKOVE_PDF }
+      : { nazev: p.nazev, typ: 'application/octet-stream', velikost: p.velikost, data: btoa('Ukazkovy soubor') };
   },
   // přednačtení detailů (nejvýš 10) jako motor: stejný tvar jako vlakno, nic nepřečte
   postaDetaily: (d) => {

@@ -44,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-16.3';
+const VERZE = '2026-10-20.2';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -136,6 +136,7 @@ function doPost(e) {
 // akce, které jen čtou – opakovat je jde bez rizika (bez zapamatované odpovědi)
 const CTENI_MOTORU = ['info', 'schranka', 'posta', 'vlakno', 'hledat', 'kalendar', 'kalendare', 'pocasi', 'zdravi', 'fotbal', 'reely', 'dochazka',
   'postaDetaily', // pošta: přednačtení detailů posledních konverzací (nic neoznačí jako přečtené)
+  'postaPriloha', // pošta: obsah přílohy pro náhled (nic neoznačí jako přečtené)
   'stitky', 'kontakty', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'davka', 'zmeny', 'plakaty',
   'igStav', // průběh zveřejňování na Instagram (aplikace se ptá každou minutu, když má něco brzy vyjít)
   'igSkupiny', // skupiny účtů k označení (REELY/skupiny.json)
@@ -169,6 +170,7 @@ const AKCE = {
   jmeninyUlozit: function (d) { return ulozJmeniny_(d.oblibeni); },
   nastavPostu: function (d) { return nastavPostu_(d.pracovniAdresa); },
   schranka: function () { return nactiSchranku_(); },
+  schrankaHned: function (d) { return schrankaHned_(d); }, // „Odpovědět hned“ – žádost pro hlídač na PC
   poznamka: function (d) { return pridejPoznamku_(d.text); },
   polozka: function (d) { return upravPolozku_(d.id, d.jak, d.text); },
   // smazání poznámky schránky (pravé tlačítko v aplikaci) do koše na Disku a Vrátit; moje poznámky „pro mě“ (MOJE)
@@ -208,6 +210,7 @@ const AKCE = {
   postaOznacit: function (d) { return oznacitVic_(d.ids, d.jak); },
   // přednačtení detailů (nejvýš 10) – kliknutí na konverzaci v aplikaci pak nečeká na motor
   postaDetaily: function (d) { return postaDetaily_(d.ids); },
+  postaPriloha: function (d) { return postaPriloha_(d); }, // obsah přílohy pro náhled (PDF, obrázek) a stažení v aplikaci
   kontakty: function () { return kontakty_(); },
   podpisyUlozit: function (d) { return ulozPodpisy_(d.podpisy); },
   zdravi: function (d) { return zdravi_(!!d.znovu); },
@@ -399,7 +402,55 @@ function nactiSchranku_() {
   // kdy Claude naposledy zpracoval schránku (obnovil PREHLED.md) – aplikace pozná, že úloha neběží (PC vypnuté)
   const prehled = koren.getFilesByName('PREHLED.md');
   const zpracovano = prehled.hasNext() ? prehled.next().getLastUpdated().getTime() : null;
-  return { nove: nove, ceka: ceka, hotovo: hotovo, moje: mojePoznamky_(koren), zpracovano: zpracovano, ted: Date.now() };
+  return Object.assign({ nove: nove, ceka: ceka, hotovo: hotovo, moje: mojePoznamky_(koren), zpracovano: zpracovano, ted: Date.now() }, stavHned_(koren));
+}
+
+/**
+ * „Odpovědět hned“ (Michal 20. 10.: „na stránce bych chtěl mít možnost vyvolání Claudovy odpovědi hned, ne po půl hodině“):
+ * aplikace zapíše žádost .hned do kořene schránky, hlídač na PC (NASTROJE\asistent\schranka\hlidac_hned.py) ji do pár
+ * vteřin uvidí (synchronizace Disku) a spustí zpracování schránky. Hlídač každou minutu zapíše .hlidac (živý, PC, stav),
+ * zpracování drží zámek .zpracovava – aplikace podle toho píše, jestli Claude odpovídá, nebo PC neběží.
+ */
+const HNED_PLATNOST = 2 * 3600 * 1000;
+
+function schrankaHned_(d) {
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(10000);
+  try {
+    const koren = koren_();
+    const ted = Date.now();
+    const stara = nactiJson_(koren, '.hned');
+    let ids = stara.data && ted - Number(stara.data.kdy) < HNED_PLATNOST && Array.isArray(stara.data.ids) ? stara.data.ids.slice() : [];
+    const id = String((d && d.id) || '').slice(0, 120);
+    if (id && ids.indexOf(id) < 0) ids.push(id);
+    ids = ids.slice(-20);
+    const obsah = JSON.stringify({ kdy: ted, ids: ids });
+    if (stara.soubor) stara.soubor.setContent(obsah); else koren.createFile('.hned', obsah, 'application/json');
+    return { hned: { kdy: ted, ids: ids } };
+  } finally {
+    zamek.releaseLock();
+  }
+}
+
+/** Stav pro aplikaci: čekající žádost .hned, hlídač na PC (.hlidac), běžící zpracování (.zpracovava mladší než 20 min). */
+function stavHned_(koren) {
+  const ted = Date.now();
+  const vysledek = {};
+  const hned = nactiJson_(koren, '.hned').data;
+  if (hned && ted - Number(hned.kdy) < HNED_PLATNOST) vysledek.hned = { kdy: Number(hned.kdy), ids: Array.isArray(hned.ids) ? hned.ids : [] };
+  const hlidac = nactiJson_(koren, '.hlidac').data;
+  if (hlidac && Number(hlidac.kdy) > 0) {
+    vysledek.hlidac = { kdy: Number(hlidac.kdy), pc: String(hlidac.pc || '').slice(0, 30), stav: String(hlidac.stav || '').slice(0, 20) };
+    if (hlidac.posledni && Number(hlidac.posledni.kdy) > 0) {
+      vysledek.hlidac.posledni = { kdy: Number(hlidac.posledni.kdy), ok: !!hlidac.posledni.ok, text: String(hlidac.posledni.text || '').slice(0, 200) };
+    }
+  }
+  const it = koren.getFilesByName('.zpracovava');
+  if (it.hasNext()) {
+    const t = it.next().getLastUpdated().getTime();
+    if (ted - t < 20 * 60000) vysledek.bezi = t;
+  }
+  return vysledek;
 }
 
 /** Poznámka napsaná nebo nadiktovaná přímo v aplikaci. */
@@ -1926,6 +1977,25 @@ function detailVlakna_(vlakno, ja, prac) {
       return zprava;
     })
   };
+}
+
+/** Největší příloha, kterou motor pošle aplikaci k náhledu (base64 je o třetinu větší; větší → otevřít v Gmailu). */
+const MAX_PRILOHY = 15 * 1024 * 1024;
+
+/** Obsah přílohy pro náhled a stažení v aplikaci: zpráva podle id, příloha podle pořadí v seznamPriloh_ (bez vložených
+ *  obrázků) a názvu – kdyby pořadí nesedělo, hledá podle názvu. Nic neoznačí jako přečtené. → {nazev, typ, velikost, data} */
+function postaPriloha_(d) {
+  let zprava = null;
+  try { zprava = GmailApp.getMessageById(String((d && d.zprava) || '')); } catch (chyba) { zprava = null; }
+  if (!zprava) throw new Error('Zpráva nenalezena.');
+  const prilohy = zprava.getAttachments({ includeInlineImages: false });
+  let i = Number(d.i);
+  if (d.nazev && (!prilohy[i] || prilohy[i].getName() !== d.nazev)) i = prilohy.findIndex(function (a) { return a.getName() === d.nazev; });
+  const a = prilohy[i];
+  if (!a) throw new Error('Příloha nenalezena.');
+  const velikost = a.getSize();
+  if (velikost > MAX_PRILOHY) throw new Error('Příloha je na náhled moc velká (' + Math.round(velikost / 1048576) + ' MB) – otevři ji v Gmailu.');
+  return { nazev: a.getName(), typ: a.getContentType() || '', velikost: velikost, data: Utilities.base64Encode(a.getBytes()) };
 }
 
 function seznamPriloh_(zprava) {
