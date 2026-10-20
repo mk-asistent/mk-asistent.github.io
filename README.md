@@ -113,7 +113,7 @@ i Ukázat v okně Co je nového – hoří-li jeden e-mail, klepnutí ho rovnou 
 na užším displeji v panelu), hoří-li víc, otevře Poštu jen s hořícími (`horiAtr`, `otevriHorici` v app.js).
 
 ## Schránka
-Poznámky z iPhonu (zkratka „Pro Clauda“) i z aplikace; Claude je zpracovává každou půlhodinu (skill `asistent-schranka`).
+Poznámky z iPhonu (zkratka „Pro Clauda“) i z aplikace; Claude je zpracovává každých 10 minut 7–22 h (od 20. 10., dřív půlhodinu; skill `asistent-schranka`).
 U položky: **Dopsat** (i k vyřízené – vrátí se ke zpracování), **Nadpis**, **Téma** (práce, osobní, fotbal, zdraví,
 domov, nákup – filtr nahoře), **Smazat** (bez dotazu – koš na Disku, v oznámení Vrátit). Diktát typu „pozvi Petra na schůzku v úterý
 v deset“ nebo „napiš trenérovi, že…“ Claude převede na **návrh** – limetková karta **Založit událost** / **Napsat e-mail**

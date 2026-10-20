@@ -280,7 +280,7 @@ function cekaHtml(id) {
         : 'Claude odpovídá' + (st.bezi ? '' : ' – spouští se') + ' · požádáno ' + hhmm(st.pozadano) + '. Odpověď se tu ukáže sama.';
     return '<p class="chat-ceka chat-ceka--hned">' + tecky + '<span>' + esc(text) + '</span></p>';
   }
-  return '<p class="chat-ceka">' + tecky + '<span>Claude odpoví při další schránce (přes den každou půlhodinu)</span>' +
+  return '<p class="chat-ceka">' + tecky + '<span>Claude odpoví při další schránce (přes den každých 10 minut)</span>' +
     (lzeHned() ? '<button type="button" class="chip chat-hned" data-schranka-hned="' + esc(id) + '">' + IKONY.blesk + '<span>Odpovědět hned</span></button>' : '') + '</p>';
 }
 
