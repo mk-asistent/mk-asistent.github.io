@@ -442,8 +442,9 @@ přibližná poloha mimo domov má „≈“ a v detailu radu (iPhone: Polohové
 - **Upozornění do iPhonu** (ntfy, nepovinné): zapínají se v aplikaci **Nastavení → Upozornění** (motor vyrobí téma
   `NTFY_TEMA`, aplikace ho ukáže s návodem pro aplikaci ntfy a umí poslat zkušební). Kontroly běží **každých 10 minut**
   se spouštěčem `instagramKazdych10Min` (jiný spouštěč netřeba; starý `kazdouHodinu` dělá totéž): hoří v poště (6–22 h),
-  oranžové a vyšší výstrahy ČHMÚ, reel zveřejněný na Instagramu (klepnutí otevře příspěvek) nebo když nevyšel, ráno
-  souhrn a připravenost, v neděli 19–21 h **přehled příštího týdne** (počty událostí po dnech, zápasy týmů, úkoly
+  oranžové a vyšší výstrahy ČHMÚ, reel zveřejněný na Instagramu (klepnutí otevře příspěvek) nebo když nevyšel, **ranní
+  souhrn v 6:00** (od 25. 10. nečeká na WHOOP; připravenost v něm je, když už je zapsaná, jinak přijde zvlášť, až ji WHOOP
+  pošle), v neděli 19–21 h **přehled příštího týdne** (počty událostí po dnech, zápasy týmů, úkoly
   s termínem, předpověď); WHOOP se kvůli upozornění stahuje nejvýš jednou za hodinu. Přes ntfy jdou jen počty a časy,
   žádné názvy událostí ani texty.
 

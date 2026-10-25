@@ -1653,6 +1653,25 @@ test('upozornění: bez tématu nic; hoří v poště jen počtem (bez jmen a p�
   assert.strictEqual(p.log.ntfy.length, pocet);
 });
 
+test('ranní souhrn v 6:00 – ne dřív, nečeká na WHOOP (Michal 25. 10.), jednou denně', () => {
+  const p = prostredi();
+  p.chmu.cap = 'cap_rijen.xml';
+  p.vlastnosti.set('NTFY_TEMA', 'asistent-test');
+  p.ctx.whoopStav_ = () => ({ propojeno: true }); // WHOOP zapojený, dnešní připravenost ještě není
+  p.ctx.whoopSync_ = () => ({ dny: {} });
+  p.nastavCas(Date.parse('2026-10-26T05:50:00+01:00'));
+  p.ctx.kazdouHodinu();
+  assert.ok(!(p.log.ntfy || []).some((z) => z.title === 'Dobré ráno'), 'před šestou nic');
+  p.nastavCas(Date.parse('2026-10-26T06:00:00+01:00'));
+  p.ctx.kazdouHodinu();
+  const rano = (p.log.ntfy || []).filter((z) => z.title === 'Dobré ráno');
+  assert.strictEqual(rano.length, 1, 'v 6:00 souhrn i bez připravenosti z WHOOP');
+  assert.ok(!/připravenost/.test(rano[0].message), rano[0].message);
+  p.nastavCas(Date.parse('2026-10-26T06:10:00+01:00'));
+  p.ctx.kazdouHodinu();
+  assert.strictEqual((p.log.ntfy || []).filter((z) => z.title === 'Dobré ráno').length, 1, 'jen jednou');
+});
+
 test('upozornění z aplikace: zapnout (téma + zkušební zpráva), stav, test, vypnout; hlídá je spouštěč každých 10 minut', () => {
   const p = prostredi();
   p.chmu.cap = 'cap_rijen.xml';

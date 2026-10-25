@@ -44,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-20.2';
+const VERZE = '2026-10-25.1';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -8517,7 +8517,8 @@ const TYDEN_ = (function () {
   return { text: text };
 })();
 
-/** Ranní souhrn (jednou denně): po probuzení s připraveností z WHOOP, nejpozději v 8 h i bez ní. */
+/** Ranní souhrn (jednou denně) v 6:00 – první kontrola po šesté (Michal 25. 10.: „dáme to na 6 hodin“; dřív čekal na
+ *  připravenost z WHOOP až do 8 h). Je-li připravenost už zapsaná, jde v souhrnu; jinak přijde zvlášť, až ji WHOOP pošle. */
 function ranniSouhrn_(hodina) {
   const p = vlastnosti_();
   const dnes = Utilities.formatDate(new Date(Date.now()), CASOVE_PASMO, 'yyyy-MM-dd');
@@ -8528,7 +8529,6 @@ function ranniSouhrn_(hodina) {
     const den = mesic.dny[dnes];
     pripravenost = den && den.whoop && den.whoop.pripravenost ? den.whoop.pripravenost.skore : null;
   } catch (chyba) { /* bez zdraví */ }
-  if (pripravenost == null && hodina < 8 && whoopStav_().propojeno) return; // počkat na WHOOP
   const casti = [];
   try {
     const pulnoc = Utilities.parseDate(dnes + ' 00:00', CASOVE_PASMO, 'yyyy-MM-dd HH:mm').getTime();
