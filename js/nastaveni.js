@@ -16,7 +16,7 @@ import * as ucet from './ucet.js';
 import * as wedos from './wedos.js'; // WEDOS – pracovní schránka přímo: oddíl v Nastavení → Pošta (ovládání v js/wedos.js)
 import * as skupiny from './ig_skupiny.js'; // Instagram: skupiny lidí k označení (ovládání v js/ig_skupiny.js)
 
-export const VERZE_APLIKACE = '2026-10-09';
+export const VERZE_APLIKACE = '2026-10-25';
 
 // předvolby hlavní barvy – tlumené tmavé odstíny jako ve stylu Fixtrack (lesní zelená je výchozí)
 const AKCENTY = [['#1f3d2c', 'Lesní zelená'], ['#1d4250', 'Ocelová'], ['#2a3f8f', 'Modrá'], ['#4b2d63', 'Švestková'], ['#7a3a1d', 'Cihlová'], ['#2b2f33', 'Grafitová']];

@@ -112,7 +112,9 @@ function zkratkaZAdresy() {
   let q;
   try { q = new URLSearchParams(location.search); } catch (e) { return null; }
   const z = q.get('zkratka'), cil = q.get('otevri');
-  if (!z && !cil) return null;
+  // sdílení odkazu do Asistenta (manifest share_target, záložka v prohlížeči) → tip k prověření pro Clauda
+  const sdileno = q.get('sdilet') ? { title: q.get('title'), text: q.get('text'), url: q.get('url') } : null;
+  if (!z && !cil && !sdileno) return null;
   try { history.replaceState(history.state, '', location.pathname + location.hash); } catch (e) { /* nic */ }
   if (z === 'posta') { stav.pohled = 'posta'; stav.filtrPosty = 'vse'; uloziste.pis('asistent.pohled', 'posta'); }
   if (z === 'prehled') { stav.pohled = 'dnes'; uloziste.pis('asistent.pohled', 'dnes'); }
@@ -128,6 +130,7 @@ function zkratkaZAdresy() {
       zkus();
     };
   }
+  if (sdileno) return () => schranka.posliTip(sdileno, true);
   if (cil) return () => otevriCil(cil);
   return null;
 }

@@ -214,3 +214,27 @@ export function rozborTextu(text, ted) {
 }
 
 export const _test = { den, cas, delka, lide, nazevUdalosti };
+
+/**
+ * Sdílený odkaz → text poznámky pro Clauda „TIP k prověření: <odkaz>“ (+ titulek a text, když přijdou) – stejně jako
+ * zkratka „Tip pro Clauda“ v iPhonu (rozhodovač hlídače pozná tip podle začátku textu). Windows posílá odkaz někdy v `url`,
+ * někdy jen v `text`. Bez odkazu i textu → ''.
+ */
+export function textTipu(d) {
+  const cist = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  let url = cist(d && d.url), text = cist(d && d.text);
+  const title = cist(d && d.title);
+  if (!/^https?:\/\//i.test(url)) {
+    const m = (text + ' ' + url).match(/https?:\/\/\S+/i);
+    url = m ? m[0] : '';
+  }
+  if (url) text = cist(text.split(url).join(' '));
+  const navic = [];
+  [title, text].forEach((s) => {
+    if (!s || navic.some((x) => x.indexOf(s) >= 0)) return;
+    const i = navic.findIndex((x) => s.indexOf(x) >= 0); // delší text, který titulek obsahuje, ho nahradí
+    if (i >= 0) navic[i] = s; else navic.push(s);
+  });
+  if (!url && !navic.length) return '';
+  return ('TIP k prověření: ' + (url || navic.shift()) + (navic.length ? '\n' + navic.join(' – ') : '')).slice(0, 4000);
+}

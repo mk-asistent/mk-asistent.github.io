@@ -700,6 +700,12 @@ na ně nečeká.
   `beforeinstallprompt` v `js/start.js`), návod (připnout, spustit při přihlášení), odznak, oznámení, mini okno.
   Překryv titulku okna (`window-controls-overlay`) záměrně ne: tlačítka okna by ležela přes horní lištu a v malém mini okně
   přes zavírací tlačítka oken; titulek má barvu `theme_color` (krémová / tmavá) i tak.
+- **Sdílet → Asistent** (od 25. 10.): manifest `share_target` (GET `./?sdilet=tip&title&text&url`) – nainstalovaný
+  Asistent je v nabídce Sdílet ve Windows / v Chromu. `app.js zkratkaZAdresy` → `schranka.posliTip` → akce `poznamka`
+  s textem `TIP k prověření: <odkaz>` (+ titulek; `textTipu` v `js/rozbor.js`, odkaz i z pole `text`) – stejně jako
+  zkratka „Tip pro Clauda“ v iPhonu, hlídač ho pozná podle začátku textu. „Tip poslán Claudovi ✓“, okno ze sdílení se
+  samo zavře; nepřipojeno / chyba → tip zůstane v poli zápisu ve Schránce. Záloha bez instalace: Schránka → **Vložit
+  tip** (odkaz ze schránky Windows, `navigator.clipboard.readText`) a záložka v liště (NAVOD schránky).
 - **Odznak na ikoně** (Badging API, `navigator.setAppBadge`): počet e-mailů, které **hoří + čekají na odpověď** (jako „čeká“
   na Přehledu – hoří, čeká, otázka), nebo **jen hoří**, nebo vypnuto. Jen nainstalovaná aplikace, dokud běží (i minimalizovaná).
 - **Oznámení ve Windows** (`showNotification` ze služby – jdou i při minimalizovaném okně): nová konverzace **hoří**, nová

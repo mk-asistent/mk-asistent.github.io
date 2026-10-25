@@ -1,7 +1,7 @@
 // Test rozboru poznámky (událost / e-mail z psaného či diktovaného textu) – node testy/rozbor.test.mjs
 process.env.TZ = 'Europe/Prague';
 import assert from 'node:assert';
-const { rozborTextu, _test } = await import('../js/rozbor.js');
+const { rozborTextu, textTipu, _test } = await import('../js/rozbor.js');
 
 const TED = new Date(2026, 9, 2, 20, 0).getTime(); // pátek 2. 10. 2026 20:00
 const d = (den, h = 0, m = 0) => new Date(2026, 9, den, h, m).getTime();
@@ -94,6 +94,14 @@ test('dny: v pátek řečeno v pátek = za týden, dnes, datum v minulosti = př
   assert.strictEqual(_test.den('v pátek', TED), d(9));
   assert.strictEqual(_test.den('dnes večer', TED), d(2));
   assert.strictEqual(_test.den('1. 9.', TED), new Date(2027, 8, 1).getTime());
+});
+
+test('sdílený tip: odkaz v url / jen v textu, titulek bez opakování, bez odkazu i textu prázdno', () => {
+  assert.strictEqual(textTipu({ url: 'https://x.com/a/status/1', title: 'Příspěvek na X' }), 'TIP k prověření: https://x.com/a/status/1\nPříspěvek na X');
+  assert.strictEqual(textTipu({ text: 'Mrkni https://youtu.be/abc  ' }), 'TIP k prověření: https://youtu.be/abc\nMrkni');
+  assert.strictEqual(textTipu({ url: 'https://a.cz/', text: 'https://a.cz/', title: 'A' }), 'TIP k prověření: https://a.cz/\nA');
+  assert.strictEqual(textTipu({ title: 'Nástroj', text: 'Nástroj na skeny' }), 'TIP k prověření: Nástroj na skeny');
+  assert.strictEqual(textTipu({}), '');
 });
 
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

@@ -6,14 +6,14 @@
 // (Otevřít, Hotovo / Vyřízeno, Dopsat, Smazat – bez dotazu, s Vrátit v oznámení; js/nabidka.js).
 
 import { stav, zmeneno, prejdi, umiMotor, hooky } from './stav.js';
-import { volej } from './api.js';
+import { volej, jePripojeno } from './api.js';
 import { esc, kdyKratce, prvniRadek, dm, hhmm, rozdilDni, terminDatum, DNY_KR, uloziste, odstin, sOdkazy, pulnoc, pridejDny, prepisSPolem } from './pomocne.js';
 import { toast, toastAkce, kostra, chybaHtml, prizpusobVysku, okno, hlavickaKarty } from './ui.js';
 import { IKONY } from './ikony.js';
 import { otevriFormular } from './udalost.js';
 import { otevriPsani } from './posta.js';
 import { najdiKontakt, nactiKontakty } from './adresy.js';
-import { rozborTextu } from './rozbor.js';
+import { rozborTextu, textTipu } from './rozbor.js';
 
 const ULOZISTE = 'asistent.data.schranka';
 
@@ -420,7 +420,9 @@ export function klavesaSchranka(e) {
 export function zapisHtml(bezKarty) {
   return '<div class="' + (bezKarty ? '' : 'card ') + 'zapis"><textarea data-zapis rows="1" placeholder="Poznámka nebo úkol pro Clauda…" enterkeyhint="send" aria-label="Poznámka pro Clauda"></textarea>' +
     '<div class="zapis-navrh" hidden aria-live="polite"></div>' +
-    '<div class="zapis-paticka"><span class="znaku"></span><button type="button" class="btn btn--primary" data-ulozit disabled>Uložit</button></div></div>';
+    '<div class="zapis-paticka"><span class="znaku"></span>' +
+    (navigator.clipboard && navigator.clipboard.readText ? '<button type="button" class="btn" data-vlozit-tip title="Odkaz zkopírovaný ve schránce Windows pošle Claudovi k prověření">Vložit tip</button>' : '') +
+    '<button type="button" class="btn btn--primary" data-ulozit disabled>Uložit</button></div></div>';
 }
 
 /** Skok na pole pro poznámku (tlačítko „Poznámka pro Clauda“, hledání). */
@@ -657,6 +659,13 @@ export function klikSchranka(el) {
   if (el.dataset.navrh) { pouzijNavrh(el.dataset.navrh); return true; }
   if (el.dataset.navrhMistni) { pouzijNavrh(el.dataset.navrhMistni, true); return true; }
   if (el.hasAttribute('data-zapis-navrh')) { pouzijRychlyNavrh(el.closest('.zapis')); return true; }
+  if (el.hasAttribute('data-vlozit-tip')) {
+    navigator.clipboard.readText().then((t) => {
+      if (/https?:\/\//i.test(t)) posliTip({ text: t });
+      else toast('Ve schránce Windows není odkaz – zkopíruj ho (Ctrl+C) a klepni znovu', true);
+    }, () => toast('Asistent nesmí číst schránku Windows – povol to v adresním řádku (ikona vlevo)', true));
+    return true;
+  }
   if (el.hasAttribute('data-ulozit')) {
     const pole = el.closest('.zapis').querySelector('[data-zapis]');
     const text = pole.value.trim();
@@ -719,6 +728,33 @@ function navrhZapisu(zapis, text) {
   }
   misto.innerHTML = '<span class="zapis-navrh__text">' + popis + '</span><button type="button" class="btn btn--sm" data-zapis-navrh>' + tlacitko + '</button>';
   misto.hidden = false;
+}
+
+/**
+ * Odkaz sdílený do Asistenta (Windows / Chrome „Sdílet“ → manifest share_target, tlačítko Vložit tip) → poznámka
+ * „TIP k prověření: …“ do schránky, stejně jako zkratka „Tip pro Clauda“ v iPhonu. zeSdileni: okno otevřelo sdílení →
+ * po úspěchu se samo zavře. Nepovede-li se, tip zůstane v poli zápisu ve Schránce.
+ */
+export function posliTip(d, zeSdileni) {
+  const text = textTipu(d);
+  if (!text) { toast('Ve sdílení nepřišel žádný odkaz', true); return; }
+  const doPole = (proc) => {
+    prejdi('schranka');
+    setTimeout(() => {
+      const pole = document.querySelector('#p-schranka [data-zapis]');
+      if (pole) { pole.value = text; vstupSchranka({ target: pole }); pole.focus(); }
+    }, 50);
+    toast(proc + ' Tip je v poli – klepni Uložit.', true);
+  };
+  if (!jePripojeno()) { doPole('Asistent není připojený k motoru.'); return; }
+  toast('Posílám tip Claudovi…');
+  volej('poznamka', { text }).then((p) => {
+    if (stav.schranka && p) stav.schranka.nove.unshift(p);
+    zmeneno();
+    toast('Tip poslán Claudovi ✓');
+    // okno ze sdílení má jen jeden záznam historie → skript ho smí zavřít (jinak prohlížeč zavření nepustí a nic se nestane)
+    if (zeSdileni && history.length <= 1) setTimeout(() => window.close(), 1500);
+  }).catch((e) => doPole('Neuloženo – ' + e.message + '.'));
 }
 
 function vycistiZapis(zapis) {

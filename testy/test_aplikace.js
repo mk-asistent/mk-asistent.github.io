@@ -8654,6 +8654,32 @@ function vychoziVikendTestu() {
     } finally { await ctx.close(); }
   });
 
+  await test('Sdílet → Asistent (Michal 25. 10.: „sdílet odkaz na PC jako na mobilu“): manifest share_target, sdílený odkaz = poznámka TIP k prověření, Vložit tip ze schránky Windows', async () => {
+    const m = JSON.parse(fs.readFileSync(path.join(KOREN, 'manifest.webmanifest'), 'utf8'));
+    const st = m.share_target || {};
+    jistota(st.action === './?sdilet=tip' && st.method === 'GET' && st.params && st.params.url === 'url' && st.params.text === 'text' && st.params.title === 'title', 'share_target: ' + JSON.stringify(st));
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      const pred = volano.length;
+      await page.goto(WEB + '?sdilet=tip&title=' + encodeURIComponent('Příspěvek na X') + '&text=&url=' + encodeURIComponent('https://x.com/ukazka/status/1'));
+      await cekej(() => volano.slice(pred).some((d) => d.akce === 'poznamka'), 9000, 'poznámka z odkazu');
+      const pozn = volano.slice(pred).filter((d) => d.akce === 'poznamka');
+      jistota(pozn.length === 1 && pozn[0].text === 'TIP k prověření: https://x.com/ukazka/status/1\nPříspěvek na X', 'text tipu: ' + JSON.stringify(pozn.map((d) => d.text)));
+      await page.waitForFunction(() => /Tip poslán Claudovi/.test(document.body.textContent));
+      jistota(!/sdilet/.test(page.url()), 'adresa po sdílení uklizená: ' + page.url());
+      // záložní cesta: odkaz zkopírovaný ve schránce Windows → Schránka → Vložit tip
+      await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: WEB.replace(/\/$/, '') });
+      await page.evaluate(() => navigator.clipboard.writeText('Mrkni na https://github.com/ukazka/nastroj'));
+      await page.evaluate(() => import('/js/stav.js').then((s) => s.prejdi('schranka')));
+      const pred2 = volano.length;
+      await page.click('#p-schranka [data-vlozit-tip]');
+      await cekej(() => volano.slice(pred2).some((d) => d.akce === 'poznamka'), 9000, 'poznámka ze schránky Windows');
+      const t2 = volano.slice(pred2).find((d) => d.akce === 'poznamka').text;
+      jistota(t2 === 'TIP k prověření: https://github.com/ukazka/nastroj\nMrkni na', 'tip ze schránky: ' + t2);
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally { await ctx.close(); }
+  });
+
   await test('Asistent na PC: odznak na ikoně – hoří + čeká na odpověď, jen hoří, vypnuto (Nastavení → Aplikace); telefon bez části Na tomhle PC', async () => {
     postaNavic = { osobni: [vlaknoSouhrn.v1, horiciPc('v6', 'Stavbyvedoucí', 'Havárie vody')] };
     try {
