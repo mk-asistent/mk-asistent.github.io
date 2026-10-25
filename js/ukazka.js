@@ -561,7 +561,16 @@ const knihovnaUkazka = {
       podobne: [{ nazev: 'Lesní hlídka', rok: 2012, proc: 'Vymyšlený tip – další dobrodružství pro mladé čtenáře.' }, { nazev: 'Ukázková kniha o vesmíru', proc: 'Čeká ve frontě u Clauda (ukázka stavu „připravuje“).' }] }
   ],
   reserse: [{ id: 'reserse-proc-je-obloha-modra', nazev: 'Proč je obloha modrá', kratce: 'Molekuly vzduchu rozptylují modré světlo mnohem víc než červené – proto modrá přichází ze všech stran oblohy.',
-    stitky: ['fyzika', 'příroda'], pripraveno: isoCas(ted - 3 * H) }],
+    stitky: ['fyzika', 'příroda'], pripraveno: isoCas(ted - 3 * H) },
+    // Rešerše AI (záložka od 25. 10.): vymyšlené tipy z odkazů a AI tipy dne ve dvou týdnech
+    { id: 'reserse-tip-ukazkovy-plugin', nazev: 'Ukázkový plugin na přehled úloh', kratce: '✅ Zkusit – oficiální, zdarma, ušetří ruční přepisování úkolů (vymyšlená ukázka).',
+      stitky: ['tip', 'AI', 'claude-code'], pripraveno: isoCas(ted - 5 * H) },
+    { id: 'reserse-ai-tipy-ukazka-1', nazev: 'AI tipy z X – ukázka', kratce: '🧩 Vzít kousek – ze tří tipů se hodí jen třetí: kratší zadání pro agenty (vymyšlená ukázka).',
+      stitky: ['AI tipy', 'X'], pripraveno: isoCas(ted - 27 * H) },
+    { id: 'reserse-tip-ukazkovy-reel', nazev: 'Reel „10 skrytých funkcí“', kratce: '❌ Ne – reklama na placený kurz, funkce v ní nejsou (vymyšlená ukázka).',
+      stitky: ['tip', 'AI'], pripraveno: isoCas(ted - 50 * H) },
+    { id: 'reserse-ai-tipy-ukazka-2', nazev: 'AI tipy z X – starší ukázka', kratce: '⏸ Později – zajímavé, ale až bude čas na úklid skillů (vymyšlená ukázka).',
+      stitky: ['AI tipy', 'X'], pripraveno: isoCas(ted - 9 * 24 * H) }],
   moje: { 'film-expedice-polarka': { stav: 'hotovo', hodnoceni: 4, poznamka: 'Pěkné na neděli s rodinou.' }, 'kniha-kroniky-udoli': { stav: 'rozpracovane' } },
   pozadavky: [{ id: 'p-' + iso(ted).replace(/-/g, '') + '-0930-uk', druh: 'kniha', text: 'Ukázková kniha o vesmíru', kdy: isoCas(ted - 0.4 * H) }],
   chybne: []

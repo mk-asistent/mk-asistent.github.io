@@ -341,7 +341,7 @@ export function reserseCasti(idx, r, ctx) {
         (x.otazka ? '<p class="kn-otazka">' + IKONY.otazka + '<span>' + esc(x.otazka) + '</span></p>' : '') +
         ((x.stitky || []).length ? '<div class="kn-zanry">' + x.stitky.map((s) => '<span class="tag tag--seda">' + esc(s) + '</span>').join('') + '</div>' : '') +
     '</div></div></header>';
-  const casti = { lista: listaHtml('Rešerše', null), hero, moje: mojeHtml(idx.id, 'reserse', m, false), titul: x.nazev };
+  const casti = { lista: listaHtml(D.jeAi(idx) ? 'Rešerše AI' : 'Rešerše', null), hero, moje: mojeHtml(idx.id, 'reserse', m, false), titul: x.nazev };
   if (!r || !r.data) {
     return Object.assign({}, PRAZDNE, casti, { telo: (x.kratce ? blok('Krátce', '<div class="kn-kratce"><div class="kn-text">' + odstavce(x.kratce) + '</div></div>') : '') +
       '<section class="card">' + (r && r.chyba ? chybaHtml(r.chyba, 'data-kn-reserse-znovu="' + esc(idx.id) + '"') : kostra(8)) + '</section>' });

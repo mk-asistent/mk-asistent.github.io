@@ -38,8 +38,61 @@ test('záložky a filtry podle mého stavu: filmy = filmy i seriály, knihy, re�
   assert.deepStrictEqual([p.filmy, p.knihy, p.reserse, p.cekaji], [2, 1, 1, 3]);
   assert.deepStrictEqual(p.stavy.filmy, { vse: 2, chci: 0, rozpracovane: 0, hotovo: 1 });
   assert.strictEqual(p.stavy.reserse.hotovo, 1);
-  assert.deepStrictEqual(D.pocty(null), { filmy: 0, knihy: 0, reserse: 0, cekaji: 0, stavy: { filmy: { vse: 0, chci: 0, rozpracovane: 0, hotovo: 0 },
-    knihy: { vse: 0, chci: 0, rozpracovane: 0, hotovo: 0 }, reserse: { vse: 0, chci: 0, rozpracovane: 0, hotovo: 0 } } });
+  const nula = { vse: 0, chci: 0, rozpracovane: 0, hotovo: 0 };
+  assert.deepStrictEqual(D.pocty(null), { filmy: 0, knihy: 0, reserse: 0, ai: 0, cekaji: 0, stavy: { filmy: nula, knihy: nula, reserse: nula, ai: nula } });
+});
+
+// Rešerše AI (25. 10.): tipy z odkazů, AI tipy dne a štítek AI ve vlastní záložce, po týdnech / dnech, verdikt z `kratce`
+const AI = {
+  reserse: [
+    { id: 'reserse-letectvi', nazev: 'Jak létá letadlo', stitky: ['fyzika'], pripraveno: '2026-10-10T20:00:00+02:00' },
+    { id: 'reserse-ai-tipy-2026-10-23', nazev: 'AI tipy z X – 23. 10.', kratce: '✅ Zkusit – plugin od autora, ověřeno.', stitky: ['AI tipy', 'X'],
+      pripraveno: '2026-10-23T21:12:00+02:00' },
+    { id: 'reserse-tip-find-skills', nazev: 'Find skills', kratce: '⏸ Později / spíš ne – skill je skutečný, ale…', stitky: ['tip', 'AI', 'skilly'],
+      pripraveno: '2026-10-21T20:21:00+02:00' },
+    { id: 'reserse-tip-brotli', nazev: 'Brotli RCE', kratce: '✅ Zkusit (= aktualizovat) – jádro potvrzené.', stitky: ['tip', 'bezpečnost'],
+      pripraveno: '2026-10-25T12:00:00+02:00' },
+    { id: 'reserse-cosi-ai', nazev: 'Jak fungují jazykové modely', kratce: 'Bez verdiktu.', stitky: ['AI'], pripraveno: '2026-10-16T10:00:00+02:00' },
+    { id: 'reserse-tip-reklama', nazev: 'Plugin X', kratce: '❌ Ne – reklama na placený plugin.', stitky: ['tip'], pripraveno: '2026-10-20T09:00:00+02:00' }
+  ],
+  moje: { 'reserse-tip-find-skills': { stav: 'hotovo' } }
+};
+
+test('Rešerše AI: tipy, AI tipy dne a štítek AI ve vlastní záložce, zbytek v Rešerších; počty a filtr přečteno', () => {
+  assert.deepStrictEqual(D.ZALOZKY.map((z) => z[0]), ['filmy', 'knihy', 'reserse', 'ai']);
+  assert.deepStrictEqual(D.reserseZalozky(AI, '', 'vse', 'reserse').map((r) => r.id), ['reserse-letectvi']);
+  assert.strictEqual(D.reserseZalozky(AI, '', 'vse', 'ai').length, 5);
+  assert.deepStrictEqual(D.reserseZalozky(AI, 'skills', 'vse', 'ai').map((r) => r.id), ['reserse-tip-find-skills']);
+  assert.deepStrictEqual(D.reserseZalozky(AI, '', 'hotovo', 'ai').map((r) => r.id), ['reserse-tip-find-skills']);
+  assert.strictEqual(D.reserseZalozky(AI, '', 'bez', 'ai').length, 4);
+  const p = D.pocty(AI);
+  assert.deepStrictEqual([p.reserse, p.ai, p.stavy.ai.vse, p.stavy.ai.hotovo, p.stavy.reserse.vse], [1, 5, 5, 1, 1]);
+});
+
+test('Rešerše AI: verdikt ze začátku krátce (i „Později / spíš ne“, „Zkusit (= aktualizovat)“), bez verdiktu null; počty', () => {
+  assert.deepStrictEqual(D.verdikt(AI.reserse[1]), { klic: 'zkusit', znak: '✅', text: 'Zkusit', zbytek: 'plugin od autora, ověřeno.' });
+  assert.deepStrictEqual(D.verdikt(AI.reserse[2]), { klic: 'pozdeji', znak: '⏸', text: 'Později / spíš ne', zbytek: 'skill je skutečný, ale…' });
+  assert.strictEqual(D.verdikt(AI.reserse[3]).text, 'Zkusit (= aktualizovat)');
+  assert.strictEqual(D.verdikt(AI.reserse[4]), null);
+  assert.strictEqual(D.verdikt({ kratce: '⏸️ Později – s variantou znaku' }).zbytek, 's variantou znaku');
+  assert.deepStrictEqual(D.poctyVerdiktu(AI.reserse), { zkusit: 2, kousek: 0, pozdeji: 1, ne: 1 });
+});
+
+test('Rešerše AI: po týdnech (pondělí–neděle) a po dnech, nejnovější nahoře; názvy týdne a dne', () => {
+  const ted = Date.parse('2026-10-25T18:00:00+01:00'); // neděle – po přechodu na zimní čas
+  const seznam = D.reserseZalozky(AI, '', 'vse', 'ai');
+  const tydny = D.skupinyCasu(seznam, 'tyden');
+  assert.deepStrictEqual(tydny.map((t) => t.polozky.map((r) => r.id)), [
+    ['reserse-tip-brotli', 'reserse-ai-tipy-2026-10-23', 'reserse-tip-find-skills', 'reserse-tip-reklama'],
+    ['reserse-cosi-ai']]);
+  assert.deepStrictEqual(D.nazevTydne(tydny[0].od, ted), { nazev: '19.–25. 10.', kdy: 'tento týden' });
+  assert.deepStrictEqual(D.nazevTydne(tydny[1].od, ted), { nazev: '12.–18. 10.', kdy: 'minulý týden' });
+  assert.strictEqual(D.nazevTydne(D.zacatekTydne(Date.parse('2026-10-29T12:00:00+01:00')), ted).nazev, '26. 10. – 1. 11.');
+  const dny = D.skupinyCasu(seznam, 'den');
+  assert.strictEqual(dny.length, 5);
+  assert.deepStrictEqual(D.nazevDne(dny[0].od, ted), { nazev: 'neděle 25. 10.', kdy: 'dnes' });
+  assert.deepStrictEqual(D.nazevDne(dny[1].od, ted), { nazev: 'pátek 23. 10.', kdy: '' });
+  assert.deepStrictEqual(D.skupinyCasu([{ id: 'x' }], 'den'), [{ od: 0, polozky: [{ id: 'x' }] }]);
 });
 
 test('názvy stavů podle druhu (Viděno × Přečteno) a čekající požadavky v záložce, nejnovější nahoře', () => {

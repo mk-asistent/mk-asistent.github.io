@@ -4,13 +4,14 @@
 // Data jsou odpověď akce knihovna z motoru: { karty, reserse (index), moje: { id: { stav, hodnoceni, poznamka } },
 // pozadavky: [{ id, druh, text, kdy }], chybne, ted } – formát karet a rešerší: skill osobni-knihovna.
 
-export const ZALOZKY = [['filmy', 'Filmy'], ['knihy', 'Knihy'], ['reserse', 'Rešerše']];
+export const ZALOZKY = [['filmy', 'Filmy'], ['knihy', 'Knihy'], ['reserse', 'Rešerše'], ['ai', 'Rešerše AI']];
 export const DRUHY = { film: 'film', serial: 'seriál', kniha: 'kniha', reserse: 'rešerše' };
 export const STAVY = ['chci', 'rozpracovane', 'hotovo'];
 const NAZVY_STAVU = {
   filmy: { chci: 'Chci vidět', rozpracovane: 'Rozkoukané', hotovo: 'Viděno' },
   knihy: { chci: 'Chci číst', rozpracovane: 'Čtu', hotovo: 'Přečteno' },
-  reserse: { chci: 'Chci číst', rozpracovane: 'Čtu', hotovo: 'Přečteno' }
+  reserse: { chci: 'Chci číst', rozpracovane: 'Čtu', hotovo: 'Přečteno' },
+  ai: { chci: 'Chci číst', rozpracovane: 'Čtu', hotovo: 'Přečteno' }
 };
 const NOVA_DNI = 3; // karta od Clauda je „nová“ ještě 3 dny
 
@@ -51,10 +52,84 @@ export function kartyZalozky(data, zalozka, filtr, dotaz) {
 }
 function filtrSedi(stav, filtr) { return !filtr || filtr === 'vse' ? true : filtr === 'bez' ? !stav : stav === filtr; }
 
-/** Rešerše (index) s dotazem a filtrem (vše / přečteno / nepřečteno). */
-export function reserseZalozky(data, dotaz, filtr) {
+/**
+ * Rešerše AI (Michal 25. 10.: „jak posílám AI věci pro tebe a ty je zpracováváš do rešerše, udělej sekci Rešerše AI“): tipy
+ * z odkazů (zkratka „Tip pro Clauda“, štítek tip), AI tipy dne (štítek „AI tipy“) a cokoli se štítkem AI. Ostatní rešerše
+ * (dějiny, fyzika, skeny…) zůstávají v záložce Rešerše.
+ */
+export function jeAi(r) {
+  const st = ((r && r.stitky) || []).map(bezDiakritiky);
+  return st.some((x) => x === 'ai' || x === 'ai tipy' || x === 'tip') || /^reserse-(ai|tip)-/.test(String((r && r.id) || ''));
+}
+
+/** Rešerše (index) záložky (reserse = bez AI, ai = jen AI) s dotazem a filtrem (vše / přečteno / nepřečteno). */
+export function reserseZalozky(data, dotaz, filtr, zalozka) {
   const s = slova(dotaz);
-  return reserse(data).filter((r) => odpovida(r, s) && (filtr === 'hotovo' ? moje(data, r.id).stav === 'hotovo' : filtr === 'bez' ? moje(data, r.id).stav !== 'hotovo' : true));
+  const ai = zalozka === 'ai';
+  return reserse(data).filter((r) => jeAi(r) === ai && odpovida(r, s) &&
+    (filtr === 'hotovo' ? moje(data, r.id).stav === 'hotovo' : filtr === 'bez' ? moje(data, r.id).stav !== 'hotovo' : true));
+}
+
+// ---------------------------------------------------------------- Rešerše AI po týdnech a dnech, verdikt
+
+const VERDIKTY = [['zkusit', '✅', 'Zkusit'], ['kousek', '🧩', 'Vzít kousek'], ['pozdeji', '⏸', 'Později'], ['ne', '❌', 'Ne']];
+
+/** Verdikt ze začátku `kratce` („✅ Zkusit – …“, „⏸ Později / spíš ne – …“) → { klic, znak, text, zbytek } nebo null. */
+export function verdikt(r) {
+  const t = String((r && r.kratce) || '').trim();
+  const v = VERDIKTY.find((x) => t.indexOf(x[1]) === 0);
+  if (!v) return null;
+  const za = t.slice(v[1].length).replace(/^\uFE0F/, '').trim();
+  const m = /^([^–—]{1,40}?)\s+[–—]\s+([\s\S]*)$/.exec(za);
+  return { klic: v[0], znak: v[1], text: m ? m[1].trim() : v[2], zbytek: m ? m[2].trim() : za };
+}
+
+/** Počty verdiktů v seznamu: { zkusit, kousek, pozdeji, ne } */
+export function poctyVerdiktu(seznam) {
+  const p = { zkusit: 0, kousek: 0, pozdeji: 0, ne: 0 };
+  (seznam || []).forEach((r) => { const v = verdikt(r); if (v) p[v.klic]++; });
+  return p;
+}
+export const ZNAKY_VERDIKTU = { zkusit: '✅', kousek: '🧩', pozdeji: '⏸', ne: '❌' };
+
+const DEN = 864e5;
+/** Půlnoc dne (místní čas) a pondělí týdne – přes Date, ať sedí i přechod na zimní čas. */
+export function zacatekDne(t) { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); }
+export function zacatekTydne(t) { const d = new Date(zacatekDne(t)); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return d.getTime(); }
+function posunDny(t, n) { const d = new Date(t); d.setDate(d.getDate() + n); return d.getTime(); }
+
+/** Seznam po týdnech ('tyden') nebo dnech ('den'), nejnovější nahoře: [{ od, polozky (nejnovější nahoře) }]; bez data na konci (od 0). */
+export function skupinyCasu(seznam, po) {
+  const mapa = new Map();
+  (seznam || []).forEach((r) => {
+    const t = cas(r.pripraveno);
+    const k = t ? (po === 'den' ? zacatekDne(t) : zacatekTydne(t)) : 0;
+    if (!mapa.has(k)) mapa.set(k, []);
+    mapa.get(k).push(r);
+  });
+  return Array.from(mapa.keys()).sort((a, b) => (b || -Infinity) - (a || -Infinity))
+    .map((od) => ({ od, polozky: mapa.get(od).slice().sort((a, b) => cas(b.pripraveno) - cas(a.pripraveno)) }));
+}
+
+const MESICE_DNY = ['neděle', 'pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota'];
+const dmText = (t) => { const d = new Date(t); return d.getDate() + '. ' + (d.getMonth() + 1) + '.'; };
+
+/** Týden: { nazev: „20.–26. 10.“ / „27. 10. – 2. 11.“, kdy: „tento týden“ | „minulý týden“ | „před 2 týdny“ | '' }. */
+export function nazevTydne(od, ted) {
+  if (!od) return { nazev: 'Bez data', kdy: '' };
+  const konec = posunDny(od, 6);
+  const a = new Date(od), b = new Date(konec);
+  const nazev = a.getMonth() === b.getMonth() ? a.getDate() + '.–' + dmText(konec) : dmText(od) + ' – ' + dmText(konec);
+  const rozdil = Math.round((zacatekTydne(ted || Date.now()) - od) / (7 * DEN));
+  return { nazev: nazev + (a.getFullYear() !== new Date(ted || Date.now()).getFullYear() ? ' ' + a.getFullYear() : ''),
+    kdy: rozdil === 0 ? 'tento týden' : rozdil === 1 ? 'minulý týden' : rozdil > 1 && rozdil < 5 ? 'před ' + rozdil + ' týdny' : '' };
+}
+
+/** Den: { nazev: „čtvrtek 23. 10.“, kdy: „dnes“ | „včera“ | '' }. */
+export function nazevDne(od, ted) {
+  if (!od) return { nazev: 'Bez data', kdy: '' };
+  const rozdil = Math.round((zacatekDne(ted || Date.now()) - od) / DEN);
+  return { nazev: MESICE_DNY[new Date(od).getDay()] + ' ' + dmText(od), kdy: rozdil === 0 ? 'dnes' : rozdil === 1 ? 'včera' : '' };
 }
 
 /** Čekající požadavky záložky, nejnovější nahoře (s dotazem jen ty, které mu odpovídají). */
@@ -66,7 +141,8 @@ export function cekajici(data, zalozka, dotaz) {
 
 /** Počty do záložek a filtrů: { filmy, knihy, reserse, cekaji, stavy: { filmy: { vse, chci, rozpracovane, hotovo }, … } }. */
 export function pocty(data) {
-  const p = { filmy: 0, knihy: 0, reserse: reserse(data).length, cekaji: pozadavky(data).length, stavy: {} };
+  const ai = reserse(data).filter(jeAi);
+  const p = { filmy: 0, knihy: 0, reserse: reserse(data).length - ai.length, ai: ai.length, cekaji: pozadavky(data).length, stavy: {} };
   ZALOZKY.forEach((z) => { p.stavy[z[0]] = { vse: 0, chci: 0, rozpracovane: 0, hotovo: 0 }; });
   karty(data).forEach((x) => {
     const z = zalozkaDruhu(x.druh);
@@ -75,7 +151,7 @@ export function pocty(data) {
     const st = moje(data, x.id).stav;
     if (st) p.stavy[z][st]++;
   });
-  reserse(data).forEach((r) => { p.stavy.reserse.vse++; const st = moje(data, r.id).stav; if (st) p.stavy.reserse[st]++; });
+  reserse(data).forEach((r) => { const z = jeAi(r) ? 'ai' : 'reserse'; p.stavy[z].vse++; const st = moje(data, r.id).stav; if (st) p.stavy[z][st]++; });
   return p;
 }
 

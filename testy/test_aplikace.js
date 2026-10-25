@@ -6846,6 +6846,57 @@ function vychoziVikendTestu() {
   }, [id, klic, vychozi || 'prehled']);
   const PC1500 = { nazev: 'pc1500', sirka: 1500, vyska: 850, dotyk: false };
 
+  // ---------- Rešerše AI (Michal 25. 10.: „udělej sekci Rešerše AI … primárně po týdnech, ale budu mít možnost překliknout po
+  // dnech / týdnech a pak jednotlivě“): tipy z odkazů, AI tipy dne a štítek AI ve vlastní záložce, verdikt jako štítek
+  await test('Knihovna: Rešerše AI – vlastní záložka, po týdnech (výchozí) / dnech / jednotlivě, verdikt, volba zůstane; v Rešerších jen ostatní', async () => {
+    knihovnaTest = KNIHOVNA_VYCHOZI();
+    const tyden = (n) => new Date(ted - n * 7 * 24 * H).toISOString();
+    knihovnaTest.reserse.push(
+      { id: 'reserse-tip-plugin', nazev: 'Plugin na úkoly', kratce: '✅ Zkusit – oficiální a zdarma.', stitky: ['tip', 'AI'], pripraveno: new Date(ted - 2 * H).toISOString() },
+      { id: 'reserse-ai-tipy-test', nazev: 'AI tipy z X – test', kratce: '🧩 Vzít kousek – jen třetí tip.', stitky: ['AI tipy', 'X'], pripraveno: new Date(ted - 26 * H).toISOString() },
+      { id: 'reserse-tip-stary', nazev: 'Starý tip', kratce: '❌ Ne – reklama.', stitky: ['tip'], pripraveno: tyden(2) });
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, PC1500);
+    try {
+      await knihovnaSit(page);
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="knihovna"]');
+      await page.waitForSelector('#kn-zalozky [data-kn-zalozka="ai"]');
+      // v Rešerších jen ostatní
+      await page.click('#kn-zalozky [data-kn-zalozka="reserse"]');
+      await page.waitForSelector('#kn-obsah [data-kn-otevri="reserse-letectvi"]');
+      jistota(!(await page.locator('#kn-obsah [data-kn-otevri^="reserse-tip"]').count()), 'tipy nemají být v Rešerších');
+      await page.click('#kn-zalozky [data-kn-zalozka="ai"]');
+      await page.waitForSelector('#kn-obsah .kn-ai-skupina');
+      const tydny = await page.locator('#kn-obsah .kn-ai-skupina').count();
+      jistota(tydny >= 2 && /tento týden/.test(await page.textContent('#kn-obsah .kn-ai-skupina >> nth=0')), 'po týdnech: ' + tydny);
+      jistota(await page.locator('#kn-obsah [data-kn-otevri]').count() === 3 && !(await page.locator('#kn-obsah [data-kn-otevri="reserse-letectvi"]').count()), 'jen AI');
+      jistota(/Zkusit/.test(await page.textContent('#kn-obsah [data-kn-otevri="reserse-tip-plugin"] .kn-verdikt')) &&
+        /oficiální a zdarma/.test(await page.textContent('#kn-obsah [data-kn-otevri="reserse-tip-plugin"] small')), 'verdikt jako štítek, pod ním zbytek');
+      jistota(/Rešerše AI\s*3/.test(await page.textContent('#kn-zalozky')) && /rešerše AI 3/i.test(await page.textContent('#hlava p')), 'počty');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc1500_knihovna_ai.png') });
+      // po dnech, jednotlivě
+      await page.click('[data-kn-pohled-ai="dny"]');
+      await page.waitForFunction(() => document.querySelectorAll('#kn-obsah .kn-ai-skupina').length === 3 && /dnes/.test(document.querySelector('#kn-obsah .kn-ai-skupina').textContent));
+      await page.click('[data-kn-pohled-ai="jednotlive"]');
+      await page.waitForFunction(() => !document.querySelector('#kn-obsah .kn-ai-skupina') && document.querySelectorAll('#kn-obsah [data-kn-otevri]').length === 3);
+      // filtr Přečtené: nic → prázdné „Nic tu neodpovídá“
+      await page.click('#kn-filtry [data-kn-filtr="hotovo"]');
+      await page.waitForFunction(() => /Nic tu neodpovídá/.test(document.getElementById('kn-obsah').textContent));
+      await page.click('#kn-filtry [data-kn-filtr="vse"]');
+      // volba zobrazení zůstane po znovunačtení
+      await page.reload();
+      await page.waitForTimeout(600);
+      if (await page.locator('.okno-pozadi').count()) { await page.keyboard.press('Escape'); await page.waitForSelector('.okno-pozadi', { state: 'detached' }); }
+      if (!(await page.locator('#p-knihovna:not([hidden])').count())) await page.click('#rail [data-cil="knihovna"]');
+      await page.waitForSelector('#kn-obsah [data-kn-otevri="reserse-tip-plugin"]');
+      jistota(await page.getAttribute('[data-kn-pohled-ai="jednotlive"]', 'aria-pressed') === 'true', 'zobrazení Jednotlivě má zůstat');
+      jistota(!chybyKnihovny(chybyStranky).length, 'chyby stránky: ' + chybyKnihovny(chybyStranky).join(' | ')); // 404 = záměrně chybějící obrázek knihovny
+    } finally {
+      await ctx.close();
+      knihovnaTest = KNIHOVNA_VYCHOZI();
+    }
+  });
+
   await test('Knihovna na PC: modul při startu ne (start na něj nečeká), přednačte se po startu i s daty; záložky, karty s plakátem (líně, zástupná plocha) přes celou šířku, filtr stavu, hledání i v Hledat', async () => {
     knihovnaTest = KNIHOVNA_VYCHOZI();
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, PC1500);
@@ -6866,7 +6917,7 @@ function vychoziVikendTestu() {
       jistota(!volano.slice(poPrednacteni).some((d) => d.akce === 'knihovna'), 'po otevření stránky se knihovna už znovu nečte (přednačtená)');
       jistota(/Knihovna/.test(await page.textContent('#hlava h1')) && /filmy a seriály 2 · knihy 1 · rešerše 1/i.test(await page.textContent('#hlava p')), 'nadpis: ' + await page.textContent('#hlava'));
       const zalozky = (await page.locator('#kn-zalozky .chip').allTextContents()).map((t) => t.replace(/\s+/g, ''));
-      jistota(zalozky.join('|') === 'Filmy2|Knihy1|Rešerše1', 'záložky: ' + zalozky.join('|'));
+      jistota(zalozky.join('|') === 'Filmy2|Knihy1|Rešerše1|RešeršeAI0', 'záložky: ' + zalozky.join('|'));
       jistota(await page.locator('#p-knihovna .kn-karta').count() === 2, 'filmy i seriály');
       // přes celou šířku okna (Michal 12. 10.: „je to zase jen přes kousek“): seznam ≥ 85 % okna, mřížka aspoň 6 sloupců
       const sirka = await page.evaluate(() => ({ stranka: document.getElementById('p-knihovna').getBoundingClientRect().width, okno: window.innerWidth,

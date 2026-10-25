@@ -97,6 +97,27 @@
 .kn-res__meta em { font-style: normal; }
 .kn-res--ceka { border-style: dashed; background: color-mix(in srgb, var(--o-knihovna) 4%, var(--surface)); }
 
+/* ---------- Rešerše AI (25. 10.): po týdnech / dnech / jednotlivě, verdikt tipu jako barevný štítek */
+.kn-filtry__ai { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.kn-ai-skupina { display: flex; flex-direction: column; gap: 10px; }
+.kn-ai-skupina + .kn-ai-skupina { margin-top: 18px; }
+.kn-ai-skupina__hlava { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding: 0 2px 2px; border-bottom: 1px solid var(--line-soft); }
+.kn-ai-skupina__hlava h3 { display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
+.kn-ai-skupina__hlava h3 small { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.kn-ai-skupina__hlava h3 em { font-style: normal; font-size: 12px; font-weight: 650; padding: 1px 8px; border-radius: 999px; background: var(--limetka-tint); color: var(--text-soft); }
+.kn-ai-skupina__pocet { font-size: 12.5px; color: var(--muted); }
+.kn-ai-verdikty { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.kn-ai-verdikty__v { font-size: 12.5px; padding: 1px 8px; border-radius: 999px; background: var(--vb, var(--sand)); color: var(--text-soft); }
+.kn-verdikt { align-self: flex-start; font-size: 11.5px; font-weight: 650; padding: 1px 8px; border-radius: 999px; background: var(--vb, var(--sand)); color: var(--vt, var(--text-soft)); }
+.kn-verdikt--zkusit { --vb: color-mix(in srgb, var(--ok) 15%, var(--surface)); --vt: var(--ok); }
+.kn-verdikt--kousek { --vb: var(--fialova-tint); --vt: var(--fialova); }
+.kn-verdikt--pozdeji { --vb: color-mix(in srgb, var(--oranz) 14%, var(--surface)); --vt: color-mix(in srgb, var(--oranz) 70%, var(--text)); }
+.kn-verdikt--ne { --vb: var(--sand); --vt: var(--muted); }
+.kn-res.kn-verdikt--zkusit { box-shadow: inset 3px 0 0 var(--ok); }
+.kn-res.kn-verdikt--kousek { box-shadow: inset 3px 0 0 var(--fialova); }
+.kn-res.kn-verdikt--pozdeji { box-shadow: inset 3px 0 0 var(--oranz); }
+.kn-res.kn-verdikt--ne { box-shadow: inset 3px 0 0 var(--line); }
+
 /* ================================================================ podstránka karty a rešerše (#knihovna/<id>[/<záložka>], 12. 10.)
    Michal: „jako klasickou stránku, ne jen pás vpravo“ a večer: „přes celou stránku … nedělej to jako prohlížení celé na jedné
    stránce s tak velkým rolováním … když kliknu na té liště, ať se to zobrazí jen k té dané věci“. Proto:
@@ -619,5 +640,8 @@ button.kn-souvisi__polozka:hover { border-color: color-mix(in srgb, var(--o-knih
 /* telefon: seznam */
 @media (max-width: 759px) {
     .kn-lista__zalozky { flex: 1 1 100%; }
+    /* 4 záložky (od 25. 10. i Rešerše AI) se do řádku nevejdou – mřížka 2 × 2, nic se neuřízne */
+    .kn-lista__zalozky .segment { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; overflow: visible; }
+    .kn-lista__zalozky .chip { justify-content: center; }
     .kn-hledat { max-width: none; }
 }

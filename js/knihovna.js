@@ -51,7 +51,9 @@ const PRIDAT = {
 const volby = uloziste.cti(VOLBY) || {};
 const k = {
   zalozka: D.ZALOZKY.some((z) => z[0] === volby.zalozka) ? volby.zalozka : 'filmy',
-  filtr: Object.assign({ filmy: 'vse', knihy: 'vse', reserse: 'vse' }, volby.filtr),
+  filtr: Object.assign({ filmy: 'vse', knihy: 'vse', reserse: 'vse', ai: 'vse' }, volby.filtr),
+  // Rešerše AI: po týdnech (výchozí), po dnech, nebo jednotlivě (Michal 25. 10.)
+  pohledAi: ['tydny', 'dny', 'jednotlive'].indexOf(volby.pohledAi) >= 0 ? volby.pohledAi : 'tydny',
   dotaz: '',
   nacteno: false,         // v tomhle běhu aplikace už se knihovna četla z motoru
   reserse: {},            // id → { data, kdy } | { nacita, chyba }
@@ -159,6 +161,7 @@ export function podnadpis() {
   if (!d) return stav.chyby.knihovna ? 'Knihovna se nenačetla' : 'Filmy, seriály, knihy a rešerše';
   const p = D.pocty(d);
   const casti = [p.filmy ? 'filmy a seriály ' + p.filmy : '', p.knihy ? 'knihy ' + p.knihy : '', p.reserse ? 'rešerše ' + p.reserse : '',
+    p.ai ? 'rešerše AI ' + p.ai : '',
     p.cekaji ? 'Claude připravuje ' + p.cekaji : ''].filter(Boolean);
   return casti.length ? velkePrvni(casti.join(' · ')) : 'Zatím prázdná – přidej film, knihu nebo otázku';
 }
@@ -294,7 +297,7 @@ function prekresliStranku() {
   if (el && !el.hidden) vykresliKnihovnu(el);
 }
 
-function ulozVolby() { uloziste.pis(VOLBY, { zalozka: k.zalozka, filtr: k.filtr }); }
+function ulozVolby() { uloziste.pis(VOLBY, { zalozka: k.zalozka, filtr: k.filtr, pohledAi: k.pohledAi }); }
 
 function zalozkyHtml() {
   const p = D.pocty(stav.knihovna);
@@ -304,11 +307,15 @@ function zalozkyHtml() {
 function filtryHtml() {
   const d = stav.knihovna;
   const z = k.zalozka;
-  if (!d || !(z === 'reserse' ? D.reserse(d).length : D.pocty(d)[z])) return '';
+  if (!d || !D.pocty(d)[z]) return '';
   const p = D.pocty(d).stavy[z];
-  const volbyFiltru = z === 'reserse' ? [['vse', 'Vše', p.vse], ['bez', 'Nepřečtené', p.vse - p.hotovo], ['hotovo', 'Přečtené', p.hotovo]]
+  const cteni = z === 'reserse' || z === 'ai';
+  const volbyFiltru = cteni ? [['vse', 'Vše', p.vse], ['bez', 'Nepřečtené', p.vse - p.hotovo], ['hotovo', 'Přečtené', p.hotovo]]
     : [['vse', 'Vše', p.vse]].concat(D.nazvyStavu(z).map((s) => [s[0], s[1], p[s[0]]]));
-  return segment(volbyFiltru, k.filtr[z], 'data-kn-filtr', 'Filtr podle mého stavu');
+  const filtr = segment(volbyFiltru, k.filtr[z], 'data-kn-filtr', 'Filtr podle mého stavu');
+  // Rešerše AI: zobrazení po týdnech / dnech / jednotlivě vlevo, filtr přečtení vedle
+  return z === 'ai' ? '<div class="kn-filtry__ai">' + segment([['tydny', 'Týdny'], ['dny', 'Dny'], ['jednotlive', 'Jednotlivě']], k.pohledAi, 'data-kn-pohled-ai', 'Zobrazení') +
+    filtr + '</div>' : filtr;
 }
 
 function obsahHtml() {
@@ -318,8 +325,11 @@ function obsahHtml() {
   const ceka = D.cekajici(d, z, k.dotaz);
   let h = '';
   if (z === 'reserse') {
-    const seznam = D.reserseZalozky(d, k.dotaz, k.filtr.reserse);
+    const seznam = D.reserseZalozky(d, k.dotaz, k.filtr.reserse, 'reserse');
     if (ceka.length || seznam.length) h = '<ul class="kn-reserse-seznam">' + ceka.map(cekajiciRadekHtml).join('') + seznam.map(reserseRadekHtml).join('') + '</ul>';
+  } else if (z === 'ai') {
+    const seznam = D.reserseZalozky(d, k.dotaz, k.filtr.ai, 'ai');
+    if (seznam.length) h = aiHtml(seznam, d.ted);
   } else {
     const seznam = D.kartyZalozky(d, z, k.filtr[z], k.dotaz);
     if (ceka.length || seznam.length) h = '<ul class="kn-mrizka">' + ceka.map(cekajiciKartaHtml).join('') + seznam.map(kartaHtml).join('') + '</ul>';
@@ -337,13 +347,39 @@ function obsahHtml() {
   return h;
 }
 
+/**
+ * Rešerše AI (Michal 25. 10.: „primárně mi to zobrazuj po týdnech – ale budu tam mít možnost překliknout po dnech / týdnech
+ * a pak jednotlivě“): týden / den = blok s nadpisem (data, tento týden / dnes), počtem a verdikty, pod ním rešerše
+ * nejnovější nahoře; Jednotlivě = jeden seznam.
+ */
+function aiHtml(seznam, ted) {
+  if (k.pohledAi === 'jednotlive') return '<ul class="kn-reserse-seznam">' + seznam.map(reserseRadekHtml).join('') + '</ul>';
+  const poDnech = k.pohledAi === 'dny';
+  return D.skupinyCasu(seznam, poDnech ? 'den' : 'tyden').map((sk) => {
+    const n = poDnech ? D.nazevDne(sk.od, ted || Date.now()) : D.nazevTydne(sk.od, ted || Date.now());
+    const v = D.poctyVerdiktu(sk.polozky);
+    const verdikty = Object.keys(v).filter((x) => v[x]).map((x) => '<span class="kn-ai-verdikty__v kn-verdikt--' + x + '" title="' + esc(NAZEV_VERDIKTU[x]) + '">' +
+      D.ZNAKY_VERDIKTU[x] + ' <b class="cisla">' + v[x] + '</b></span>').join('');
+    return '<section class="kn-ai-skupina" data-kn-skupina="' + sk.od + '"><header class="kn-ai-skupina__hlava">' +
+      '<h3>' + (poDnech ? '' : '<small>Týden</small>') + esc(n.nazev) + (n.kdy ? '<em>' + esc(n.kdy) + '</em>' : '') + '</h3>' +
+      '<span class="kn-ai-skupina__pocet cisla">' + sk.polozky.length + ' ' + tvar(sk.polozky.length, 'rešerše', 'rešerše', 'rešerší') + '</span>' +
+      (verdikty ? '<span class="kn-ai-verdikty">' + verdikty + '</span>' : '') + '</header>' +
+      '<ul class="kn-reserse-seznam">' + sk.polozky.map(reserseRadekHtml).join('') + '</ul></section>';
+  }).join('');
+}
+const NAZEV_VERDIKTU = { zkusit: 'Zkusit', kousek: 'Vzít kousek', pozdeji: 'Později', ne: 'Ne' };
+
 function prazdneHtml(z, d) {
-  const nic = z === 'reserse' ? !D.reserse(d).length : !D.pocty(d)[z];
+  if (z === 'ai' && !D.pocty(d).ai && !k.dotaz) {
+    return '<section class="card"><div class="prazdne prazdne--velke"><i class="kruh kruh--knihovna">' + IKONY.claude + '</i><b>Zatím žádná rešerše AI</b>' +
+      '<span>Pošli odkaz zkratkou „Tip pro Clauda“ (sdílení z X, Instagramu, YouTube) – Claude ho prověří, porovná s tím, jak to děláme, a rešerše se ukáže tady. Každý večer sem přibudou i AI tipy dne.</span></div></section>';
+  }
+  const nic = !D.pocty(d)[z];
   if (!nic || k.dotaz) {
     return '<section class="card"><div class="prazdne prazdne--velke"><i class="kruh kruh--knihovna">' + IKONY.hledat + '</i><b>Nic tu neodpovídá</b>' +
       '<span>' + (k.dotaz ? 'Hledáno „' + esc(k.dotaz) + '“. ' : '') + 'Zkus jiný filtr, nebo to přidej – Claude připraví přehled.</span>' +
       '<span class="kn-prazdne__akce"><button type="button" class="btn btn--ghost" data-kn-filtr-vse>Zrušit filtr</button>' +
-      (k.dotaz ? '<button type="button" class="btn btn--primary" data-kn-pridat data-kn-druh="' + (z === 'knihy' ? 'kniha' : z === 'reserse' ? 'reserse' : 'film') +
+      (k.dotaz ? '<button type="button" class="btn btn--primary" data-kn-pridat data-kn-druh="' + (z === 'knihy' ? 'kniha' : z === 'reserse' || z === 'ai' ? 'reserse' : 'film') +
         '" data-kn-text="' + esc(k.dotaz) + '">' + IKONY.plus + '<span>Přidat „' + esc(k.dotaz) + '“</span></button>' : '') + '</span></div></section>';
   }
   const t = { filmy: ['Zatím tu není žádný film ani seriál', 'Napiš název a Claude připraví přehled – o čem to je bez spoilerů, hodnocení, zajímavosti a kde to sledovat.', 'film', 'Přidat film'],
@@ -392,10 +428,16 @@ function cekajiciKartaHtml(p) {
 function reserseRadekHtml(r) {
   const m = D.moje(stav.knihovna, r.id);
   const t = D.cas(r.pripraveno);
-  return '<li data-kn-karta="' + esc(r.id) + '"><button type="button" class="kn-res" data-kn-otevri="' + esc(r.id) + '">' +
-    '<span class="kn-res__ikona">' + IKONY.knihovna + '</span>' +
-    '<span class="kn-res__text"><b>' + esc(r.nazev) + '</b>' + (r.kratce ? '<small>' + esc(r.kratce) + '</small>' : '') +
-      '<span class="kn-res__meta">' + (t ? '<em class="cisla">' + esc(dm(t)) + '</em>' : '') + (r.stitky || []).slice(0, 3).map((s) => '<span class="tag tag--seda">' + esc(s) + '</span>').join('') +
+  // verdikt tipu („✅ Zkusit – …“) jako barevný štítek, pod názvem jen zbytek věty
+  const v = D.verdikt(r);
+  const kratce = v ? v.zbytek : r.kratce;
+  const ai = D.jeAi(r);
+  return '<li data-kn-karta="' + esc(r.id) + '"><button type="button" class="kn-res' + (v ? ' kn-res--verdikt kn-verdikt--' + v.klic : '') + '" data-kn-otevri="' + esc(r.id) + '">' +
+    '<span class="kn-res__ikona">' + (ai ? IKONY.claude : IKONY.knihovna) + '</span>' +
+    '<span class="kn-res__text">' + (v ? '<span class="kn-verdikt">' + v.znak + ' ' + esc(v.text) + '</span>' : '') + '<b>' + esc(r.nazev) + '</b>' +
+      (kratce ? '<small>' + esc(kratce) + '</small>' : '') +
+      '<span class="kn-res__meta">' + (t ? '<em class="cisla">' + esc(dm(t) + (ai ? ' ' + hhmm(t) : '')) + '</em>' : '') +
+      (r.stitky || []).filter((s) => !ai || !/^(tip|ai)$/i.test(s)).slice(0, 3).map((s) => '<span class="tag tag--seda">' + esc(s) + '</span>').join('') +
       (m.stav === 'hotovo' ? '<span class="tag tag--ok">přečteno</span>' : D.jeNova(stav.knihovna, r) ? '<span class="tag tag--limetka">nové</span>' : '') + '</span></span>' +
     IKONY.vpravo + '</button></li>';
 }
@@ -817,6 +859,7 @@ export function klikKnihovna(el) {
   const ds = el.dataset;
   if (ds.knZalozka) { k.zalozka = ds.knZalozka; ulozVolby(); prekresliStranku(); return true; }
   if (ds.knFiltr) { k.filtr[k.zalozka] = ds.knFiltr; ulozVolby(); prekresliStranku(); return true; }
+  if (ds.knPohledAi) { k.pohledAi = ds.knPohledAi; ulozVolby(); prekresliStranku(); return true; }
   if (el.hasAttribute('data-kn-filtr-vse')) {
     k.filtr[k.zalozka] = 'vse';
     k.dotaz = '';
