@@ -6871,7 +6871,7 @@ function vychoziVikendTestu() {
       jistota(tydny >= 2 && /tento týden/.test(await page.textContent('#kn-obsah .kn-ai-skupina >> nth=0')), 'po týdnech: ' + tydny);
       jistota(await page.locator('#kn-obsah [data-kn-otevri]').count() === 3 && !(await page.locator('#kn-obsah [data-kn-otevri="reserse-letectvi"]').count()), 'jen AI');
       jistota(/Zkusit/.test(await page.textContent('#kn-obsah [data-kn-otevri="reserse-tip-plugin"] .kn-verdikt')) &&
-        /oficiální a zdarma/.test(await page.textContent('#kn-obsah [data-kn-otevri="reserse-tip-plugin"] small')), 'verdikt jako štítek, pod ním zbytek');
+        /Oficiální a zdarma/.test(await page.textContent('#kn-obsah [data-kn-otevri="reserse-tip-plugin"] small')), 'verdikt jako štítek, pod ním zbytek');
       jistota(/Rešerše AI\s*3/.test(await page.textContent('#kn-zalozky')) && /rešerše AI 3/i.test(await page.textContent('#hlava p')), 'počty');
       await page.screenshot({ path: path.join(VYSTUP, 'pc1500_knihovna_ai.png') });
       // po dnech, jednotlivě
@@ -6879,10 +6879,10 @@ function vychoziVikendTestu() {
       await page.waitForFunction(() => document.querySelectorAll('#kn-obsah .kn-ai-skupina').length === 3 && /dnes/.test(document.querySelector('#kn-obsah .kn-ai-skupina').textContent));
       await page.click('[data-kn-pohled-ai="jednotlive"]');
       await page.waitForFunction(() => !document.querySelector('#kn-obsah .kn-ai-skupina') && document.querySelectorAll('#kn-obsah [data-kn-otevri]').length === 3);
-      // filtr Přečtené: nic → prázdné „Nic tu neodpovídá“
-      await page.click('#kn-filtry [data-kn-filtr="hotovo"]');
+      // filtr Prošlé: nic → prázdné „Nic tu neodpovídá“
+      await page.click('#kn-filtry [data-kn-filtr="prosle"]');
       await page.waitForFunction(() => /Nic tu neodpovídá/.test(document.getElementById('kn-obsah').textContent));
-      await page.click('#kn-filtry [data-kn-filtr="vse"]');
+      await page.click('#kn-filtry [data-kn-filtr="nove"]');
       // volba zobrazení zůstane po znovunačtení
       await page.reload();
       await page.waitForTimeout(600);
@@ -6893,6 +6893,118 @@ function vychoziVikendTestu() {
       jistota(!chybyKnihovny(chybyStranky).length, 'chyby stránky: ' + chybyKnihovny(chybyStranky).join(' | ')); // 404 = záměrně chybějící obrázek knihovny
     } finally {
       await ctx.close();
+      knihovnaTest = KNIHOVNA_VYCHOZI();
+    }
+  });
+
+  // ---------- stránka tipu (Michal 8. 11.): jedna stránka bez záložek, malý název, můj text, video nebo snímky, přepis; pravé tlačítko = zavrhnout celý návrh
+  await test('Knihovna: tip v Rešerších AI – jedna stránka (malý název, text, snímky místo nepřehratelného videa, přepis), pravé tlačítko Zavrhnout, náhled do koše a Vrátit, počet k projití; telefon', async () => {
+    knihovnaTest = KNIHOVNA_VYCHOZI();
+    const JPG = fs.readFileSync(path.join(KOREN, 'ikony', 'ikona-192.png')).toString('base64');
+    knihovnaTest.reserse.push(
+      { id: 'reserse-tip-plugin', nazev: 'Plugin na úkoly', kratce: '✅ Zkusit – oficiální a zdarma.', stitky: ['tip', 'AI'], pripraveno: new Date(ted - 2 * H).toISOString(), tip: 'nove' },
+      { id: 'reserse-tip-bez', nazev: 'Tip bez náhledu', kratce: '🧩 Vzít kousek – jen část.', stitky: ['tip'], pripraveno: new Date(ted - 3 * H).toISOString(), tip: 'nove' });
+    const cele = { id: 'reserse-tip-plugin', nazev: 'Plugin na úkoly', kratce: '✅ Zkusit – oficiální a zdarma.', stitky: ['tip', 'AI'], odkaz: 'https://x.com/a/status/1', prepis: 'Ve videu autor říká, že to ušetří čas.',
+      sekce: [{ nadpis: 'Co to doopravdy je', odstavce: ['Oficiální plugin.'] }, { nadpis: 'Můj názor', odstavce: ['Tady nás to může posunout.'] }, { nadpis: 'Jak to zavést', odstavce: ['Zkusit na jednom projektu.'], body: ['krok 1'] }],
+      zdroje: [{ nazev: 'Originál', url: 'https://x.com/a/status/1' }], pripraveno: new Date(ted - 2 * H).toISOString() };
+    const puv = { r: motor.knihovnaReserse };
+    let nahledTipu = true;
+    motor.knihovnaReserse = (d) => (d.id === 'reserse-tip-plugin' ? cele : d.id === 'reserse-tip-bez' ? { id: d.id, nazev: 'Tip bez náhledu', kratce: '🧩 Vzít kousek – jen část.', stitky: ['tip'] } : puv.r(d));
+    motor.tipyNahledy = () => ({ tipy: { 'reserse-tip-plugin': { ikona: JPG, video: true, snimku: 2, delka_s: 92, zdroj: 'x' } } }); // po vyřešení ikona v indexu zůstává
+    motor.tipNahled = (d) => ({ nahled: nahledTipu && d.id === 'reserse-tip-plugin' ? { zdroj: 'x', autor: '@a', odkaz: 'https://x.com/a/status/1', text: 'Text příspěvku', delka_s: 92, video: true, video_mb: 0.1, snimky: [JPG, JPG], miniatura: '', prepis: '', poznamka: '' } : null });
+    // není skutečné video → prohlížeč ho odmítne a stránka spadne na snímky (cesta, když iPhone video nepřehraje)
+    motor.tipVideo = () => ({ typ: 'video/mp4', velikost: 8, data: Buffer.from('neni-video').toString('base64') });
+    motor.knihovnaTip = (d) => {
+      const r = knihovnaTest.reserse.find((x) => x.id === d.id);
+      r.tip = d.stav || 'nove';
+      if (d.id === 'reserse-tip-plugin') nahledTipu = !d.stav;
+      return Object.assign(JSON.parse(JSON.stringify(knihovnaTest)), { ted: Date.now() });
+    };
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, PC1500);
+    try {
+      await knihovnaSit(page);
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="knihovna"]');
+      await page.click('#kn-zalozky [data-kn-zalozka="ai"]');
+      await page.waitForSelector('#kn-obsah [data-kn-otevri="reserse-tip-plugin"] .kn-res__ikona--nahled img');
+      jistota(/Rešerše AI\s*2/.test(await page.textContent('#kn-zalozky')) && /k projití 2/.test(await page.textContent('#hlava p')), 'počet k projití');
+      jistota(/1:32/.test(await page.textContent('#kn-obsah [data-kn-otevri="reserse-tip-plugin"]')), 'délka videa v seznamu');
+      await page.click('#kn-obsah [data-kn-otevri="reserse-tip-plugin"]');
+      await page.waitForSelector('#kn-stranka .kn-tip__sekce h2');
+      // jedna stránka: žádné záložky, malý název, nadpisy po sobě
+      jistota(!(await page.locator('#kn-stranka [data-kn-tab]').count()), 'bez záložek');
+      const r = await page.evaluate(() => ({ h1: parseFloat(getComputedStyle(document.querySelector('#kn-stranka h1')).fontSize), kratce: parseFloat(getComputedStyle(document.querySelector('.kn-tip__kratce')).fontSize),
+        sekce: Array.from(document.querySelectorAll('.kn-tip__sekce h2')).map((e) => e.textContent), prepis: document.querySelector('.kn-tip__prepis').textContent,
+        vedle: document.querySelector('.kn-tip__media').getBoundingClientRect().left > document.querySelector('.kn-tip__text').getBoundingClientRect().right - 1 }));
+      jistota(r.h1 <= 17 && r.kratce > r.h1, 'název menší než můj text: ' + JSON.stringify(r));
+      jistota(r.sekce.join('|') === 'Co to doopravdy je|Můj názor|Jak to zavést|Zdroje', 'sekce: ' + r.sekce.join('|'));
+      jistota(/ušetří čas/.test(r.prepis) && r.vedle, 'přepis z karty, video vedle textu na PC: ' + JSON.stringify(r));
+      jistota(await page.getAttribute('.kn-tip-hlava__meta a', 'href') === 'https://x.com/a/status/1', 'odkaz na originál');
+      // video nejde přehrát → snímky a možnost zkusit znovu
+      await page.waitForSelector('.kn-tip__snimky img');
+      jistota(await page.locator('.kn-tip__snimky img').count() === 2 && !(await page.locator('video.kn-tip__video').count()), 'snímky místo videa');
+      jistota(/Zkusit znovu/.test(await page.textContent('.kn-tip__media')), 'zkusit znovu');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc1500_tip_stranka.png') });
+      // pravé tlačítko v textu: Souhlasím – zavrhnout celý návrh → zpět v seznamu, nabídka Vrátit
+      const pred = volano.length;
+      await page.click('.kn-tip__text .kn-tip__sekce p', { button: 'right' });
+      await page.waitForSelector('.nabidka.videt');
+      const pol = await page.locator('.nabidka [data-nabidka-i]').allTextContents();
+      jistota(/Souhlasím – zavrhnout celý návrh/.test(pol[0]) && pol.some((x) => /Probráno/.test(x)) && pol.some((x) => /Zavést/.test(x)), 'nabídka: ' + pol.join('|'));
+      await page.click('.nabidka [data-nabidka-i="0"]');
+      await cekej(() => volano.slice(pred).some((d) => d.akce === 'knihovnaTip' && d.id === 'reserse-tip-plugin' && d.stav === 'zamitnuto'), 3000, 'rozhodnutí do motoru');
+      await page.waitForFunction(() => !document.querySelector('#kn-stranka:not([hidden])') && !document.querySelector('#kn-obsah [data-kn-otevri="reserse-tip-plugin"]'));
+      jistota(/Rešerše AI\s*1/.test(await page.textContent('#kn-zalozky')), 'počet se snížil');
+      await page.waitForFunction(() => /Vrátit/.test(document.getElementById('toast').textContent));
+      await page.click('#toast .toast__akce');
+      await page.waitForSelector('#kn-obsah [data-kn-otevri="reserse-tip-plugin"]');
+      await cekej(() => volano.slice(pred).some((d) => d.akce === 'knihovnaTip' && d.id === 'reserse-tip-plugin' && d.stav === ''), 3000, 'Vrátit do motoru');
+      // vyřešený tip: bez videa a snímků, zůstane jedna malá fotka
+      await page.click('#kn-obsah [data-kn-otevri="reserse-tip-plugin"]', { button: 'right' });
+      await page.waitForSelector('.nabidka.videt');
+      await page.click('.nabidka [data-nabidka-i="2"]'); // Probráno (0 = Otevřít, 1 = zavrhnout)
+      await page.waitForFunction(() => !document.querySelector('#kn-obsah [data-kn-otevri="reserse-tip-plugin"]'));
+      await page.click('#kn-filtry [data-kn-filtr="prosle"]');
+      await page.click('#kn-obsah [data-kn-otevri="reserse-tip-plugin"]');
+      await page.waitForSelector('.kn-tip__fotka img');
+      jistota(!(await page.locator('.kn-tip__snimky img, video.kn-tip__video').count()) && /vyřešený/.test(await page.textContent('.kn-tip__media')), 'vyřešený tip jen s fotkou');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc1500_tip_vyreseny.png') });
+      await page.click('[data-kn-zpet]');
+      await page.waitForSelector('#kn-obsah [data-kn-otevri="reserse-tip-plugin"]');
+      await page.click('#kn-filtry [data-kn-filtr="nove"]');
+      await page.waitForSelector('#kn-obsah [data-kn-otevri="reserse-tip-bez"]');
+      // tlačítko na stránce a pravé tlačítko na řádku
+      await page.click('#kn-obsah [data-kn-otevri="reserse-tip-bez"]', { button: 'right' });
+      await page.waitForSelector('.nabidka.videt');
+      jistota(/zavrhnout celý návrh/.test(await page.textContent('.nabidka')), 'nabídka na řádku');
+      await page.keyboard.press('Escape');
+      await page.click('#kn-obsah [data-kn-otevri="reserse-tip-bez"]');
+      await page.waitForSelector('[data-kn-tip="probrano"]');
+      await page.waitForFunction(() => /zatím není/.test(document.querySelector('.kn-tip__media').textContent));
+      await page.click('[data-kn-tip="probrano"]');
+      await page.waitForFunction(() => !document.querySelector('#kn-obsah [data-kn-otevri="reserse-tip-bez"]'));
+      await page.click('#kn-filtry [data-kn-filtr="prosle"]');
+      await page.waitForSelector('#kn-obsah [data-kn-otevri="reserse-tip-bez"]');
+      jistota(/Probráno/.test(await page.textContent('#kn-obsah [data-kn-otevri="reserse-tip-bez"] .kn-stav--probrano')), 'barevný stav v seznamu Vyřešené');
+      jistota(/Vyřešené\s*2/.test(await page.textContent('#kn-filtry')), 'filtr Vyřešené');
+      jistota(!chybyKnihovny(chybyStranky).filter((x) => !/video|Media|blob/i.test(x)).length, 'chyby stránky: ' + chybyKnihovny(chybyStranky).join(' | '));
+      await ctx.close();
+      // telefon: můj text, pod ním snímky, nic nepřetéká
+      knihovnaTest.reserse.find((x) => x.id === 'reserse-tip-plugin').tip = 'nove';
+      nahledTipu = true;
+      const t = await novaStranka(prohlizec, VELIKOSTI[0]);
+      await knihovnaSit(t.page);
+      await t.page.goto(WEB + '#knihovna/reserse-tip-plugin');
+      await t.page.waitForSelector('.kn-tip__sekce h2');
+      await t.page.waitForSelector('.kn-tip__snimky img');
+      const m = await t.page.evaluate(() => ({ pretika: document.documentElement.scrollWidth - document.documentElement.clientWidth, kr: document.querySelector('.kn-tip__kratce').getBoundingClientRect().top,
+        med: document.querySelector('.kn-tip__media').getBoundingClientRect().top, tx: document.querySelector('.kn-tip__text').getBoundingClientRect().top }));
+      jistota(m.pretika <= 0 && m.kr < m.med && m.med < m.tx, 'telefon: ' + JSON.stringify(m));
+      await t.page.screenshot({ path: path.join(VYSTUP, 'telefon_tip_stranka.png'), fullPage: true });
+      await t.ctx.close();
+    } finally {
+      motor.knihovnaReserse = puv.r;
+      ['tipyNahledy', 'tipNahled', 'tipVideo', 'knihovnaTip'].forEach((a) => delete motor[a]);
       knihovnaTest = KNIHOVNA_VYCHOZI();
     }
   });

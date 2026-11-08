@@ -584,6 +584,13 @@ Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**
   a službu Drive API – obojí je v `apps-script/appsscript.json`; po jeho vložení jednou spustit **`povolitTabulky`**.
 
 ## Knihovna (filmy, seriály, knihy a rešerše)
+**Rešerše AI s náhledem tipů** (od 8. 11.): záložka Rešerše AI ukazuje tipy **K projití** (počet na záložce) · **Vyřešené** · Vše.
+U tipu je video, nebo když video nejde, několik snímků, přepis toho, co je ve videu řečeno a napsáno, text příspěvku a Claudův
+rozbor na jedné stránce bez záložek. **Zavést / Probráno / Zamítnout** (na stránce; pravé tlačítko „Souhlasím – zavrhnout celý
+návrh“) tip přesune do Vyřešených: video a snímky jdou do koše na Disku, zůstane karta s přepisem a jedna malá fotka; Vrátit
+v oznámení vše obnoví. Stav se propíše do rejstříku `DENIK\ai_tipy.md` (řádek se nemaže). Náhledy jsou soukromé na Disku
+(`KNIHOVNA/nahledy`), do aplikace je posílá motor – žádný veřejný odkaz; v repu nic není.
+
 Michal 11. 10. 2026: „přehled informací k filmu či knize … jednoduché přehledné informace, co se dají získat na internetu“
 a „rešerše k různým věcem – chtěl bych se tak vzdělávat a mít svoji knihovnu“. Stránka **Knihovna** (levý pruh, na telefonu
 menu) se záložkami **Filmy** (filmy i seriály) · **Knihy** · **Rešerše**:

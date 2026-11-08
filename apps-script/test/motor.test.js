@@ -189,6 +189,7 @@ function prostredi() {
     s.getParents = () => iterator(rodic ? [rodic] : []);
     s.getFoldersByName = (n) => { const x = s.deti[n]; let hotovo = !x; return { hasNext: () => !hotovo, next: () => { hotovo = true; return x; } }; };
     s.getFolders = () => iterator(Object.values(s.deti));
+    s.vKosi = false; s.isTrashed = () => s.vKosi; s.setTrashed = (k) => { s.vKosi = !!k; return s; };
     s.getFiles = () => iterator(s.soubory.filter((x) => !x.vKosi));
     s.getFilesByName = (n) => iterator(s.soubory.filter((x) => !x.vKosi && x.getName() === n));
     s.createFolder = (n) => (s.deti[n] = slozka(n, s));
@@ -196,7 +197,7 @@ function prostredi() {
       if (n && typeof n === 'object') { obsah = n; n = n.getName(); } // createFile(blob) – fotka účtenky
       let rodicSouboru = s;
       let upraveno = Date.now() + (citacZmen++); // jako Disk: čas úpravy se mění se změnou obsahu (motor podle něj pamatuje poznámky)
-      const f = { vKosi: false, getId: () => 'soubor-' + nazev + '-' + n, getName: () => n,
+      const f = { vKosi: false, getId: () => 'soubor-' + nazev + '-' + n, getName: () => n, getSize: () => Buffer.byteLength(String(obsah)),
         getBlob: () => ({ getDataAsString: () => obsah, getBytes: () => (obsah && obsah.getBytes ? obsah.getBytes() : Buffer.from(String(obsah), 'utf8')),
           getContentType: () => (obsah && obsah.getContentType ? obsah.getContentType() : 'text/plain') }),
         getDescription: () => f.popis || null, setDescription: (t) => { f.popis = t; return f; },
@@ -4739,6 +4740,58 @@ test('knihovna: jeden zapisovatel – motor nepíše do polozky ani reserse, moj
   assert.ok(d.data.chybne.indexOf('moje.json') >= 0);
   assert.ok(/není platný JSON/.test(p.volej('knihovnaMoje', { id: 'film-zkusebni-let', stav: 'hotovo' }).chyba));
   assert.strictEqual(disk.kn.soubory.find((f) => f.getName() === 'moje.json').getBlob().getDataAsString(), '{ rozbity', 'nepřepsáno');
+});
+
+test('Rešerše AI: stav tipu z rejstříku a rozhodnutí, náhled (snímky, přepis) a video z Disku v odpovědi, rozhodnutí → video a snímky do koše, Vrátit zpět; přepis zůstává na kartě', () => {
+  const p = prostredi();
+  const k = knihovnaNaDisku(p, [], [
+    ['reserse-tip-a.json', { id: 'reserse-tip-a', nazev: 'Tip A', kratce: '✅ Zkusit – ano', stitky: ['tip', 'AI'], odkaz: 'https://x.com/a/status/1', prepis: 'Řečeno ve videu.', pripraveno: '2026-11-08T10:00:00+01:00' }],
+    ['reserse-tip-b.json', { id: 'reserse-tip-b', nazev: 'Tip B', stitky: ['tip'], pripraveno: '2026-11-07T10:00:00+01:00' }],
+    ['reserse-fyzika.json', { id: 'reserse-fyzika', nazev: 'Fyzika', stitky: ['fyzika'], pripraveno: '2026-11-06T10:00:00+01:00' }]]);
+  const nahledy = k.kn.createFolder('nahledy');
+  const n = nahledy.createFolder('reserse-tip-a');
+  n.createFile('nahled.json', JSON.stringify({ zdroj: 'x', autor: '@a', odkaz: 'https://x.com/a/status/1', text: 'Text příspěvku', delka_s: 92, video: 'video.mp4', snimky: ['snimek_1.jpg', '../zly.jpg'], miniatura: null, prepis: 'Přepis z náhledu', poznamka: '' }));
+  n.createFile('snimek_1.jpg', 'JPEG-DATA');
+  n.createFile('video.mp4', 'MP4-DATA');
+  nahledy.createFile('_index.json', JSON.stringify({ tipy: { 'reserse-tip-a': { ikona: 'QUJD', video: true, snimku: 1, delka_s: 92, zdroj: 'x' }, 'ZLE ID': { ikona: 'QUJD' } } }));
+  k.kn.createFile('tipy_rejstrik.json', JSON.stringify({ karty: { 'reserse-tip-b': 'zavedeno' }, zapsano: {} }));
+  const seznam = () => { const d = p.volej('knihovna').data; const o = {}; d.reserse.forEach((r) => { o[r.id] = r.tip; }); return o; };
+  assert.deepStrictEqual(seznam(), { 'reserse-tip-a': 'nove', 'reserse-tip-b': 'zavedeno', 'reserse-fyzika': undefined });
+  const cela = p.volej('knihovnaReserse', { id: 'reserse-tip-a' }).data;
+  assert.strictEqual(cela.prepis, 'Řečeno ve videu.');
+  assert.strictEqual(cela.odkaz, 'https://x.com/a/status/1');
+  assert.deepStrictEqual(p.volej('tipyNahledy').data.tipy, { 'reserse-tip-a': { video: true, snimku: 1, delka_s: 92, zdroj: 'x', ikona: 'QUJD' } });
+  const nah = p.volej('tipNahled', { id: 'reserse-tip-a' }).data.nahled;
+  assert.strictEqual(nah.video, true);
+  assert.deepStrictEqual(nah.snimky, [Buffer.from('JPEG-DATA').toString('base64')], 'jen platné názvy souborů');
+  assert.strictEqual(nah.text, 'Text příspěvku');
+  const vid = p.volej('tipVideo', { id: 'reserse-tip-a' }).data;
+  assert.deepStrictEqual([vid.typ, vid.data], ['video/mp4', Buffer.from('MP4-DATA').toString('base64')]);
+  assert.strictEqual(p.volej('tipNahled', { id: 'reserse-tip-b' }).data.nahled, null);
+  assert.strictEqual(p.volej('tipVideo', { id: 'reserse-tip-b' }).ok, false);
+  assert.strictEqual(p.volej('tipNahled', { id: '../x' }).ok, false);
+  assert.strictEqual(p.volej('knihovnaTip', { id: 'reserse-tip-a', stav: 'spatne' }).ok, false);
+  assert.ok(n.soubory.every((f) => !f.vKosi), 'neplatný stav nic nesmaže');
+  // zamítnout: stav hned, video a snímky v koši, zůstane složka, text příspěvku a karta s přepisem
+  const po = p.volej('knihovnaTip', { id: 'reserse-tip-a', stav: 'zamitnuto' });
+  assert.strictEqual(po.ok, true, po.chyba);
+  assert.strictEqual(po.data.reserse.find((r) => r.id === 'reserse-tip-a').tip, 'zamitnuto');
+  assert.deepStrictEqual(n.soubory.filter((f) => !f.vKosi).map((f) => f.getName()), ['nahled.json']);
+  const zbylo = p.volej('tipNahled', { id: 'reserse-tip-a' }).data.nahled;
+  assert.deepStrictEqual([zbylo.video, zbylo.snimky, zbylo.text], [false, [], 'Text příspěvku']);
+  assert.strictEqual(p.volej('tipVideo', { id: 'reserse-tip-a' }).ok, false);
+  assert.strictEqual(p.volej('knihovnaReserse', { id: 'reserse-tip-a' }).data.prepis, 'Řečeno ve videu.');
+  const zaznam = k.moje().polozky['reserse-tip-a'].tip;
+  assert.strictEqual(zaznam.stav, 'zamitnuto');
+  // když PC propíše do rejstříku a Claude v chatu změní stav, platí rejstřík
+  k.kn.soubory.find((f) => f.getName() === 'tipy_rejstrik.json').setContent(JSON.stringify({ karty: { 'reserse-tip-a': 'zavedeno' }, zapsano: { 'reserse-tip-a': zaznam.kdy } }));
+  assert.strictEqual(seznam()['reserse-tip-a'], 'zavedeno');
+  k.kn.soubory.find((f) => f.getName() === 'tipy_rejstrik.json').setContent(JSON.stringify({ karty: {}, zapsano: {} }));
+  // Vrátit: rozhodnutí pryč, náhled zpět
+  assert.strictEqual(p.volej('knihovnaTip', { id: 'reserse-tip-a', stav: '' }).ok, true);
+  assert.strictEqual(n.soubory.filter((f) => !f.vKosi).length, 3, 'video a snímek zpět z koše');
+  assert.strictEqual(seznam()['reserse-tip-a'], 'nove');
+  assert.ok(!k.moje().polozky['reserse-tip-a'], 'prázdný záznam pryč');
 });
 
 test('knihovna: značka změn podle Claudových souborů (karta přibude → zmeny.knihovna), čisté funkce moje.json', () => {

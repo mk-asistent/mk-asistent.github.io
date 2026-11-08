@@ -44,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-10-25.1';
+const VERZE = '2026-11-08.1';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -140,7 +140,8 @@ const CTENI_MOTORU = ['info', 'schranka', 'posta', 'vlakno', 'hledat', 'kalendar
   'stitky', 'kontakty', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'davka', 'zmeny', 'plakaty',
   'igStav', // průběh zveřejňování na Instagram (aplikace se ptá každou minutu, když má něco brzy vyjít)
   'igSkupiny', // skupiny účtů k označení (REELY/skupiny.json)
-  'knihovna', 'knihovnaReserse']; // Knihovna: karty, index rešerší, můj stav a požadavky; celá rešerše
+  'knihovna', 'knihovnaReserse', // Knihovna: karty, index rešerší, můj stav a požadavky; celá rešerše
+  'tipyNahledy', 'tipNahled', 'tipVideo']; // Rešerše AI: náhledy tipů (KNIHOVNA/nahledy)
 
 /** Výsledek dřívějšího běhu téhož požadavku (JSON), nebo null; když ještě běží, počká na něj (nejvýš ~25 s). */
 function vysledekRid_(rid) {
@@ -272,6 +273,10 @@ const AKCE = {
   // zrušení nevyřízeného požadavku – CLAUDE_SCHRANKA/KNIHOVNA (karty a rešerše píše jen Claude, moje.json jen motor)
   knihovna: function () { return knihovna_(); },
   knihovnaReserse: function (d) { return knihovnaReserse_(d.id); },
+  tipyNahledy: function () { return tipyNahledy_(); },        // malé obrázky do seznamu Rešerše AI
+  tipNahled: function (d) { return tipNahled_(d.id); },       // náhled tipu: snímky, text, přepis
+  tipVideo: function (d) { return tipVideo_(d.id); },         // video tipu (base64 – bez veřejného odkazu)
+  knihovnaTip: function (d) { return knihovnaTip_(d); },      // Probráno / Zavést / Zamítnout (náhled do koše)
   knihovnaPridat: function (d) { return knihovnaPridat_(d); },
   knihovnaMoje: function (d) { return knihovnaMoje_(d); },
   knihovnaZrusit: function (d) { return knihovnaZrusit_(d.id); },
@@ -8601,6 +8606,7 @@ const KNIHOVNA_ = (function () {
   const DRUHY_KARET = ['film', 'serial', 'kniha'];
   const DRUHY_POZADAVKU = ['film', 'serial', 'kniha', 'reserse'];
   const STAVY = ['chci', 'rozpracovane', 'hotovo'];
+  const STAVY_TIPU = ['probrano', 'zavest', 'zamitnuto']; // co Michal rozhodne v aplikaci (rejstřík má navíc nove, zavedeno)
   const ID = /^[a-z0-9][a-z0-9-]{0,119}$/;
   const ID_POZADAVKU = /^p-\d{8}-\d{4}-[a-z0-9]{2,8}$/;
   const MAX_TEXTU = 300;               // znaků požadavku (název, otázka)
@@ -8734,13 +8740,39 @@ const KNIHOVNA_ = (function () {
       cisla: pole(d.cisla, 8, function (x) { return obj(x) && radek(x.hodnota, 30) ? bezPrazdnych({ hodnota: radek(x.hodnota, 30), co: radek(x.co, 160) }) : null; }),
       dalsiOtazky: pole(d.dalsiOtazky, 10, function (q) { return radek(q, MAX_TEXTU); }),
       souvisi: souvisi(d.souvisi), zdroje: odkazy(d.zdroje, 30), stitky: stitky(d.stitky),
-      pozadavek: pozadavek(d.pozadavek), pripraveno: radek(d.pripraveno, 40)
+      pozadavek: pozadavek(d.pozadavek), pripraveno: radek(d.pripraveno, 40),
+      // tip (Rešerše AI): odkaz na originál a přepis řeči / textu z videa – zůstávají i po smazání náhledu
+      odkaz: url(d.odkaz), prepis: txt(d.prepis, 30000)
     });
   }
 
   /** Rešerše do seznamu: jen id, název, krátce, štítky, kdy a požadavek (celá přijde až v čtečce – knihovnaReserse). */
   function indexReserse(r) {
     return bezPrazdnych({ id: r.id, nazev: r.nazev, kratce: txt(r.kratce, 300), stitky: r.stitky, pripraveno: r.pripraveno, pozadavek: r.pozadavek });
+  }
+
+  /** Rešerše patří do Rešerší AI (stejné pravidlo jako jeAi v js/knihovna_data.js). */
+  function jeAi(r) {
+    const st = (r.stitky || []).map(function (x) { return String(x).toLowerCase(); });
+    return st.indexOf('ai') >= 0 || st.indexOf('ai tipy') >= 0 || st.indexOf('tip') >= 0 || /^reserse-(ai|tip)-/.test(r.id);
+  }
+
+  /** moje.json → tip: { stav, kdy, soubory (id souborů náhledu v koši – Vrátit) } nebo ''. */
+  function tipZ(x) {
+    const t = obj(x);
+    if (!t || STAVY_TIPU.indexOf(t.stav) < 0) return '';
+    return bezPrazdnych({ stav: t.stav, kdy: radek(t.kdy, 40), soubory: pole(t.soubory, 30, function (f) { return /^[\w.-]{5,160}$/.test(String(f)) ? String(f) : ''; }) });
+  }
+
+  /**
+   * Stav tipu pro aplikaci: rozhodnutí z aplikace, které PC ještě nepropsalo do rejstříku (rejstrik.zapsano[id] ≠ jeho čas),
+   * jinak stav z rejstříku DENIK\ai_tipy.md (KNIHOVNA/tipy_rejstrik.json), jinak rozhodnutí, jinak „nove“ (karta bez řádku).
+   */
+  function stavTipu(id, m, rejstrik) {
+    const t = (m.polozky[id] || {}).tip;
+    const r = rejstrik || {};
+    if (t && (r.zapsano || {})[id] !== t.kdy) return t.stav;
+    return (r.karty || {})[id] || (t ? t.stav : 'nove');
   }
 
   /** moje.json → { polozky: { id: { stav, hodnoceni, poznamka, zmeneno } }, pozadavky: [{ id, druh, text, kdy }] } (neplatné pryč). */
@@ -8752,8 +8784,8 @@ const KNIHOVNA_ = (function () {
       const x = obj(zdroj[id]);
       if (!ID.test(id) || !x) return;
       const m = bezPrazdnych({ stav: STAVY.indexOf(x.stav) >= 0 ? x.stav : '', hodnoceni: hvezdy(x.hodnoceni), poznamka: txt(x.poznamka, MAX_POZNAMKY),
-        zmeneno: radek(x.zmeneno, 40) });
-      if (m.stav || m.hodnoceni || m.poznamka) polozky[id] = m;
+        tip: tipZ(x.tip), zmeneno: radek(x.zmeneno, 40) });
+      if (m.stav || m.hodnoceni || m.poznamka || m.tip) polozky[id] = m;
     });
     const videno = {};
     const pozadavky = (Array.isArray(o.pozadavky) ? o.pozadavky : []).filter(function (p) {
@@ -8805,19 +8837,34 @@ const KNIHOVNA_ = (function () {
       zmena = true;
     }
     if (!zmena) throw new Error('Není co uložit.');
-    const v = bezPrazdnych({ stav: x.stav, hodnoceni: x.hodnoceni, poznamka: x.poznamka, zmeneno: String(kdy || '') });
-    if (v.stav || v.hodnoceni || v.poznamka) m.polozky[id] = v; else delete m.polozky[id];
+    const v = bezPrazdnych({ stav: x.stav, hodnoceni: x.hodnoceni, poznamka: x.poznamka, tip: x.tip, zmeneno: String(kdy || '') });
+    if (v.stav || v.hodnoceni || v.poznamka || v.tip) m.polozky[id] = v; else delete m.polozky[id];
+    return m;
+  }
+
+  /** Rozhodnutí o tipu: stav probrano | zavest | zamitnuto, '' = vrátit (zrušit rozhodnutí). */
+  function zmenTip(m, id, stav, kdy, soubory) {
+    if (!ID.test(String(id || ''))) throw new Error('Neplatná položka.');
+    if (stav && STAVY_TIPU.indexOf(stav) < 0) throw new Error('Neplatný stav tipu (probrano, zavest, zamitnuto).');
+    const x = Object.assign({}, m.polozky[id]);
+    if (stav) x.tip = bezPrazdnych({ stav: stav, kdy: String(kdy || ''), soubory: soubory || [] }); else delete x.tip;
+    x.zmeneno = String(kdy || '');
+    if (x.stav || x.hodnoceni || x.poznamka || x.tip) m.polozky[id] = x; else delete m.polozky[id];
     return m;
   }
 
   /** Odpověď pro aplikaci: karty (nejnovější nahoře), index rešerší, můj stav, nevyřízené požadavky, vadné soubory. */
-  function vystup(karty, reserseSeznam, m, chybne, ted) {
+  function vystup(karty, reserseSeznam, m, chybne, ted, rejstrik) {
     const hotove = vyrizene(karty, reserseSeznam);
     const cas = function (x) { return Date.parse(String(x.pripraveno || '')) || 0; };
     const podleCasu = function (a, b) { return (cas(b) - cas(a)) || a.nazev.localeCompare(b.nazev); };
     return {
       karty: karty.slice().sort(podleCasu),
-      reserse: reserseSeznam.map(indexReserse).sort(podleCasu),
+      reserse: reserseSeznam.map(function (r) {
+        const i = indexReserse(r);
+        if (jeAi(r)) i.tip = stavTipu(r.id, m, rejstrik);
+        return i;
+      }).sort(podleCasu),
       moje: m.polozky,
       pozadavky: m.pozadavky.filter(function (p) { return !hotove[p.id]; }),
       chybne: (chybne || []).slice(0, MAX_CHYBNYCH_KNIHOVNY),
@@ -8826,7 +8873,7 @@ const KNIHOVNA_ = (function () {
   }
 
   return { karta: karta, reserse: reserse, indexReserse: indexReserse, moje: moje, vyrizene: vyrizene, novyPozadavek: novyPozadavek,
-    zmenMoje: zmenMoje, vystup: vystup, ID: ID, ID_POZADAVKU: ID_POZADAVKU, STAVY: STAVY, DRUHY_POZADAVKU: DRUHY_POZADAVKU,
+    zmenMoje: zmenMoje, zmenTip: zmenTip, stavTipu: stavTipu, jeAi: jeAi, vystup: vystup, txt: txt, url: url, radek: radek, ID: ID, ID_POZADAVKU: ID_POZADAVKU, STAVY: STAVY, DRUHY_POZADAVKU: DRUHY_POZADAVKU,
     MAX_POZADAVKU: MAX_POZADAVKU };
 })();
 
@@ -8859,8 +8906,8 @@ function jsonKnihovny_(slozka, nazev) {
  */
 function rozeberKnihovnu_(soubory, druh, fn) {
   const cache = CacheService.getScriptCache();
-  // „kn2“ = rozbor s rozšířenou kartou (12. 10.): karty rozebrané starším motorem (bez herců, sekcí…) se z mezipaměti nevezmou
-  const klice = soubory.map(function (f) { return 'kn2:' + druh + ':' + f.getId() + ':' + f.getLastUpdated().getTime(); });
+  // „kn3“ = rozbor s přepisem a odkazem tipu (8. 11.): karty rozebrané starším motorem se z mezipaměti nevezmou
+  const klice = soubory.map(function (f) { return 'kn3:' + druh + ':' + f.getId() + ':' + f.getLastUpdated().getTime(); });
   let ulozene = {};
   try { ulozene = klice.length ? cache.getAll(klice) || {} : {}; } catch (chyba) { ulozene = {}; }
   const nove = {}, polozky = [], chybne = [], videno = {};
@@ -8903,13 +8950,14 @@ function obsahKnihovny_(slozka) {
   const karty = rozeberKnihovnu_(jsonKnihovny_(slozka, 'polozky'), 'p', KNIHOVNA_.karta);
   const res = rozeberKnihovnu_(jsonKnihovny_(slozka, 'reserse'), 'r', KNIHOVNA_.reserse);
   const m = mojeKnihovny_(slozka);
-  return { karty: karty.polozky, reserse: res.polozky, moje: m, chybne: karty.chybne.concat(res.chybne).concat(m.chyba ? ['moje.json'] : []) };
+  return { karty: karty.polozky, reserse: res.polozky, moje: m, chybne: karty.chybne.concat(res.chybne).concat(m.chyba ? ['moje.json'] : []),
+    rejstrik: slozka ? nactiJson_(slozka, 'tipy_rejstrik.json').data : null };
 }
 
 /** Akce knihovna: karty (celé), index rešerší, můj stav a nevyřízené požadavky. */
 function knihovna_() {
   const o = obsahKnihovny_(slozkaKnihovny_(false));
-  return KNIHOVNA_.vystup(o.karty, o.reserse, o.moje.data, o.chybne, Date.now());
+  return KNIHOVNA_.vystup(o.karty, o.reserse, o.moje.data, o.chybne, Date.now(), o.rejstrik);
 }
 
 /** Akce knihovnaReserse: celá rešerše (nejdřív soubor <id>.json, jinak podle id uvnitř). */
@@ -8940,7 +8988,7 @@ function upravKnihovnu_(fn) {
     fn(m, { karty: o.karty, reserse: o.reserse, hotove: hotove });
     const obsah = JSON.stringify({ polozky: m.polozky, pozadavky: m.pozadavky }, null, 1);
     if (o.moje.soubor) o.moje.soubor.setContent(obsah); else slozka.createFile('moje.json', obsah, MimeType.PLAIN_TEXT);
-    return KNIHOVNA_.vystup(o.karty, o.reserse, m, o.chybne, Date.now());
+    return KNIHOVNA_.vystup(o.karty, o.reserse, m, o.chybne, Date.now(), o.rejstrik);
   } finally {
     zamek.releaseLock();
   }
@@ -8988,6 +9036,101 @@ function knihovnaMoje_(d) {
   });
 }
 
+// ---------------------------------------------------------------- Rešerše AI: náhledy tipů (Michal 8. 11.: „návrhy těch videí … buď celé
+// video, pokud to půjde, a pokud ne, tak aspoň několik screenů“). KNIHOVNA/nahledy/<id karty>/ (nahled.json, video.mp4, snimek_N.jpg) a
+// _index.json píše jen PC (NASTROJE\asistent\tipy_nahledy), soubory zůstávají soukromé – do aplikace jdou v odpovědi motoru, žádné
+// sdílení odkazem. Po rozhodnutí jde video i snímky do koše (Vrátit je obnoví); zůstane složka, nahled.json (text příspěvku), jedna malá
+// fotka v _index.json a karta s přepisem (Michal 8. 11.: „pak nebudou mít už video staženo … zůstane jen jedna fotka komprimovaná“).
+const MAX_VIDEA_TIPU = 20 * 1024 * 1024;
+
+/** Složka náhledu tipu (mimo koš), nebo null. */
+function slozkaNahledu_(id) {
+  if (!KNIHOVNA_.ID.test(String(id || ''))) throw new Error('Neplatný tip.');
+  const k = slozkaKnihovny_(false);
+  const it = k ? k.getFoldersByName('nahledy') : null;
+  if (!it || !it.hasNext()) return null;
+  const f = it.next().getFoldersByName(String(id));
+  while (f.hasNext()) { const s = f.next(); if (!s.isTrashed()) return s; }
+  return null;
+}
+
+function souborVeSlozce_(slozka, nazev) {
+  const it = slozka.getFilesByName(nazev);
+  while (it.hasNext()) { const f = it.next(); if (!f.isTrashed()) return f; }
+  return null;
+}
+
+/** Akce tipyNahledy: malé obrázky a co u tipu je ({ tipy: { id: { ikona, video, snimku, delka_s, zdroj } } }). */
+function tipyNahledy_() {
+  const k = slozkaKnihovny_(false);
+  const it = k ? k.getFoldersByName('nahledy') : null;
+  if (!it || !it.hasNext()) return { tipy: {} };
+  const d = nactiJson_(it.next(), '_index.json').data;
+  const tipy = {};
+  const zdroj = (d && typeof d.tipy === 'object' && d.tipy) || {};
+  Object.keys(zdroj).forEach(function (id) {
+    const x = zdroj[id];
+    if (!KNIHOVNA_.ID.test(id) || !x || typeof x !== 'object') return;
+    tipy[id] = { video: !!x.video, snimku: Number(x.snimku) || 0, delka_s: Number(x.delka_s) || 0, zdroj: KNIHOVNA_.radek(x.zdroj, 20) };
+    if (typeof x.ikona === 'string' && x.ikona.length < 20000 && /^[A-Za-z0-9+/=]+$/.test(x.ikona)) tipy[id].ikona = x.ikona;
+  });
+  return { tipy: tipy };
+}
+
+/** Akce tipNahled { id }: text příspěvku, přepis, snímky (base64); video jen příznak – stahuje se zvlášť (tipVideo). */
+function tipNahled_(id) {
+  const s = slozkaNahledu_(id);
+  const j = s ? nactiJson_(s, 'nahled.json').data : null;
+  if (!j || typeof j !== 'object') return { nahled: null };
+  const obrazek = function (nazev) {
+    if (!/^[\w.-]+\.jpe?g$/i.test(String(nazev || ''))) return '';
+    const f = souborVeSlozce_(s, String(nazev));
+    return f && f.getSize() < 400000 ? Utilities.base64Encode(f.getBlob().getBytes()) : '';
+  };
+  const video = /^[\w.-]+\.mp4$/i.test(String(j.video || '')) ? souborVeSlozce_(s, String(j.video)) : null;
+  return { nahled: {
+    zdroj: KNIHOVNA_.radek(j.zdroj, 20), autor: KNIHOVNA_.radek(j.autor, 120), odkaz: KNIHOVNA_.url(j.odkaz), text: KNIHOVNA_.txt(j.text, 6000),
+    delka_s: Number(j.delka_s) || 0, video: !!video, video_mb: video ? Math.round(video.getSize() / 104857.6) / 10 : 0,
+    snimky: (Array.isArray(j.snimky) ? j.snimky : []).slice(0, 8).map(obrazek).filter(Boolean), miniatura: obrazek(j.miniatura),
+    prepis: KNIHOVNA_.txt(j.prepis, 30000), poznamka: KNIHOVNA_.txt(j.poznamka, 400)
+  } };
+}
+
+/** Akce tipVideo { id }: video v base64 (nejvýš 20 MB) – aplikace z něj udělá blob; soubor na Disku zůstává soukromý. */
+function tipVideo_(id) {
+  const s = slozkaNahledu_(id);
+  const j = s ? nactiJson_(s, 'nahled.json').data : null;
+  const f = j && /^[\w.-]+\.mp4$/i.test(String(j.video || '')) ? souborVeSlozce_(s, String(j.video)) : null;
+  if (!f) throw new Error('Video u tipu není.');
+  if (f.getSize() > MAX_VIDEA_TIPU) throw new Error('Video je moc velké (' + Math.round(f.getSize() / 1048576) + ' MB).');
+  return { typ: 'video/mp4', velikost: f.getSize(), data: Utilities.base64Encode(f.getBlob().getBytes()) };
+}
+
+/** Akce knihovnaTip { id, stav }: Probráno / Zavést / Zamítnout (video a snímky do koše, karta zůstává; do rejstříku to propíše
+ *  PC), stav '' = Vrátit (rozhodnutí pryč, soubory zpět z koše). */
+function knihovnaTip_(d) {
+  const id = String(d.id || ''), stav = String(d.stav || '');
+  return upravKnihovnu_(function (m, k) {
+    if (!k.reserse.some(function (x) { return x.id === id; })) throw new Error('Tip v knihovně není – obnov stránku.');
+    const stary = (m.polozky[id] || {}).tip;
+    let soubory = stary && stary.soubory ? stary.soubory : [];
+    if (stav) {
+      KNIHOVNA_.zmenTip({ polozky: {} }, id, stav, '', []); // kontrola dřív, než se něco smaže
+      const s = slozkaNahledu_(id);
+      const it = s ? s.getFiles() : null;
+      while (it && it.hasNext()) {
+        const f = it.next();
+        if (f.isTrashed() || f.getName() === 'nahled.json') continue;
+        f.setTrashed(true);
+        soubory = soubory.concat([f.getId()]);
+      }
+    } else {
+      soubory.forEach(function (f) { try { DriveApp.getFileById(f).setTrashed(false); } catch (chyba) { /* v koši už není */ } });
+    }
+    KNIHOVNA_.zmenTip(m, id, stav, kdyKnihovny_(new Date(Date.now())), soubory);
+  });
+}
+
 /** Akce knihovnaZrusit { id }: nevyřízený požadavek pryč (i s pokynem pro Clauda, pokud ho ještě nezpracoval). */
 function knihovnaZrusit_(id) {
   const x = String(id || '');
@@ -9015,6 +9158,9 @@ function zmenaKnihovny_() {
     ['polozky', 'reserse'].forEach(function (n) {
       jsonKnihovny_(slozka, n).forEach(function (f) { nejnovejsi = Math.max(nejnovejsi, f.getLastUpdated().getTime()); });
     });
+    // stav tipů z rejstříku (PC) – Claude v chatu změní řádek, aplikace to pozná
+    const r = slozka ? slozka.getFilesByName('tipy_rejstrik.json') : null;
+    if (r && r.hasNext()) nejnovejsi = Math.max(nejnovejsi, r.next().getLastUpdated().getTime());
   } catch (chyba) { /* jen zrychlení */ }
   cache.put('zmena:knihovna', String(nejnovejsi), 300);
   return nejnovejsi;

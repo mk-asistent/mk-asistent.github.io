@@ -62,12 +62,30 @@ export function jeAi(r) {
   return st.some((x) => x === 'ai' || x === 'ai tipy' || x === 'tip') || /^reserse-(ai|tip)-/.test(String((r && r.id) || ''));
 }
 
-/** Rešerše (index) záložky (reserse = bez AI, ai = jen AI) s dotazem a filtrem (vše / přečteno / nepřečteno). */
+/** Stav tipu: nove (k projití) · probrano · zavest · zavedeno · zamitnuto (posílá motor podle rejstříku a rozhodnutí v aplikaci). */
+export const stavTipu = (r) => (r && r.tip) || 'nove';
+export const NAZVY_TIPU = { nove: 'K projití', probrano: 'Probráno', zavest: 'Zavést', zavedeno: 'Zavedeno', zamitnuto: 'Zamítnuto' };
+
+/** Rešerše (index) záložky: reserse = bez AI (filtr vše / přečteno / nepřečteno), ai = jen AI (filtr nove / prosle / vse). */
 export function reserseZalozky(data, dotaz, filtr, zalozka) {
   const s = slova(dotaz);
   const ai = zalozka === 'ai';
-  return reserse(data).filter((r) => jeAi(r) === ai && odpovida(r, s) &&
-    (filtr === 'hotovo' ? moje(data, r.id).stav === 'hotovo' : filtr === 'bez' ? moje(data, r.id).stav !== 'hotovo' : true));
+  const sedi = (r) => (ai ? (filtr === 'nove' ? stavTipu(r) === 'nove' : filtr === 'prosle' ? stavTipu(r) !== 'nove' : true)
+    : (filtr === 'hotovo' ? moje(data, r.id).stav === 'hotovo' : filtr === 'bez' ? moje(data, r.id).stav !== 'hotovo' : true));
+  return reserse(data).filter((r) => jeAi(r) === ai && odpovida(r, s) && sedi(r));
+}
+
+/** Odkaz na originál tipu: pole odkaz, adresa z náhledu, adresa v „Prověř: …“, první zdroj. */
+export function odkazTipu(x, nahled) {
+  const zOtazky = /https?:\/\/[^\s"'<>\\]+/.exec(String((x && x.otazka) || ''));
+  return bezpecnaUrl(x && x.odkaz) || bezpecnaUrl(nahled && nahled.odkaz) || (zOtazky ? bezpecnaUrl(zOtazky[0]) : '') ||
+    bezpecnaUrl(x && x.zdroje && x.zdroje[0] && x.zdroje[0].url);
+}
+
+/** „1:32“ z vteřin ('' bez délky). */
+export function delkaVidea(s) {
+  const n = Math.round(Number(s) || 0);
+  return n > 0 ? Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0') : '';
 }
 
 // ---------------------------------------------------------------- Rešerše AI po týdnech a dnech, verdikt
@@ -142,7 +160,8 @@ export function cekajici(data, zalozka, dotaz) {
 /** Počty do záložek a filtrů: { filmy, knihy, reserse, cekaji, stavy: { filmy: { vse, chci, rozpracovane, hotovo }, … } }. */
 export function pocty(data) {
   const ai = reserse(data).filter(jeAi);
-  const p = { filmy: 0, knihy: 0, reserse: reserse(data).length - ai.length, ai: ai.length, cekaji: pozadavky(data).length, stavy: {} };
+  const aiNove = ai.filter((r) => stavTipu(r) === 'nove').length;
+  const p = { filmy: 0, knihy: 0, reserse: reserse(data).length - ai.length, ai: ai.length, aiNove, aiProsle: ai.length - aiNove, cekaji: pozadavky(data).length, stavy: {} };
   ZALOZKY.forEach((z) => { p.stavy[z[0]] = { vse: 0, chci: 0, rozpracovane: 0, hotovo: 0 }; });
   karty(data).forEach((x) => {
     const z = zalozkaDruhu(x.druh);

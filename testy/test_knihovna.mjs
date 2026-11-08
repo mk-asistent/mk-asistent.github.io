@@ -39,7 +39,7 @@ test('záložky a filtry podle mého stavu: filmy = filmy i seriály, knihy, re�
   assert.deepStrictEqual(p.stavy.filmy, { vse: 2, chci: 0, rozpracovane: 0, hotovo: 1 });
   assert.strictEqual(p.stavy.reserse.hotovo, 1);
   const nula = { vse: 0, chci: 0, rozpracovane: 0, hotovo: 0 };
-  assert.deepStrictEqual(D.pocty(null), { filmy: 0, knihy: 0, reserse: 0, ai: 0, cekaji: 0, stavy: { filmy: nula, knihy: nula, reserse: nula, ai: nula } });
+  assert.deepStrictEqual(D.pocty(null), { filmy: 0, knihy: 0, reserse: 0, ai: 0, aiNove: 0, aiProsle: 0, cekaji: 0, stavy: { filmy: nula, knihy: nula, reserse: nula, ai: nula } });
 });
 
 // Rešerše AI (25. 10.): tipy z odkazů, AI tipy dne a štítek AI ve vlastní záložce, po týdnech / dnech, verdikt z `kratce`
@@ -55,18 +55,28 @@ const AI = {
     { id: 'reserse-cosi-ai', nazev: 'Jak fungují jazykové modely', kratce: 'Bez verdiktu.', stitky: ['AI'], pripraveno: '2026-10-16T10:00:00+02:00' },
     { id: 'reserse-tip-reklama', nazev: 'Plugin X', kratce: '❌ Ne – reklama na placený plugin.', stitky: ['tip'], pripraveno: '2026-10-20T09:00:00+02:00' }
   ],
-  moje: { 'reserse-tip-find-skills': { stav: 'hotovo' } }
+  moje: {}
 };
+AI.reserse.find((r) => r.id === 'reserse-tip-find-skills').tip = 'probrano';
 
-test('Rešerše AI: tipy, AI tipy dne a štítek AI ve vlastní záložce, zbytek v Rešerších; počty a filtr přečteno', () => {
+test('Rešerše AI: tipy, AI tipy dne a štítek AI ve vlastní záložce, zbytek v Rešerších; počty a filtr K projití / Prošlé / Vše', () => {
   assert.deepStrictEqual(D.ZALOZKY.map((z) => z[0]), ['filmy', 'knihy', 'reserse', 'ai']);
   assert.deepStrictEqual(D.reserseZalozky(AI, '', 'vse', 'reserse').map((r) => r.id), ['reserse-letectvi']);
   assert.strictEqual(D.reserseZalozky(AI, '', 'vse', 'ai').length, 5);
   assert.deepStrictEqual(D.reserseZalozky(AI, 'skills', 'vse', 'ai').map((r) => r.id), ['reserse-tip-find-skills']);
-  assert.deepStrictEqual(D.reserseZalozky(AI, '', 'hotovo', 'ai').map((r) => r.id), ['reserse-tip-find-skills']);
-  assert.strictEqual(D.reserseZalozky(AI, '', 'bez', 'ai').length, 4);
+  assert.deepStrictEqual(D.reserseZalozky(AI, '', 'prosle', 'ai').map((r) => r.id), ['reserse-tip-find-skills']);
+  assert.strictEqual(D.reserseZalozky(AI, '', 'nove', 'ai').length, 4);
   const p = D.pocty(AI);
-  assert.deepStrictEqual([p.reserse, p.ai, p.stavy.ai.vse, p.stavy.ai.hotovo, p.stavy.reserse.vse], [1, 5, 5, 1, 1]);
+  assert.deepStrictEqual([p.reserse, p.ai, p.aiNove, p.aiProsle, p.stavy.reserse.vse], [1, 5, 4, 1, 1]);
+});
+
+test('Rešerše AI: odkaz na originál (pole, náhled, „Prověř: …“, první zdroj; jen http) a délka videa', () => {
+  assert.strictEqual(D.odkazTipu({ odkaz: 'https://x.com/a/status/1' }, { odkaz: 'https://b.cz' }), 'https://x.com/a/status/1');
+  assert.strictEqual(D.odkazTipu({}, { odkaz: 'https://b.cz/x' }), 'https://b.cz/x');
+  assert.strictEqual(D.odkazTipu({ otazka: 'Prověř: https://www.instagram.com/reel/AbC/ – proč' }), 'https://www.instagram.com/reel/AbC/');
+  assert.strictEqual(D.odkazTipu({ zdroje: [{ url: 'javascript:alert(1)' }] }), '');
+  assert.strictEqual(D.delkaVidea(92), '1:32');
+  assert.strictEqual(D.delkaVidea(0), '');
 });
 
 test('Rešerše AI: verdikt ze začátku krátce (i „Později / spíš ne“, „Zkusit (= aktualizovat)“), bez verdiktu null; počty', () => {

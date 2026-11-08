@@ -9,6 +9,7 @@ const dnes = pulnoc(ted);
 const den = (posun, hod = 0, min = 0) => pridejDny(dnes, posun) + (hod * 60 + min) * 6e4;
 const iso = (t) => { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 const kopie = (o) => JSON.parse(JSON.stringify(o));
+const SNIMEK_UKAZKA = '/9j/4AAQSkZJRgABAgAAAQABAAD//gAPTGF2YzYzLjEuMTAwAP/bAEMACCgoLygvNzc3Nzc3QTxBQ0NDQUFBQUNDQ0hISFVVVUhISENDSEhQUFVVXF9cV1dVV19fZGRkeHhzc4yMkaysz//EAE0AAQEAAAAAAAAAAAAAAAAAAAAHAQEBAQAAAAAAAAAAAAAAAAAAAwQQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAEcAKADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCYgJsIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD//2Q=='; // vymyšlený snímek k tipům v Rešerších AI
 let hnedUkazky = null; // žádost „Odpovědět hned“ v ukázce
 // malé PDF (2 strany A4, vymyšlený text) pro náhled přílohy
 const UKAZKOVE_PDF = 'JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUiA1IDAgUl0gL0NvdW50IDIgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA1OTUgODQyXSAvUmVzb3VyY2VzIDw8IC9Gb250IDw8IC9GMSA3IDAgUiA+PiA+PiAvQ29udGVudHMgNCAwIFIgPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCAxODkgPj4Kc3RyZWFtCkJUIC9GMSAyMiBUZiA2MCA3NjAgVGQgKFByZWRhdmFjaSBwcm90b2tvbCAtIHVrYXprYSkgVGogL0YxIDEzIFRmIDAgLTM0IFRkIChTdHJhbmEgMSB6ZSAyKSBUaiAwIC0yMiBUZCAoVnlteXNsZW5hIGRhdGEgcHJvIG5haGxlZCBwcmlsb2h5LikgVGogRVQKMC4xMiAwLjI0IDAuMTcgUkcgMyB3IDYwIDY5MCBtIDUzNSA2OTAgbCBTCmVuZHN0cmVhbQplbmRvYmoKNSAwIG9iago8PCAvVHlwZSAvUGFnZSAvUGFyZW50IDIgMCBSIC9NZWRpYUJveCBbMCAwIDU5NSA4NDJdIC9SZXNvdXJjZXMgPDwgL0ZvbnQgPDwgL0YxIDcgMCBSID4+ID4+IC9Db250ZW50cyA2IDAgUiA+PgplbmRvYmoKNiAwIG9iago8PCAvTGVuZ3RoIDE3OCA+PgpzdHJlYW0KQlQgL0YxIDIyIFRmIDYwIDc2MCBUZCAoU291cGlzIHZhZCAtIHVrYXprYSkgVGogL0YxIDEzIFRmIDAgLTM0IFRkIChTdHJhbmEgMiB6ZSAyKSBUaiAwIC0yMiBUZCAoTmFobGVkIFBERiB2IGFwbGlrYWNpIEFzaXN0ZW50LikgVGogRVQKMC4xMiAwLjI0IDAuMTcgUkcgMyB3IDYwIDY5MCBtIDUzNSA2OTAgbCBTCmVuZHN0cmVhbQplbmRvYmoKNyAwIG9iago8PCAvVHlwZSAvRm9udCAvU3VidHlwZSAvVHlwZTEgL0Jhc2VGb250IC9IZWx2ZXRpY2EgPj4KZW5kb2JqCnhyZWYKMCA4CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDU4IDAwMDAwIG4gCjAwMDAwMDAxMjEgMDAwMDAgbiAKMDAwMDAwMDI0NyAwMDAwMCBuIAowMDAwMDAwNDg2IDAwMDAwIG4gCjAwMDAwMDA2MTIgMDAwMDAgbiAKMDAwMDAwMDg0MCAwMDAwMCBuIAp0cmFpbGVyCjw8IC9TaXplIDggL1Jvb3QgMSAwIFIgPj4Kc3RhcnR4cmVmCjkxMAolJUVPRgo=';
@@ -1017,7 +1018,27 @@ const akce = {
   zmeny: () => ({ auto: 0, zdravi: 0 }),
   // Knihovna: čtení, celá rešerše, požadavek (zůstane čekat – v ukázce ho nikdo nepřipraví), můj stav, zrušení
   knihovna: () => knihovnaKopie(),
-  knihovnaReserse: (d) => { if (!reserseUkazka[d.id]) throw new Error('Rešerše v knihovně není – obnov stránku.'); return kopie(reserseUkazka[d.id]); },
+  knihovnaReserse: (d) => {
+    if (reserseUkazka[d.id]) return kopie(reserseUkazka[d.id]);
+    const r = knihovnaUkazka.reserse.find((x) => x.id === d.id);
+    if (!r || !/^reserse-(tip|ai)-/.test(d.id)) throw new Error('Rešerše v knihovně není – obnov stránku.');
+    return Object.assign(kopie(r), { odkaz: 'https://example.com/ukazkovy-tip',
+      prepis: 'Vymyšlený přepis: „Tenhle plugin ti ušetří půlku práce. Nainstaluj ho a napiš do komentáře…“',
+      sekce: [{ nadpis: 'Co to doopravdy je', odstavce: ['Ukázkový text: kdo to vydal a co to opravdu dělá.'] },
+        { nadpis: 'Můj názor', odstavce: ['Ukázkový text: nebereme, že to děláme nejlíp – co je tady lepší než u nás.'] },
+        { nadpis: 'Jak to u nás zavést a čím se inspirovat', odstavce: ['Ukázkový text: první krok a co převzít.'], body: ['krok 1', 'krok 2'] }] });
+  },
+  tipyNahledy: () => ({ tipy: { 'reserse-tip-ukazkovy-plugin': { ikona: SNIMEK_UKAZKA, video: false, snimku: 4, delka_s: 92, zdroj: 'x' } } }),
+  tipNahled: (d) => (d.id === 'reserse-tip-ukazkovy-plugin' && !(knihovnaUkazka.moje[d.id] || {}).tip ? { nahled: { zdroj: 'x', autor: '@ukazka', odkaz: 'https://example.com/ukazkovy-tip',
+    text: 'Vymyšlený text příspěvku k ukázce.', delka_s: 92, video: false, video_mb: 0, snimky: [SNIMEK_UKAZKA, SNIMEK_UKAZKA, SNIMEK_UKAZKA, SNIMEK_UKAZKA], miniatura: '', prepis: '', poznamka: '' } } : { nahled: null }),
+  knihovnaTip: (d) => {
+    const r = knihovnaUkazka.reserse.find((x) => x.id === d.id);
+    if (!r) throw new Error('Tip v knihovně není – obnov stránku.');
+    r.tip = d.stav || 'nove';
+    if (d.stav) knihovnaUkazka.moje[d.id] = Object.assign({}, knihovnaUkazka.moje[d.id], { tip: { stav: d.stav } });
+    else if (knihovnaUkazka.moje[d.id]) delete knihovnaUkazka.moje[d.id].tip;
+    return akce.knihovna();
+  },
   knihovnaPridat: (d) => {
     const text = String(d.text || '').replace(/\s+/g, ' ').trim();
     if (['film', 'serial', 'kniha', 'reserse'].indexOf(d.druh) < 0) throw new Error('Neznámý druh – film, seriál, kniha nebo rešerše.');

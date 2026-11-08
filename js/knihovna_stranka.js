@@ -368,6 +368,79 @@ export function reserseCasti(idx, r, ctx) {
   return Object.assign({}, casti, { nav: navHtml(zalozky, false), telo, zalozky });
 }
 
+// ---------------------------------------------------------------- Rešerše AI: jedna stránka k tématu (Michal 8. 11.: „není nutné, aby to bylo rozdělené podle
+// shrnutí, obsahu a zdroje … jedna stránka … název tématu menší … primární je to, co mi píšeš ty … přepis toho, co je ve videu řečeno … a tvůj názor“)
+
+const jpeg = (b64) => 'data:image/jpeg;base64,' + b64;
+
+/** Video (nebo snímky, když video není / nejde přehrát), text příspěvku a přepis. n = stav náhledu z knihovna.js. */
+function tipMediaHtml(x, n, stav, ikona) {
+  const d = n && n.data;
+  const vyreseny = stav !== 'nove';
+  const fotka = ikona ? '<div class="kn-tip__fotka"><img src="' + jpeg(ikona) + '" alt="Malý snímek z tipu"></div>' : '';
+  let media = '';
+  if (!n || n.nacita) media = '<div class="kn-tip__misto">' + kostra(3) + '</div>';
+  else if (n.chyba) media = '<p class="kn-tip__pozn">Náhled se nenačetl: ' + esc(n.chyba.message || '') + '</p>';
+  else if (vyreseny) media = fotka + '<p class="kn-tip__pozn">Tip je vyřešený – video a snímky jsou smazané (30 dní v koši na Disku).</p>';
+  else if (!d) media = '<p class="kn-tip__pozn">Náhled k tomuhle tipu zatím není – zůstává text a odkaz na originál.</p>';
+  else {
+    const plakat = d.snimky[0] || d.miniatura;
+    if (d.video && !n.videoChyba) {
+      media = n.videoUrl
+        ? '<video class="kn-tip__video" controls playsinline preload="metadata" src="' + esc(n.videoUrl) + '"' + (plakat ? ' poster="' + jpeg(plakat) + '"' : '') + '></video>'
+        : '<div class="kn-tip__ceka">' + (plakat ? '<img src="' + jpeg(plakat) + '" alt="">' : '') + '<span>' + IKONY.prehrat + 'Načítám video' + (d.video_mb ? ' · ' + String(d.video_mb).replace('.', ',') + ' MB' : '') + '…</span></div>';
+    } else if ((d.snimky || []).length) {
+      media = '<div class="kn-tip__snimky">' + d.snimky.map((b, i) => '<img src="' + jpeg(b) + '" alt="Snímek ' + (i + 1) + ' z videa">').join('') + '</div>';
+    } else if (d.miniatura) {
+      media = '<div class="kn-tip__snimky kn-tip__snimky--jeden"><img src="' + jpeg(d.miniatura) + '" alt="Náhled"></div>';
+    }
+    if (n.videoChyba) {
+      media += '<p class="kn-tip__pozn">Video se nepodařilo přehrát, proto jsou tu snímky. <button type="button" class="odkaz" data-kn-video-znovu>Zkusit znovu</button></p>';
+    } else if (d.poznamka && !d.video) media += '<p class="kn-tip__pozn">' + esc(d.poznamka) + '</p>';
+  }
+  const prepis = x.prepis || (d && d.prepis) || '';
+  const textPrispevku = d && d.text;
+  return media +
+    (prepis ? '<details class="kn-tip__blok" open><summary>Přepis – co je ve videu řečeno a napsáno</summary><div class="kn-tip__prepis">' + odstavce(prepis) + '</div></details>' : '') +
+    (textPrispevku ? '<details class="kn-tip__blok"' + (prepis ? '' : ' open') + '><summary>Text příspěvku' + (d.autor ? ' · ' + esc(d.autor) : '') + '</summary><div class="kn-tip__prepis">' + odstavce(textPrispevku) + '</div></details>' : '');
+}
+
+/** Jedna stránka tipu: hlavička (malý název, verdikt, originál, Probráno / Zavést / Zamítnout), můj text, vedle video a přepis. */
+export function tipCasti(idx, r, ctx, n, ikona) {
+  const x = (r && r.data) || idx;
+  const t = D.cas(x.pripraveno);
+  const stav = D.stavTipu(idx);
+  const v = D.verdikt(x);
+  const odkaz = D.odkazTipu(x, n && n.data);
+  const tlacitko = (klic, zn, text, popis) => '<button type="button" class="btn btn--sm btn--ghost kn-stav-tl--' + klic + '" data-kn-tip="' + klic + '" aria-pressed="' + (stav === klic) + '" title="' + popis + '">' + zn + '<span>' + text + '</span></button>';
+  const hero = '<header class="kn-tip-hlava" data-oblast="knihovna">' +
+    '<div class="kn-tip-hlava__nazev">' + (v ? '<span class="kn-verdikt kn-verdikt--' + v.klic + '">' + v.znak + ' ' + esc(v.text) + '</span>' : '') +
+      '<h1 class="kn-hero__nazev" tabindex="-1">' + esc(x.nazev) + '</h1>' +
+      '<p class="kn-tip-hlava__meta">' + (t ? '<span class="cisla">' + esc(dm(t)) + '</span>' : '') +
+        (stav !== 'nove' ? '<span class="kn-stav kn-stav--' + esc(stav) + '">' + esc(D.NAZVY_TIPU[stav] || stav) + '</span>' : '') +
+        (odkaz ? '<a' + ven(odkaz) + '>Originál' + IKONY.odkaz + '</a>' : '') + '</p></div>' +
+    '<div class="kn-tip-hlava__akce">' + tlacitko('zavest', IKONY.plus, 'Zavést', 'Chci to – půjde k Claudovi na zavedení') + tlacitko('probrano', IKONY.fajfka, 'Probráno', 'Viděl jsem, nic nezavádíme') +
+      tlacitko('zamitnuto', IKONY.smazat, 'Zamítnout', 'Zavrhnout celý návrh') + '</div>' +
+    '</header>';
+  const casti = { lista: listaHtml('Rešerše AI', null), hero, moje: '', nav: '', zalozky: [], titul: x.nazev };
+  const kratce = velkePrvni(v ? v.zbytek : x.kratce || '');
+  const hlavni = kratce ? '<div class="kn-tip__kratce kn-text">' + odstavce(kratce) + '</div>' : '';
+  const aside = '<aside class="kn-tip__media" aria-label="Video a přepis">' + tipMediaHtml(x, n, stav, ikona) + '</aside>';
+  if (!r || !r.data) {
+    return Object.assign({}, casti, { telo: '<div class="kn-tip">' + hlavni + aside + '<div class="kn-tip__text">' +
+      (r && r.chyba ? chybaHtml(r.chyba, 'data-kn-reserse-znovu="' + esc(idx.id) + '"') : kostra(8)) + '</div></div>' });
+  }
+  const sekce = (x.sekce || []).map((s) => '<section class="kn-tip__sekce"><h2>' + esc(s.nadpis || '') + '</h2><div class="kn-text">' + (s.odstavce || []).map(odstavce).join('') + '</div>' +
+    ((s.body || []).length ? '<ul class="kn-tip__body">' + s.body.map((b) => '<li>' + esc(b) + '</li>').join('') + '</ul>' : '') + '</section>').join('');
+  const cisla = (x.cisla || []).length ? '<div class="kn-fakta kn-cisla">' + x.cisla.map((c) => '<div class="kn-fakt"><b class="cisla">' + esc(c.hodnota) + '</b><small>' + esc(c.co || '') + '</small></div>').join('') + '</div>' : '';
+  const otazky = (x.dalsiOtazky || []).length ? '<section class="kn-tip__sekce"><h2>Na co se ještě zeptat</h2><div class="kn-otazky">' + x.dalsiOtazky.map((q) => '<button type="button" class="kn-otazky__polozka" data-kn-otazka="' + esc(q) + '">' + IKONY.otazka + '<span>' + esc(q) + '</span><em>' + IKONY.plus + 'Zeptat se</em></button>').join('') + '</div></section>' : '';
+  const pojmy = (x.pojmy || []).length ? '<section class="kn-tip__sekce"><h2>Pojmy</h2><dl class="kn-pojmy">' + x.pojmy.map((p) => '<div><dt>' + esc(p.pojem) + '</dt><dd>' + esc(p.vysvetleni || '') + '</dd></div>').join('') + '</dl></section>' : '';
+  const zdroje = pocetZdroju(x.zdroje) ? '<section class="kn-tip__sekce kn-tip__zdroje"><h2>Zdroje</h2>' + zdrojeHtml(x.zdroje) + '</section>' : '';
+  const souvisi = souvisiHtml(ctx.data, x);
+  return Object.assign({}, casti, { telo: '<div class="kn-tip">' + hlavni + aside + '<div class="kn-tip__text">' + cisla + sekce + otazky + pojmy + zdroje +
+    (souvisi ? '<section class="kn-tip__sekce"><h2>Související</h2>' + souvisi + '</section>' : '') + '</div></div>' + pataHtml(x) });
+}
+
 // ---------------------------------------------------------------- karta, která v knihovně (zatím) není
 
 /** Načítání (knihovna se ještě čte) nebo „v knihovně není“ (smazaná karta, starý odkaz). */
