@@ -79,6 +79,17 @@ test('Rešerše AI: odkaz na originál (pole, náhled, „Prověř: …“, prvn
   assert.strictEqual(D.delkaVidea(0), '');
 });
 
+test('Rešerše AI: části po verdiktech, srozumitelný název, podbarvení', () => {
+  const c = D.castiVerdiktu({ kratce: '✅ Zkusit – první. 🧩 Vzít kousek – druhá věc. ❌ Ne – třetí.' });
+  assert.deepStrictEqual(c.map((x) => [x.klic, x.text, x.zbytek]), [['zkusit', 'Zkusit', 'první.'], ['kousek', 'Převzít jen část', 'druhá věc.'], ['ne', 'Ne', 'třetí.']]);
+  assert.strictEqual(D.verdikt({ kratce: '✅ Zkusit – první. 🧩 Vzít kousek – druhá.' }).zbytek, 'první.');
+  assert.deepStrictEqual(D.castiVerdiktu({ kratce: 'Bez verdiktu.' }).map((x) => [x.klic, x.zbytek]), [['', 'Bez verdiktu.']]);
+  assert.strictEqual(D.zvyrazneni('Hlavní věc. Další Věta.'), '**Hlavní věc.** Další Věta.');
+  assert.strictEqual(D.zvyrazneni('Text **označený** Claudem. Další.'), 'Text **označený** Claudem. Další.');
+  assert.strictEqual(D.zvyrazneni('reel (5. 11.) jen ukazuje věc.'), '**reel (5. 11.) jen ukazuje věc.**');
+  assert.strictEqual(D.bezZnacek('a **b** c'), 'a b c');
+});
+
 test('Rešerše AI: verdikt ze začátku krátce (i „Později / spíš ne“, „Zkusit (= aktualizovat)“), bez verdiktu null; počty', () => {
   assert.deepStrictEqual(D.verdikt(AI.reserse[1]), { klic: 'zkusit', znak: '✅', text: 'Zkusit', zbytek: 'plugin od autora, ověřeno.' });
   assert.deepStrictEqual(D.verdikt(AI.reserse[2]), { klic: 'pozdeji', znak: '⏸', text: 'Později / spíš ne', zbytek: 'skill je skutečný, ale…' });

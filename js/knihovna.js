@@ -365,7 +365,7 @@ function aiHtml(seznam, ted) {
     const n = poDnech ? D.nazevDne(sk.od, ted || Date.now()) : D.nazevTydne(sk.od, ted || Date.now());
     const v = D.poctyVerdiktu(sk.polozky);
     const verdikty = Object.keys(v).filter((x) => v[x]).map((x) => '<span class="kn-ai-verdikty__v kn-verdikt--' + x + '" title="' + esc(NAZEV_VERDIKTU[x]) + '">' +
-      D.ZNAKY_VERDIKTU[x] + ' <b class="cisla">' + v[x] + '</b></span>').join('');
+      esc(NAZEV_VERDIKTU[x]) + ' <b class="cisla">' + v[x] + '</b></span>').join('');
     return '<section class="kn-ai-skupina" data-kn-skupina="' + sk.od + '"><header class="kn-ai-skupina__hlava">' +
       '<h3>' + (poDnech ? '' : '<small>Týden</small>') + esc(n.nazev) + (n.kdy ? '<em>' + esc(n.kdy) + '</em>' : '') + '</h3>' +
       '<span class="kn-ai-skupina__pocet cisla">' + sk.polozky.length + ' ' + tvar(sk.polozky.length, 'rešerše', 'rešerše', 'rešerší') + '</span>' +
@@ -373,7 +373,7 @@ function aiHtml(seznam, ted) {
       '<ul class="kn-reserse-seznam">' + sk.polozky.map(reserseRadekHtml).join('') + '</ul></section>';
   }).join('');
 }
-const NAZEV_VERDIKTU = { zkusit: 'Zkusit', kousek: 'Vzít kousek', pozdeji: 'Později', ne: 'Ne' };
+const NAZEV_VERDIKTU = { zkusit: 'Zkusit', kousek: 'Převzít část', pozdeji: 'Později', ne: 'Ne' };
 
 function prazdneHtml(z, d) {
   if (z === 'ai' && D.pocty(d).ai && !k.dotaz && k.filtr.ai === 'nove') {
@@ -440,7 +440,7 @@ function reserseRadekHtml(r) {
   const t = D.cas(r.pripraveno);
   // verdikt tipu („✅ Zkusit – …“) jako barevný štítek, pod názvem jen zbytek věty
   const v = D.verdikt(r);
-  const kratce = v ? velkePrvni(v.zbytek) : r.kratce;
+  const kratce = D.bezZnacek(v ? velkePrvni(v.zbytek) : r.kratce);
   const ai = D.jeAi(r);
   const nahled = ai && k.ikony ? k.ikony[r.id] : null;
   const ikonaTipu = nahled && nahled.ikona;
@@ -448,7 +448,7 @@ function reserseRadekHtml(r) {
   return '<li data-kn-karta="' + esc(r.id) + '"><button type="button" class="kn-res' + (stavT && stavT !== 'nove' ? ' kn-res--stav kn-stav-r--' + esc(stavT) : v ? ' kn-res--verdikt kn-verdikt--' + v.klic : '') + '" data-kn-otevri="' + esc(r.id) + '">' +
     (ikonaTipu ? '<span class="kn-res__ikona kn-res__ikona--nahled"><img src="data:image/jpeg;base64,' + ikonaTipu + '" alt="" loading="lazy"></span>'
       : '<span class="kn-res__ikona">' + (ai ? IKONY.claude : IKONY.knihovna) + '</span>') +
-    '<span class="kn-res__text">' + (v ? '<span class="kn-verdikt">' + v.znak + ' ' + esc(v.text) + '</span>' : '') + '<b>' + esc(r.nazev) + '</b>' +
+    '<span class="kn-res__text">' + (v ? '<span class="kn-verdikt">' + esc(v.text) + '</span>' : '') + '<b>' + esc(r.nazev) + '</b>' +
       (kratce ? '<small>' + esc(kratce) + '</small>' : '') +
       '<span class="kn-res__meta">' + (t ? '<em class="cisla">' + esc(dm(t) + (ai ? ' ' + hhmm(t) : '')) + '</em>' : '') +
       (stavT === 'nove' && nahled && nahled.video ? '<span class="tag tag--seda kn-res__video">' + IKONY.prehrat + esc(D.delkaVidea(nahled.delka_s) || 'video') + '</span>' : stavT === 'nove' && nahled && nahled.snimku ? '<span class="tag tag--seda">snímky</span>' : '') +

@@ -405,7 +405,10 @@ function tipMediaHtml(x, n, stav, ikona) {
     (textPrispevku ? '<details class="kn-tip__blok"' + (prepis ? '' : ' open') + '><summary>Text příspěvku' + (d.autor ? ' · ' + esc(d.autor) : '') + '</summary><div class="kn-tip__prepis">' + odstavce(textPrispevku) + '</div></details>' : '');
 }
 
-/** Jedna stránka tipu: hlavička (malý název, verdikt, originál, Probráno / Zavést / Zamítnout), můj text, vedle video a přepis. */
+/** Značky `**…**` z textu tipu → podbarvení (to nejdůležitější); useknutá značka zmizí. */
+const podbarvit = (html) => html.replace(/\*\*([^*\n]+?)\*\*/g, '<mark class="kn-dulezite">$1</mark>').replace(/\*\*/g, '');
+
+/** Jedna stránka tipu: hlavička (malý název, verdikt, originál, Probráno / Zavést / Zamítnout), karty s mým textem, vedle video a přepis. */
 export function tipCasti(idx, r, ctx, n, ikona) {
   const x = (r && r.data) || idx;
   const t = D.cas(x.pripraveno);
@@ -413,8 +416,10 @@ export function tipCasti(idx, r, ctx, n, ikona) {
   const v = D.verdikt(x);
   const odkaz = D.odkazTipu(x, n && n.data);
   const tlacitko = (klic, zn, text, popis) => '<button type="button" class="btn btn--sm btn--ghost kn-stav-tl--' + klic + '" data-kn-tip="' + klic + '" aria-pressed="' + (stav === klic) + '" title="' + popis + '">' + zn + '<span>' + text + '</span></button>';
+  const dily = D.castiVerdiktu(x);
+  const stitek = (d) => (d && d.klic ? '<span class="kn-verdikt kn-verdikt--' + d.klic + '">' + esc(d.text) + '</span>' : '');
   const hero = '<header class="kn-tip-hlava" data-oblast="knihovna">' +
-    '<div class="kn-tip-hlava__nazev">' + (v ? '<span class="kn-verdikt kn-verdikt--' + v.klic + '">' + v.znak + ' ' + esc(v.text) + '</span>' : '') +
+    '<div class="kn-tip-hlava__nazev">' + (dily.length > 1 ? '' : stitek(v)) +
       '<h1 class="kn-hero__nazev" tabindex="-1">' + esc(x.nazev) + '</h1>' +
       '<p class="kn-tip-hlava__meta">' + (t ? '<span class="cisla">' + esc(dm(t)) + '</span>' : '') +
         (stav !== 'nove' ? '<span class="kn-stav kn-stav--' + esc(stav) + '">' + esc(D.NAZVY_TIPU[stav] || stav) + '</span>' : '') +
@@ -423,22 +428,22 @@ export function tipCasti(idx, r, ctx, n, ikona) {
       tlacitko('zamitnuto', IKONY.smazat, 'Zamítnout', 'Zavrhnout celý návrh') + '</div>' +
     '</header>';
   const casti = { lista: listaHtml('Rešerše AI', null), hero, moje: '', nav: '', zalozky: [], titul: x.nazev };
-  const kratce = velkePrvni(v ? v.zbytek : x.kratce || '');
-  const hlavni = kratce ? '<div class="kn-tip__kratce kn-text">' + odstavce(kratce) + '</div>' : '';
+  const hlavni = dily.length ? '<div class="kn-tip__kratce kn-text">' + dily.map((d) => '<div class="kn-tip__bod">' + (dily.length > 1 ? stitek(d) : '') +
+    podbarvit(odstavce(D.zvyrazneni(velkePrvni(d.zbytek)))) + '</div>').join('') + '</div>' : '';
   const aside = '<aside class="kn-tip__media" aria-label="Video a přepis">' + tipMediaHtml(x, n, stav, ikona) + '</aside>';
   if (!r || !r.data) {
-    return Object.assign({}, casti, { telo: '<div class="kn-tip">' + hlavni + aside + '<div class="kn-tip__text">' +
-      (r && r.chyba ? chybaHtml(r.chyba, 'data-kn-reserse-znovu="' + esc(idx.id) + '"') : kostra(8)) + '</div></div>' });
+    return Object.assign({}, casti, { telo: '<div class="kn-tip"><div class="kn-tip__text">' + hlavni +
+      (r && r.chyba ? chybaHtml(r.chyba, 'data-kn-reserse-znovu="' + esc(idx.id) + '"') : kostra(8)) + '</div>' + aside + '</div>' });
   }
-  const sekce = (x.sekce || []).map((s) => '<section class="kn-tip__sekce"><h2>' + esc(s.nadpis || '') + '</h2><div class="kn-text">' + (s.odstavce || []).map(odstavce).join('') + '</div>' +
-    ((s.body || []).length ? '<ul class="kn-tip__body">' + s.body.map((b) => '<li>' + esc(b) + '</li>').join('') + '</ul>' : '') + '</section>').join('');
+  const sekce = (x.sekce || []).map((s) => '<section class="kn-tip__sekce"><h2>' + esc(s.nadpis || '') + '</h2><div class="kn-text">' + (s.odstavce || []).map((o) => podbarvit(odstavce(o))).join('') + '</div>' +
+    ((s.body || []).length ? '<ul class="kn-tip__body">' + s.body.map((b) => '<li>' + podbarvit(esc(b)) + '</li>').join('') + '</ul>' : '') + '</section>').join('');
   const cisla = (x.cisla || []).length ? '<div class="kn-fakta kn-cisla">' + x.cisla.map((c) => '<div class="kn-fakt"><b class="cisla">' + esc(c.hodnota) + '</b><small>' + esc(c.co || '') + '</small></div>').join('') + '</div>' : '';
   const otazky = (x.dalsiOtazky || []).length ? '<section class="kn-tip__sekce"><h2>Na co se ještě zeptat</h2><div class="kn-otazky">' + x.dalsiOtazky.map((q) => '<button type="button" class="kn-otazky__polozka" data-kn-otazka="' + esc(q) + '">' + IKONY.otazka + '<span>' + esc(q) + '</span><em>' + IKONY.plus + 'Zeptat se</em></button>').join('') + '</div></section>' : '';
   const pojmy = (x.pojmy || []).length ? '<section class="kn-tip__sekce"><h2>Pojmy</h2><dl class="kn-pojmy">' + x.pojmy.map((p) => '<div><dt>' + esc(p.pojem) + '</dt><dd>' + esc(p.vysvetleni || '') + '</dd></div>').join('') + '</dl></section>' : '';
   const zdroje = pocetZdroju(x.zdroje) ? '<section class="kn-tip__sekce kn-tip__zdroje"><h2>Zdroje</h2>' + zdrojeHtml(x.zdroje) + '</section>' : '';
   const souvisi = souvisiHtml(ctx.data, x);
-  return Object.assign({}, casti, { telo: '<div class="kn-tip">' + hlavni + aside + '<div class="kn-tip__text">' + cisla + sekce + otazky + pojmy + zdroje +
-    (souvisi ? '<section class="kn-tip__sekce"><h2>Související</h2>' + souvisi + '</section>' : '') + '</div></div>' + pataHtml(x) });
+  return Object.assign({}, casti, { telo: '<div class="kn-tip"><div class="kn-tip__text">' + hlavni + cisla + sekce + otazky + pojmy + zdroje +
+    (souvisi ? '<section class="kn-tip__sekce"><h2>Související</h2>' + souvisi + '</section>' : '') + '</div>' + aside + '</div>' + pataHtml(x) });
 }
 
 // ---------------------------------------------------------------- karta, která v knihovně (zatím) není

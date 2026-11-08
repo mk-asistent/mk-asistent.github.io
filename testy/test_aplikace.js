@@ -6939,6 +6939,15 @@ function vychoziVikendTestu() {
       jistota(r.h1 <= 17 && r.kratce > r.h1, 'název menší než můj text: ' + JSON.stringify(r));
       jistota(r.sekce.join('|') === 'Co to doopravdy je|Můj názor|Jak to zavést|Zdroje', 'sekce: ' + r.sekce.join('|'));
       jistota(/ušetří čas/.test(r.prepis) && r.vedle, 'přepis z karty, video vedle textu na PC: ' + JSON.stringify(r));
+      // Michal 8. 11.: žádný úzký pruh, vždy podbarvené to nejdůležitější, verdikt slovy
+      const s = await page.evaluate(() => ({ dulezite: (document.querySelector('.kn-tip__kratce mark.kn-dulezite') || {}).textContent || '', hvezdy: /\*\*/.test(document.querySelector('.kn-tip').textContent),
+        verdikt: document.querySelector('.kn-tip-hlava .kn-verdikt').textContent, karta: document.querySelector('.kn-tip__sekce').getBoundingClientRect().width }));
+      jistota(s.dulezite && !s.hvezdy && /^[^✅🧩⏸❌]+$/u.test(s.verdikt), 'podbarvení a verdikt: ' + JSON.stringify(s));
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      const w = await page.evaluate(() => { const k = Array.from(document.querySelectorAll('.kn-tip__sekce, .kn-tip__kratce')).map((e) => e.getBoundingClientRect()); const m = document.querySelector('.kn-tip__media').getBoundingClientRect();
+        return { sloupcu: new Set(k.map((b) => Math.round(b.left))).size, nejsirsi: Math.max(...k.map((b) => b.width)), mezera: m.left - Math.max(...k.map((b) => b.right)) }; });
+      jistota(w.sloupcu >= 2 && w.nejsirsi <= 760 && w.mezera <= 40, 'šířka 1920: ' + JSON.stringify(w));
+      await page.setViewportSize({ width: 1440, height: 900 });
       jistota(await page.getAttribute('.kn-tip-hlava__meta a', 'href') === 'https://x.com/a/status/1', 'odkaz na originál');
       // video nejde přehrát → snímky a možnost zkusit znovu
       await page.waitForSelector('.kn-tip__snimky img');
@@ -6998,8 +7007,9 @@ function vychoziVikendTestu() {
       await t.page.waitForSelector('.kn-tip__sekce h2');
       await t.page.waitForSelector('.kn-tip__snimky img');
       const m = await t.page.evaluate(() => ({ pretika: document.documentElement.scrollWidth - document.documentElement.clientWidth, kr: document.querySelector('.kn-tip__kratce').getBoundingClientRect().top,
-        med: document.querySelector('.kn-tip__media').getBoundingClientRect().top, tx: document.querySelector('.kn-tip__text').getBoundingClientRect().top }));
-      jistota(m.pretika <= 0 && m.kr < m.med && m.med < m.tx, 'telefon: ' + JSON.stringify(m));
+        med: document.querySelector('.kn-tip__media').getBoundingClientRect().top, tx: document.querySelector('.kn-tip__sekce').getBoundingClientRect().top,
+        tl: document.querySelector('[data-kn-tip="zavest"]').getBoundingClientRect().height }));
+      jistota(m.pretika <= 0 && m.kr < m.med && m.med < m.tx && m.tl >= 42, 'telefon: ' + JSON.stringify(m));
       await t.page.screenshot({ path: path.join(VYSTUP, 'telefon_tip_stranka.png'), fullPage: true });
       await t.ctx.close();
     } finally {

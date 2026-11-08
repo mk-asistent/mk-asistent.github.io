@@ -665,15 +665,28 @@ button.kn-souvisi__polozka:hover { border-color: color-mix(in srgb, var(--o-knih
 .kn-res.kn-stav-r--zamitnuto { box-shadow: inset 3px 0 0 var(--oranz); }
 .kn-res.kn-stav-r--probrano { box-shadow: inset 3px 0 0 var(--o-kalendar); }
 .kn-tip__fotka img { display: block; width: 100%; max-width: 200px; border-radius: 10px; background: var(--sand); }
-.kn-tip { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding-top: 14px; }
-.kn-tip__kratce { font-size: 17px; line-height: 1.55; font-weight: 500; color: var(--text); max-width: 78ch; }
-.kn-tip__kratce p { margin: 0 0 8px; }
-.kn-tip__text { min-width: 0; display: flex; flex-direction: column; gap: 22px; max-width: 78ch; }
-.kn-tip__sekce h2 { margin: 0 0 6px; font-size: 16px; font-weight: 700; letter-spacing: -.005em; }
-.kn-tip__sekce .kn-text { font-size: 15px; line-height: 1.6; }
-.kn-tip__sekce .kn-text p { margin: 0 0 9px; }
-.kn-tip__body { margin: 6px 0 0; padding-left: 20px; font-size: 15px; line-height: 1.55; }
-.kn-tip__body li { margin: 3px 0; }
+/* Michal 8. 11.: „úzký pruh textu nepřehledný“ → vše v kartách s odsazením, šířku obrazovky berou sloupce karet (řádek textu nejvýš ~75 znaků).
+   Telefon: můj text → video a přepis → ostatní karty (.kn-tip__text je display: contents a pořadí dává order). */
+.kn-tip { display: flex; flex-direction: column; gap: 14px; padding-top: 16px; }
+.kn-tip__text { display: contents; }
+.kn-tip__text > * { order: 3; }
+.kn-tip__text > .kn-tip__kratce { order: 1; }
+.kn-tip__media { order: 2; }
+.kn-tip__kratce, .kn-tip__sekce { min-width: 0; padding: 18px 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.kn-tip__kratce { font-size: 17px; line-height: 1.6; font-weight: 500; color: var(--text); }
+.kn-tip__kratce p { margin: 0; }
+.kn-tip__kratce p + p { margin-top: 10px; }
+.kn-tip__bod + .kn-tip__bod { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.kn-tip__bod .kn-verdikt { display: inline-block; margin-bottom: 6px; }
+/* to nejdůležitější – zvýrazňovač, stejně čitelný ve světlém i tmavém režimu */
+.kn-dulezite { padding: .1em .34em; border-radius: 5px; background: var(--limetka); color: #1a2410; font-weight: 650; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.kn-tip__sekce h2 { margin: 0 0 10px; font-size: 15.5px; font-weight: 700; letter-spacing: -.005em; }
+.kn-tip__sekce .kn-text { font-size: 15px; line-height: 1.62; }
+.kn-tip__sekce .kn-text p { margin: 0 0 10px; }
+.kn-tip__sekce .kn-text p:last-child { margin-bottom: 0; }
+.kn-tip__body { margin: 8px 0 0; padding-left: 20px; font-size: 15px; line-height: 1.58; }
+.kn-tip__body li { margin: 6px 0; }
+.kn-tip__body li:last-child { margin-bottom: 0; }
 .kn-tip__media { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .kn-tip__video { display: block; width: 100%; max-height: 62vh; border-radius: 14px; background: #101412; }
 .kn-tip__misto { padding: 4px 0; }
@@ -689,13 +702,19 @@ button.kn-souvisi__polozka:hover { border-color: color-mix(in srgb, var(--o-knih
 .kn-tip__blok summary { padding: 10px 14px; font-size: 13.5px; font-weight: 650; cursor: pointer; }
 .kn-tip__prepis { padding: 0 14px 12px; font-size: 13.5px; line-height: 1.55; color: var(--text-soft); overflow-wrap: anywhere; }
 .kn-tip__prepis p { margin: 0 0 8px; }
-@container kn-st (min-width: 900px) {
-    .kn-tip { grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); grid-template-areas: "kratce media" "text media"; column-gap: 28px; align-items: start; grid-template-rows: auto 1fr; }
-    .kn-tip__kratce { grid-area: kratce; }
-    .kn-tip__text { grid-area: text; }
-    .kn-tip__media { grid-area: media; position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; }
-    .kn-tip__blok .kn-tip__prepis { max-height: 42vh; overflow-y: auto; }
+.kn-tip__blok .kn-tip__prepis { max-height: 38vh; overflow-y: auto; }
+@container kn-st (max-width: 619px) {
+    .kn-tip-hlava__akce { flex: 1 1 100%; }
+    .kn-tip-hlava__akce .btn { flex: 1 1 0; min-height: 42px; justify-content: center; }
 }
+@container kn-st (min-width: 900px) {
+    .kn-tip { display: grid; grid-template-columns: minmax(0, 1fr) clamp(340px, 24cqw, 440px); column-gap: 20px; align-items: start; }
+    .kn-tip__text { display: block; grid-column: 1; grid-row: 1; min-width: 0; column-gap: 16px; }
+    .kn-tip__text > * { break-inside: avoid; margin-bottom: 16px; }
+    .kn-tip__media { grid-column: 2; grid-row: 1; position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; }
+}
+@container kn-st (min-width: 1180px) { .kn-tip__text { columns: 2; } }
+@container kn-st (min-width: 1760px) { .kn-tip__text { columns: 3; } }
 
 /* telefon: seznam */
 @media (max-width: 759px) {

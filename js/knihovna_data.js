@@ -90,7 +90,8 @@ export function delkaVidea(s) {
 
 // ---------------------------------------------------------------- Rešerše AI po týdnech a dnech, verdikt
 
-const VERDIKTY = [['zkusit', '✅', 'Zkusit'], ['kousek', '🧩', 'Vzít kousek'], ['pozdeji', '⏸', 'Později'], ['ne', '❌', 'Ne']];
+const VERDIKTY = [['zkusit', '✅', 'Zkusit'], ['kousek', '🧩', 'Převzít jen část'], ['pozdeji', '⏸', 'Později'], ['ne', '❌', 'Ne']];
+const DALSI_VERDIKT = /\s+(?=✅|🧩|⏸|❌)/u; // AI tipy dne mají v `kratce` několik verdiktů za sebou
 
 /** Verdikt ze začátku `kratce` („✅ Zkusit – …“, „⏸ Později / spíš ne – …“) → { klic, znak, text, zbytek } nebo null. */
 export function verdikt(r) {
@@ -99,7 +100,27 @@ export function verdikt(r) {
   if (!v) return null;
   const za = t.slice(v[1].length).replace(/^\uFE0F/, '').trim();
   const m = /^([^–—]{1,40}?)\s+[–—]\s+([\s\S]*)$/.exec(za);
-  return { klic: v[0], znak: v[1], text: m ? m[1].trim() : v[2], zbytek: m ? m[2].trim() : za };
+  // „Vzít kousek“ Michal nechápal (8. 11.) – na kartách zůstává, ukazuje se srozumitelně
+  const text = m && !/^vzít kousek$/i.test(m[1].trim()) ? m[1].trim() : v[2];
+  return { klic: v[0], znak: v[1], text, zbytek: (m ? m[2].trim() : za).split(DALSI_VERDIKT)[0] };
+}
+
+/** Části `kratce` po verdiktech: [{ klic, text, zbytek }] – jeden tip = jedna část, AI tipy dne víc; bez verdiktu klic ''. */
+export function castiVerdiktu(r) {
+  return String((r && r.kratce) || '').trim().split(DALSI_VERDIKT).filter(Boolean)
+    .map((s) => verdikt({ kratce: s }) || { klic: '', text: '', zbytek: s });
+}
+
+/** Text bez značek podbarvení (`**…**`) – do seznamů a hledání. */
+export const bezZnacek = (t) => String(t || '').replace(/\*\*/g, '');
+
+/** Michal 8. 11.: „vždy tam vyznač něco jakoby nejdůležitější“ – když Claude nic neoznačil (`**…**`), podbarví se první věta. */
+export function zvyrazneni(t) {
+  const s = String(t || '').trim();
+  if (!s || /\*\*[^*\n]+?\*\*/.test(s)) return s;
+  const m = /^[^*\n]+?[.!?…](?=\s+[\p{Lu}„]|\s*$)/u.exec(s);
+  if (m) return '**' + m[0] + '**' + s.slice(m[0].length);
+  return s.indexOf('*') < 0 && s.indexOf('\n') < 0 ? '**' + s + '**' : s;
 }
 
 /** Počty verdiktů v seznamu: { zkusit, kousek, pozdeji, ne } */
@@ -108,7 +129,6 @@ export function poctyVerdiktu(seznam) {
   (seznam || []).forEach((r) => { const v = verdikt(r); if (v) p[v.klic]++; });
   return p;
 }
-export const ZNAKY_VERDIKTU = { zkusit: '✅', kousek: '🧩', pozdeji: '⏸', ne: '❌' };
 
 const DEN = 864e5;
 /** Půlnoc dne (místní čas) a pondělí týdne – přes Date, ať sedí i přechod na zimní čas. */
@@ -277,7 +297,7 @@ export function hledej(data, dotaz, max) {
   const s = slova(dotaz);
   if (!s.length || !data) return [];
   const k = karty(data).filter((x) => odpovida(x, s)).map((x) => ({ id: x.id, typ: 'karta', nazev: x.nazev, pod: metaKarty(x) }));
-  const r = reserse(data).filter((x) => odpovida(x, s)).map((x) => ({ id: x.id, typ: 'reserse', nazev: x.nazev, pod: 'rešerše' + (x.kratce ? ' · ' + x.kratce : '') }));
+  const r = reserse(data).filter((x) => odpovida(x, s)).map((x) => ({ id: x.id, typ: 'reserse', nazev: x.nazev, pod: 'rešerše' + (x.kratce ? ' · ' + bezZnacek(x.kratce) : '') }));
   return k.concat(r).slice(0, max || 5);
 }
 
