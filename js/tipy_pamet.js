@@ -8,8 +8,8 @@ let spojeni = null;
 function db() {
   if (!spojeni) {
     spojeni = new Promise((ok, chyba) => {
-      const r = indexedDB.open(DB, 1);
-      r.onupgradeneeded = () => r.result.createObjectStore(STORE);
+      const r = indexedDB.open(DB, 2); // 2: verze 1 mohla vzniknout bez úložiště
+      r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains(STORE)) r.result.createObjectStore(STORE); };
       r.onsuccess = () => ok(r.result);
       r.onerror = () => chyba(r.error);
     });

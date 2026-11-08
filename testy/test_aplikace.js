@@ -6950,7 +6950,7 @@ function vychoziVikendTestu() {
       await page.setViewportSize({ width: 1440, height: 900 });
       jistota(await page.getAttribute('.kn-tip-hlava__meta a', 'href') === 'https://x.com/a/status/1', 'odkaz na originál');
       // po znovunačtení se náhled bere ze zařízení, ne z motoru; po rozhodnutí se ze zařízení maže
-      const klice = () => page.evaluate(() => new Promise((ok) => { const o = indexedDB.open('asistent-tipy', 1); o.onsuccess = () => { const q = o.result.transaction('tipy').objectStore('tipy').getAllKeys(); q.onsuccess = () => { o.result.close(); ok(q.result); }; }; }));
+      const klice = () => page.evaluate(() => new Promise((ok) => { const o = indexedDB.open('asistent-tipy', 2); o.onsuccess = () => { const q = o.result.transaction('tipy').objectStore('tipy').getAllKeys(); q.onsuccess = () => { o.result.close(); ok(q.result); }; }; }));
       jistota((await klice()).includes('nahled:reserse-tip-plugin'), 'náhled uložený v zařízení');
       const nahledu = () => volano.filter((d) => d.akce === 'tipNahled').length;
       const predNacteni = nahledu();
