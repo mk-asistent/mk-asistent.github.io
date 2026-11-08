@@ -428,21 +428,25 @@ export function tipCasti(idx, r, ctx, n, ikona) {
       tlacitko('zamitnuto', IKONY.smazat, 'Zamítnout', 'Zavrhnout celý návrh') + '</div>' +
     '</header>';
   const casti = { lista: listaHtml('Rešerše AI', null), hero, moje: '', nav: '', zalozky: [], titul: x.nazev };
-  const hlavni = dily.length ? '<div class="kn-tip__kratce kn-text">' + dily.map((d) => '<div class="kn-tip__bod">' + (dily.length > 1 ? stitek(d) : '') +
-    podbarvit(odstavce(D.zvyrazneni(velkePrvni(d.zbytek)))) + '</div>').join('') + '</div>' : '';
-  const aside = '<aside class="kn-tip__media" aria-label="Video a přepis">' + tipMediaHtml(x, n, stav, ikona) + '</aside>';
+  const oznaceno = /\*\*/.test(x.kratce || ''); // první věta se podbarví, jen když Claude v celé kartě nic neoznačil
+  const hlavni = dily.length ? '<div class="kn-tip__kratce kn-text">' + dily.map((d, i) => '<div class="kn-tip__bod">' + (dily.length > 1 ? stitek(d) : '') +
+    podbarvit(odstavce(!oznaceno && i === 0 ? D.zvyrazneni(velkePrvni(d.zbytek)) : velkePrvni(d.zbytek))) + '</div>').join('') + '</div>' : '';
+  // bez videa, snímků i přepisu (AI tipy dne, tipy bez náhledu) žádný prázdný sloupec – text vezme celou šířku
+  const bezMedia = n && !n.nacita && !n.chyba && !x.prepis && (stav === 'nove' ? !n.data : !ikona);
+  const aside = bezMedia ? '' : '<aside class="kn-tip__media" aria-label="Video a přepis">' + tipMediaHtml(x, n, stav, ikona) + '</aside>';
+  const tridaTip = 'kn-tip' + (bezMedia ? ' kn-tip--bez-media' : '');
   if (!r || !r.data) {
-    return Object.assign({}, casti, { telo: '<div class="kn-tip"><div class="kn-tip__text">' + hlavni +
+    return Object.assign({}, casti, { telo: '<div class="' + tridaTip + '"><div class="kn-tip__text">' + hlavni +
       (r && r.chyba ? chybaHtml(r.chyba, 'data-kn-reserse-znovu="' + esc(idx.id) + '"') : kostra(8)) + '</div>' + aside + '</div>' });
   }
-  const sekce = (x.sekce || []).map((s) => '<section class="kn-tip__sekce"><h2>' + esc(s.nadpis || '') + '</h2><div class="kn-text">' + (s.odstavce || []).map((o) => podbarvit(odstavce(o))).join('') + '</div>' +
+  const sekce = (x.sekce || []).map((s, i, _, h = D.nadpisSekce(s.nadpis)) => '<section class="kn-tip__sekce">' + stitek(h) + '<h2>' + esc(h.nadpis) + '</h2><div class="kn-text">' + (s.odstavce || []).map((o) => podbarvit(odstavce(o))).join('') + '</div>' +
     ((s.body || []).length ? '<ul class="kn-tip__body">' + s.body.map((b) => '<li>' + podbarvit(esc(b)) + '</li>').join('') + '</ul>' : '') + '</section>').join('');
   const cisla = (x.cisla || []).length ? '<div class="kn-fakta kn-cisla">' + x.cisla.map((c) => '<div class="kn-fakt"><b class="cisla">' + esc(c.hodnota) + '</b><small>' + esc(c.co || '') + '</small></div>').join('') + '</div>' : '';
   const otazky = (x.dalsiOtazky || []).length ? '<section class="kn-tip__sekce"><h2>Na co se ještě zeptat</h2><div class="kn-otazky">' + x.dalsiOtazky.map((q) => '<button type="button" class="kn-otazky__polozka" data-kn-otazka="' + esc(q) + '">' + IKONY.otazka + '<span>' + esc(q) + '</span><em>' + IKONY.plus + 'Zeptat se</em></button>').join('') + '</div></section>' : '';
   const pojmy = (x.pojmy || []).length ? '<section class="kn-tip__sekce"><h2>Pojmy</h2><dl class="kn-pojmy">' + x.pojmy.map((p) => '<div><dt>' + esc(p.pojem) + '</dt><dd>' + esc(p.vysvetleni || '') + '</dd></div>').join('') + '</dl></section>' : '';
   const zdroje = pocetZdroju(x.zdroje) ? '<section class="kn-tip__sekce kn-tip__zdroje"><h2>Zdroje</h2>' + zdrojeHtml(x.zdroje) + '</section>' : '';
   const souvisi = souvisiHtml(ctx.data, x);
-  return Object.assign({}, casti, { telo: '<div class="kn-tip"><div class="kn-tip__text">' + hlavni + cisla + sekce + otazky + pojmy + zdroje +
+  return Object.assign({}, casti, { telo: '<div class="' + tridaTip + '"><div class="kn-tip__text">' + hlavni + cisla + sekce + otazky + pojmy + zdroje +
     (souvisi ? '<section class="kn-tip__sekce"><h2>Související</h2>' + souvisi + '</section>' : '') + '</div>' + aside + '</div>' + pataHtml(x) });
 }
 

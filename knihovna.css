@@ -680,6 +680,7 @@ button.kn-souvisi__polozka:hover { border-color: color-mix(in srgb, var(--o-knih
 .kn-tip__bod .kn-verdikt { display: inline-block; margin-bottom: 6px; }
 /* to nejdůležitější – zvýrazňovač, stejně čitelný ve světlém i tmavém režimu */
 .kn-dulezite { padding: .1em .34em; border-radius: 5px; background: var(--limetka); color: #1a2410; font-weight: 650; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.kn-tip__sekce > .kn-verdikt { display: inline-block; margin-bottom: 6px; }
 .kn-tip__sekce h2 { margin: 0 0 10px; font-size: 15.5px; font-weight: 700; letter-spacing: -.005em; }
 .kn-tip__sekce .kn-text { font-size: 15px; line-height: 1.62; }
 .kn-tip__sekce .kn-text p { margin: 0 0 10px; }
@@ -715,6 +716,9 @@ button.kn-souvisi__polozka:hover { border-color: color-mix(in srgb, var(--o-knih
 }
 @container kn-st (min-width: 1180px) { .kn-tip__text { columns: 2; } }
 @container kn-st (min-width: 1760px) { .kn-tip__text { columns: 3; } }
+@container kn-st (min-width: 900px) { .kn-tip--bez-media { grid-template-columns: minmax(0, 1fr); } .kn-tip--bez-media .kn-tip__text { columns: 2; } }
+@container kn-st (min-width: 1500px) { .kn-tip--bez-media .kn-tip__text { columns: 3; } }
+@container kn-st (min-width: 2100px) { .kn-tip--bez-media .kn-tip__text { columns: 4; } }
 
 /* telefon: seznam */
 @media (max-width: 759px) {

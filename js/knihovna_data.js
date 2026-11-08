@@ -111,6 +111,13 @@ export function castiVerdiktu(r) {
     .map((s) => verdikt({ kratce: s }) || { klic: '', text: '', zbytek: s });
 }
 
+/** Nadpis sekce souhrnu („🧩 Jev nástroje: …“) → { klic, text, nadpis } – znak se neukazuje, verdikt je štítek slovy. */
+export function nadpisSekce(n) {
+  const t = String(n || '').trim();
+  const v = VERDIKTY.find((x) => t.indexOf(x[1]) === 0);
+  return v ? { klic: v[0], text: v[2], nadpis: t.slice(v[1].length).replace(/^\uFE0F/, '').trim() } : { klic: '', text: '', nadpis: t };
+}
+
 /** Text bez značek podbarvení (`**…**`) – do seznamů a hledání. */
 export const bezZnacek = (t) => String(t || '').replace(/\*\*/g, '');
 

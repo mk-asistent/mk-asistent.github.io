@@ -6989,7 +6989,8 @@ function vychoziVikendTestu() {
       await page.keyboard.press('Escape');
       await page.click('#kn-obsah [data-kn-otevri="reserse-tip-bez"]');
       await page.waitForSelector('[data-kn-tip="probrano"]');
-      await page.waitForFunction(() => /zatím není/.test(document.querySelector('.kn-tip__media').textContent));
+      await page.waitForSelector('.kn-tip--bez-media'); // bez náhledu žádný prázdný sloupec
+      jistota(!(await page.locator('.kn-tip__media').count()), 'bez náhledu bez sloupce');
       await page.click('[data-kn-tip="probrano"]');
       await page.waitForFunction(() => !document.querySelector('#kn-obsah [data-kn-otevri="reserse-tip-bez"]'));
       await page.click('#kn-filtry [data-kn-filtr="prosle"]');

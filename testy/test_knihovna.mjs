@@ -88,6 +88,8 @@ test('Rešerše AI: části po verdiktech, srozumitelný název, podbarvení', (
   assert.strictEqual(D.zvyrazneni('Text **označený** Claudem. Další.'), 'Text **označený** Claudem. Další.');
   assert.strictEqual(D.zvyrazneni('reel (5. 11.) jen ukazuje věc.'), '**reel (5. 11.) jen ukazuje věc.**');
   assert.strictEqual(D.bezZnacek('a **b** c'), 'a b c');
+  assert.deepStrictEqual(D.nadpisSekce('🧩 Jev – nástroje'), { klic: 'kousek', text: 'Převzít jen část', nadpis: 'Jev – nástroje' });
+  assert.deepStrictEqual(D.nadpisSekce('Můj názor'), { klic: '', text: '', nadpis: 'Můj názor' });
 });
 
 test('Rešerše AI: verdikt ze začátku krátce (i „Později / spíš ne“, „Zkusit (= aktualizovat)“), bez verdiktu null; počty', () => {
