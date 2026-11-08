@@ -374,12 +374,13 @@ export function reserseCasti(idx, r, ctx) {
 const jpeg = (b64) => 'data:image/jpeg;base64,' + b64;
 
 /** Video (nebo snímky, když video není / nejde přehrát), text příspěvku a přepis. n = stav náhledu z knihovna.js. */
-function tipMediaHtml(x, n, stav, ikona) {
+function tipMediaHtml(x, n, stav, ikona, maVideo) {
   const d = n && n.data;
   const vyreseny = stav !== 'nove';
   const fotka = ikona ? '<div class="kn-tip__fotka"><img src="' + jpeg(ikona) + '" alt="Malý snímek z tipu"></div>' : '';
   let media = '';
-  if (!n || n.nacita) media = '<div class="kn-tip__misto">' + kostra(3) + '</div>';
+  // místo pro video má od začátku výšku videa a malou fotku, ať stránka neposkočí
+  if (!n || n.nacita) media = maVideo ? '<div class="kn-tip__ceka">' + (ikona ? '<img src="' + jpeg(ikona) + '" alt="">' : '') + '<span>' + IKONY.prehrat + 'Načítám video…</span></div>' : '<div class="kn-tip__misto">' + kostra(3) + '</div>';
   else if (n.chyba) media = '<p class="kn-tip__pozn">Náhled se nenačetl: ' + esc(n.chyba.message || '') + '</p>';
   else if (vyreseny) media = fotka + '<p class="kn-tip__pozn">Tip je vyřešený – video a snímky jsou smazané (30 dní v koši na Disku).</p>';
   else if (!d) media = '<p class="kn-tip__pozn">Náhled k tomuhle tipu zatím není – zůstává text a odkaz na originál.</p>';
@@ -409,7 +410,7 @@ function tipMediaHtml(x, n, stav, ikona) {
 const podbarvit = (html) => html.replace(/\*\*([^*\n]+?)\*\*/g, '<mark class="kn-dulezite">$1</mark>').replace(/\*\*/g, '');
 
 /** Jedna stránka tipu: hlavička (malý název, verdikt, originál, Probráno / Zavést / Zamítnout), karty s mým textem, vedle video a přepis. */
-export function tipCasti(idx, r, ctx, n, ikona) {
+export function tipCasti(idx, r, ctx, n, ikona, maVideo) {
   const x = (r && r.data) || idx;
   const t = D.cas(x.pripraveno);
   const stav = D.stavTipu(idx);
@@ -433,7 +434,8 @@ export function tipCasti(idx, r, ctx, n, ikona) {
     podbarvit(odstavce(!oznaceno && i === 0 ? D.zvyrazneni(velkePrvni(d.zbytek)) : velkePrvni(d.zbytek))) + '</div>').join('') + '</div>' : '';
   // bez videa, snímků i přepisu (AI tipy dne, tipy bez náhledu) žádný prázdný sloupec – text vezme celou šířku
   const bezMedia = n && !n.nacita && !n.chyba && !x.prepis && (stav === 'nove' ? !n.data : !ikona);
-  const aside = bezMedia ? '' : '<aside class="kn-tip__media" aria-label="Video a přepis">' + tipMediaHtml(x, n, stav, ikona) + '</aside>';
+  const aside = bezMedia ? '' : '<aside class="kn-tip__media" aria-label="Video a přepis" data-kn-media-tipu></aside>'; // obsah plní knihovna.js zvlášť
+  casti.media = bezMedia ? '' : tipMediaHtml(x, n, stav, ikona, maVideo);
   const tridaTip = 'kn-tip' + (bezMedia ? ' kn-tip--bez-media' : '');
   if (!r || !r.data) {
     return Object.assign({}, casti, { telo: '<div class="' + tridaTip + '"><div class="kn-tip__text">' + hlavni +

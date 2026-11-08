@@ -11,7 +11,7 @@ export function pripojeni() { return uloziste.cti(KLIC); }
 export function jePripojeno() { const p = pripojeni(); return !!(p && (p.demo || (p.url && p.klic))); }
 export function jeDemo() { const p = pripojeni(); return !!(p && p.demo); }
 export function ulozPripojeni(p) { uloziste.pis(KLIC, p); }
-export function zapomenPripojeni() { uloziste.smaz(KLIC); }
+export function zapomenPripojeni() { uloziste.smaz(KLIC); import('./tipy_pamet.js').then((m) => m.vymaz()); }
 
 export class ChybaApi extends Error {
   constructor(zprava, kod) {

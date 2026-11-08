@@ -28,12 +28,15 @@ import * as nabidka from './nabidka.js';
 import * as bubliny from './bubliny.js';
 import * as D from './knihovna_data.js';
 import * as S from './knihovna_stranka.js';
+import * as Pamet from './tipy_pamet.js';
 
 const ULOZISTE = 'asistent.data.knihovna';                  // poslední odpověď motoru
-const ULOZISTE_RESERSI = 'asistent.data.knihovna.reserse';  // naposledy otevřené rešerše (čtečka i bez sítě)
+const ULOZISTE_RESERSI = 'asistent.data.knihovna.reserse2';  // naposledy otevřené rešerše (čtečka i bez sítě)
 const ULOZISTE_WIKI = 'asistent.data.knihovna.wiki';        // náhledy z Wikipedie k čekajícím požadavkům
 const VOLBY = 'asistent.knihovna';                          // záložka a filtry v tomhle zařízení
 const MAX_RESERSI_V_ZARIZENI = 8;
+const TIPU_DOPREDU = 4; // kolik tipů K projití má být stažených předem v zařízení
+uloziste.smaz('asistent.data.knihovna.reserse'); // karty bez podbarvení (do 8. 11.)
 const HLIDAT_PO = 5 * 60e3;        // čeká-li požadavek a stránka je otevřená, zeptat se motoru jednou za 5 minut
 const ULOZIT_POZNAMKU_PO = 900;    // ms po posledním písmenu
 const MAX_WIKI = 6;                // náhledů z Wikipedie naráz
@@ -335,6 +338,7 @@ function obsahHtml() {
   } else if (z === 'ai') {
     const seznam = D.reserseZalozky(d, k.dotaz, k.filtr.ai, 'ai');
     nactiIkony();
+    pripravTipy();
     if (seznam.length) h = aiHtml(seznam, d.ted);
   } else {
     const seznam = D.kartyZalozky(d, z, k.filtr[z], k.dotaz);
@@ -573,8 +577,9 @@ function vykresliPodstranku(el) {
   const ctx = { data: d, chybne: k.chybneObrazky };
   const tip = n && n.typ === 'reserse' && D.jeAi(n.x);
   if (tip) { nactiTip(k.detail); nactiIkony(); }
+  const ind = k.ikony && k.ikony[k.detail];
   const h = !n ? S.chybiCasti(!d || stav.nacita.knihovna || (!k.nacteno && !stav.chyby.knihovna), k.detail)
-    : tip ? S.tipCasti(n.x, k.reserse[k.detail], ctx, k.tipy[k.detail], k.ikony && k.ikony[k.detail] && k.ikony[k.detail].ikona)
+    : tip ? S.tipCasti(n.x, k.reserse[k.detail], ctx, k.tipy[k.detail], ind && ind.ikona, ind && ind.video)
       : n.typ === 'reserse' ? S.reserseCasti(n.x, k.reserse[k.detail], ctx) : S.kartaCasti(n.x, ctx);
   const a = document.activeElement;
   casti.forEach((c) => {
@@ -584,6 +589,8 @@ function vykresliPodstranku(el) {
     nastav(misto, h[c] || '');
     misto.hidden = !h[c];
   });
+  // video a snímky mají vlastní místo: když dorazí, text se nepřekresluje a přehrávané video se nerestartuje
+  nastav(el.querySelector('[data-kn-media-tipu]'), h.media || '');
   k.zalozky = h.zalozky || [];
   aplikujZalozky();
 }
@@ -594,32 +601,86 @@ function vykresliPodstranku(el) {
 function nactiIkony() {
   if (k.ikony || k.ikonyNacita || !umiMotor('tipyNahledy')) return;
   k.ikonyNacita = true;
-  volej('tipyNahledy').then((r) => { k.ikony = (r && r.tipy) || {}; }, () => { k.ikony = {}; })
+  Pamet.cti('ikony').then((m) => { if (m && !k.ikony) { k.ikony = m; prekresliStranku(); } }); // z minula hned, pak čerstvé
+  volej('tipyNahledy').then((r) => { k.ikony = (r && r.tipy) || {}; if (!jeDemo()) Pamet.pis('ikony', k.ikony); }, () => { k.ikony = k.ikony || {}; })
     .then(() => { k.ikonyNacita = false; prekresliStranku(); });
 }
 
+// stahování jednoho tipu: ze zařízení, jinak z motoru a uložit; otevření a stahování předem sdílí jeden běh
+const bezi = {};
+const jednou = (klic, f) => bezi[klic] || (bezi[klic] = f().finally(() => { delete bezi[klic]; }));
+const stahniNahled = (id) => jednou('nahled:' + id, async () => {
+  const z = await Pamet.cti('nahled:' + id);
+  if (z) return z;
+  const r = await volej('tipNahled', { id });
+  const n = (r && r.nahled) || null;
+  if (n && !jeDemo()) Pamet.pis('nahled:' + id, n);
+  return n;
+});
+const stahniVideo = (id) => jednou('video:' + id, async () => {
+  const z = await Pamet.cti('video:' + id);
+  if (z) return z;
+  const r = await volej('tipVideo', { id });
+  const v = { typ: r.typ || 'video/mp4', bajty: await Pamet.zBase64(r.data) };
+  if (!jeDemo()) Pamet.pis('video:' + id, v);
+  return v;
+});
+
+let pripravujeTipy = false;
+/** Prvních pár tipů K projití stáhne dopředu po jednom, ať se pak otevřou hned; co už v K projití není, ze zařízení smaže. */
+async function pripravTipy() {
+  if (pripravujeTipy || jeDemo() || !stav.knihovna || !k.ikony || k.ikonyNacita || !umiMotor('tipVideo')) return;
+  const nove = D.reserseZalozky(stav.knihovna, '', 'nove', 'ai').map((r) => r.id);
+  const okno = nove.filter((id) => k.ikony[id]).slice(0, TIPU_DOPREDU);
+  const znacka = okno.join('|');
+  if (znacka === k.oknoTipu) return;
+  k.oknoTipu = znacka;
+  Pamet.klice().then((kl) => kl.forEach((x) => {
+    const m = /^(?:nahled|video):(.+)$/.exec(x);
+    if (m && nove.indexOf(m[1]) < 0) Pamet.smaz(x);
+  }));
+  const c = navigator.connection;
+  if (c && (c.saveData || /2g/.test(c.effectiveType || ''))) return;
+  pripravujeTipy = true;
+  try {
+    for (const id of okno) {
+      if (document.hidden) { k.oknoTipu = ''; break; }
+      nactiReserisi(id);
+      await Promise.all([
+        stahniNahled(id).then((n) => { if (n && !k.tipy[id]) k.tipy[id] = { data: n }; }),
+        k.ikony && k.ikony[id] && k.ikony[id].video ? stahniVideo(id) : null
+      ]);
+    }
+  } catch (e) { /* nevadí – dotáhne se při otevření tipu */ }
+  pripravujeTipy = false;
+}
+
 function nactiTip(id) {
-  if (k.tipy[id]) return;
-  if (!umiMotor('tipNahled')) { k.tipy[id] = { data: null }; return; }
-  k.tipy[id] = { nacita: true };
-  volej('tipNahled', { id }).then((r) => {
-    k.tipy[id] = { data: (r && r.nahled) || null };
-    if (r && r.nahled && r.nahled.video) nactiVideo(id);
-  }, (e) => { k.tipy[id] = { chyba: e }; }).then(prekresliStranku);
+  const hotovy = k.tipy[id];
+  if (hotovy) {
+    if (hotovy.data && hotovy.data.video && !hotovy.videoChyba) nactiVideo(id); // stažený dopředu
+    return;
+  }
+  // v seznamu náhledů není = náhled neexistuje, nic se nestahuje a stránka hned ví, že sloupec s videem nebude
+  if (!umiMotor('tipNahled') || (k.ikony && !k.ikonyNacita && !k.ikony[id])) { k.tipy[id] = { data: null }; return; }
+  const t = k.tipy[id] = { nacita: true };
+  if (k.ikony && k.ikony[id] && k.ikony[id].video) nactiVideo(id); // video hned, ne až po snímcích
+  stahniNahled(id).then((d) => {
+    t.nacita = false;
+    t.data = d;
+    if (d && d.video) nactiVideo(id);
+  }, (e) => { t.nacita = false; t.chyba = e; }).then(prekresliStranku);
 }
 
 /** Video jako blob (iPhone ho přehraje až s typem video/mp4); nejvýš 3 v paměti. */
 function nactiVideo(id) {
   const t = k.tipy[id];
-  if (!t || !t.data || !t.data.video || t.videoUrl || t.videoNacita) return;
+  if (!t || (t.data && !t.data.video) || t.videoUrl || t.videoNacita) return;
   t.videoNacita = true;
   t.videoChyba = false;
-  volej('tipVideo', { id }).then((r) => {
-    const bin = atob(r.data);
-    const u = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  stahniVideo(id).then((v) => {
     Object.keys(k.tipy).filter((x) => x !== id && k.tipy[x].videoUrl).slice(0, -2).forEach(uvolniTip);
-    if (k.tipy[id] === t) t.videoUrl = URL.createObjectURL(new Blob([u], { type: r.typ || 'video/mp4' }));
+    if (k.tipy[id] === t) t.videoUrl = URL.createObjectURL(new Blob([v.bajty], { type: v.typ }));
   }, () => { t.videoChyba = true; }).then(() => { t.videoNacita = false; prekresliStranku(); });
 }
 
@@ -633,7 +694,7 @@ function uvolniTip(id) {
 document.addEventListener('error', (e) => {
   if (!e.target || !e.target.matches || !e.target.matches('video.kn-tip__video')) return;
   const t = k.detail && k.tipy[k.detail];
-  if (t && !t.videoChyba) { t.videoChyba = true; prekresliStranku(); }
+  if (t && !t.videoChyba) { t.videoChyba = true; Pamet.smaz('video:' + k.detail); prekresliStranku(); }
 }, true);
 
 const POTVRZENI_TIPU = { probrano: 'Probráno – video smazané', zavest: 'Půjde k zavedení – video smazané', zamitnuto: 'Návrh zavržený – video smazané' };
@@ -642,6 +703,8 @@ const POTVRZENI_TIPU = { probrano: 'Probráno – video smazané', zavest: 'Půj
 function rozhodniTip(id, stavTipu) {
   const nastav_ = (s) => (d) => Object.assign({}, d, { reserse: D.reserse(d).map((r) => (r.id === id ? Object.assign({}, r, { tip: s || 'nove' }) : r)) });
   uvolniTip(id);
+  Pamet.smaz('nahled:' + id);
+  Pamet.smaz('video:' + id);
   zapis('knihovnaTip', { id, stav: stavTipu }, nastav_(stavTipu));
   if (k.detail === id) naSeznam();
   toastAkce(POTVRZENI_TIPU[stavTipu], 'Vrátit', () => {

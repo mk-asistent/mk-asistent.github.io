@@ -6949,6 +6949,16 @@ function vychoziVikendTestu() {
       jistota(w.sloupcu >= 2 && w.nejsirsi <= 760 && w.mezera <= 40, 'šířka 1920: ' + JSON.stringify(w));
       await page.setViewportSize({ width: 1440, height: 900 });
       jistota(await page.getAttribute('.kn-tip-hlava__meta a', 'href') === 'https://x.com/a/status/1', 'odkaz na originál');
+      // po znovunačtení se náhled bere ze zařízení, ne z motoru; po rozhodnutí se ze zařízení maže
+      const klice = () => page.evaluate(() => new Promise((ok) => { const o = indexedDB.open('asistent-tipy', 1); o.onsuccess = () => { const q = o.result.transaction('tipy').objectStore('tipy').getAllKeys(); q.onsuccess = () => { o.result.close(); ok(q.result); }; }; }));
+      jistota((await klice()).includes('nahled:reserse-tip-plugin'), 'náhled uložený v zařízení');
+      const nahledu = () => volano.filter((d) => d.akce === 'tipNahled').length;
+      const predNacteni = nahledu();
+      await page.reload();
+      await page.waitForSelector('.kn-tip__prepis');
+      jistota(nahledu() === predNacteni, 'po znovunačtení bez dotazu na motor');
+      await page.waitForSelector('.okno-pozadi.videt', { timeout: 3000 }).then(() => page.keyboard.press('Escape'), () => {}); // Co je nového
+      await page.waitForFunction(() => !document.querySelector('.okno-pozadi.videt'));
       // video nejde přehrát → snímky a možnost zkusit znovu
       await page.waitForSelector('.kn-tip__snimky img');
       jistota(await page.locator('.kn-tip__snimky img').count() === 2 && !(await page.locator('video.kn-tip__video').count()), 'snímky místo videa');
@@ -6964,6 +6974,8 @@ function vychoziVikendTestu() {
       await cekej(() => volano.slice(pred).some((d) => d.akce === 'knihovnaTip' && d.id === 'reserse-tip-plugin' && d.stav === 'zamitnuto'), 3000, 'rozhodnutí do motoru');
       await page.waitForFunction(() => !document.querySelector('#kn-stranka:not([hidden])') && !document.querySelector('#kn-obsah [data-kn-otevri="reserse-tip-plugin"]'));
       jistota(/Rešerše AI\s*1/.test(await page.textContent('#kn-zalozky')), 'počet se snížil');
+      for (let i = 0; i < 60 && (await klice()).includes('nahled:reserse-tip-plugin'); i++) await new Promise((r) => setTimeout(r, 50));
+      jistota(!(await klice()).includes('nahled:reserse-tip-plugin'), 'po rozhodnutí náhled ze zařízení pryč');
       await page.waitForFunction(() => /Vrátit/.test(document.getElementById('toast').textContent));
       await page.click('#toast .toast__akce');
       await page.waitForSelector('#kn-obsah [data-kn-otevri="reserse-tip-plugin"]');

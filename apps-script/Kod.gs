@@ -44,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-11-08.1';
+const VERZE = '2026-11-08.2';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -9082,12 +9082,15 @@ function tipNahled_(id) {
   const s = slozkaNahledu_(id);
   const j = s ? nactiJson_(s, 'nahled.json').data : null;
   if (!j || typeof j !== 'object') return { nahled: null };
+  const soubory = {}; // jeden průchod složkou je rychlejší než hledat každý soubor zvlášť
+  const vse = s.getFiles();
+  while (vse.hasNext()) { const f = vse.next(); if (!f.isTrashed()) soubory[f.getName()] = f; }
   const obrazek = function (nazev) {
     if (!/^[\w.-]+\.jpe?g$/i.test(String(nazev || ''))) return '';
-    const f = souborVeSlozce_(s, String(nazev));
+    const f = soubory[String(nazev)];
     return f && f.getSize() < 400000 ? Utilities.base64Encode(f.getBlob().getBytes()) : '';
   };
-  const video = /^[\w.-]+\.mp4$/i.test(String(j.video || '')) ? souborVeSlozce_(s, String(j.video)) : null;
+  const video = /^[\w.-]+\.mp4$/i.test(String(j.video || '')) ? soubory[String(j.video)] || null : null;
   return { nahled: {
     zdroj: KNIHOVNA_.radek(j.zdroj, 20), autor: KNIHOVNA_.radek(j.autor, 120), odkaz: KNIHOVNA_.url(j.odkaz), text: KNIHOVNA_.txt(j.text, 6000),
     delka_s: Number(j.delka_s) || 0, video: !!video, video_mb: video ? Math.round(video.getSize() / 104857.6) / 10 : 0,

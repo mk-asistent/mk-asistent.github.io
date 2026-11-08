@@ -390,6 +390,7 @@ export async function odhlas() {
   uloziste.smaz(UCET);
   uloziste.smaz(PLATNOST);
   Object.assign(s, { kopie: {}, server: null, pripraveno: null, prvni: true, chyba: null, signal: {}, moje: {}, cekaVse: false, cekaJen: [], dalsi: null });
+  import('./tipy_pamet.js').then((m) => m.vymaz()); // náhledy tipů v zařízení jen pro přihlášeného
   if (s.fb && s.uzivatel) await s.fb.auth.signOut(s.fb.ov).catch(() => { /* odhlášení v zařízení stačí */ });
   s.uzivatel = null;
   oznam(s.naStav);
