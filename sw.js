@@ -11,7 +11,7 @@
 //
 // VERZE = otisk obsahu souborů aplikace: po každé změně `node testy/sw_verze.js --zapsat` (testy jinak selžou).
 
-const VERZE = 'asistent-b56ab68b2131';
+const VERZE = 'asistent-95fc2970da13';
 const SOUBORY = [
   './', 'index.html', 'app.css', 'manifest.webmanifest',
   'js/start.js', 'js/app.js', 'js/krouzky.js', 'js/api.js', 'js/pomocne.js', 'js/stav.js', 'js/ui.js', 'js/ikony.js', 'js/panely.js',
@@ -24,6 +24,7 @@ const SOUBORY = [
   'js/ig_skupiny.js', // skupiny lidí k označení na Instagramu
   'js/pribehy.js', 'js/pribeh_obrazek.js', // příběhy z fotek z telefonu
   'js/knihovna.js', 'js/knihovna_stranka.js', 'js/knihovna_data.js', 'js/tipy_pamet.js', 'knihovna.css', // Knihovna (filmy, knihy, rešerše) – knihovna.js a knihovna_stranka.js se načtou až na své stránce
+  'js/krev.js', // krevní testy – zašifrované heslem, rozšifruje až zařízení
   'js/pripravenost.js', // přednačtení a obnova pomalých oblastí na pozadí, „aktualizuji…“
   'js/priloha.js', // náhled přílohy e-mailu (PDF přes js/vendor/pdfjs-…, načte se až při klepnutí na přílohu)
   'js/pc.js', 'js/pc_vyber.js', 'js/mini.js', 'mini.css', // Asistent na PC – odznak, oznámení ve Windows, mini okno (načtou se až po startu / při použití)

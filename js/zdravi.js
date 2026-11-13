@@ -13,6 +13,7 @@ import { odhadniJidlo, denJidla, stavJidla, rozpadPoznamky } from './jidlo_odhad
 import { bublina, grafAtr } from './grafy.js';
 import { karta, registruj, hlavaKarty, pataKarty } from './bubliny.js';
 import { pripoj as pripojNabidku } from './nabidka.js';
+import * as krev from './krev.js';
 
 const ULOZISTE = 'asistent.data.zdravi';
 
@@ -335,6 +336,7 @@ export function vykresliZdravi(el) {
     (hooky.tydenKrouzku ? hooky.tydenKrouzku() : '') +
     (umiMotor('vaha') ? '<section class="card dlazdice zd-vaha" id="zd-vaha">' + kartaVahyHtml() + '</section>' : '') +
     tydenniHtml(z.tydenni) +
+    (z.krev ? '<section class="card dlazdice zd-krev" id="zd-krev">' + krev.kartaKrveHtml(z.krev, textTydne) + '</section>' : '') +
     '<section class="card dlazdice zd-graf">' + hlavickaKarty(IKONY.srdce, 'Posledních 14 dní') +
       '<div class="dlazdice__telo"><p class="zdravi-legenda"><i class="graf14__sl--zelena"></i>připravenost <i class="graf14__tecka"></i>zátěž (0–21)</p>' + graf14(plny) + '</div></section>' +
     '<section class="card dlazdice zd-spanek" id="zd-spanek">' + hlavickaKarty(IKONY.spanek, 'Spánek' + (d ? ' · ' + esc(denPopis(d.den)) : '')) +
@@ -348,6 +350,8 @@ export function vykresliZdravi(el) {
     '</div>';
   h += '<p class="zdravi-paticka">Data: WHOOP' + (z.whoop && z.whoop.sync && z.whoop.sync.kdy ? ' (' + esc(kdyKratce(z.whoop.sync.kdy)) + ')' : '') +
     ' · Apple Zdraví' + (z.apple && z.apple.kdy ? ' (' + esc(kdyKratce(z.apple.kdy)) + ')' : '') + ' · ukládá se jen na tvém Disku Google.</p>';
+  // krevní testy: klíč uložený v zařízení se zkusí jednou na obálku, odemčení stránku překreslí (js/krev.js)
+  if (z.krev) krev.zkusUlozeny(z.krev).then((ano) => { if (ano) zmeneno(); });
   // rozepsaná váha nesmí zmizet, když se stránka mezitím překreslí (dorazí data)
   if (h === posledniZdravi && el.querySelector('.zdravi-mrizka-karet')) return;
   posledniZdravi = h;
@@ -1321,6 +1325,7 @@ function velkym(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 // ---------------------------------------------------------------- ovládání
 
 export function klikZdravi(el) {
+  if (el.dataset.krev) { krev.klik(el.dataset.krev, stav.zdravi && stav.zdravi.krev).then((zmena) => { if (zmena) zmeneno(); }); return true; }
   // voda, zpět, jídlo a smazání v kartě Pití a jídlo jdou ke dni, který karta ukazuje (data-piti-den)
   if (el.dataset.piti) {
     const den = denTlacitkaPiti(el), ml = Number(el.dataset.piti);

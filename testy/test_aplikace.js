@@ -142,7 +142,7 @@ const motor = {
         zatez: { probiha: true, zatez: 6.2, kroky: 4000 } } }],
     treninky: [{ id: 'w1', den: iso(ted), start: den(0, 9), konec: den(0, 10), sport: 'soccer', zatez: 11.5, tepPrumer: 140, tepMax: 180, kcal: 700, zony: [1, 5, 20, 20, 10, 4] }],
     whoop: { nastaveno: true, propojeno: true, sync: { kdy: ted, chyba: '' } }, apple: { kdy: ted }, vaha: vahaZaznamy.slice(), doplnky: JSON.parse(JSON.stringify(doplnkyDny)),
-    pitiJidlo: JSON.parse(JSON.stringify(pitiDny)), tydenni: tydenniMock ? JSON.parse(JSON.stringify(tydenniMock)) : null, jidlaMichal: JSON.parse(JSON.stringify(jidlaMichalMock)),
+    pitiJidlo: JSON.parse(JSON.stringify(pitiDny)), tydenni: tydenniMock ? JSON.parse(JSON.stringify(tydenniMock)) : null, jidlaMichal: JSON.parse(JSON.stringify(jidlaMichalMock)), krev: krevMock || undefined,
     rezim: { kofeinDo: '14:00', treninkDny: [], zapasTymy: ['A'], hlavni: rezimHlavni || undefined, cilVahy: { kg: 70, do: iso(den(150)), od: { kg: 74, den: iso(den(-10)) } }, polozky: [{ id: 'kreatin', nazev: 'Kreatin', davka: '5 g', kdy: 'rano' },
       { id: 'kofein', nazev: 'Kofein', davka: 'před výkopem', kdy: 'zapas', jen: 'zapas' }, { id: 'horcik', nazev: 'Hořčík', davka: 'večer', kdy: 'vecer' }] } }),
   zdraviKlic: () => ({ klic: 'testovaci-klic-zdravi' }),
@@ -488,6 +488,7 @@ let jmeninyOblibeni = [];          // oblíbení lidé (jmeniny v kalendáři)
 const pitiDny = {}, pitiVolani = []; // pití a jídlo (motor: ZDRAVI/PITI_JIDLO.json)
 let jidlaMichalMock = { polozky: [] }; // Michalova jídla a recepty (motor: zdravi.jidlaMichal ze ZDRAVI/JIDLA_MICHAL.json – píše Claude)
 let rezimHlavni = null;             // hlavní doplňky v režimu (ZDRAVI_REZIM.json → hlavni); null = počítá se vše
+let krevMock = null;                // krevní testy: zašifrovaná obálka (motor: zdravi.krev ze ZDRAVI/KREV.json – píše Claude)
 let tydenniMock = null;             // týdenní shrnutí od Clauda (motor: zdravi.tydenni)
 const postaPresuny = [], postaPrecteno = [];
 const postaOznaceni = [];           // postaOznacit (výběr, pravé tlačítko, rychlé akce, Beru na vědomí): { ids: [{ id, kdy, neprectena }], jak }
@@ -3054,6 +3055,65 @@ function vychoziVikendTestu() {
       });
     }
   }
+
+  // ---------- krevní testy: zašifrované heslem – zamčené, špatné heslo, odemčení, po obnovení stránky z uloženého klíče, Zamknout
+  await test('Zdraví: krevní testy – zamčené bez hodnot, špatné heslo, odemčení, po obnovení z uloženého klíče, Zamknout; telefon i PC', async () => {
+    const kr = require('crypto');
+    const heslo = 'ukázka-heslo 123', sul = kr.randomBytes(16), iv = kr.randomBytes(12);
+    const obsah = { odbery: [{ datum: '2026-11-02', duvod: 'Ukázková prohlídka', laborator: 'Ukázková', shrnuti: '**Vymyšlené** hodnoty.', ukoly: ['Zopakovat moč'],
+      skupiny: [{ nazev: 'Krev', polozky: [{ n: 'LDL cholesterol', h: 3.09, j: 'mmol/l', min: 1.2, max: 3, pozn: 'Lehce nad.' }, { n: 'Glukóza', h: 5.31, j: 'mmol/l', min: 3.9, max: 5.6 },
+        { n: 'Lipoprotein (a)', h: 7.9, j: 'nmol/l', min: 0, max: 75, dobre: true }] },
+        { nazev: 'Moč', polozky: [{ n: 'Leukocyty', h: 123, j: '/µl', min: 0, max: 10, pozn: 'Hlavní nález.' }, { n: 'Bílkovina', t: '1+', mimo: true }] }] }] };
+    const c = kr.createCipheriv('aes-256-gcm', kr.pbkdf2Sync(Buffer.from(heslo, 'utf8'), sul, 100000, 32, 'sha256'), iv);
+    const data = Buffer.concat([c.update(Buffer.from(JSON.stringify(obsah), 'utf8')), c.final(), c.getAuthTag()]);
+    krevMock = { v: 1, kdf: 'PBKDF2-SHA256', iter: 100000, sul: sul.toString('base64'), iv: iv.toString('base64'), data: data.toString('base64'), kdy: '' };
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, { nazev: 'telefon', sirka: 390, vyska: 844, dotyk: true }, 'light');
+    const naZdravi = async () => {
+      await page.waitForSelector('#aplikace:not([hidden])');
+      await pripraveno(page);
+      // po obnovení stránky se aplikace vrátí na poslední stránku (Zdraví) – pak se neklepe
+      if (!(await page.locator('#p-zdravi:not([hidden])').count())) await page.click('.hlava-ja [data-cil="zdravi"]');
+    };
+    try {
+      await page.goto(WEB);
+      await naZdravi();
+      await page.waitForSelector('#zd-krev [data-krev="odemknout"]');
+      jistota(!/3,09|LDL|Leukocyty/.test(await page.textContent('#zd-krev')), 'zamčená karta nesmí ukázat hodnoty');
+      await page.click('#zd-krev [data-krev="odemknout"]');
+      await page.waitForSelector('.okno-pozadi.videt input[type="password"]');
+      await page.fill('.okno-pozadi.videt input[type="password"]', 'špatné heslo');
+      await page.click('.okno-pozadi.videt [data-okno="ano"]');
+      await page.waitForFunction(() => /nesedí/.test((document.querySelector('.okno-pozadi.videt h2') || {}).textContent || ''));
+      await page.fill('.okno-pozadi.videt input[type="password"]', heslo);
+      await page.click('.okno-pozadi.videt [data-okno="ano"]');
+      await page.waitForSelector('#zd-krev .krev-r--mimo');
+      const t = await page.textContent('#zd-krev');
+      jistota(/5 hodnot, 3 mimo normu/.test(t) && /Zopakovat moč/.test(t) && /Dobré zprávy/.test(t), 'odemčená karta: ' + t.slice(0, 200));
+      jistota(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) <= 0, 'telefon přetéká');
+      await page.locator('#zd-krev').screenshot({ path: path.join(VYSTUP, 'krev_telefon.png') });
+      await page.setViewportSize({ width: 1650, height: 1000 });
+      await page.waitForTimeout(300);
+      await page.locator('#zd-krev').screenshot({ path: path.join(VYSTUP, 'krev_pc.png') });
+      // po obnovení stránky se karta odemkne sama klíčem uloženým v zařízení (heslo se neukládá)
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.evaluate(() => localStorage.removeItem('asistent.videno')); // bez okna „Co je nového“ po obnovení
+      await page.reload();
+      await naZdravi();
+      await page.waitForSelector('#zd-krev .krev-r--mimo');
+      await page.click('#zd-krev [data-krev="zamknout"]');
+      await page.waitForSelector('#zd-krev [data-krev="odemknout"]');
+      await page.evaluate(() => localStorage.removeItem('asistent.videno'));
+      await page.reload();
+      await naZdravi();
+      await page.waitForSelector('#zd-krev [data-krev="odemknout"]');
+      await page.waitForTimeout(500);
+      jistota(!(await page.locator('#zd-krev .krev-r').count()), 'po Zamknout se po obnovení nesmí odemknout samo');
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally {
+      await ctx.close();
+      krevMock = null;
+    }
+  });
 
   // ---------- grafy: bublina s hodnotou (Michal 9. 10.: „kolik to byla … a který měsíc“) – myš, klepnutí, klávesnice, nepřetéká
   await test('grafy Zdraví: bublina při najetí (den, připravenost, zátěž), u váhy kg a rozdíl, klávesnicí šipkami, pití týden', async () => {

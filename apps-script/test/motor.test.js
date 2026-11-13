@@ -2773,6 +2773,22 @@ test('jídlo z diktátu: otázka k Claudovu zápisu (c-…) → odpověď v PITI
   assert.ok(/už není/.test(p.volej('jidloOdpoved', { id: 'c-a1-1', text: 'x' }).chyba));
 });
 
+test('KREV.json (krevní testy, zašifrované): motor obálku jen zkontroluje a pošle se Zdravím, změna souboru = nová data', () => {
+  const p = prostredi();
+  p.nastavCas(Date.parse('2026-11-13T10:00:00+01:00'));
+  assert.strictEqual(p.volej('zdravi').data.krev, undefined, 'bez souboru nic');
+  const ob = { v: 1, kdf: 'PBKDF2-SHA256', iter: 600000, sul: 'c3VsLXVrYXprYS0xMjM0', iv: 'aXYtdWthemthMTI=', data: 'U0lGUkEvdWthemthKz09', kdy: '2026-11-13T09:00:00Z', navic: 'x' };
+  const f = p.schranka.deti.ZDRAVI.createFile('KREV.json', JSON.stringify(ob));
+  p.cache.delete('zmena:claude');
+  assert.deepStrictEqual(json(p.volej('zdravi').data.krev), { v: 1, kdf: 'PBKDF2-SHA256', iter: 600000, sul: ob.sul, iv: ob.iv, data: ob.data, kdy: ob.kdy });
+  assert.ok(p.volej('zmeny').data.zdravi >= f.getLastUpdated().getTime(), 'změna souboru = značka změny zdraví');
+  for (const spatne of [{ ...ob, v: 2 }, { ...ob, iter: 1000 }, { ...ob, data: 'ne base64 <script>' }, { ...ob, sul: undefined }, 'text']) {
+    f.setContent(JSON.stringify(spatne));
+    p.cache.clear ? p.cache.clear() : p.cache.delete('zmena:claude');
+    assert.strictEqual(p.volej('zdravi', { znovu: true }).data.krev, undefined, 'špatná obálka se nepošle: ' + JSON.stringify(spatne).slice(0, 40));
+  }
+});
+
 test('JIDLA_MICHAL.json: motor ho jen čte (vyčištěný) a posílá se Zdravím, změna souboru = nová data; píše ho jen Claude', () => {
   const p = prostredi();
   p.nastavCas(Date.parse('2026-10-14T10:00:00+02:00'));

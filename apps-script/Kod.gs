@@ -44,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-11-08.2';
+const VERZE = '2026-11-13.1';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -4498,14 +4498,15 @@ function zmeny_() {
     knihovna: Math.max(Number(vl.getProperty('KNIHOVNA_ZMENA') || 0), zmenaKnihovny_()) };
 }
 
-/** Kdy Claude naposledy upravil ZDRAVI/PITI_JIDLO_CLAUDE.json, ZDRAVI/JIDLA_MICHAL.json (Michalova jídla a recepty) nebo
+/** Kdy Claude naposledy upravil ZDRAVI/PITI_JIDLO_CLAUDE.json, ZDRAVI/JIDLA_MICHAL.json (Michalova jídla a recepty), ZDRAVI/KREV.json
+ *  (krevní testy, zašifrované) nebo
  *  ZDRAVI_REZIM.json (id souborů v mezipaměti 6 h, výsledek 1 min). */
 function zmenaSouboruClauda_() {
   const cache = CacheService.getScriptCache();
   const hotovo = cache.get('zmena:claude');
   if (hotovo) return Number(hotovo);
   let nejnovejsi = 0;
-  [['ZDRAVI', 'PITI_JIDLO_CLAUDE.json'], ['ZDRAVI', 'JIDLA_MICHAL.json'], ['', 'ZDRAVI_REZIM.json']].forEach(function (x) {
+  [['ZDRAVI', 'PITI_JIDLO_CLAUDE.json'], ['ZDRAVI', 'JIDLA_MICHAL.json'], ['ZDRAVI', 'KREV.json'], ['', 'ZDRAVI_REZIM.json']].forEach(function (x) {
     try {
       const klic = 'id:' + x[1];
       let soubor = null;
@@ -7081,6 +7082,9 @@ function zdravi_(znovu) {
     p.pitiJidlo = pitiJidloDny_(slozka, 14, claude, casSouboru_(cj.soubor));
     // Michalova jídla a recepty, které se Claude naučil (místní odhad v aplikaci je bere přednostně – js/jidlo_odhad.js)
     p.jidlaMichal = jidlaMichal_(slozka);
+    // krevní testy – zašifrované Michalovým heslem, motor obsah nevidí; rozšifruje až aplikace (js/krev.js)
+    const krev = krevObalka_(nactiJson_(slozka, 'KREV.json').data);
+    if (krev) p.krev = krev;
     p.tydenni = posledniTydenni_(claude, ted); // týdenní shrnutí od Clauda (karta ve Zdraví)
     if (!chybaSync) ulozDoCache_(klic, p, 1800);
   }
@@ -7088,6 +7092,16 @@ function zdravi_(znovu) {
   p.apple = { kdy: Number(vl.getProperty('APPLE_SYNC') || 0), posledni: nactiZCache_('APPLE_POSLEDNI') };
   if (p.tydenni) p.tydenni.odeslano = vl.getProperty('TYDEN_ZDRAVI_ODESLANO') === p.tydenni.tyden;
   return p;
+}
+
+// ---- krevní testy: CLAUDE_SCHRANKA/ZDRAVI/KREV.json – zašifrované Michalovým heslem (PBKDF2-SHA256 + AES-256-GCM, píše jen Claude
+// nástrojem NASTROJE\asistent\zdravi_sifra). Motor heslo nezná a obsah neumí rozšifrovat: obálku jen zkontroluje a pošle dál.
+
+function krevObalka_(o) {
+  const b64 = function (x, max) { return typeof x === 'string' && x.length > 0 && x.length <= max && /^[A-Za-z0-9+/]+={0,2}$/.test(x); };
+  if (!o || o.v !== 1 || !b64(o.sul, 64) || !b64(o.iv, 64) || !b64(o.data, 400000) ||
+    !(typeof o.iter === 'number' && o.iter % 1 === 0 && o.iter >= 100000 && o.iter <= 5000000)) return null;
+  return { v: 1, kdf: 'PBKDF2-SHA256', iter: o.iter, sul: o.sul, iv: o.iv, data: o.data, kdy: typeof o.kdy === 'string' ? o.kdy.slice(0, 40) : '' };
 }
 
 // ---- váha: ruční zápis z aplikace (Michal se váží jen občas), CLAUDE_SCHRANKA/ZDRAVI/VAHA.json { zaznamy: [{ kdy: ms, kg }] }
