@@ -7,14 +7,18 @@
 // Michal 16. 11. odpoledne: „nevidím náhledy – načítá se to celkem dlouho – vymysli lepší způsob“ → dotazy za sebou (seznam s otiskem →
 // náhledy se „znam“ → celé karty), při chybě náhledů dva další pokusy; „nachystej pravé tlačítko … přesouvat a dělat s nima interakci“ →
 // nabídka karty (js/nabidka.js), výběr Ctrl/Shift+klik s lištou, přetažení karty na druh.
+// Michal 16. 11. večer: „vždy plánek a výpis těch jednotlivých situací … ať si to můžu případně já upravit, popsat“ → oddíl Plánek
+// a průběh (js/planek.js, kroky s čísly jako na čarách plánku), Upravit (texty, seznamy, editor plánku js/planek_editor.js – načte
+// se až při úpravě) do motoru treninkUprava (Claudova karta zůstává, Vrátit původní), Tisk na A4.
 // Modul načte app.js až na stránce Tréninky; klepnutí a psaní si obsluhuje sám (atributy data-tr-…).
 
 import { stav, zmeneno, umiMotor } from './stav.js';
 import { volej, jeDemo } from './api.js';
 import { esc, uloziste, velkePrvni, tvar } from './pomocne.js';
 import { IKONY } from './ikony.js';
-import { toast, toastAkce, kostra, chybaHtml, segment } from './ui.js';
-import { otevriPanel, obnovPanel, jeOtevreny, horniPanel } from './panely.js';
+import { toast, toastAkce, kostra, chybaHtml, segment, potvrd } from './ui.js';
+import { otevriPanel, obnovPanel, jeOtevreny, horniPanel, zavriPanel, elementPanelu } from './panely.js';
+import { cistyPlanek, planekSvg, novyPlanek } from './planek.js';
 import { pripoj as pripojNabidku, otevri as otevriNabidku, jeOtevrena as nabidkaOtevrena } from './nabidka.js';
 import * as Pamet from './tipy_pamet.js';
 
@@ -53,6 +57,12 @@ const bez = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLo
 const pauza = (ms) => new Promise((hotovo) => setTimeout(hotovo, ms));
 /** Motor umí druhy, přesouvání, skrývání a víc cviků naráz (2026-11-16.4). */
 const umi = () => umiMotor('treninkyKarty');
+/** Motor umí Michalovy úpravy karet (2026-11-16.5). */
+const umiUpravy = () => umiMotor('treninkUprava');
+/** Motor umí cvik smazat do koše Disku a vrátit (2026-11-16.5). */
+const umiSmazat = () => umiMotor('treninkSmazat');
+/** Žádost o plánek: jen cvik, který plánek nemá. */
+const chcePlanek = (c) => !!(c && !c.planek && moje(c.id).chciPlanek);
 
 // ---------------------------------------------------------------- data
 // Dotazy jdou za sebou (Apps Script souběžné řadí do fronty a každý by čekal na všechny): seznam → náhledy → celé karty.
@@ -220,7 +230,7 @@ function zmenMoje(ids, zmena) {
   t.data.moje.polozky = t.data.moje.polozky || {};
   ids.forEach((id) => {
     const o = Object.assign({}, moje(id), zmena);
-    ['hvezdy', 'oblibene', 'poznamka', 'druh', 'skryty'].forEach((k) => { if (!o[k]) delete o[k]; });
+    ['hvezdy', 'oblibene', 'poznamka', 'druh', 'skryty', 'chciPlanek'].forEach((k) => { if (!o[k]) delete o[k]; });
     delete o.kdy;
     if (Object.keys(o).length) t.data.moje.polozky[id] = o; else delete t.data.moje.polozky[id];
   });
@@ -276,6 +286,52 @@ function skryj(ids, ano) {
   toastAkce((ids.length === 1 ? (ano ? 'Cvik skrytý' : 'Cvik vrácený ze skrytých') : pocetCviku(ids.length) + (ano ? ' skryto' : ' vráceno ze skrytých')), 'Vrátit',
     () => zmenMoje(ids, { skryty: !ano }));
 }
+/** Smazat do koše Disku (víc cviků až po dotazu): hned pryč ze seznamu a z karet, Vrátit = treninkObnovit; chyba = zpět. */
+function smazCviky(ids) {
+  if (!umiSmazat() || !t.data || !ids.length) return;
+  const proved = () => {
+    const zaloha = odeber(ids);
+    volej('treninkSmazat', { ids }).then(() => {
+      ids.forEach((id) => { Pamet.smaz('tr-cvik:' + id); Pamet.smaz('tr-nahled:' + id); Pamet.smaz('tr-video:' + id); });
+      toastAkce(ids.length === 1 ? 'Cvik je v koši' : pocetCviku(ids.length) + ' v koši', 'Vrátit', () => obnovCviky(ids, zaloha));
+    }, (e) => {
+      vrat(zaloha);
+      toast('Nesmazalo se: ' + ((e && e.message) || 'chyba'), true);
+    });
+  };
+  if (ids.length === 1) { proved(); return; }
+  potvrd('Smazat ' + pocetCviku(ids.length) + '?', { text: 'Půjdou do koše Disku, 30 dní se dají vrátit.', ano: 'Smazat', ton: 'nebezpeci' }).then((ano) => { if (ano) proved(); });
+}
+/** Cviky pryč ze seznamu, karet a okna; vrací zálohu pro Vrátit. */
+function odeber(ids) {
+  const zaloha = { polozky: [], karty: {} };
+  zrusVyber(true);
+  t.data.cviky = cviky().filter((c, i) => { if (ids.indexOf(c.id) < 0) return true; zaloha.polozky.push([i, c]); return false; });
+  ids.forEach((id) => { if (t.karty && t.karty[id]) { zaloha.karty[id] = t.karty[id]; delete t.karty[id]; } });
+  if (t.vybrany && ids.indexOf(t.vybrany) >= 0 && jeOtevreny(OKNO)) { if (t.uprava && t.uprava.id === t.vybrany) { zrusEditor(); t.uprava = null; } zavriPanel(); }
+  ulozCviky();
+  return zaloha;
+}
+function vrat(zaloha) {
+  zaloha.polozky.forEach(([i, c]) => { if (!najdi(c.id)) t.data.cviky.splice(Math.min(i, t.data.cviky.length), 0, c); });
+  if (Object.keys(zaloha.karty).length) t.karty = Object.assign(t.karty || {}, zaloha.karty);
+  ulozCviky();
+}
+function ulozCviky() {
+  if (!jeDemo()) {
+    uloziste.pis(ULOZISTE, { data: t.data, kdy: t.kdy });
+    if (t.karty) Pamet.pis('tr-karty', { otisk: t.kartyOtisk, karty: t.karty });
+  }
+  zmeneno();
+}
+function obnovCviky(ids, zaloha) {
+  vrat(zaloha);
+  volej('treninkObnovit', { ids }).then(() => toast(ids.length === 1 ? 'Cvik je zpátky' : pocetCviku(ids.length) + ' zpátky'), (e) => {
+    toast('Nevrátilo se: ' + ((e && e.message) || 'chyba'), true);
+    nactiTreninky(true);
+  });
+}
+
 function doOblibenych(ids) {
   zrusVyber(true);
   zmenMoje(ids, { oblibene: true });
@@ -314,12 +370,13 @@ function platnyFiltr(pocty) {
 }
 
 function poctyFiltru() {
-  const p = { vse: 0, oblibene: 0, skryte: 0 };
+  const p = { vse: 0, oblibene: 0, skryte: 0, chci: 0 };
   cviky().forEach((c) => {
     const m = moje(c.id);
     if (m.skryty) { p.skryte++; return; }
     p.vse++;
     if (m.oblibene) p.oblibene++;
+    if (chcePlanek(c)) p.chci++;
     const d = druhCviku(c);
     p[d] = (p[d] || 0) + 1;
   });
@@ -333,7 +390,8 @@ function vybrane() {
     const m = moje(c.id);
     if ((f === 'skryte') !== !!m.skryty) return false; // skryté jen pod čipem Skryté
     if (f === 'oblibene' && !m.oblibene) return false;
-    if (f !== 'vse' && f !== 'oblibene' && f !== 'skryte' && druhCviku(c) !== f) return false;
+    if (f === 'chci' && !chcePlanek(c)) return false;
+    if (f !== 'vse' && f !== 'oblibene' && f !== 'skryte' && f !== 'chci' && druhCviku(c) !== f) return false;
     if (!q.length) return true;
     const text = bez([c.nazev, c.kratce, druhCviku(c), (c.zamereni || []).join(' '), c.forma, (c.kategorie || []).join(' '), c.autor].join(' '));
     return q.every((s) => text.indexOf(s) >= 0);
@@ -353,6 +411,7 @@ function filtryHtml() {
   const p = poctyFiltru();
   const volbyF = [['vse', 'Vše', p.vse]].concat(p.oblibene ? [['oblibene', '★ Oblíbené', p.oblibene]] : [])
     .concat(druhy().filter((d) => p[d]).map((d) => [d, nazevDruhu(d), p[d]]))
+    .concat(p.chci ? [['chci', 'Chci plánek', p.chci]] : [])
     .concat(p.skryte ? [['skryte', 'Skryté', p.skryte]] : []);
   return segment(volbyF, platnyFiltr(p), 'data-tr-filtr', 'Druh cvičení');
 }
@@ -364,7 +423,9 @@ function kartaHtml(c) {
   const tah = TAHNUTI.matches && umi() ? ' draggable="true"' : '';
   return '<li><button type="button" class="tr-karta' + (t.vyber.has(c.id) ? ' tr-karta--vybrana' : '') + '" data-tr-otevri="' + esc(c.id) + '"' + tah + '>' +
     '<span class="tr-karta__obr">' + (ind && ind.ikona ? '<img src="' + jpeg(ind.ikona) + '" alt="" loading="lazy" draggable="false">' : '<i>' + IKONY.treninky + '</i>') +
-      (ind && ind.video ? '<em class="tr-karta__video">' + IKONY.prehrat + '</em>' : '') + '</span>' +
+      (ind && ind.video ? '<em class="tr-karta__video">' + IKONY.prehrat + '</em>' : '') +
+      (c.planek ? '<em class="tr-karta__planek" aria-label="Má plánek">' + IKONY.tabulka + '</em>' : '') +
+      (chcePlanek(c) ? '<em class="tr-karta__planek tr-karta__planek--chci" aria-label="Chci plánek">' + IKONY.tabulka + '</em>' : '') + '</span>' +
     '<span class="tr-karta__telo">' +
       ((c.zamereni || []).length ? '<span class="tr-karta__stitky">' + c.zamereni.slice(0, 2).map((z) => '<span class="tag tag--seda">' + esc(z) + '</span>').join('') + '</span>' : '') +
       '<b>' + esc(c.nazev) + '</b>' +
@@ -400,7 +461,7 @@ function vyberHtml() {
   const skryte = platnyFiltr() === 'skryte';
   return '<div class="posta-vyber tr-vyber" role="toolbar" aria-label="Vybrané cviky"><b class="posta-vyber__pocet cisla">Vybráno ' + n + '</b>' +
     '<span class="posta-vyber__akce">' + tl('presunout', IKONY.slozka, 'Přesunout do…', true) + tl('oblibene', IKONY.srdce, 'Do oblíbených') +
-      tl('skryt', IKONY.archiv, skryte ? 'Vrátit ze skrytých' : 'Skrýt') + '</span>' +
+      tl('skryt', IKONY.archiv, skryte ? 'Vrátit ze skrytých' : 'Skrýt') + (umiSmazat() ? tl('smazat', IKONY.smazat, 'Smazat') : '') + '</span>' +
     '<button type="button" class="btn btn--ikona btn--sm posta-vyber__zrusit" data-tr-vyber="zrusit" aria-label="Zrušit výběr (Esc)" title="Zrušit výběr (Esc)">' + IKONY.zavrit + '</button></div>';
 }
 
@@ -461,8 +522,23 @@ function nabidkaVyberu() {
   return { nadpis: pocetCviku(ids.length), polozky: [
     { ikona: IKONY.slozka, text: 'Přesunout do…', dalsi: () => nabidkaPresunu(ids) },
     { ikona: IKONY.srdce, text: 'Do oblíbených', fn: () => doOblibenych(ids) },
-    { ikona: IKONY.archiv, text: skryte ? 'Vrátit ze skrytých' : 'Skrýt', fn: () => skryj(ids, !skryte) },
-    { ikona: IKONY.zavrit, text: 'Zrušit výběr', oddel: true, fn: () => zrusVyber() }] };
+    { ikona: IKONY.archiv, text: skryte ? 'Vrátit ze skrytých' : 'Skrýt', fn: () => skryj(ids, !skryte) }]
+    .concat(chciPlanekPolozka(ids))
+    .concat(umiSmazat() ? [{ ikona: IKONY.smazat, text: 'Smazat…', nebezpeci: true, fn: () => smazCviky(ids) }] : [])
+    .concat([{ ikona: IKONY.zavrit, text: 'Zrušit výběr', oddel: true, fn: () => zrusVyber() }]) };
+}
+
+/** Chci plánek / Zrušit žádost – pro cviky bez plánku (jeden i výběr). */
+function chciPlanekPolozka(ids) {
+  const bez = ids.filter((id) => { const c = najdi(id); return c && !c.planek; });
+  if (!umiUpravy() || !bez.length) return [];
+  const vsechny = bez.every((id) => moje(id).chciPlanek);
+  return [{ ikona: IKONY.tabulka, text: vsechny ? 'Zrušit žádost o plánek' : 'Chci plánek', fn: () => chciPlanek(bez, !vsechny) }];
+}
+function chciPlanek(ids, ano) {
+  zrusVyber(true);
+  zmenMoje(ids, { chciPlanek: ano });
+  toast(ano ? (ids.length === 1 ? 'Claude k cviku připraví plánek' : 'Plánek chceš u ' + pocetCviku(ids.length)) : 'Žádost o plánek zrušená');
 }
 
 function nabidkaTreninku(cil) {
@@ -472,12 +548,14 @@ function nabidkaTreninku(cil) {
   const id = c.id;
   if (t.vyber.size > 1 && t.vyber.has(id)) return nabidkaVyberu();
   const m = moje(id);
-  const p = [{ ikona: IKONY.treninky, text: 'Otevřít', fn: () => otevri(id) },
+  const p = [{ ikona: IKONY.treninky, text: 'Otevřít', fn: () => otevri(id) }].concat(umiUpravy() ? [{ ikona: IKONY.psat, text: 'Upravit…', fn: () => zacniUpravu(id) }] : []).concat([
     { ikona: IKONY.srdce, text: m.oblibene ? 'Odebrat z oblíbených' : 'Do oblíbených', fn: () => zmenMoje(id, { oblibene: !m.oblibene }) },
-    { ikona: IKONY.hvezda, text: 'Ohodnotit…', dalsi: () => nabidkaHodnoceni(id) }];
+    { ikona: IKONY.hvezda, text: 'Ohodnotit…', dalsi: () => nabidkaHodnoceni(id) }]);
   if (umi()) p.push({ ikona: IKONY.slozka, text: 'Přesunout do…', dalsi: () => nabidkaPresunu([id]) });
   if (c.odkaz) p.push({ ikona: IKONY.odkaz, text: 'Otevřít originál', fn: () => window.open(c.odkaz, '_blank', 'noopener') });
+  chciPlanekPolozka([id]).forEach((x) => p.push(x));
   if (umi()) p.push({ ikona: IKONY.archiv, text: m.skryty ? 'Vrátit ze skrytých' : 'Skrýt cvik', oddel: true, fn: () => skryj([id], !m.skryty) });
+  if (umiSmazat()) p.push({ ikona: IKONY.smazat, text: 'Smazat cvik…', nebezpeci: true, fn: () => smazCviky([id]) });
   return { nadpis: c.nazev, polozky: p };
 }
 pripojNabidku(nabidkaTreninku);
@@ -500,7 +578,8 @@ function druhVOkneHtml(id) {
   return '<label class="tr-druh"><span>Druh</span><select class="field field--sm" data-tr-druh aria-label="Druh cvičení">' +
     druhy().map((d) => '<option value="' + esc(d) + '"' + (d === ted ? ' selected' : '') + '>' + esc(nazevDruhu(d)) + '</option>').join('') + '</select></label>' +
     (ted !== puv ? '<span class="napoveda">původně: ' + esc(puv) + ' · <button type="button" class="odkaz" data-tr-druh-vratit>Vrátit</button></span>' : '') +
-    '<button type="button" class="btn btn--sm btn--ghost tr-skryt" data-tr-skryt>' + (m.skryty ? 'Vrátit ze skrytých' : 'Skrýt') + '</button>';
+    '<button type="button" class="btn btn--sm btn--ghost tr-skryt" data-tr-skryt>' + (m.skryty ? 'Vrátit ze skrytých' : 'Skrýt') + '</button>' +
+    (umiSmazat() ? '<button type="button" class="btn btn--sm btn--ghost" data-tr-smazat>' + IKONY.smazat + '<span>Smazat</span></button>' : '');
 }
 
 function mediaHtml(id) {
@@ -523,10 +602,30 @@ function mediaHtml(id) {
   return '<div class="tr-video tr-video--nic"><i>' + IKONY.treninky + '</i><span>Video k cviku není – odkaz na originál je vpravo.</span></div>';
 }
 
+/** Plánek s legendou a vedle (na úzké šířce pod ním) kroky s čísly jako na čarách plánku. */
+function prubehHtml(c) {
+  const kroky = c.kroky || [];
+  if (!c.planek && !kroky.length) return '';
+  return '<section class="tr-sekce tr-prubeh"><h3>Plánek a průběh</h3><div class="tr-prubeh__obsah' + (c.planek && kroky.length ? ' tr-prubeh__obsah--dva' : '') + '">' +
+    (c.planek ? '<div class="tr-prubeh__planek">' + planekSvg(c.planek, { legenda: true }) + '</div>' : '') +
+    (kroky.length ? '<ol class="tr-kroky">' + kroky.map((k, i) => '<li><span class="tr-krok" aria-hidden="true">' + (i + 1) + '</span><span>' + podbarvit(esc(k)) + '</span></li>').join('') + '</ol>' : '') +
+    '</div></section>';
+}
+
+/** Cvik bez plánku: nenápadný řádek se žádostí pro Clauda. */
+function chciRadekHtml(c) {
+  if (!umiUpravy() || !c.id || c.planek) return '';
+  return moje(c.id).chciPlanek ? '<p class="napoveda tr-chci">O plánek je požádáno · <button type="button" class="odkaz" data-tr-chci>Zrušit</button></p>'
+    : '<p class="napoveda tr-chci">Plánek zatím není · <button type="button" class="odkaz" data-tr-chci>Chci plánek</button></p>';
+}
+
+/** Zobrazená karta: celá (s Michalovými úpravami), jinak položka seznamu. */
+function kartaCviku(id) { return (t.karty && t.karty[id]) || (t.cviky[id] && t.cviky[id].data) || najdi(id) || {}; }
+
 function detailHtml() {
   const id = t.vybrany;
-  const idx = najdi(id) || {};
-  const c = (t.karty && t.karty[id]) || (t.cviky[id] && t.cviky[id].data) || idx;
+  if (t.uprava && t.uprava.id === id) return upravaHtml();
+  const c = kartaCviku(id);
   const nacitaKartu = !(t.karty && t.karty[id]) && t.cviky[id] && t.cviky[id].nacita && !t.cviky[id].data;
   const n = t.nahledy[id];
   const m = moje(id);
@@ -546,8 +645,8 @@ function detailHtml() {
       (stitky ? '<div class="tr-stitky">' + stitky + '</div>' : '') +
       (c.kratce ? '<div class="tr-kratce">' + odstavce(c.kratce) + '</div>' : '') +
       (fakta ? '<dl class="tr-fakta">' + fakta + '</dl>' : '') +
-      (nacitaKartu ? kostra(4) : '') +
-      ((c.organizace || []).length ? '<section class="tr-sekce"><h3>Organizace a průběh</h3>' + c.organizace.map(odstavce).join('') + '</section>' : '') +
+      (nacitaKartu ? kostra(4) : '') + prubehHtml(c) + '<div data-tr-chci-radek>' + chciRadekHtml(c) + '</div>' +
+      ((c.organizace || []).length ? '<section class="tr-sekce"><h3>' + ((c.kroky || []).length ? 'Rozestavení a organizace' : 'Organizace a průběh') + '</h3>' + c.organizace.map(odstavce).join('') + '</section>' : '') +
       seznam('Na co dávat pozor', c.body) + seznam('Varianty a ztížení', c.varianty) +
       '<section class="tr-sekce tr-moje"><h3>Moje</h3><div class="tr-moje__radek">' + hvezdyHtml(id) +
         '<button type="button" class="btn btn--sm ' + (m.oblibene ? 'btn--primary' : 'btn--ghost') + '" data-tr-oblibene aria-pressed="' + !!m.oblibene + '">' +
@@ -567,11 +666,20 @@ function otevri(id) {
   if (n && n.data && n.data.video && !n.videoChyba) nactiVideo(id);
   otevriPanel({
     id: OKNO, trida: 'panel-okno panel-reel tr-okno',
-    titul: () => { const c = najdi(t.vybrany); return c ? c.nazev : 'Cvik'; },
+    titul: () => kartaCviku(t.vybrany).nazev || 'Cvik',
+    vpravo: () => {
+      if (t.uprava && t.uprava.id === t.vybrany) return '<span class="tr-upraveno">úpravy</span>';
+      const c = kartaCviku(t.vybrany);
+      return ((c.upraveno || []).length ? '<span class="tr-upraveno">upraveno</span>' : '') +
+        '<button type="button" class="btn btn--sm btn--ghost tr-hlava-tl" data-tr-tisk aria-label="Tisk">' + IKONY.tisk + '<span>Tisk</span></button>' +
+        (umiUpravy() ? '<button type="button" class="btn btn--sm btn--ghost tr-hlava-tl" data-tr-upravit aria-label="Upravit">' + IKONY.psat + '<span>Upravit</span></button>' : '');
+    },
+    paticka: () => (t.uprava && t.uprava.id === t.vybrany ? patickaUpravyHtml() : ''),
     vykresli: detailHtml,
-    poVykresleni: pripojVideo,
-    priZavreni: () => { t.vybrany = null; },
-    zavritMimo: true
+    poVykresleni: (el) => { pripojVideo(el); pripojEditor(el); },
+    // rozepsané úpravy zůstanou (otevře se zase v úpravách), neupravené se zahodí
+    priZavreni: () => { zrusEditor(); if (t.uprava && !maZmeny()) t.uprava = null; t.vybrany = null; },
+    zavritMimo: () => { if (!neulozeno()) return true; zeptatSeNaZavreni(); return false; }
   });
 }
 
@@ -593,7 +701,8 @@ function pripojVideo(el) {
   misto.appendChild(n.videoEl);
 }
 
-function prekresliOkno(id) { if (t.vybrany === id && jeOtevreny(OKNO)) obnovPanel(OKNO); }
+// v úpravách se okno nepřekresluje (fokus, klávesnice v telefonu a editor plánku by zmizely)
+function prekresliOkno(id) { if (t.vybrany === id && jeOtevreny(OKNO) && !(t.uprava && t.uprava.id === id)) obnovPanel(OKNO); }
 
 /** Hvězdy, oblíbené, druh a skrytí bez překreslení okna (rozehrané video běží dál). */
 function aktualizujMojeVOkne(id) {
@@ -614,7 +723,264 @@ function aktualizujMojeVOkne(id) {
   }
   const d = el.querySelector('[data-tr-moje-druh]');
   if (d) d.innerHTML = druhVOkneHtml(id);
+  const ch = el.querySelector('[data-tr-chci-radek]');
+  if (ch) ch.innerHTML = chciRadekHtml(kartaCviku(id));
 }
+
+// ---------------------------------------------------------------- Michalovy úpravy karty (motor treninkUprava)
+// t.uprava = { id, zaklad, k (rozepsaná kopie), editor?, uklada? }. Během psaní se okno nepřekresluje; přidat / smazat / posunout
+// položku překreslí jen ten seznam, plánek jen svůj blok. Posílají se jen pole, která se proti zobrazené kartě změnila.
+
+const TEXTY_U = ['nazev', 'kratce', 'hraci', 'prostor', 'delka'];
+const SEZNAMY_U = [['kroky', 'Kroky – jak to probíhá', 'Přidat krok'], ['organizace', 'Rozestavení a organizace', 'Přidat odstavec'],
+  ['body', 'Na co dávat pozor', 'Přidat bod'], ['varianty', 'Varianty a ztížení', 'Přidat variantu']];
+// <textarea> zahodí první odřádkování obsahu
+const doPole = (s) => (s.charAt(0) === '\n' ? '\n' : '') + s;
+
+function koncept(c) {
+  const k = {};
+  TEXTY_U.forEach((p) => { k[p] = c[p] || ''; });
+  SEZNAMY_U.forEach(([p]) => { k[p] = (c[p] || []).slice(); });
+  k.planek = c.planek ? JSON.parse(JSON.stringify(c.planek)) : null;
+  return k;
+}
+
+/** Změněná pole proti zobrazené kartě: { pole: hodnota } ([] = smazané všechny položky, planek false = odebraný). */
+function zmenyUpravy() {
+  const u = t.uprava;
+  if (!u) return {};
+  const a = u.k, b = u.zaklad, z = {};
+  TEXTY_U.forEach((p) => { if (a[p].trim() !== b[p].trim()) z[p] = a[p].trim(); });
+  SEZNAMY_U.forEach(([p]) => {
+    const x = a[p].map((s) => s.trim()).filter(Boolean);
+    if (JSON.stringify(x) !== JSON.stringify(b[p])) z[p] = x;
+  });
+  const pa = a.planek ? cistyPlanek(a.planek) : null, pb = b.planek ? cistyPlanek(b.planek) : null;
+  if (JSON.stringify(pa) !== JSON.stringify(pb)) z.planek = pa || false;
+  return z;
+}
+const maZmeny = () => Object.keys(zmenyUpravy()).length > 0;
+const neulozeno = () => !!(t.uprava && t.uprava.id === t.vybrany && maZmeny());
+
+function zacniUpravu(id) {
+  if (!umiUpravy()) return;
+  if (!(t.uprava && t.uprava.id === id)) {
+    zrusEditor();
+    const c = kartaCviku(id);
+    t.uprava = { id, zaklad: koncept(c), k: koncept(c) };
+  }
+  if (t.vybrany === id && jeOtevreny(OKNO)) obnovPanel(OKNO); else otevri(id);
+  const el = elementPanelu(OKNO);
+  const pole = el && el.querySelector('[data-tr-u="nazev"]');
+  if (pole) pole.focus({ preventScroll: true });
+}
+
+function konecUpravy() {
+  zrusEditor();
+  t.uprava = null;
+  if (jeOtevreny(OKNO)) obnovPanel(OKNO);
+}
+
+function polozkyHtml(p) {
+  const s = t.uprava.k[p];
+  if (!s.length) return '<li class="napoveda tr-u-prazdne">Zatím nic – přidej první.</li>';
+  const tl = (akce, ikona, popis, i, vypnout) => '<button type="button" class="btn btn--ikona btn--sm" data-tr-u-akce="' + akce + '" data-tr-u-seznam="' + p + '" data-i="' + i + '"' +
+    ' aria-label="' + popis + '" title="' + popis + '"' + (vypnout ? ' disabled' : '') + '>' + ikona + '</button>';
+  return s.map((v, i) => '<li class="tr-u-polozka">' + (p === 'kroky' ? '<span class="tr-krok" aria-hidden="true">' + (i + 1) + '</span>' : '') +
+    '<textarea class="field" rows="2" data-tr-u-pol="' + p + '" data-i="' + i + '" data-pole="tr-u-' + p + '-' + i + '" aria-label="' + esc(p) + ' ' + (i + 1) + '">' + esc(doPole(v)) + '</textarea>' +
+    '<span class="tr-u-tl">' + tl('nahoru', '↑', 'Posunout nahoru', i, i === 0) + tl('dolu', '↓', 'Posunout dolů', i, i === s.length - 1) +
+      tl('smazat', IKONY.smazat, 'Smazat', i) + '</span></li>').join('');
+}
+
+function planekBlokHtml() {
+  if (!t.uprava.k.planek) {
+    return '<p class="napoveda">Cvik zatím plánek nemá.</p><button type="button" class="btn btn--sm btn--ghost" data-tr-planek="pridat">' + IKONY.plus + '<span>Přidat plánek</span></button>';
+  }
+  return '<div class="tr-u-planek" data-tr-planek-editor></div>' +
+    '<button type="button" class="btn btn--sm btn--ghost tr-u-odebrat" data-tr-planek="odebrat">' + IKONY.smazat + '<span>Odebrat plánek</span></button>';
+}
+
+function upravaHtml() {
+  const k = t.uprava.k;
+  const pole = (p, nazev, napoveda) => '<label><span class="label">' + nazev + '</span><input class="field" data-tr-u="' + p + '" data-pole="tr-u-' + p + '" value="' +
+    esc(k[p]) + '"' + (napoveda ? ' placeholder="' + napoveda + '"' : '') + ' autocomplete="off"></label>';
+  return '<div class="formular tr-uprava">' + pole('nazev', 'Název') +
+    '<label><span class="label">Krátce</span><textarea class="field" rows="3" data-tr-u="kratce" data-pole="tr-u-kratce">' + esc(doPole(k.kratce)) + '</textarea>' +
+      '<small class="napoveda">To hlavní dej mezi dvě hvězdičky – <b>**takhle**</b> – v kartě se podbarví.</small></label>' +
+    '<div class="tr-uprava__fakta">' + pole('hraci', 'Hráči', 'např. 6–8') + pole('prostor', 'Prostor', 'např. 20 × 15 m') + pole('delka', 'Délka', 'např. 15 min') + '</div>' +
+    '<section class="tr-sekce"><h3>Plánek</h3><div data-tr-planek-blok>' + planekBlokHtml() + '</div></section>' +
+    SEZNAMY_U.map(([p, nadpis, pridat]) => '<section class="tr-sekce"><h3>' + nadpis + '</h3><ol class="tr-u-seznam" data-tr-seznam="' + p + '">' + polozkyHtml(p) + '</ol>' +
+      '<button type="button" class="btn btn--sm btn--ghost" data-tr-u-pridat="' + p + '">' + IKONY.plus + '<span>' + pridat + '</span></button></section>').join('') +
+    '</div>';
+}
+
+function patickaUpravyHtml() {
+  const c = kartaCviku(t.uprava.id);
+  return '<div class="akce tr-u-akce">' + ((c.upraveno || []).length ? '<button type="button" class="btn btn--ghost" data-tr-u-vratit>Vrátit původní</button>' : '') +
+    '<span class="tr-u-mezera"></span><button type="button" class="btn btn--ghost" data-tr-u-zrusit>Zrušit</button>' +
+    '<button type="button" class="btn btn--primary" data-tr-u-ulozit>Uložit</button></div>';
+}
+
+/** Editor plánku do místa v okně (modul až teď – při prohlížení se nestahuje). */
+function pripojEditor(el) {
+  const u = t.uprava;
+  const misto = el && el.querySelector('[data-tr-planek-editor]');
+  if (!u || u.id !== t.vybrany || !misto || !u.k.planek) return;
+  zrusEditor();
+  import('./planek_editor.js').then((m) => {
+    if (t.uprava !== u || !misto.isConnected || u.editor) return;
+    u.editor = m.vytvorEditor(misto, u.k.planek, { onZmena: (p) => { u.k.planek = p; } });
+  });
+}
+function zrusEditor() {
+  const u = t.uprava;
+  if (!u || !u.editor) return;
+  try { u.k.planek = u.editor.planek(); u.editor.znic(); } catch (e) { /* nic */ }
+  u.editor = null;
+}
+
+/** Psaní do polí úprav – jen do rozepsané kopie, nic se nepřekresluje. */
+function pisUpravu(cil) {
+  const u = t.uprava;
+  if (!u || !cil.closest('[data-panel="' + OKNO + '"]')) return false;
+  if (cil.dataset.trU) { u.k[cil.dataset.trU] = cil.value; return true; }
+  if (cil.dataset.trUPol) { u.k[cil.dataset.trUPol][Number(cil.dataset.i)] = cil.value; return true; }
+  return false;
+}
+
+function prekresliSeznam(p, fokus) {
+  const el = elementPanelu(OKNO);
+  const s = el && el.querySelector('[data-tr-seznam="' + p + '"]');
+  if (!s) return;
+  s.innerHTML = polozkyHtml(p);
+  const pole = fokus != null && s.querySelector('[data-i="' + fokus + '"][data-tr-u-pol]');
+  if (pole) pole.focus();
+}
+
+function klikUpravy(el) {
+  if (el.hasAttribute('data-tr-upravit')) { zacniUpravu(t.vybrany); return true; }
+  if (el.hasAttribute('data-tr-tisk')) { tiskni(t.vybrany); return true; }
+  const u = t.uprava;
+  if (!u || u.id !== t.vybrany) return false;
+  if (el.dataset.trUAkce) {
+    const p = el.dataset.trUSeznam, i = Number(el.dataset.i), s = u.k[p];
+    if (el.dataset.trUAkce === 'smazat') { s.splice(i, 1); prekresliSeznam(p, null); return true; }
+    const j = el.dataset.trUAkce === 'nahoru' ? i - 1 : i + 1;
+    if (j < 0 || j >= s.length) return true;
+    const x = s[i]; s[i] = s[j]; s[j] = x;
+    prekresliSeznam(p, j);
+    return true;
+  }
+  if (el.dataset.trUPridat) { const p = el.dataset.trUPridat; u.k[p].push(''); prekresliSeznam(p, u.k[p].length - 1); return true; }
+  if (el.dataset.trPlanek) {
+    zrusEditor();
+    u.k.planek = el.dataset.trPlanek === 'pridat' ? novyPlanek('obdelnik') : null;
+    const okno = elementPanelu(OKNO);
+    const blok = okno && okno.querySelector('[data-tr-planek-blok]');
+    if (blok) blok.innerHTML = planekBlokHtml();
+    pripojEditor(okno);
+    return true;
+  }
+  if (el.hasAttribute('data-tr-u-ulozit')) { ulozUpravu(false); return true; }
+  if (el.hasAttribute('data-tr-u-zrusit')) {
+    if (!maZmeny()) { konecUpravy(); return true; }
+    potvrd('Zahodit neuložené změny?', { text: 'Karta zůstane, jak byla.', ano: 'Zahodit', ne: 'Upravovat dál', ton: 'nebezpeci' }).then((ano) => { if (ano) konecUpravy(); });
+    return true;
+  }
+  if (el.hasAttribute('data-tr-u-vratit')) {
+    potvrd('Vrátit původní kartu od Clauda?', { text: 'Tvoje úpravy tohohle cviku se zahodí.', ano: 'Vrátit původní' }).then((ano) => { if (ano) ulozUpravu(true); });
+    return true;
+  }
+  return false;
+}
+
+async function ulozUpravu(vratit) {
+  const u = t.uprava;
+  if (!u || u.uklada) return;
+  if (u.editor) u.k.planek = u.editor.planek();
+  const zmeny = zmenyUpravy();
+  if (!vratit && !Object.keys(zmeny).length) { konecUpravy(); return; }
+  if (!vratit && 'nazev' in zmeny && !zmeny.nazev) { toast('Název nesmí být prázdný.', true); return; }
+  const okno = elementPanelu(OKNO);
+  const tlacitko = okno && okno.querySelector(vratit ? '[data-tr-u-vratit]' : '[data-tr-u-ulozit]');
+  u.uklada = true;
+  if (tlacitko) { tlacitko.disabled = true; tlacitko.textContent = 'Ukládám…'; }
+  try {
+    const r = await volej('treninkUprava', vratit ? { id: u.id, vratit: true } : { id: u.id, zmeny });
+    prijmiKartu(r);
+    if (t.uprava === u) konecUpravy();
+    toast(vratit ? 'Vrácená původní karta od Clauda' : 'Úpravy uložené');
+  } catch (e) {
+    u.uklada = false;
+    if (tlacitko && tlacitko.isConnected) { tlacitko.disabled = false; tlacitko.textContent = vratit ? 'Vrátit původní' : 'Uložit'; }
+    toast('Neuložilo se: ' + ((e && e.message) || 'chyba'), true);
+  }
+}
+
+/** Uložená karta z motoru: do celých karet (i v zařízení) a do položky seznamu. */
+function prijmiKartu(r) {
+  const c = r && r.cvik;
+  if (!c || !c.id) return;
+  t.karty = t.karty || {};
+  t.karty[c.id] = c;
+  if (r.otiskKaret) t.kartyOtisk = r.otiskKaret;
+  if (!jeDemo()) Pamet.pis('tr-karty', { otisk: t.kartyOtisk, karty: t.karty });
+  if (t.cviky[c.id]) t.cviky[c.id].data = c;
+  Pamet.smaz('tr-cvik:' + c.id);
+  const x = najdi(c.id);
+  if (x) {
+    Object.assign(x, { nazev: c.nazev, kratce: String(c.kratce || '').slice(0, 400), hraci: c.hraci, delka: c.delka, planek: !!c.planek, upraveno: !!(c.upraveno || []).length });
+    ['kratce', 'hraci', 'delka', 'planek', 'upraveno'].forEach((k) => { if (!x[k]) delete x[k]; });
+    if (!jeDemo()) uloziste.pis(ULOZISTE, { data: t.data, kdy: t.kdy });
+  }
+  zmeneno();
+}
+
+let ptam = false;
+function zeptatSeNaZavreni() {
+  if (ptam) return;
+  ptam = true;
+  potvrd('Zahodit neuložené změny?', { text: 'Úpravy cviku nejsou uložené.', ano: 'Zahodit', ne: 'Upravovat dál', ton: 'nebezpeci' }).then((ano) => {
+    ptam = false;
+    if (!ano) return;
+    zrusEditor();
+    t.uprava = null;
+    zavriPanel();
+  });
+}
+// × a Esc v úpravách s neuloženou změnou se nejdřív zeptají (dřív, než okno zavře app.js)
+document.addEventListener('click', (e) => {
+  if (!(e.target.closest && e.target.closest('[data-panel="' + OKNO + '"] [data-zavrit-panel]')) || !neulozeno()) return;
+  e.preventDefault();
+  e.stopPropagation();
+  zeptatSeNaZavreni();
+}, true);
+document.addEventListener('keydown', (e) => {
+  const h = horniPanel();
+  if (e.key !== 'Escape' || !h || h.id !== OKNO || ptam || nabidkaOtevrena() || document.querySelector('.okno-pozadi') || !neulozeno()) return;
+  e.preventDefault();
+  e.stopPropagation();
+  zeptatSeNaZavreni();
+}, true);
+
+// ---------------------------------------------------------------- tisk na A4 (treninky.css: html.tisk-cviku, @page tisk-cviku)
+
+function tiskni(id) {
+  const c = kartaCviku(id);
+  let el = document.getElementById('tr-tisk');
+  if (!el) { el = document.createElement('div'); el.id = 'tr-tisk'; document.body.appendChild(el); }
+  const seznam = (nadpis, body, cisla) => ((body || []).length ? '<h2>' + nadpis + '</h2><' + (cisla ? 'ol' : 'ul') + '>' +
+    body.map((b) => '<li>' + podbarvit(esc(b)) + '</li>').join('') + '</' + (cisla ? 'ol' : 'ul') + '>' : '');
+  const fakta = [['Hráči', c.hraci], ['Prostor', c.prostor], ['Délka', c.delka], ['Pomůcky', (c.pomucky || []).join(', ')]].filter((x) => x[1]).map((x) => x[0] + ': ' + x[1]).join(' · ');
+  el.innerHTML = '<h1>' + esc(c.nazev || '') + '</h1>' + (fakta ? '<p class="tr-tisk__fakta">' + esc(fakta) + '</p>' : '') +
+    (c.kratce ? '<div class="tr-tisk__kratce">' + odstavce(c.kratce) + '</div>' : '') +
+    (c.planek ? planekSvg(c.planek, { tisk: true, legenda: true }) : '') + seznam('Průběh', c.kroky, true) +
+    ((c.organizace || []).length ? '<h2>' + ((c.kroky || []).length ? 'Rozestavení a organizace' : 'Organizace a průběh') + '</h2>' + c.organizace.map(odstavce).join('') : '') +
+    seznam('Na co dávat pozor', c.body) + seznam('Varianty a ztížení', c.varianty);
+  document.documentElement.classList.add('tisk-cviku');
+  window.print();
+}
+window.addEventListener('afterprint', () => document.documentElement.classList.remove('tisk-cviku'));
 
 // ---------------------------------------------------------------- události
 
@@ -625,7 +991,8 @@ document.addEventListener('mousedown', (e) => {
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest && e.target.closest('[data-tr-otevri], [data-tr-filtr], [data-tr-znovu], [data-tr-hvezdy], [data-tr-oblibene], [data-tr-video-znovu], ' +
-    '[data-tr-vyber], [data-tr-ikony-znovu], [data-tr-nahled-znovu], [data-tr-druh-vratit], [data-tr-skryt]');
+    '[data-tr-vyber], [data-tr-ikony-znovu], [data-tr-nahled-znovu], [data-tr-druh-vratit], [data-tr-skryt], ' +
+    '[data-tr-upravit], [data-tr-tisk], [data-tr-smazat], [data-tr-chci], [data-tr-u-akce], [data-tr-u-pridat], [data-tr-planek], [data-tr-u-ulozit], [data-tr-u-zrusit], [data-tr-u-vratit]');
   if (!el) return;
   if (el.dataset.trOtevri) {
     const id = el.dataset.trOtevri;
@@ -650,10 +1017,12 @@ document.addEventListener('click', (e) => {
     if (jak === 'zrusit') zrusVyber();
     else if (jak === 'oblibene') doOblibenych(ids);
     else if (jak === 'skryt') skryj(ids, platnyFiltr() !== 'skryte');
+    else if (jak === 'smazat') smazCviky(ids);
     else if (jak === 'presunout') { const r = el.getBoundingClientRect(); otevriNabidku(r.left, r.bottom + 4, nabidkaPresunu(ids), el); }
     return;
   }
   if (el.hasAttribute('data-tr-znovu')) { nactiTreninky(true); zmeneno(); return; }
+  if (klikUpravy(el)) return;
   if (el.hasAttribute('data-tr-ikony-znovu')) { t.ikonyChyba = false; t.ikonyPokus = 0; zarad(() => nactiIkony(true)); zmeneno(); return; }
   const id = t.vybrany;
   if (!id) return;
@@ -661,6 +1030,8 @@ document.addEventListener('click', (e) => {
   if (el.hasAttribute('data-tr-oblibene')) { zmenMoje(id, { oblibene: !moje(id).oblibene }); return; }
   if (el.hasAttribute('data-tr-druh-vratit')) { const c = najdi(id); if (c) presun([id], druhy().indexOf(c.druh) >= 0 ? c.druh : 'ostatní'); return; }
   if (el.hasAttribute('data-tr-skryt')) { skryj([id], !moje(id).skryty); return; }
+  if (el.hasAttribute('data-tr-smazat')) { smazCviky([id]); return; }
+  if (el.hasAttribute('data-tr-chci')) { chciPlanek([id], !moje(id).chciPlanek); return; }
   if (el.hasAttribute('data-tr-nahled-znovu')) { delete t.nahledy[id]; nactiNahled(id); prekresliOkno(id); return; }
   if (el.hasAttribute('data-tr-video-znovu')) {
     const n = t.nahledy[id];
@@ -671,7 +1042,9 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('input', (e) => {
-  if (!e.target.matches || !e.target.matches('[data-tr-hledat]')) return;
+  if (!e.target.matches) return;
+  if (pisUpravu(e.target)) return;
+  if (!e.target.matches('[data-tr-hledat]')) return;
   t.dotaz = e.target.value;
   zmeneno();
 });

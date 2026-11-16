@@ -75,3 +75,51 @@
   .tr-detail { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); gap: 28px; align-items: start; }
   .tr-detail__media { position: sticky; top: 0; }
 }
+
+/* plánek a průběh (16. 11. večer): plánek s legendou, vedle kroky s čísly jako na čarách plánku; úpravy karty; tisk A4 */
+.tr-karta__planek { position: absolute; left: 8px; bottom: 8px; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(16, 20, 18, .72); color: #fff; }
+.tr-karta__planek svg { width: 14px; height: 14px; }
+.tr-prubeh__obsah { display: flex; flex-direction: column; gap: 14px; }
+.tr-prubeh__planek { min-width: 0; }
+.tr-kroky { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: 14.5px; line-height: 1.55; }
+.tr-kroky li { display: flex; gap: 10px; align-items: flex-start; }
+.tr-krok { flex: none; display: grid; place-items: center; width: 24px; height: 24px; margin-top: 1px; border-radius: 50%; background: var(--text); color: var(--surface);
+  font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
+@media (min-width: 1100px) {
+  .tr-prubeh__obsah--dva { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; gap: 20px; }
+}
+.tr-upraveno { align-self: center; padding: 2px 8px; border-radius: 999px; background: var(--sand); color: var(--muted); font-size: 11.5px; font-weight: 650; }
+.tr-okno .panel-vpravo { display: flex; align-items: center; gap: 6px; }
+.tr-okno .panel-paticka:empty { display: none; }
+@media (max-width: 599px) { .tr-hlava-tl span { display: none; } }
+.tr-uprava__fakta { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.tr-uprava textarea.field { resize: vertical; min-height: 44px; font: inherit; }
+.tr-u-seznam { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.tr-u-polozka { display: flex; gap: 8px; align-items: flex-start; }
+.tr-u-polozka textarea { flex: 1; min-width: 0; }
+.tr-u-polozka .tr-krok { margin-top: 10px; }
+.tr-u-tl { display: flex; flex-direction: column; gap: 2px; }
+.tr-u-tl .btn { width: 30px; height: 30px; min-height: 30px; }
+.tr-u-planek { margin-bottom: 8px; }
+.tr-u-akce { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tr-u-mezera { flex: 1; }
+@media (pointer: coarse) { .tr-uprava .field { font-size: 16px; } }
+
+#tr-tisk { display: none; }
+@page tisk-cviku { size: A4 portrait; margin: 12mm; }
+@media print {
+  html.tisk-cviku, html.tisk-cviku body { background: #fff !important; overflow: visible !important; height: auto !important; }
+  html.tisk-cviku body > :not(#tr-tisk) { display: none !important; }
+  html.tisk-cviku #tr-tisk { display: block; page: tisk-cviku; color: #111; font-size: 10.5pt; line-height: 1.45; }
+  #tr-tisk h1 { margin: 0 0 4px; font-size: 17pt; }
+  #tr-tisk h2 { margin: 12px 0 4px; font-size: 12pt; }
+  #tr-tisk p, #tr-tisk ul, #tr-tisk ol { margin: 0 0 4px; }
+  #tr-tisk .tr-tisk__fakta { color: #444; }
+  #tr-tisk .planek-obal { margin: 8px 0; break-inside: avoid; }
+  #tr-tisk .planek { max-height: 115mm; width: auto; max-width: 100%; margin: 0 auto; }
+  #tr-tisk mark { background: #eee; color: inherit; }
+}
+/* žádost o plánek (Chci plánek): značka čárkovaně, řádek v okně */
+.tr-karta__planek--chci { background: rgba(255, 255, 255, .85); color: var(--text-soft); outline: 1.5px dashed var(--muted); outline-offset: -3px; }
+.tr-chci { margin: 0; }

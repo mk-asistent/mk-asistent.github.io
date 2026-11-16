@@ -193,7 +193,7 @@ function prostredi() {
     s.getFolders = () => iterator(Object.values(s.deti));
     s.vKosi = false; s.isTrashed = () => s.vKosi; s.setTrashed = (k) => { s.vKosi = !!k; return s; };
     s.getFiles = () => iterator(s.soubory.filter((x) => !x.vKosi));
-    s.getFilesByName = (n) => iterator(s.soubory.filter((x) => !x.vKosi && x.getName() === n));
+    s.getFilesByName = (n) => iterator(s.soubory.filter((x) => x.getName() === n)); // jako DriveApp: i soubory v koši (kód kontroluje isTrashed)
     s.createFolder = (n) => (s.deti[n] = slozka(n, s));
     s.createFile = (n, obsah) => {
       if (n && typeof n === 'object') { obsah = n; n = n.getName(); } // createFile(blob) – fotka účtenky
@@ -5024,7 +5024,7 @@ test('Tréninky: výpis přes Drive API, karty naráz (fetchAll), otisk → beze
   assert.strictEqual(p.log.driveList, 3, 'výpis po stránkách (9 karet po 3)');
   assert.deepStrictEqual(json(p.log.fetchAll), [9], 'nové karty jedním fetchAll');
   const idx = JSON.parse(tr.soubory.find((f) => f.getName() === '_index_cviku.json').getBlob().getDataAsString());
-  assert.strictEqual(idx.v, 2);
+  assert.strictEqual(idx.v, 3);
   assert.ok(Object.values(idx.polozky).every((x) => x.c && x.c.organizace), 'rejstřík drží celé karty');
   // stejný otisk → beze_zmeny (bez čtení karet)
   r = p.volej('treninky', { otisk: d.otisk });
@@ -5074,6 +5074,93 @@ test('Tréninky: výpis přes Drive API, karty naráz (fetchAll), otisk → beze
   assert.deepStrictEqual([d.cviky.length, !!d.neuplne, d.cviky[0].druh], [30, false, 'kondice']);
   assert.ok(/^[0-9a-f]{32}$/.test(d.otisk) && !p2.log.driveList && !p2.log.fetchAll);
   assert.strictEqual(p2.volej('treninkMoje', { ids: ['Cvik_1', 'Cvik_2'], skryty: true }).ok, true);
+});
+
+test('Tréninky: kroky a plánek v kartě (ořez neplatného), Michalovy úpravy (pole, prázdné pole, null, vrátit), spojení v seznamu, kartách i celé kartě, otisky, poškozený upravy.json', () => {
+  const p = prostredi();
+  const tr = p.schranka.createFolder('TRENINKY');
+  const cv = tr.createFolder('cviky');
+  const planek = { vyrez: [0, 0, 30, 20], hriste: 'trava', prvky: [{ t: 'p', x: 5, y: 5, num: '1' }, { t: 'pass', x1: 5, y1: 5, x2: 20, y2: 10, krok: 1 },
+    { t: 'nesmysl', x: 1, y: 1 }, { t: 'cone', x: 500, y: -4, color: 'red' }] };
+  cv.createFile('Plan_001.json', JSON.stringify({ id: 'Plan_001', nazev: 'S plánkem', kratce: 'Krátce.', hraci: '6', organizace: ['Rozestavení.'],
+    kroky: ['A přihraje B.', '', 'B vrací.'], body: ['Pozor.'], planek, pripraveno: '2026-11-16T10:00:00+01:00' }));
+  cv.createFile('Bez_0002.json', JSON.stringify({ id: 'Bez_0002', nazev: 'Bez plánku', planek: { prvky: [{ t: 'nesmysl' }] }, pripraveno: '2026-11-15T10:00:00+01:00' }));
+  let d = p.volej('treninky').data;
+  assert.deepStrictEqual(d.cviky.map((c) => [c.id, !!c.planek, !!c.upraveno]), [['Plan_001', true, false], ['Bez_0002', false, false]], 'plánek: true v seznamu');
+  const k = p.volej('treninkyKarty').data;
+  assert.deepStrictEqual(k.karty.Plan_001.kroky, ['A přihraje B.', 'B vrací.']);
+  const pl = k.karty.Plan_001.planek;
+  assert.deepStrictEqual([pl.prvky.length, pl.prvky[2].t, pl.prvky[2].x, pl.prvky[2].y, pl.prvky[2].color, pl.prvky[1].krok], [3, 'cone', 105, 0, undefined, 1], 'neznámý prvek pryč, čísla oříznutá');
+  assert.ok(!('planek' in k.karty.Bez_0002), 'plánek bez platného prvku se zahodí');
+  assert.strictEqual(k.otisk, d.otiskKaret);
+  // úprava: text, prázdný seznam kroků (platná úprava), plánek
+  let r = p.volej('treninkUprava', { id: 'Plan_001', zmeny: { nazev: '  Můj název ', kroky: [], body: ['Nový bod', ''], planek: { vyrez: [0, 0, 20, 20], prvky: [{ t: 'ball', x: 3, y: 3 }] } } });
+  assert.strictEqual(r.ok, true, r.chyba);
+  let c = r.data.cvik;
+  assert.deepStrictEqual([c.nazev, c.kroky, c.body, c.planek.prvky.length, c.kratce], ['Můj název', undefined, ['Nový bod'], 1, 'Krátce.']);
+  assert.deepStrictEqual(c.upraveno.sort(), ['body', 'kroky', 'nazev', 'planek']);
+  assert.deepStrictEqual([c.puvodni.nazev, c.puvodni.kroky, c.puvodni.body], ['S plánkem', ['A přihraje B.', 'B vrací.'], ['Pozor.']]);
+  assert.ok(r.data.otiskKaret && r.data.otiskKaret !== k.otisk, 'nový otisk karet');
+  const u = JSON.parse(tr.soubory.find((f) => f.getName() === 'upravy.json').getBlob().getDataAsString());
+  assert.deepStrictEqual(u.polozky.Plan_001.kroky, [], 'prázdné pole se uloží');
+  assert.ok(Object.values(JSON.parse(tr.soubory.find((f) => f.getName() === '_index_cviku.json').getBlob().getDataAsString()).polozky)
+    .some((x) => x.c && x.c.nazev === 'S plánkem'), 'rejstřík drží Claudovu kartu bez úprav');
+  // spojení všude
+  const d2 = p.volej('treninky', { otisk: d.otisk }).data;
+  assert.ok(!d2.beze_zmeny && d2.otiskKaret === r.data.otiskKaret, 'otisky se změnily');
+  assert.deepStrictEqual([d2.cviky[0].nazev, d2.cviky[0].upraveno], ['Můj název', true]);
+  assert.deepStrictEqual([p.volej('treninkyKarty').data.karty.Plan_001.nazev, p.volej('treninkCvik', { id: 'Plan_001' }).data.cvik.nazev], ['Můj název', 'Můj název']);
+  // null = zrušit úpravu pole; odebraný plánek (false)
+  c = p.volej('treninkUprava', { id: 'Plan_001', zmeny: { nazev: null, planek: false } }).data.cvik;
+  assert.deepStrictEqual([c.nazev, 'planek' in c, c.upraveno.sort()], ['S plánkem', false, ['body', 'kroky', 'planek']]);
+  assert.strictEqual(p.volej('treninkUprava', { id: 'Plan_001', zmeny: { nazev: '' } }).ok, false, 'prázdný název ne');
+  assert.strictEqual(p.volej('treninkUprava', { id: 'Plan_001', zmeny: { odkaz: 'x' } }).ok, false, 'neupravitelné pole');
+  assert.strictEqual(p.volej('treninkUprava', { id: 'Plan_001', zmeny: { planek: { prvky: [] } } }).ok, false, 'neplatný plánek');
+  assert.strictEqual(p.volej('treninkUprava', { id: 'Neni_0001', zmeny: { nazev: 'x' } }).ok, false);
+  // vrátit vše
+  c = p.volej('treninkUprava', { id: 'Plan_001', vratit: true }).data.cvik;
+  assert.deepStrictEqual([c.nazev, c.kroky, c.upraveno, c.puvodni, c.planek.prvky.length], ['S plánkem', ['A přihraje B.', 'B vrací.'], undefined, undefined, 3]);
+  // poškozený upravy.json: čtení ho ignoruje (a hlásí), zápis ho nepřepíše
+  tr.soubory.find((f) => f.getName() === 'upravy.json').setContent('{ poškozený');
+  d = p.volej('treninky').data;
+  assert.ok(d.chybne.indexOf('upravy.json') >= 0 && d.cviky.length === 2);
+  r = p.volej('treninkUprava', { id: 'Plan_001', zmeny: { nazev: 'X' } });
+  assert.ok(!r.ok && /upravy\.json/.test(r.chyba));
+  assert.strictEqual(tr.soubory.find((f) => f.getName() === 'upravy.json').getBlob().getDataAsString(), '{ poškozený');
+});
+
+test('Tréninky: smazání cviků do koše (karta i náhled) a obnovení, moje zůstane; žádost Chci plánek v moje.json', () => {
+  const p = prostredi();
+  const tr = p.schranka.createFolder('TRENINKY');
+  const cv = tr.createFolder('cviky');
+  ['Cvik_001', 'Cvik_002', 'Cvik_003'].forEach((id) => cv.createFile(id + '.json', JSON.stringify({ id, nazev: 'Cvik ' + id })));
+  const nahled = tr.createFolder('nahledy').createFolder('Cvik_001');
+  nahled.createFile('nahled.json', '{}');
+  const d = p.volej('treninky').data;
+  assert.strictEqual(d.cviky.length, 3);
+  // chciPlanek jako skryty, i pro víc cviků
+  let r = p.volej('treninkMoje', { ids: ['Cvik_001', 'Cvik_002'], chciPlanek: true });
+  assert.strictEqual(r.ok, true, r.chyba);
+  assert.deepStrictEqual([r.data.moje.polozky.Cvik_001.chciPlanek, r.data.moje.polozky.Cvik_002.chciPlanek], [true, true]);
+  r = p.volej('treninkMoje', { id: 'Cvik_002', chciPlanek: false });
+  assert.ok(!r.data.moje.polozky.Cvik_002, 'zrušená žádost – položka pryč');
+  // smazání: karta i složka náhledu do koše, neznámý cvik se přeskočí
+  r = p.volej('treninkSmazat', { ids: ['Cvik_001', 'Cvik_003', 'Neni_0001'] });
+  assert.strictEqual(r.ok, true, r.chyba);
+  assert.deepStrictEqual(r.data.smazano, ['Cvik_001', 'Cvik_003']);
+  assert.ok(cv.soubory.find((f) => f.getName() === 'Cvik_001.json').isTrashed() && nahled.isTrashed(), 'karta i náhled v koši');
+  let d2 = p.volej('treninky', { otisk: d.otisk }).data;
+  assert.deepStrictEqual([d2.beze_zmeny, d2.cviky.map((c) => c.id), d2.moje.polozky.Cvik_001], [undefined, ['Cvik_002'], undefined], 'smazaný zmizel, jeho moje se neposílá');
+  const moje = JSON.parse(tr.soubory.find((f) => f.getName() === 'moje.json').getBlob().getDataAsString());
+  assert.strictEqual(moje.polozky.Cvik_001.chciPlanek, true, 'moje.json zůstává');
+  // obnovení
+  r = p.volej('treninkObnovit', { ids: ['Cvik_001', 'Cvik_002'] });
+  assert.deepStrictEqual(r.data.obnoveno, ['Cvik_001'], 'nesmazaný se přeskočí');
+  assert.ok(!cv.soubory.find((f) => f.getName() === 'Cvik_001.json').isTrashed() && !nahled.isTrashed(), 'karta i náhled zpět');
+  d2 = p.volej('treninky').data;
+  assert.deepStrictEqual([d2.cviky.map((c) => c.id).sort(), d2.moje.polozky.Cvik_001.chciPlanek], [['Cvik_001', 'Cvik_002'], true]);
+  assert.strictEqual(p.volej('treninkSmazat', { ids: ['../x'] }).ok, false, 'neplatné id');
+  assert.strictEqual(p.volej('treninkSmazat', { ids: [] }).ok, false);
 });
 
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));
