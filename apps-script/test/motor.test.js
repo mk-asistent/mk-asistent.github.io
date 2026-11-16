@@ -4968,6 +4968,10 @@ test('Tréninky: seznam cviků (bez dlouhých částí), celá karta, náhled a 
   assert.deepStrictEqual(json(r.data.moje.polozky), {}, 'prázdná položka pryč');
   assert.strictEqual(p.volej('treninkMoje', { id: 'Neexistuje1', hvezdy: 3 }).ok, false);
   assert.strictEqual(p.volej('treninkMoje', { id: 'DffH7NXioNi', hvezdy: 9 }).ok, false);
+  // trvalý rejstřík: podruhé se karty nečtou, změněná karta se přečte znovu
+  const idx = tr.soubory.find((f) => f.getName() === '_index_cviku.json');
+  assert.ok(idx && Object.keys(JSON.parse(idx.getBlob().getDataAsString()).polozky).length === 4, 'rejstřík cviků');
+  assert.deepStrictEqual(p.volej('treninky').data.cviky.map((c) => c.nazev), ['Rondo 4 na 2', 'Starší']);
 });
 
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

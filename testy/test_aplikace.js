@@ -429,7 +429,7 @@ const motor = {
     if (d.oblibene !== undefined) { if (d.oblibene) o.oblibene = true; else delete o.oblibene; }
     if (d.poznamka !== undefined) { if (d.poznamka) o.poznamka = d.poznamka; else delete o.poznamka; }
     treninkyMojeTest[d.id] = o;
-    return motor.treninky();
+    return { moje: { polozky: JSON.parse(JSON.stringify(treninkyMojeTest)) } };
   },
   knihovna: () => Object.assign(JSON.parse(JSON.stringify(knihovnaTest)), { ted: Date.now() }),
   knihovnaReserse: (d) => {

@@ -136,7 +136,9 @@ function zmenMoje(id, zmena) {
   t.data.moje.polozky[id] = o;
   zmeneno();
   aktualizujMojeVOkne(id);
-  volej('treninkMoje', Object.assign({ id }, zmena)).then((d) => { prijmi(d); zmeneno(); }, (e) => {
+  volej('treninkMoje', Object.assign({ id }, zmena)).then((d) => {
+    if (d && d.moje && t.data) { t.data.moje = d.moje; if (!jeDemo()) uloziste.pis(ULOZISTE, { data: t.data, kdy: t.kdy }); zmeneno(); }
+  }, (e) => {
     t.data.moje = puv;
     zmeneno();
     aktualizujMojeVOkne(id);

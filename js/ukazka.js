@@ -1058,7 +1058,7 @@ const akce = {
     if (d.oblibene !== undefined) { if (d.oblibene) o.oblibene = true; else delete o.oblibene; }
     if (d.poznamka !== undefined) { if (d.poznamka) o.poznamka = d.poznamka; else delete o.poznamka; }
     if (Object.keys(o).length) treninkyMoje[d.id] = o; else delete treninkyMoje[d.id];
-    return akce.treninky();
+    return { moje: { polozky: kopie(treninkyMoje) } };
   },
   knihovnaTip: (d) => {
     const r = knihovnaUkazka.reserse.find((x) => x.id === d.id);

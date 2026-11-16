@@ -44,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-11-16.1';
+const VERZE = '2026-11-16.2';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -9214,8 +9214,45 @@ function slozkaTreninku_(zalozit) {
   return it.hasNext() ? it.next() : null;
 }
 
+/**
+ * Seznam cviků přes trvalý rejstřík TRENINKY/_index_cviku.json (klíč = id souboru : čas úpravy → položka seznamu nebo chyba):
+ * čte se jen nový nebo změněný soubor. Mezipaměť skriptu vyprší po 6 h a 178 karet by se pak četlo přes minutu (16. 11.).
+ */
+function cvikyTreninku_(slozka) {
+  const soubory = jsonKnihovny_(slozka, 'cviky');
+  const r = slozka ? nactiJson_(slozka, '_index_cviku.json') : { soubor: null, data: null };
+  const stare = (r.data && typeof r.data.polozky === 'object' && r.data.polozky) || {};
+  const nove = {}, cviky = [], chybne = [], videno = {};
+  let zmena = Object.keys(stare).length !== soubory.length;
+  soubory.forEach(function (f) {
+    const k = f.getId() + ':' + f.getLastUpdated().getTime();
+    let v = stare[k];
+    if (!v) {
+      zmena = true;
+      let c = null;
+      try { c = TRENINKY_.cvik(JSON.parse(f.getBlob().getDataAsString('UTF-8').replace(/^\uFEFF/, ''))); } catch (chyba) { c = null; }
+      v = c ? { c: TRENINKY_.index(c) } : { chyba: f.getName() };
+    }
+    nove[k] = v;
+    if (v.chyba || !v.c) { chybne.push(v.chyba || f.getName()); return; }
+    if (videno[v.c.id]) { chybne.push(f.getName() + ' (stejné id jako ' + videno[v.c.id] + ')'); return; }
+    videno[v.c.id] = f.getName();
+    cviky.push(v.c);
+  });
+  if (zmena && slozka) {
+    const obsah = JSON.stringify({ polozky: nove });
+    try { if (r.soubor) r.soubor.setContent(obsah); else slozka.createFile('_index_cviku.json', obsah, MimeType.PLAIN_TEXT); } catch (chyba) { /* jen zrychlení */ }
+  }
+  return { cviky: cviky, chybne: chybne };
+}
+
 function obsahTreninku_(slozka) {
-  const c = rozeberKnihovnu_(jsonKnihovny_(slozka, 'cviky'), 't', TRENINKY_.cvik);
+  const c = cvikyTreninku_(slozka);
+  let m = mojeTreninku_(slozka);
+  return { cviky: c.cviky, moje: m, chybne: c.chybne.concat(m.chyba ? ['moje.json'] : []) };
+}
+
+function mojeTreninku_(slozka) {
   let m = { soubor: null, data: TRENINKY_.moje(null), chyba: false };
   const it = slozka ? slozka.getFilesByName('moje.json') : null;
   while (it && it.hasNext() && !m.soubor) {
@@ -9224,7 +9261,7 @@ function obsahTreninku_(slozka) {
     try { m = { soubor: f, data: TRENINKY_.moje(JSON.parse(f.getBlob().getDataAsString('UTF-8').replace(/^\uFEFF/, ''))), chyba: false }; }
     catch (chyba) { m = { soubor: f, data: TRENINKY_.moje(null), chyba: true }; }
   }
-  return { cviky: c.polozky, moje: m, chybne: c.chybne.concat(m.chyba ? ['moje.json'] : []) };
+  return m;
 }
 
 /** Akce treninky: seznam cviků (bez dlouhých částí) a moje hvězdy, poznámky a oblíbené. */
@@ -9244,20 +9281,26 @@ function treninkCvik_(id) {
   return { cvik: c };
 }
 
-/** Akce treninkMoje { id, hvezdy?, poznamka?, oblibene? } – zápis pod zámkem, vrací seznam jako akce treninky. */
+/** Akce treninkMoje { id, hvezdy?, poznamka?, oblibene? } – zápis pod zámkem, vrací { moje } (seznam cviků se kvůli rychlosti nečte). */
 function treninkMoje_(d) {
+  const id = String(d.id || '');
+  if (!TRENINKY_.ID.test(id)) throw new Error('Neplatný cvik.');
   const zamek = LockService.getScriptLock();
   zamek.waitLock(30000);
   try {
     const slozka = slozkaTreninku_(true);
-    const o = obsahTreninku_(slozka);
-    if (o.moje.chyba) throw new Error('TRENINKY/moje.json není platný JSON – nic jsem nepřepsal.');
-    const id = String(d.id || '');
-    if (!o.cviky.some(function (c) { return c.id === id; })) throw new Error('Cvik v Trénincích není – obnov stránku.');
-    TRENINKY_.zmenMoje(o.moje.data, id, { hvezdy: d.hvezdy, poznamka: d.poznamka, oblibene: d.oblibene }, kdyKnihovny_(new Date(Date.now())));
-    const obsah = JSON.stringify(o.moje.data, null, 1);
-    if (o.moje.soubor) o.moje.soubor.setContent(obsah); else slozka.createFile('moje.json', obsah, MimeType.PLAIN_TEXT);
-    return TRENINKY_.vystup(o.cviky, o.moje.data, o.chybne, Date.now());
+    const it = slozka.getFoldersByName('cviky');
+    const cviky = it.hasNext() ? it.next() : null;
+    const soubor = cviky ? cviky.getFilesByName(id + '.json') : null;
+    let je = false;
+    while (soubor && soubor.hasNext() && !je) je = !soubor.next().isTrashed();
+    if (!je) throw new Error('Cvik v Trénincích není – obnov stránku.');
+    const m = mojeTreninku_(slozka);
+    if (m.chyba) throw new Error('TRENINKY/moje.json není platný JSON – nic jsem nepřepsal.');
+    TRENINKY_.zmenMoje(m.data, id, { hvezdy: d.hvezdy, poznamka: d.poznamka, oblibene: d.oblibene }, kdyKnihovny_(new Date(Date.now())));
+    const obsah = JSON.stringify(m.data, null, 1);
+    if (m.soubor) m.soubor.setContent(obsah); else slozka.createFile('moje.json', obsah, MimeType.PLAIN_TEXT);
+    return { moje: m.data, ted: Date.now() };
   } finally {
     zamek.releaseLock();
   }
