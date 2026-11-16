@@ -9,6 +9,19 @@ const dnes = pulnoc(ted);
 const den = (posun, hod = 0, min = 0) => pridejDny(dnes, posun) + (hod * 60 + min) * 6e4;
 const iso = (t) => { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 const kopie = (o) => JSON.parse(JSON.stringify(o));
+// Tréninky v ukázce (vymyšlené cviky)
+const treninkyUkazka = [
+  { id: 'UkazkaRondo1', nazev: 'Rondo 4 na 2 se změnou strany', kratce: 'Rychlá kombinace ve čtverci. **Hlava nahoře a první dotyk od sebe.**', zamereni: ['přihrávky', 'rozcvička'],
+    forma: 'průpravné cvičení', kategorie: ['dorost', 'dospělí'], hraci: '6–8', prostor: '12 × 12 m', delka: '10–15 min', intenzita: 'střední', pomucky: ['kužely', 'rozlišováky'],
+    organizace: ['Čtyři hráči po stranách čtverce, dva uprostřed. Po 8 přihrávkách bod.'], body: ['Postavení těla otevřené do hřiště.', 'Přihrávka do lepší nohy.'],
+    varianty: ['Na dva doteky.', 'Po zisku míče obránci kontrují do malé branky.'], autor: '@ukazka', pripraveno: '2026-11-15T10:00:00+01:00' },
+  { id: 'UkazkaZakonceni2', nazev: 'Zakončení po kombinaci křídlem', kratce: 'Útok po křídle a střela z první. **Náběh do prostoru mezi stopera a beka.**', zamereni: ['střelba'],
+    forma: 'herní cvičení', kategorie: ['dorost'], hraci: '10–14', prostor: 'půlka hřiště', delka: '15–20 min', intenzita: 'vysoká', pomucky: ['branky', 'kužely'],
+    organizace: ['Dvě skupiny střídavě z obou křídel.'], body: ['Načasování náběhu.'], autor: '@ukazka', pripraveno: '2026-11-14T10:00:00+01:00' },
+  { id: 'UkazkaKondice3', nazev: 'Intervalové běhy s míčem', kratce: '**Krátké úseky s maximální rychlostí**, mezi nimi vedení míče.', zamereni: ['kondice'],
+    forma: 'kondiční cvičení', kategorie: ['dospělí'], hraci: 'libovolně', delka: '12 min', intenzita: 'vysoká', autor: '@ukazka', pripraveno: '2026-11-13T10:00:00+01:00' }];
+const treninkyMoje = { UkazkaRondo1: { hvezdy: 5, oblibene: true } };
+
 const SNIMEK_UKAZKA = '/9j/4AAQSkZJRgABAgAAAQABAAD//gAPTGF2YzYzLjEuMTAwAP/bAEMACCgoLygvNzc3Nzc3QTxBQ0NDQUFBQUNDQ0hISFVVVUhISENDSEhQUFVVXF9cV1dVV19fZGRkeHhzc4yMkaysz//EAE0AAQEAAAAAAAAAAAAAAAAAAAAHAQEBAQAAAAAAAAAAAAAAAAAAAwQQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAEcAKADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCYgJsIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD//2Q=='; // vymyšlený snímek k tipům v Rešerších AI
 let hnedUkazky = null; // žádost „Odpovědět hned“ v ukázce
 // malé PDF (2 strany A4, vymyšlený text) pro náhled přílohy
@@ -1031,6 +1044,22 @@ const akce = {
   tipyNahledy: () => ({ tipy: { 'reserse-tip-ukazkovy-plugin': { ikona: SNIMEK_UKAZKA, video: false, snimku: 4, delka_s: 92, zdroj: 'x' } } }),
   tipNahled: (d) => (d.id === 'reserse-tip-ukazkovy-plugin' && !(knihovnaUkazka.moje[d.id] || {}).tip ? { nahled: { zdroj: 'x', autor: '@ukazka', odkaz: 'https://example.com/ukazkovy-tip',
     text: 'Vymyšlený text příspěvku k ukázce.', delka_s: 92, video: false, video_mb: 0, snimky: [SNIMEK_UKAZKA, SNIMEK_UKAZKA, SNIMEK_UKAZKA, SNIMEK_UKAZKA], miniatura: '', prepis: '', poznamka: '' } } : { nahled: null }),
+  // Tréninky: tři vymyšlené cviky, moje hvězdy a oblíbené jen v paměti ukázky
+  treninky: () => ({ cviky: treninkyUkazka.map((c) => { const o = Object.assign({}, c); delete o.organizace; delete o.body; delete o.varianty; return o; }),
+    moje: { polozky: kopie(treninkyMoje) }, chybne: [], ted: Date.now() }),
+  treninkCvik: (d) => { const c = treninkyUkazka.find((x) => x.id === d.id); if (!c) throw new Error('Cvik v Trénincích není – obnov stránku.'); return { cvik: kopie(c) }; },
+  treninkyNahledy: () => ({ tipy: { UkazkaRondo1: { ikona: SNIMEK_UKAZKA, video: false, snimku: 2, delka_s: 30, zdroj: 'instagram' } } }),
+  treninkNahled: (d) => ({ nahled: d.id === 'UkazkaRondo1' ? { zdroj: 'instagram', autor: '@ukazka', text: 'Vymyšlený popisek reelu.', delka_s: 30, video: false, video_mb: 0,
+    snimky: [SNIMEK_UKAZKA, SNIMEK_UKAZKA], miniatura: '', prepis: 'Vymyšlený přepis: „Hlava nahoře, první dotyk od sebe.“', poznamka: '' } : null }),
+  treninkVideo: () => { throw new Error('Video u cviku není.'); },
+  treninkMoje: (d) => {
+    const o = Object.assign({}, treninkyMoje[d.id]);
+    if (d.hvezdy !== undefined) { if (d.hvezdy) o.hvezdy = d.hvezdy; else delete o.hvezdy; }
+    if (d.oblibene !== undefined) { if (d.oblibene) o.oblibene = true; else delete o.oblibene; }
+    if (d.poznamka !== undefined) { if (d.poznamka) o.poznamka = d.poznamka; else delete o.poznamka; }
+    if (Object.keys(o).length) treninkyMoje[d.id] = o; else delete treninkyMoje[d.id];
+    return akce.treninky();
+  },
   knihovnaTip: (d) => {
     const r = knihovnaUkazka.reserse.find((x) => x.id === d.id);
     if (!r) throw new Error('Tip v knihovně není – obnov stránku.');

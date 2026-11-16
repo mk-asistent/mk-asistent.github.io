@@ -44,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-11-13.1';
+const VERZE = '2026-11-16.1';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -141,7 +141,8 @@ const CTENI_MOTORU = ['info', 'schranka', 'posta', 'vlakno', 'hledat', 'kalendar
   'igStav', // průběh zveřejňování na Instagram (aplikace se ptá každou minutu, když má něco brzy vyjít)
   'igSkupiny', // skupiny účtů k označení (REELY/skupiny.json)
   'knihovna', 'knihovnaReserse', // Knihovna: karty, index rešerší, můj stav a požadavky; celá rešerše
-  'tipyNahledy', 'tipNahled', 'tipVideo']; // Rešerše AI: náhledy tipů (KNIHOVNA/nahledy)
+  'tipyNahledy', 'tipNahled', 'tipVideo', // Rešerše AI: náhledy tipů (KNIHOVNA/nahledy)
+  'treninky', 'treninkCvik', 'treninkyNahledy', 'treninkNahled', 'treninkVideo']; // Tréninky: cviky a jejich videa (TRENINKY)
 
 /** Výsledek dřívějšího běhu téhož požadavku (JSON), nebo null; když ještě běží, počká na něj (nejvýš ~25 s). */
 function vysledekRid_(rid) {
@@ -280,6 +281,13 @@ const AKCE = {
   knihovnaPridat: function (d) { return knihovnaPridat_(d); },
   knihovnaMoje: function (d) { return knihovnaMoje_(d); },
   knihovnaZrusit: function (d) { return knihovnaZrusit_(d.id); },
+  // Tréninky (studnice cviků z reelů): seznam, celá karta, malé obrázky, náhled a video (stejně jako tipy), moje hvězdy / poznámka / oblíbené
+  treninky: function () { return treninky_(); },
+  treninkCvik: function (d) { return treninkCvik_(d.id); },
+  treninkyNahledy: function () { return tipyNahledy_('treninky'); },
+  treninkNahled: function (d) { return tipNahled_(d.id, 'treninky'); },
+  treninkVideo: function (d) { return tipVideo_(d.id, 'treninky'); },
+  treninkMoje: function (d) { return treninkMoje_(d); },
   // značky změn: kdy se naposledy zapisovalo (auto, zdraví) – server je posílá s každou obnovou, aplikace podle nich načítá
   zmeny: function () { return zmeny_(); },
   // víc čtení v jednom požadavku – aplikace při startu neposílá deset dotazů naráz (ty se pak řadí do fronty)
@@ -9057,10 +9065,13 @@ function knihovnaMoje_(d) {
 // fotka v _index.json a karta s přepisem (Michal 8. 11.: „pak nebudou mít už video staženo … zůstane jen jedna fotka komprimovaná“).
 const MAX_VIDEA_TIPU = 20 * 1024 * 1024;
 
-/** Složka náhledu tipu (mimo koš), nebo null. */
-function slozkaNahledu_(id) {
-  if (!KNIHOVNA_.ID.test(String(id || ''))) throw new Error('Neplatný tip.');
-  const k = slozkaKnihovny_(false);
+/** Kořen náhledů: Knihovna (tipy), nebo Tréninky (cviky). */
+function slozkaOblasti_(oblast) { return oblast === 'treninky' ? slozkaTreninku_(false) : slozkaKnihovny_(false); }
+
+/** Složka náhledu tipu / cviku (mimo koš), nebo null. */
+function slozkaNahledu_(id, oblast) {
+  if (!(oblast === 'treninky' ? TRENINKY_.ID : KNIHOVNA_.ID).test(String(id || ''))) throw new Error('Neplatný tip.');
+  const k = slozkaOblasti_(oblast);
   const it = k ? k.getFoldersByName('nahledy') : null;
   if (!it || !it.hasNext()) return null;
   const f = it.next().getFoldersByName(String(id));
@@ -9075,8 +9086,8 @@ function souborVeSlozce_(slozka, nazev) {
 }
 
 /** Akce tipyNahledy: malé obrázky a co u tipu je ({ tipy: { id: { ikona, video, snimku, delka_s, zdroj } } }). */
-function tipyNahledy_() {
-  const k = slozkaKnihovny_(false);
+function tipyNahledy_(oblast) {
+  const k = slozkaOblasti_(oblast);
   const it = k ? k.getFoldersByName('nahledy') : null;
   if (!it || !it.hasNext()) return { tipy: {} };
   const d = nactiJson_(it.next(), '_index.json').data;
@@ -9084,7 +9095,7 @@ function tipyNahledy_() {
   const zdroj = (d && typeof d.tipy === 'object' && d.tipy) || {};
   Object.keys(zdroj).forEach(function (id) {
     const x = zdroj[id];
-    if (!KNIHOVNA_.ID.test(id) || !x || typeof x !== 'object') return;
+    if (!(oblast === 'treninky' ? TRENINKY_.ID : KNIHOVNA_.ID).test(id) || !x || typeof x !== 'object') return;
     tipy[id] = { video: !!x.video, snimku: Number(x.snimku) || 0, delka_s: Number(x.delka_s) || 0, zdroj: KNIHOVNA_.radek(x.zdroj, 20) };
     if (typeof x.ikona === 'string' && x.ikona.length < 20000 && /^[A-Za-z0-9+/=]+$/.test(x.ikona)) tipy[id].ikona = x.ikona;
   });
@@ -9092,8 +9103,8 @@ function tipyNahledy_() {
 }
 
 /** Akce tipNahled { id }: text příspěvku, přepis, snímky (base64); video jen příznak – stahuje se zvlášť (tipVideo). */
-function tipNahled_(id) {
-  const s = slozkaNahledu_(id);
+function tipNahled_(id, oblast) {
+  const s = slozkaNahledu_(id, oblast);
   const j = s ? nactiJson_(s, 'nahled.json').data : null;
   if (!j || typeof j !== 'object') return { nahled: null };
   const soubory = {}; // jeden průchod složkou je rychlejší než hledat každý soubor zvlášť
@@ -9114,13 +9125,142 @@ function tipNahled_(id) {
 }
 
 /** Akce tipVideo { id }: video v base64 (nejvýš 20 MB) – aplikace z něj udělá blob; soubor na Disku zůstává soukromý. */
-function tipVideo_(id) {
-  const s = slozkaNahledu_(id);
+function tipVideo_(id, oblast) {
+  const s = slozkaNahledu_(id, oblast);
   const j = s ? nactiJson_(s, 'nahled.json').data : null;
   const f = j && /^[\w.-]+\.mp4$/i.test(String(j.video || '')) ? souborVeSlozce_(s, String(j.video)) : null;
   if (!f) throw new Error('Video u tipu není.');
   if (f.getSize() > MAX_VIDEA_TIPU) throw new Error('Video je moc velké (' + Math.round(f.getSize() / 1048576) + ' MB).');
   return { typ: 'video/mp4', velikost: f.getSize(), data: Utilities.base64Encode(f.getBlob().getBytes()) };
+}
+
+// ---------------------------------------------------------------- Tréninky (Michal 16. 11.: „chtěl bych si to v Asistentovi uložit a pak
+// z toho dělat takovou vlastní studnici nápadů na tréninky“). CLAUDE_SCHRANKA/TRENINKY: cviky/<id>.json píše jen Claude (z reelů
+// v chatu „Tréninky video“ a ze zkratky Do tréninků), nahledy/<id>/ jen PC (video, snímky, přepis – soukromé, do aplikace jdou
+// v odpovědi motoru), moje.json jen motor (hvězdy, poznámka, oblíbené). Id = kód příspěvku na Instagramu (rozlišuje velikost písmen).
+const TRENINKY_SLOZKA = 'TRENINKY';
+
+/** Čisté funkce Tréninků (testuje motor.test.js). */
+const TRENINKY_ = (function () {
+  const K = KNIHOVNA_;
+  const ID = /^[A-Za-z0-9_-]{4,60}$/;
+  const MAX_POZNAMKY = 2000;
+  const obj = function (x) { return x && typeof x === 'object' && !Array.isArray(x) ? x : null; };
+  const pole = function (x, max, fn) { return (Array.isArray(x) ? x : []).map(fn).filter(function (v) { return v !== '' && v != null; }).slice(0, max); };
+  function bezPrazdnych(o) {
+    Object.keys(o).forEach(function (k) { const v = o[k]; if (v === '' || v == null || (Array.isArray(v) && !v.length)) delete o[k]; });
+    return o;
+  }
+  /** Karta cviku: povinné id a název, ostatní jen co Claude zjistil. */
+  function cvik(d) {
+    if (!obj(d)) return null;
+    const id = K.radek(d.id, 60), nazev = K.radek(d.nazev, 160);
+    if (!ID.test(id) || !nazev) return null;
+    const radky = function (x, n, max) { return pole(x, n, function (v) { return K.txt(v, max); }); };
+    return bezPrazdnych({
+      id: id, nazev: nazev, kratce: K.txt(d.kratce, 1200),
+      zamereni: pole(d.zamereni, 6, function (v) { return K.radek(v, 40); }), forma: K.radek(d.forma, 60),
+      kategorie: pole(d.kategorie, 8, function (v) { return K.radek(v, 30); }), hraci: K.radek(d.hraci, 40), prostor: K.radek(d.prostor, 80),
+      delka: K.radek(d.delka, 40), intenzita: K.radek(d.intenzita, 40), pomucky: pole(d.pomucky, 12, function (v) { return K.radek(v, 60); }),
+      organizace: radky(d.organizace, 12, 1200), body: radky(d.body, 12, 400), varianty: radky(d.varianty, 10, 400),
+      odkaz: K.url(d.odkaz), autor: K.radek(d.autor, 80), prepis: K.txt(d.prepis, 20000), pripraveno: K.radek(d.pripraveno, 40)
+    });
+  }
+  /** Do seznamu: bez organizace, bodů, variant a přepisu. */
+  function index(c) {
+    return bezPrazdnych({ id: c.id, nazev: c.nazev, kratce: K.txt(c.kratce, 400), zamereni: c.zamereni, forma: c.forma, kategorie: c.kategorie,
+      hraci: c.hraci, delka: c.delka, intenzita: c.intenzita, autor: c.autor, pripraveno: c.pripraveno });
+  }
+  function hvezdy(x) { const n = Number(x); return Number.isInteger(n) && n >= 1 && n <= 5 ? n : null; }
+  /** moje.json → { polozky: { id: { hvezdy?, poznamka?, oblibene?, kdy } } } */
+  function moje(x) {
+    const p = obj(x) && obj(x.polozky) ? x.polozky : {};
+    const polozky = {};
+    Object.keys(p).forEach(function (id) {
+      const v = obj(p[id]);
+      if (!ID.test(id) || !v) return;
+      const o = bezPrazdnych({ hvezdy: hvezdy(v.hvezdy), poznamka: K.txt(v.poznamka, MAX_POZNAMKY), oblibene: v.oblibene === true ? true : null, kdy: K.radek(v.kdy, 40) });
+      if (o.hvezdy || o.poznamka || o.oblibene) polozky[id] = o;
+    });
+    return { polozky: polozky };
+  }
+  /** Změna mého u cviku: hvezdy 0 = zrušit, poznamka '' = smazat, oblibene true/false; pole, které nepřišlo, zůstává. */
+  function zmenMoje(m, id, z, kdy) {
+    if (!ID.test(String(id || ''))) throw new Error('Neplatný cvik.');
+    const o = Object.assign({}, m.polozky[id] || {});
+    if (z.hvezdy !== undefined) { if (z.hvezdy === 0 || z.hvezdy === null) delete o.hvezdy; else { const h = hvezdy(z.hvezdy); if (!h) throw new Error('Hvězdy 1–5.'); o.hvezdy = h; } }
+    if (z.poznamka !== undefined) { const t = K.txt(z.poznamka, MAX_POZNAMKY); if (t) o.poznamka = t; else delete o.poznamka; }
+    if (z.oblibene !== undefined) { if (z.oblibene === true) o.oblibene = true; else delete o.oblibene; }
+    delete o.kdy;
+    if (Object.keys(o).length) { o.kdy = kdy; m.polozky[id] = o; } else delete m.polozky[id];
+    return m;
+  }
+  function vystup(cviky, m, chybne, ted) {
+    const ids = {};
+    cviky.forEach(function (c) { ids[c.id] = true; });
+    const polozky = {};
+    Object.keys(m.polozky).forEach(function (id) { if (ids[id]) polozky[id] = m.polozky[id]; });
+    return { cviky: cviky.map(index).sort(function (a, b) { return String(b.pripraveno || '').localeCompare(String(a.pripraveno || '')); }),
+      moje: { polozky: polozky }, chybne: chybne.slice(0, 20), ted: ted };
+  }
+  return { ID: ID, cvik: cvik, index: index, moje: moje, zmenMoje: zmenMoje, vystup: vystup };
+})();
+
+/** Složka TRENINKY (čtení ji nezakládá). */
+function slozkaTreninku_(zalozit) {
+  const koren = koren_();
+  if (zalozit) return podslozka_(koren, TRENINKY_SLOZKA);
+  const it = koren.getFoldersByName(TRENINKY_SLOZKA);
+  return it.hasNext() ? it.next() : null;
+}
+
+function obsahTreninku_(slozka) {
+  const c = rozeberKnihovnu_(jsonKnihovny_(slozka, 'cviky'), 't', TRENINKY_.cvik);
+  let m = { soubor: null, data: TRENINKY_.moje(null), chyba: false };
+  const it = slozka ? slozka.getFilesByName('moje.json') : null;
+  while (it && it.hasNext() && !m.soubor) {
+    const f = it.next();
+    if (f.isTrashed()) continue;
+    try { m = { soubor: f, data: TRENINKY_.moje(JSON.parse(f.getBlob().getDataAsString('UTF-8').replace(/^\uFEFF/, ''))), chyba: false }; }
+    catch (chyba) { m = { soubor: f, data: TRENINKY_.moje(null), chyba: true }; }
+  }
+  return { cviky: c.polozky, moje: m, chybne: c.chybne.concat(m.chyba ? ['moje.json'] : []) };
+}
+
+/** Akce treninky: seznam cviků (bez dlouhých částí) a moje hvězdy, poznámky a oblíbené. */
+function treninky_() {
+  const o = obsahTreninku_(slozkaTreninku_(false));
+  return TRENINKY_.vystup(o.cviky, o.moje.data, o.chybne, Date.now());
+}
+
+/** Akce treninkCvik { id }: celá karta cviku. */
+function treninkCvik_(id) {
+  const x = String(id || '');
+  if (!TRENINKY_.ID.test(x)) throw new Error('Neplatný cvik.');
+  const soubory = jsonKnihovny_(slozkaTreninku_(false), 'cviky');
+  const najdi = function (seznam) { return rozeberKnihovnu_(seznam, 't', TRENINKY_.cvik).polozky.filter(function (c) { return c.id === x; })[0]; };
+  const c = najdi(soubory.filter(function (f) { return f.getName() === x + '.json'; })) || najdi(soubory);
+  if (!c) throw new Error('Cvik v Trénincích není – obnov stránku.');
+  return { cvik: c };
+}
+
+/** Akce treninkMoje { id, hvezdy?, poznamka?, oblibene? } – zápis pod zámkem, vrací seznam jako akce treninky. */
+function treninkMoje_(d) {
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(30000);
+  try {
+    const slozka = slozkaTreninku_(true);
+    const o = obsahTreninku_(slozka);
+    if (o.moje.chyba) throw new Error('TRENINKY/moje.json není platný JSON – nic jsem nepřepsal.');
+    const id = String(d.id || '');
+    if (!o.cviky.some(function (c) { return c.id === id; })) throw new Error('Cvik v Trénincích není – obnov stránku.');
+    TRENINKY_.zmenMoje(o.moje.data, id, { hvezdy: d.hvezdy, poznamka: d.poznamka, oblibene: d.oblibene }, kdyKnihovny_(new Date(Date.now())));
+    const obsah = JSON.stringify(o.moje.data, null, 1);
+    if (o.moje.soubor) o.moje.soubor.setContent(obsah); else slozka.createFile('moje.json', obsah, MimeType.PLAIN_TEXT);
+    return TRENINKY_.vystup(o.cviky, o.moje.data, o.chybne, Date.now());
+  } finally {
+    zamek.releaseLock();
+  }
 }
 
 /** Akce knihovnaTip { id, stav }: Probráno / Zavést / Zamítnout (video a snímky do koše, karta zůstává; do rejstříku to propíše

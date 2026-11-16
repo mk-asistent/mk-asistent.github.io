@@ -1,0 +1,58 @@
+/* Tréninky (16. 11.) – studnice cviků z reelů: mřížka karet s náhledem, okno cviku (video vlevo, text vpravo). */
+.tr-lista { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 14px; }
+.tr-hledat { flex: 0 1 300px; }
+.tr-filtry { flex: 1 1 360px; min-width: 0; }
+.tr-mrizka { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 14px; }
+.tr-karta { width: 100%; height: 100%; display: flex; flex-direction: column; text-align: left; padding: 0; border: 1px solid var(--line); border-radius: 16px;
+  background: var(--surface); color: var(--text); overflow: hidden; cursor: pointer; font: inherit; }
+.tr-karta:hover { border-color: var(--sand-2); }
+.tr-karta:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tr-karta__obr { position: relative; display: grid; place-items: center; aspect-ratio: 4 / 3; background: var(--sand); overflow: hidden; }
+.tr-karta__obr img { width: 100%; height: 100%; object-fit: cover; }
+.tr-karta__obr > i { width: 40px; height: 40px; color: var(--muted); }
+.tr-karta__obr > i svg { width: 100%; height: 100%; }
+.tr-karta__video { position: absolute; right: 8px; bottom: 8px; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(16, 20, 18, .72); color: #fff; }
+.tr-karta__video svg { width: 14px; height: 14px; }
+.tr-karta__telo { display: flex; flex-direction: column; gap: 5px; padding: 11px 13px 13px; min-width: 0; flex: 1; }
+.tr-karta__stitky { display: flex; flex-wrap: wrap; gap: 4px; }
+.tr-karta__telo b { font-size: 14.5px; line-height: 1.3; font-weight: 650; }
+.tr-karta__telo small { font-size: 12.5px; line-height: 1.4; color: var(--text-soft); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tr-karta__meta { margin-top: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12px; color: var(--muted); }
+.tr-karta__hvezdy { color: var(--zluta); letter-spacing: 1px; }
+.tr-karta__obl { color: var(--oranz); }
+
+/* okno cviku */
+.tr-detail { display: flex; flex-direction: column; gap: 18px; }
+.tr-detail__media { display: flex; flex-direction: column; gap: 8px; }
+.tr-video { display: block; border-radius: 14px; overflow: hidden; background: #101412; }
+.tr-video .kn-tip__video { display: block; width: 100%; max-height: 62vh; }
+.tr-video--nic { display: grid; place-items: center; gap: 8px; padding: 26px 16px; color: var(--muted); background: var(--sand); text-align: center; font-size: 13px; }
+.tr-video--nic i { width: 34px; height: 34px; }
+.tr-video--nic svg { width: 100%; height: 100%; }
+.tr-original { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; color: var(--accent); }
+.tr-original svg { width: 13px; height: 13px; }
+.tr-autor { font-size: 12px; color: var(--muted); }
+.tr-detail__text { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.tr-stitky { display: flex; flex-wrap: wrap; gap: 6px; }
+.tr-kratce { font-size: 16px; line-height: 1.6; font-weight: 500; }
+.tr-kratce p { margin: 0; }
+.tr-kratce p + p { margin-top: 8px; }
+.tr-fakta { margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.tr-fakta div { padding: 9px 12px; border-radius: 12px; background: var(--sand); }
+.tr-fakta dt { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.tr-fakta dd { margin: 2px 0 0; font-size: 14px; font-weight: 600; }
+.tr-sekce h3 { margin: 0 0 8px; font-size: 15px; font-weight: 700; }
+.tr-sekce p { margin: 0 0 8px; font-size: 14.5px; line-height: 1.6; }
+.tr-sekce ul { margin: 0; padding-left: 20px; font-size: 14.5px; line-height: 1.55; }
+.tr-sekce li { margin: 5px 0; }
+.tr-moje { padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.tr-moje__radek { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 10px; }
+.tr-poznamka { width: 100%; min-height: 60px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text);
+  font: inherit; font-size: 16px; resize: vertical; }
+
+@media (min-width: 900px) {
+  .panel.panel-okno.tr-okno { width: min(1180px, 92vw); }
+  .tr-detail { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); gap: 28px; align-items: start; }
+  .tr-detail__media { position: sticky; top: 0; }
+}

@@ -71,6 +71,7 @@ export const CTENI = ['info', 'schranka', 'posta', 'kalendar', 'kalendare', 'poc
   'postaDetaily', // pošta: přednačtení detailů posledních konverzací (nic neoznačí jako přečtené)
   'postaPriloha', // pošta: obsah přílohy pro náhled
   'tipyNahledy', 'tipNahled', 'tipVideo', // Rešerše AI: náhledy tipů
+  'treninky', 'treninkCvik', 'treninkyNahledy', 'treninkNahled', 'treninkVideo', // Tréninky
   'kontakty', 'hledat', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'zmeny', 'plakaty',
   'igStav', // čtení bez kopie nic nezneplatní (igStav = průběh zveřejňování na Instagram, js/ig.js)
   'igSkupiny', // skupiny k označení (js/ig_skupiny.js) – jen když je kopie reelů ani plakátů nemá

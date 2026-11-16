@@ -4929,4 +4929,45 @@ test('Instagram: skupiny – každý zápis pod zámkem, poškozený soubor se n
   const velikost = Buffer.byteLength(JSON.stringify(seznam), 'utf8');
   assert.ok(seznam.length === 30 && velikost < 60000, 'velikost skupin: ' + velikost + ' B');
 });
+test('Tréninky: seznam cviků (bez dlouhých částí), celá karta, náhled a video z TRENINKY/nahledy, moje hvězdy / poznámka / oblíbené', () => {
+  const p = prostredi();
+  assert.strictEqual(p.volej('treninky').data.cviky.length, 0, 'bez složky prázdno');
+  const tr = p.schranka.createFolder('TRENINKY');
+  const cv = tr.createFolder('cviky');
+  cv.createFile('DffH7NXioNi.json', JSON.stringify({ id: 'DffH7NXioNi', nazev: ' Rondo 4 na 2 ', kratce: 'Krátce **hlavní**.', zamereni: ['přihrávky', ''], hraci: '6–8',
+    organizace: ['Čtverec 10 × 10 m.'], body: ['Hlava nahoře.'], prepis: 'Řečeno.', odkaz: 'javascript:alert(1)', pripraveno: '2026-11-16T10:00:00+01:00' }));
+  cv.createFile('Starsi_1.json', JSON.stringify({ id: 'Starsi_1', nazev: 'Starší', pripraveno: '2026-11-01T10:00:00+01:00' }));
+  cv.createFile('spatny.json', JSON.stringify({ id: '../x', nazev: 'Zlé id' }));
+  cv.createFile('bez.json', JSON.stringify({ id: 'BezNazvu' }));
+  const d = p.volej('treninky').data;
+  assert.deepStrictEqual(d.cviky.map((c) => c.id), ['DffH7NXioNi', 'Starsi_1'], 'nejnovější první, velká písmena a podtržítko v id');
+  assert.deepStrictEqual(json(d.cviky[0]), { id: 'DffH7NXioNi', nazev: 'Rondo 4 na 2', kratce: 'Krátce **hlavní**.', zamereni: ['přihrávky'], hraci: '6–8', pripraveno: '2026-11-16T10:00:00+01:00' });
+  assert.deepStrictEqual(json(d.chybne).sort(), ['bez.json', 'spatny.json']);
+  const c = p.volej('treninkCvik', { id: 'DffH7NXioNi' }).data.cvik;
+  assert.deepStrictEqual(json([c.organizace, c.body, c.prepis, c.odkaz || null]), [['Čtverec 10 × 10 m.'], ['Hlava nahoře.'], 'Řečeno.', null]);
+  assert.strictEqual(p.volej('treninkCvik', { id: 'neni1' }).ok, false);
+  // náhled a video stejně jako u tipů, jen z TRENINKY/nahledy
+  const nahledy = tr.createFolder('nahledy');
+  const n = nahledy.createFolder('DffH7NXioNi');
+  n.createFile('nahled.json', JSON.stringify({ zdroj: 'instagram', text: 'Popisek', delka_s: 20, video: 'video.mp4', snimky: ['snimek_1.jpg'], prepis: 'Řečeno.' }));
+  n.createFile('snimek_1.jpg', 'JPEG');
+  n.createFile('video.mp4', 'MP4');
+  nahledy.createFile('_index.json', JSON.stringify({ tipy: { DffH7NXioNi: { ikona: 'QUJD', video: true, snimku: 1, delka_s: 20, zdroj: 'instagram' } } }));
+  assert.deepStrictEqual(Object.keys(p.volej('treninkyNahledy').data.tipy), ['DffH7NXioNi']);
+  assert.strictEqual(p.volej('treninkNahled', { id: 'DffH7NXioNi' }).data.nahled.text, 'Popisek');
+  assert.strictEqual(p.volej('treninkVideo', { id: 'DffH7NXioNi' }).data.data, Buffer.from('MP4').toString('base64'));
+  assert.strictEqual(p.volej('tipNahled', { id: 'DffH7NXioNi' }).ok, false, 'Knihovna velká písmena nebere a Tréninky nevidí');
+  // moje
+  let r = p.volej('treninkMoje', { id: 'DffH7NXioNi', hvezdy: 4, oblibene: true, poznamka: ' na úterý ' });
+  assert.strictEqual(r.ok, true, r.chyba);
+  const m = r.data.moje.polozky.DffH7NXioNi;
+  assert.deepStrictEqual([m.hvezdy, m.oblibene, m.poznamka], [4, true, 'na úterý']);
+  r = p.volej('treninkMoje', { id: 'DffH7NXioNi', hvezdy: 0 });
+  assert.deepStrictEqual(Object.keys(r.data.moje.polozky.DffH7NXioNi).sort(), ['kdy', 'oblibene', 'poznamka'], 'zrušené hvězdy, zbytek zůstal');
+  r = p.volej('treninkMoje', { id: 'DffH7NXioNi', oblibene: false, poznamka: '' });
+  assert.deepStrictEqual(json(r.data.moje.polozky), {}, 'prázdná položka pryč');
+  assert.strictEqual(p.volej('treninkMoje', { id: 'Neexistuje1', hvezdy: 3 }).ok, false);
+  assert.strictEqual(p.volej('treninkMoje', { id: 'DffH7NXioNi', hvezdy: 9 }).ok, false);
+});
+
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));
