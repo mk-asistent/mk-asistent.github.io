@@ -4,7 +4,7 @@
 // Plán na široké obrazovce = Po vlnách (výchozí, sloupec = vlna) nebo Podle stavu, nad tím řádek Na řadě; na telefonu jeden seznam podle termínu se štítkem stavu a filtrem.
 
 import { volej, jeDemo } from './api.js';
-import { zmeneno } from './stav.js';
+import { zmeneno, umiMotor } from './stav.js';
 import { esc, uloziste, prepisSPolem, tvar } from './pomocne.js';
 import { IKONY } from './ikony.js';
 import { toast, kostra, chybaHtml, segment, okno } from './ui.js';
@@ -78,7 +78,11 @@ function datumDilu(d) {
 function tlacitka(d) {
   const editor = RP.editorOdkaz(c.data.editor, naPc(), d, datumDilu(d));
   const id = esc(d.id);
-  return RP.akce(d, !!editor).map((a) => {
+  return RP.akce(d, !!editor, umiMotor('reelKlipy')).map((a, i) => {
+    if (a === 'upravitDrahy') return '<button type="button" class="btn ' + (i ? 'btn--ghost' : 'btn--plan') + ' btn--sm" data-rp-drahy-web="' + id + '">' +
+      IKONY.psat + '<span>Upravit dráhy</span></button>';
+    if (a === 'editorPc') return '<a class="odkaz rp-editor-pc" href="' + esc(editor) + '" target="_blank" rel="noopener" ' +
+      'title="Místní editor drah – běží jen na domácím PC (doma na Wi-Fi i z mobilu)">editor na PC</a>';
     if (a === 'editor') return '<a class="btn btn--ghost btn--sm" href="' + esc(editor) + '" target="_blank" rel="noopener" ' +
       'title="Editor drah běží jen na domácím PC (doma na Wi-Fi i z mobilu)">' + IKONY.odkaz + '<span>Editor drah</span><small class="rp-doma">doma</small></a>';
     if (a === 'drahyHotove') return '<button type="button" class="btn btn--ghost btn--sm" data-rp-drahy="' + id + '">' + IKONY.fajfka + '<span>Dráhy hotové</span></button>';
@@ -222,6 +226,14 @@ export function podnadpis() {
 // ---------------------------------------------------------------- události
 
 const vStrance = (el) => !!(el && el.closest && el.closest('#p-reely'));
+/** Editor drah v aplikaci (js/drahy_editor.js – načte se až teď); po uložení dráhy dostane plán nový stav dílu. */
+function otevriEditorDrah(d) {
+  import('./drahy_editor.js').then((m) => m.otevri(d, {
+    editorPc: RP.editorOdkaz(c.data.editor, naPc(), d, datumDilu(d)),
+    naPlan: (plan) => { if (plan && plan.dily) { c.data = plan; c.kdy = Date.now(); uloz(); zmeneno(); } }
+  }), () => toast('Editor drah se nenačetl – zkontroluj připojení.', true));
+}
+
 let otevriReel = null; // reely.js předá otevriDetail (bez kruhového importu)
 export function nastavOtevreniReelu(fn) { otevriReel = fn; }
 
@@ -269,10 +281,11 @@ async function novyNapad() {
 }
 
 document.addEventListener('click', (e) => {
-  const el = e.target.closest && e.target.closest('[data-rp-filtr], [data-rp-pohled], [data-rp-vlna], [data-rp-drahy], [data-rp-udelat], [data-rp-reel], [data-rp-hotovo], [data-rp-termin], ' +
+  const el = e.target.closest && e.target.closest('[data-rp-drahy-web], [data-rp-filtr], [data-rp-pohled], [data-rp-vlna], [data-rp-drahy], [data-rp-udelat], [data-rp-reel], [data-rp-hotovo], [data-rp-termin], ' +
     '[data-rp-poznamka], [data-rp-posun-vlnu], [data-rp-novy], [data-rp-na-dil], [data-rp-napad-novy], [data-rp-napad-smazat], [data-rp-do-planu], [data-rp-znovu]');
   if (!vStrance(el) || !c.data) return;
   const ds = el.dataset;
+  if (ds.rpDrahyWeb) { const d = dil(ds.rpDrahyWeb); if (d) otevriEditorDrah(d); return; }
   if (ds.rpFiltr) { c.filtr = ds.rpFiltr; ulozVolby(); zmeneno(); return; }
   if (ds.rpPohled) { c.pohled = ds.rpPohled; ulozVolby(); zmeneno(); return; }
   if (ds.rpVlna) { c.vlnaMob = ds.rpVlna; ulozVolby(); zmeneno(); return; }

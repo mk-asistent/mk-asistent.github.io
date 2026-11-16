@@ -34,6 +34,7 @@
 .rp-dil__akce .rp-mala:first-of-type:not(:first-child) { margin-left: auto; }
 .rp-mala.btn--ikona { width: 32px; height: 32px; min-height: 32px; padding: 0; }
 .rp-mala svg { width: 15px; height: 15px; }
+.rp-editor-pc { font-size: 12px; margin-left: 2px; }
 .rp-doma { font-size: 11px; font-weight: 500; color: var(--muted); }
 .rp-ceka { display: inline-flex; align-items: center; gap: 4px; }
 .rp-ceka svg { width: 13px; height: 13px; }

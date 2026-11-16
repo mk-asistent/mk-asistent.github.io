@@ -325,10 +325,23 @@ export function vystup(z) {
   mimo.forEach(function (x) { datumy[x.id] = x.datum; });
   Object.keys(auditZ).forEach(function (id) { ig[id] = { ig: auditZ[id] && auditZ[id].ig }; });
   mimo.forEach(function (x) { ig[x.id] = { ig: x.ig }; });
+  // dráha uložená z webu = ruční (domácí PC ji převezme při dalším exportu); klipy pro editor na webu podle dílu
+  const vyroba = JSON.parse(JSON.stringify(obj(obj(z.vyroba) && z.vyroba.dily) || {}));
+  const klipyWeb = Array.isArray(z.klipy) ? z.klipy : [];
+  const klipuDilu = {};
+  klipyWeb.forEach(function (k) {
+    klipuDilu[k.dil] = (klipuDilu[k.dil] || 0) + 1;
+    if (k.drahaZWebu && !k.rucne && obj(vyroba[k.dil])) vyroba[k.dil].drahRucne = (Number(vyroba[k.dil].drahRucne) || 0) + 1;
+  });
   const ctx = { reely: reely, zverejneno: obj(z.zverejneno) || {}, planIg: obj(z.planIg) || {}, audit: ig,
-    vyroba: obj(obj(z.vyroba) && z.vyroba.dily) || {}, datumy: datumy };
+    vyroba: vyroba, datumy: datumy };
   const s = spoj(p, m);
-  const dily = s.dily.map(function (d) { return Object.assign(d, stavDilu(d, ctx)); });
+  const dily = s.dily.map(function (d) {
+    const r = Object.assign(d, stavDilu(d, ctx));
+    const n = (d.skupina && klipuDilu[d.skupina]) || (d.reel && klipuDilu[d.reel]) || 0;
+    if (n) r.webKlipu = n;
+    return r;
+  });
   const dilyZapasu = {};
   dily.forEach(function (d) { (d.zapasy || []).forEach(function (id) { (dilyZapasu[id] = dilyZapasu[id] || []).push(d.id); }); });
   // reel k zápasu: podle id, jinak podle data a týmu (motor posílá zápasy reelů bez id)
@@ -372,6 +385,61 @@ export function bilance(zapasy) {
     if (x.stavIg !== 'bez_zaznamu' && x.stavIg !== 'neznamy') b.natoceno++;
   });
   return b;
+}
+
+// ---- dráhy kamery z webu (editor drah v Asistentovi): REELY/klipy.json (domácí PC) + REELY/drahy/<id>.json (motor)
+// Dráha = klice [{ t: s, x: levý okraj výřezu ve zdrojových px }] – stejně jako editor.html a veo_reel.py; výřez 3 : 4 z výšky.
+export const VYREZ_POMER = 3 / 4;
+export const MAX_BODU = 3000;
+const ID_KLIPU = /^[\w.-]{1,120}$/;
+/** Šířka výřezu ve zdrojových px (editor.html: min(šířka, round(výška × 3/4 / 2) × 2)). */
+export function sirkaVyrezu(sirka, vyska) { return Math.min(sirka, Math.round(vyska * VYREZ_POMER / 2) * 2); }
+export function platneIdKlipu(id) { return typeof id === 'string' && ID_KLIPU.test(id); }
+
+/** Klip z klipy.json vyčištěný (rozměry a délka nutné), nebo null. */
+function cistyKlip(o) {
+  o = obj(o) || {};
+  const cislo = function (n) { return typeof n === 'number' && isFinite(n) && n > 0 ? n : 0; };
+  if (!platneIdKlipu(o.id) || !cislo(o.sirka) || !cislo(o.vyska) || !cislo(o.delka_s)) return null;
+  const k = { id: o.id, dil: radek(o.dil, 80), datum: platneDatum(o.datum) ? o.datum : '', tym: radek(o.tym, 30), souper: radek(o.souper, 60),
+    strelec: radek(o.strelec, 60), minuta: radek(o.minuta, 20), skore: radek(o.skore, 10), sirka: Math.round(o.sirka), vyska: Math.round(o.vyska),
+    delka_s: o.delka_s, od: typeof o.od === 'number' && o.od >= 0 ? o.od : 0, do: typeof o.do === 'number' && o.do > 0 ? o.do : null,
+    rucne: o.rucne === true, bajtu: cislo(o.bajtu) };
+  k.klice = (Array.isArray(o.klice) ? o.klice : []).filter(function (b) { return b && isFinite(b.t) && isFinite(b.x); })
+    .map(function (b) { return { t: Number(b.t), x: Number(b.x) }; }).slice(0, MAX_BODU);
+  return k;
+}
+
+/** Dráha z webu pro klip: { klice, od, do } zkontrolovaná (body seřazené, t v délce klipu, x v rozsahu výřezu), jinak chyba. */
+export function zkontrolujDrahu(klip, d) {
+  d = obj(d) || {};
+  if (!Array.isArray(d.klice) || !d.klice.length) throw new Error('Dráha nemá žádný bod.');
+  if (d.klice.length > MAX_BODU) throw new Error('Dráha má moc bodů (nejvýš ' + MAX_BODU + ').');
+  const maxX = klip.sirka - sirkaVyrezu(klip.sirka, klip.vyska);
+  const klice = d.klice.map(function (b) {
+    const t = b && typeof b.t === 'number' ? b.t : NaN, x = b && typeof b.x === 'number' ? b.x : NaN;
+    if (!isFinite(t) || !isFinite(x) || t < 0 || t > klip.delka_s + 1 || x < -1 || x > maxX + 1) throw new Error('Bod dráhy mimo klip.');
+    return { t: Math.round(t * 100) / 100, x: Math.max(0, Math.min(maxX, Math.round(x))) };
+  }).sort(function (a, b) { return a.t - b.t; });
+  const od = d.od == null ? 0 : d.od, doo = d.do == null || d.do >= 9000 ? null : d.do;
+  if (typeof od !== 'number' || !isFinite(od) || od < 0 || od >= klip.delka_s) throw new Error('Začátek ořezu mimo klip.');
+  if (doo !== null && (typeof doo !== 'number' || !isFinite(doo) || doo <= od || doo > klip.delka_s + 0.5)) throw new Error('Konec ořezu musí být za začátkem a v klipu.');
+  return { klice: klice, od: Math.round(od * 100) / 100, do: doo === null ? null : Math.round(doo * 100) / 100 };
+}
+
+/** klipy.json + webové dráhy { id: { klice, od, do, kdy } } → klipy (pořadí z PC); s webovou drahou má klip její body a ořez
+ *  a drahaZWebu + kdyWeb. dil = jen klipy toho dílu (skupina nebo id reelu). */
+export function klipySDrahami(klipyJson, web, dil) {
+  const w = obj(web) || {};
+  return ((obj(klipyJson) && Array.isArray(klipyJson.klipy)) ? klipyJson.klipy : []).map(cistyKlip).filter(function (k) {
+    return k && (!dil || k.dil === dil);
+  }).map(function (k) {
+    const x = obj(w[k.id]);
+    if (!x) return Object.assign(k, { drahaZWebu: false });
+    let c = null;
+    try { c = zkontrolujDrahu(k, x); } catch (chyba) { c = null; }
+    return c ? Object.assign(k, c, { drahaZWebu: true, kdyWeb: radek(x.kdy, 40) }) : Object.assign(k, { drahaZWebu: false });
+  });
 }
 // ---------------------------------------------------------------- KONEC JÁDRA
 
@@ -453,12 +521,19 @@ export function drahyText(d) {
   return d.klipu ? d.klipu + ' klipů' : null;
 }
 
-/** Co jde s dílem udělat podle stavu (klíče tlačítek; první = hlavní). Editor jen s adresou editoru. */
-export function akce(d, maEditor) {
+/** Co jde s dílem udělat podle stavu (klíče tlačítek; první = hlavní). Editor jen s adresou editoru; maWeb = motor umí editor drah
+ *  v aplikaci (reelKlipy) – pak je Upravit dráhy hlavní a místní editor jen malý odkaz (editorPc). */
+export function akce(d, maEditor, maWeb) {
   const a = [];
   const reel = d.format === 'reel' && d.reel;
-  if (d.stav === 'nachystano' || d.stav === 'plan') { if (maEditor && (d.vyroba || d.skupina)) a.push('editor'); if (reel && d.stav === 'nachystano') a.push('drahyHotove'); }
-  if (d.stav === 'drahy') { if (reel) a.push(d.pozadano ? 'cekaNaReel' : 'udelatReel'); if (maEditor) a.push('editor'); }
+  const web = maWeb && d.webKlipu > 0;
+  const editor = web ? 'editorPc' : 'editor';
+  if (d.stav === 'nachystano' || d.stav === 'plan') {
+    if (web) a.push('upravitDrahy');
+    if (maEditor && (d.vyroba || d.skupina || web)) a.push(editor);
+    if (reel && d.stav === 'nachystano') a.push('drahyHotove');
+  }
+  if (d.stav === 'drahy') { if (reel) a.push(d.pozadano ? 'cekaNaReel' : 'udelatReel'); if (web) a.push('upravitDrahy'); if (maEditor) a.push(editor); }
   if (d.stav === 'reel') a.push('naplanovat', 'otevritReel');
   if (d.stav === 'naplanovano') a.push('otevritReel');
   if (d.stav !== 'vyveseno' && !reel) a.push('hotovo');

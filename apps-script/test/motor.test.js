@@ -5324,4 +5324,43 @@ test('Reely → Plán: plan.json + audit + výroba + REELY_STAV/REELY_PLAN → d
   assert.ok(vm.runInContext('CTENI_MOTORU', p.ctx).indexOf('reelyPlan') >= 0);
 });
 
+test('Reely → editor drah: reelKlipy (klipy.json + dráhy z webu, filtr dílu), reelKlip (náhled base64, jen z REELY/klipy), reelDrahaUlozit (kontrola bodů a ořezu, pod zámkem do REELY/drahy) a „Dráhy hotové“ i z webu', () => {
+  const p = prostredi();
+  const re = p.schranka.createFolder('REELY');
+  re.createFile('plan.json', JSON.stringify({ vlny: [{ id: 'v1', nazev: 'Vlna 1' }],
+    dily: [{ id: 'a', nazev: 'Áčko – Soupeř A', vlna: 'v1', termin: '2030-11-20', format: 'reel', reel: 'reel_a-tym_soupera' }] }));
+  re.createFile('vyroba.json', JSON.stringify({ dily: { 'reel_a-tym_soupera': { klipu: 2, drahRucne: 1, deska: true } } }));
+  const klip = (id, rucne) => ({ id, dil: 'reel_a-tym_soupera', datum: '2030-11-07', strelec: 'Hráč', minuta: '10. minuta', sirka: 1920, vyska: 1080,
+    delka_s: 25, od: 10, do: 19, klice: [{ t: 0, x: 555 }], rucne, video: 'klipy/' + id + '.mp4', bajtu: 6 });
+  re.createFile('klipy.json', JSON.stringify({ klipy: [klip('k1', true), klip('k2', false), Object.assign(klip('jiny', false), { dil: 'jiny' }), { id: '../zle', sirka: 1 }] }));
+  re.createFolder('klipy').createFile('k2.mp4', 'VIDEO');
+  let d = p.volej('reelKlipy', { dil: 'reel_a-tym_soupera' }).data;
+  assert.deepStrictEqual(d.klipy.map((k) => [k.id, k.drahaZWebu, k.rucne]), [['k1', false, true], ['k2', false, false]]);
+  assert.strictEqual(p.volej('reelKlipy').data.klipy.length, 3, 'bez dílu všechny platné');
+  assert.strictEqual(p.volej('reelyPlan').data.dily[0].stav, 'nachystano');
+  assert.strictEqual(p.volej('reelyPlan').data.dily[0].webKlipu, 2);
+  // náhled
+  const v = p.volej('reelKlip', { id: 'k2' }).data;
+  assert.deepStrictEqual([v.typ, Buffer.from(v.data, 'base64').toString()], ['video/mp4', 'VIDEO']);
+  assert.strictEqual(p.volej('reelKlip', { id: 'k1' }).ok, false, 'náhled chybí');
+  assert.strictEqual(p.volej('reelKlip', { id: '../plan' }).ok, false, 'jen id klipu');
+  // kontrola dráhy
+  const zle = [{ id: 'k2', klice: [] }, { id: 'k2', klice: [{ t: 0, x: 1200 }] }, { id: 'k2', klice: [{ t: 40, x: 10 }] }, { id: 'k2', klice: [{ t: 0, x: '1' }] },
+    { id: 'k2', klice: [{ t: 0, x: 10 }], od: 12, do: 11 }, { id: 'k2', klice: [{ t: 0, x: 10 }], od: 30 }, { id: 'neni', klice: [{ t: 0, x: 10 }] },
+    { id: 'k2', klice: Array.from({ length: 3001 }, (_, i) => ({ t: i / 200, x: 10 })) }];
+  zle.forEach((x) => assert.strictEqual(p.volej('reelDrahaUlozit', x).ok, false, JSON.stringify(x).slice(0, 80)));
+  assert.strictEqual(re.getFoldersByName('drahy').hasNext(), false, 'nic se nezapsalo');
+  // uložení: body seřazené a zaokrouhlené, x v rozsahu výřezu (1920 − 810 = 1110), do 9999 = do konce
+  const r = p.volej('reelDrahaUlozit', { id: 'k2', klice: [{ t: 1.234, x: 300.6 }, { t: 0.5, x: 1110.4 }], od: 8, do: 9999 });
+  assert.ok(r.ok, r.chyba);
+  assert.deepStrictEqual([r.data.klip.drahaZWebu, r.data.klip.klice, r.data.klip.od, r.data.klip.do], [true, [{ t: 0.5, x: 1110 }, { t: 1.23, x: 301 }], 8, null]);
+  const ulozena = JSON.parse(re.getFoldersByName('drahy').next().getFilesByName('k2.json').next().getBlob().getDataAsString());
+  assert.deepStrictEqual([ulozena.zdroj, ulozena.od, typeof ulozena.kdy], ['web', 8, 'string']);
+  assert.strictEqual(r.data.plan.dily[0].stav, 'drahy', 'oba klipy ruční (PC + web) → Dráhy hotové');
+  assert.strictEqual(p.volej('reelKlipy', { dil: 'reel_a-tym_soupera' }).data.klipy[1].drahaZWebu, true);
+  const info = p.volej('info').data.akce;
+  assert.ok(['reelKlipy', 'reelKlip', 'reelDrahaUlozit'].every((a) => info.indexOf(a) >= 0));
+  assert.ok(['reelKlipy', 'reelKlip'].every((a) => vm.runInContext('CTENI_MOTORU', p.ctx).indexOf(a) >= 0));
+});
+
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

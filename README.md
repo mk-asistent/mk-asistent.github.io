@@ -332,6 +332,8 @@ Data na Disku `CLAUDE_SCHRANKA/REELY/`: `plan.json` a `zapasy_audit.json` píše
 Dráhy hotové, Vyšlo, vlastní díly a nápady). Motor: `reelyPlan`, `reelyPlanUlozit`, `reelUdelat` (`…_vyr.md`, `plny: ano`, `pc: domaci`).
 Čisté funkce `js/reely_plan.js` (test `node testy/test_reely_plan.mjs`), stránka `js/reely_plan_stranka.js` + `reely_plan.css`.
 
+**Editor drah** (Upravit dráhy u dílu, `js/drahy_editor.js` + `drahy_editor.css`): stejné ovládání jako místní `editor.html` na domácím PC (● Nahrávat dráhu a vést výřez ukazatelem nebo prstem, tažení na zastaveném videu, ←/→ po snímcích, mezerník, 1–5 rychlost, R, ořez, graf), vedle živý výřez 3 : 4. Video je malý náhled bez zvuku (`REELY/klipy/`, `klipy.json` – domácí PC), dráhy se ukládají ve zdrojových px do `REELY/drahy/<klip>.json` (`reelDrahaUlozit`, jen motor) a domácí PC si je při `export_reely.py` převezme (novější vyhrává).
+
 ### Příběhy na Instagram (od 15. 10.)
 - **Jen příběh** u reelu i plakátu (Kam: Reel · Reel + příběh · Jen příběh; u plakátu Příspěvek · Příspěvek + příběh ·
   Jen příběh): kontejner STORIES bez příspěvku a bez popisku; video do příběhu nejvýš 60 s (delší reel motor odmítne).

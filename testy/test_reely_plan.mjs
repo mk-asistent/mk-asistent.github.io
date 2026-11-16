@@ -186,4 +186,21 @@ test('aplikace: řazení, sloupce, filtr, akce, datum, editor', () => {
   assert.equal(RP.naRade([]), null);
 });
 
+test('dráhy z webu: šířka výřezu, kontrola dráhy, spojení klipy.json s webovými dráhami, Dráhy hotové i z webu', () => {
+  assert.equal(RP.sirkaVyrezu(1920, 1080), 810);
+  assert.equal(RP.sirkaVyrezu(640, 360), 270);
+  const k = { sirka: 1920, vyska: 1080, delka_s: 25 };
+  assert.deepEqual(RP.zkontrolujDrahu(k, { klice: [{ t: 2.005, x: 1110.4 }, { t: 1, x: 0 }], od: 10, do: 9999 }),
+    { klice: [{ t: 1, x: 0 }, { t: 2.01, x: 1110 }], od: 10, do: null });
+  [{ klice: [] }, { klice: [{ t: 0, x: 1200 }] }, { klice: [{ t: 27, x: 0 }] }, { klice: [{ t: 0, x: 0 }], od: 5, do: 4 }, { klice: [{ t: 0, x: 0 }], od: 25 }]
+    .forEach((d) => assert.throws(() => RP.zkontrolujDrahu(k, d)));
+  const kj = { klipy: [{ id: 'a', dil: 'reel_x', sirka: 1920, vyska: 1080, delka_s: 25, klice: [{ t: 0, x: 5 }], rucne: true },
+    { id: 'b', dil: 'reel_x', sirka: 1920, vyska: 1080, delka_s: 25, klice: [] }, { id: 'c', dil: 'jiny', sirka: 1920, vyska: 1080, delka_s: 25 }, { id: '../x', sirka: 1 }] };
+  const s = RP.klipySDrahami(kj, { b: { klice: [{ t: 1, x: 100 }], od: 9, do: 18, kdy: 'x' }, a: { klice: [{ t: 0, x: 99999 }] } }, 'reel_x');
+  assert.deepEqual(s.map((x) => [x.id, x.drahaZWebu, x.od]), [['a', false, 0], ['b', true, 9]], 'neplatná webová dráha se nebere');
+  const p2 = RP.plan({ vlny: [{ id: 'v', nazev: 'V' }], dily: [{ id: 'd', nazev: 'D', vlna: 'v', termin: '2030-01-01', reel: 'reel_x' }] });
+  const v = RP.vystup({ plan: p2, moje: RP.moje(null, p2), vyroba: { dily: { reel_x: { klipu: 2, drahRucne: 1 } } }, klipy: s });
+  assert.deepEqual([v.dily[0].stav, v.dily[0].webKlipu, v.dily[0].vyroba.drahRucne], ['drahy', 2, 2]);
+});
+
 console.log(`\n${n} testů prošlo`);

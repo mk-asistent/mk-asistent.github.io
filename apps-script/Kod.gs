@@ -44,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-11-16.8';
+const VERZE = '2026-11-16.9';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -143,7 +143,7 @@ const CTENI_MOTORU = ['info', 'schranka', 'posta', 'vlakno', 'hledat', 'kalendar
   'knihovna', 'knihovnaReserse', // Knihovna: karty, index rešerší, můj stav a požadavky; celá rešerše
   'tipyNahledy', 'tipNahled', 'tipVideo', // Rešerše AI: náhledy tipů (KNIHOVNA/nahledy)
   'treninky', 'treninkyKarty', 'treninkCvik', 'treninkyNahledy', 'treninkNahled', 'treninkVideo', // Tréninky
-  'cestaky', 'reelyPlan']; // Cesťáky; Reely → Plán, Zápasy, Nápady (REELY/plan.json…) –: zápasy, výchozí a moje úpravy (CESTAKY): cviky, celé karty a videa (TRENINKY)
+  'cestaky', 'reelyPlan', 'reelKlipy', 'reelKlip']; // Cesťáky; Reely → Plán, Zápasy, Nápady (REELY/plan.json…) –: zápasy, výchozí a moje úpravy (CESTAKY): cviky, celé karty a videa (TRENINKY)
 
 /** Výsledek dřívějšího běhu téhož požadavku (JSON), nebo null; když ještě běží, počká na něj (nejvýš ~25 s). */
 function vysledekRid_(rid) {
@@ -237,6 +237,10 @@ const AKCE = {
   reelyPlan: function () { return reelyPlan_(); },
   reelyPlanUlozit: function (d) { return reelyPlanUlozit_(d); },
   reelUdelat: function (d) { return reelUdelat_(d); },
+  // editor drah v aplikaci: klipy dílu s drahou, náhled klipu (base64), uložení dráhy do REELY/drahy (domácí PC si ji převezme)
+  reelKlipy: function (d) { return reelKlipy_(d); },
+  reelKlip: function (d) { return reelKlip_(d); },
+  reelDrahaUlozit: function (d) { return reelDrahaUlozit_(d); },
   // příběh z fotky z telefonu: nahrát a naplánovat (i Teď), zrušit / odebrat ze seznamu
   pribehNaplanovat: function (d) { return pribehNaplanovat_(d); },
   pribehZrusit: function (d) { return pribehZrusit_(d); },
@@ -10330,10 +10334,23 @@ const PLAN_DILU_ = (function () {
     mimo.forEach(function (x) { datumy[x.id] = x.datum; });
     Object.keys(auditZ).forEach(function (id) { ig[id] = { ig: auditZ[id] && auditZ[id].ig }; });
     mimo.forEach(function (x) { ig[x.id] = { ig: x.ig }; });
+    // dráha uložená z webu = ruční (domácí PC ji převezme při dalším exportu); klipy pro editor na webu podle dílu
+    const vyroba = JSON.parse(JSON.stringify(obj(obj(z.vyroba) && z.vyroba.dily) || {}));
+    const klipyWeb = Array.isArray(z.klipy) ? z.klipy : [];
+    const klipuDilu = {};
+    klipyWeb.forEach(function (k) {
+      klipuDilu[k.dil] = (klipuDilu[k.dil] || 0) + 1;
+      if (k.drahaZWebu && !k.rucne && obj(vyroba[k.dil])) vyroba[k.dil].drahRucne = (Number(vyroba[k.dil].drahRucne) || 0) + 1;
+    });
     const ctx = { reely: reely, zverejneno: obj(z.zverejneno) || {}, planIg: obj(z.planIg) || {}, audit: ig,
-      vyroba: obj(obj(z.vyroba) && z.vyroba.dily) || {}, datumy: datumy };
+      vyroba: vyroba, datumy: datumy };
     const s = spoj(p, m);
-    const dily = s.dily.map(function (d) { return Object.assign(d, stavDilu(d, ctx)); });
+    const dily = s.dily.map(function (d) {
+      const r = Object.assign(d, stavDilu(d, ctx));
+      const n = (d.skupina && klipuDilu[d.skupina]) || (d.reel && klipuDilu[d.reel]) || 0;
+      if (n) r.webKlipu = n;
+      return r;
+    });
     const dilyZapasu = {};
     dily.forEach(function (d) { (d.zapasy || []).forEach(function (id) { (dilyZapasu[id] = dilyZapasu[id] || []).push(d.id); }); });
     // reel k zápasu: podle id, jinak podle data a týmu (motor posílá zápasy reelů bez id)
@@ -10378,7 +10395,62 @@ const PLAN_DILU_ = (function () {
     });
     return b;
   }
-  return { STAVY: STAVY, FORMATY: FORMATY, TYMY: TYMY, MAX_VLASTNICH: MAX_VLASTNICH, MAX_NAPADU: MAX_NAPADU, platneDatum: platneDatum, pridejDny: pridejDny, plan: plan, moje: moje, spoj: spoj, vyrobaDilu: vyrobaDilu, stavDilu: stavDilu, zmen: zmen, kratkyKlub: kratkyKlub, vystup: vystup, bilance: bilance };
+
+  // ---- dráhy kamery z webu (editor drah v Asistentovi): REELY/klipy.json (domácí PC) + REELY/drahy/<id>.json (motor)
+  // Dráha = klice [{ t: s, x: levý okraj výřezu ve zdrojových px }] – stejně jako editor.html a veo_reel.py; výřez 3 : 4 z výšky.
+  const VYREZ_POMER = 3 / 4;
+  const MAX_BODU = 3000;
+  const ID_KLIPU = /^[\w.-]{1,120}$/;
+  /** Šířka výřezu ve zdrojových px (editor.html: min(šířka, round(výška × 3/4 / 2) × 2)). */
+  function sirkaVyrezu(sirka, vyska) { return Math.min(sirka, Math.round(vyska * VYREZ_POMER / 2) * 2); }
+  function platneIdKlipu(id) { return typeof id === 'string' && ID_KLIPU.test(id); }
+
+  /** Klip z klipy.json vyčištěný (rozměry a délka nutné), nebo null. */
+  function cistyKlip(o) {
+    o = obj(o) || {};
+    const cislo = function (n) { return typeof n === 'number' && isFinite(n) && n > 0 ? n : 0; };
+    if (!platneIdKlipu(o.id) || !cislo(o.sirka) || !cislo(o.vyska) || !cislo(o.delka_s)) return null;
+    const k = { id: o.id, dil: radek(o.dil, 80), datum: platneDatum(o.datum) ? o.datum : '', tym: radek(o.tym, 30), souper: radek(o.souper, 60),
+      strelec: radek(o.strelec, 60), minuta: radek(o.minuta, 20), skore: radek(o.skore, 10), sirka: Math.round(o.sirka), vyska: Math.round(o.vyska),
+      delka_s: o.delka_s, od: typeof o.od === 'number' && o.od >= 0 ? o.od : 0, do: typeof o.do === 'number' && o.do > 0 ? o.do : null,
+      rucne: o.rucne === true, bajtu: cislo(o.bajtu) };
+    k.klice = (Array.isArray(o.klice) ? o.klice : []).filter(function (b) { return b && isFinite(b.t) && isFinite(b.x); })
+      .map(function (b) { return { t: Number(b.t), x: Number(b.x) }; }).slice(0, MAX_BODU);
+    return k;
+  }
+
+  /** Dráha z webu pro klip: { klice, od, do } zkontrolovaná (body seřazené, t v délce klipu, x v rozsahu výřezu), jinak chyba. */
+  function zkontrolujDrahu(klip, d) {
+    d = obj(d) || {};
+    if (!Array.isArray(d.klice) || !d.klice.length) throw new Error('Dráha nemá žádný bod.');
+    if (d.klice.length > MAX_BODU) throw new Error('Dráha má moc bodů (nejvýš ' + MAX_BODU + ').');
+    const maxX = klip.sirka - sirkaVyrezu(klip.sirka, klip.vyska);
+    const klice = d.klice.map(function (b) {
+      const t = b && typeof b.t === 'number' ? b.t : NaN, x = b && typeof b.x === 'number' ? b.x : NaN;
+      if (!isFinite(t) || !isFinite(x) || t < 0 || t > klip.delka_s + 1 || x < -1 || x > maxX + 1) throw new Error('Bod dráhy mimo klip.');
+      return { t: Math.round(t * 100) / 100, x: Math.max(0, Math.min(maxX, Math.round(x))) };
+    }).sort(function (a, b) { return a.t - b.t; });
+    const od = d.od == null ? 0 : d.od, doo = d.do == null || d.do >= 9000 ? null : d.do;
+    if (typeof od !== 'number' || !isFinite(od) || od < 0 || od >= klip.delka_s) throw new Error('Začátek ořezu mimo klip.');
+    if (doo !== null && (typeof doo !== 'number' || !isFinite(doo) || doo <= od || doo > klip.delka_s + 0.5)) throw new Error('Konec ořezu musí být za začátkem a v klipu.');
+    return { klice: klice, od: Math.round(od * 100) / 100, do: doo === null ? null : Math.round(doo * 100) / 100 };
+  }
+
+  /** klipy.json + webové dráhy { id: { klice, od, do, kdy } } → klipy (pořadí z PC); s webovou drahou má klip její body a ořez
+   *  a drahaZWebu + kdyWeb. dil = jen klipy toho dílu (skupina nebo id reelu). */
+  function klipySDrahami(klipyJson, web, dil) {
+    const w = obj(web) || {};
+    return ((obj(klipyJson) && Array.isArray(klipyJson.klipy)) ? klipyJson.klipy : []).map(cistyKlip).filter(function (k) {
+      return k && (!dil || k.dil === dil);
+    }).map(function (k) {
+      const x = obj(w[k.id]);
+      if (!x) return Object.assign(k, { drahaZWebu: false });
+      let c = null;
+      try { c = zkontrolujDrahu(k, x); } catch (chyba) { c = null; }
+      return c ? Object.assign(k, c, { drahaZWebu: true, kdyWeb: radek(x.kdy, 40) }) : Object.assign(k, { drahaZWebu: false });
+    });
+  }
+  return { STAVY: STAVY, FORMATY: FORMATY, TYMY: TYMY, MAX_VLASTNICH: MAX_VLASTNICH, MAX_NAPADU: MAX_NAPADU, platneDatum: platneDatum, pridejDny: pridejDny, plan: plan, moje: moje, spoj: spoj, vyrobaDilu: vyrobaDilu, stavDilu: stavDilu, zmen: zmen, kratkyKlub: kratkyKlub, vystup: vystup, bilance: bilance, VYREZ_POMER: VYREZ_POMER, MAX_BODU: MAX_BODU, sirkaVyrezu: sirkaVyrezu, platneIdKlipu: platneIdKlipu, zkontrolujDrahu: zkontrolujDrahu, klipySDrahami: klipySDrahami };
 })();
 
 /** Soubory plánu z REELY: { slozka, plan, moje (+ soubor), audit, vyroba } – plan.json chybí / rozbitý = chyba. */
@@ -10403,8 +10475,10 @@ function zdrojePlanuReelu_(s) {
   try { fotbal = fotbalData_(); } catch (chyba) { /* zápasy bez fotbal.cz jen nebudou */ }
   let reely = [];
   try { const c = nactiZCache_('reely:seznam'); reely = c && Array.isArray(c.reely) ? c.reely : nactiReely_().reely; } catch (chyba) { /* bez reelů */ }
+  let klipy = [];
+  try { klipy = klipyReelu_(s.slozka, null); } catch (chyba) { /* bez klipů pro web */ }
   return { plan: s.plan, moje: s.moje.data, audit: s.audit, vyroba: s.vyroba, fotbal: fotbal, reely: reely,
-    zverejneno: stavReelu_(), planIg: planReelu_() };
+    zverejneno: stavReelu_(), planIg: planReelu_(), klipy: klipy };
 }
 
 /** Akce reelyPlan (čtení): vlny, díly se stavem, zápasy se střelci a auditem, nápady, editor drah, bilance. */
@@ -10492,3 +10566,71 @@ function reelUdelat_(d) {
   v.zalozeno = poznamka;
   return v;
 }
+
+// ---- editor drah v Asistentovi (Michal 16. 11.: „já to chtěl mít ale na tom webu“). Domácí PC (export_reely.py) dává do REELY/klipy
+// malé náhledy klipů (640 px, bez zvuku) a REELY/klipy.json (díl, rozměry zdroje, délka, dnešní dráha); dráhu uloženou v aplikaci
+// píše jen motor do REELY/drahy/<id>.json { klice, od, do, kdy, zdroj: 'web' } a domácí PC si ji při dalším exportu převezme
+// (novější vyhrává). Body dráhy jsou ve zdrojových px (1920 × 1080) – aplikace přepočítává z náhledu.
+const MAX_KLIPU_WEB = 20 * 1024 * 1024; // base64 v odpovědi motoru
+
+/** klipy.json spojené s dráhami z webu (PLAN_DILU_.klipySDrahami); dil = jen klipy dílu. */
+function klipyReelu_(slozka, dil) {
+  if (!slozka) { const it = koren_().getFoldersByName('REELY'); slozka = it.hasNext() ? it.next() : null; }
+  const k = souborTreninku_(slozka, 'klipy.json', function (x) { return x; });
+  if (k.chyba) throw new Error('REELY/klipy.json není platný JSON.');
+  const web = {};
+  const it = slozka ? slozka.getFoldersByName('drahy') : null;
+  if (it && it.hasNext()) {
+    const dr = it.next();
+    ((k.data && k.data.klipy) || []).forEach(function (x) {
+      if (!x || !PLAN_DILU_.platneIdKlipu(x.id) || (dil && x.dil !== dil)) return;
+      const f = souborVeSlozce_(dr, x.id + '.json');
+      if (f) { try { web[x.id] = JSON.parse(f.getBlob().getDataAsString('UTF-8')); } catch (chyba) { /* poškozená – jako bez ní */ } }
+    });
+  }
+  return PLAN_DILU_.klipySDrahami(k.data, web, dil || '');
+}
+
+/** Akce reelKlipy { dil? } (čtení): klipy dílu (nebo všechny) s drahou – z PC, nebo uloženou z webu (drahaZWebu). */
+function reelKlipy_(d) {
+  const dil = d && d.dil ? String(d.dil).slice(0, 80) : '';
+  return { klipy: klipyReelu_(null, dil), ted: Date.now() };
+}
+
+/** Akce reelKlip { id } (čtení): náhled klipu z REELY/klipy v base64 (jako tipVideo_). */
+function reelKlip_(d) {
+  const id = String((d && d.id) || '');
+  if (!PLAN_DILU_.platneIdKlipu(id)) throw new Error('Neplatný klip.');
+  const it = koren_().getFoldersByName('REELY');
+  const re = it.hasNext() ? it.next() : null;
+  const sl = re ? re.getFoldersByName('klipy') : null;
+  const f = sl && sl.hasNext() ? souborVeSlozce_(sl.next(), id + '.mp4') : null;
+  if (!f) throw new Error('Náhled klipu na Disku není – domácí PC ho nahraje při dalším exportu.');
+  if (f.getSize() > MAX_KLIPU_WEB) throw new Error('Náhled klipu je moc velký (' + Math.round(f.getSize() / 1048576) + ' MB).');
+  return { typ: 'video/mp4', velikost: f.getSize(), data: Utilities.base64Encode(f.getBlob().getBytes()) };
+}
+
+/** Akce reelDrahaUlozit { id, klice, od?, do? } pod zámkem → REELY/drahy/<id>.json; vrací { klip, plan } (celé reelyPlan). */
+function reelDrahaUlozit_(d) {
+  const id = String((d && d.id) || '');
+  if (!PLAN_DILU_.platneIdKlipu(id)) throw new Error('Neplatný klip.');
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(30000);
+  let klip;
+  try {
+    const slozka = podslozka_(koren_(), 'REELY');
+    const k = souborTreninku_(slozka, 'klipy.json', function (x) { return x; });
+    klip = PLAN_DILU_.klipySDrahami(k.data, {}, '').filter(function (x) { return x.id === id; })[0];
+    if (!klip) throw new Error('Klip v REELY/klipy.json není – obnov editor.');
+    const c = PLAN_DILU_.zkontrolujDrahu(klip, d);
+    const obsah = JSON.stringify({ klice: c.klice, od: c.od, do: c.do, kdy: new Date(Date.now()).toISOString(), zdroj: 'web' });
+    const dr = podslozka_(slozka, 'drahy');
+    const f = souborVeSlozce_(dr, id + '.json');
+    if (f) f.setContent(obsah); else dr.createFile(id + '.json', obsah, MimeType.PLAIN_TEXT);
+  } finally {
+    zamek.releaseLock();
+  }
+  klip = klipyReelu_(null, klip.dil).filter(function (x) { return x.id === id; })[0];
+  return { klip: klip, plan: reelyPlan_() };
+}
+// ---------------------------------------------------------------- konec bloku plánu reelů (vyrob_motor.py)

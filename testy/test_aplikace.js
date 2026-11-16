@@ -419,6 +419,14 @@ const motor = {
   // Reely → Plán (REELY/plan.json, zapasy_audit.json, vyroba.json, plan_moje.json): jádro js/reely_plan.js jako motor, vymyšlená data
   reelyPlan: () => planTestu(),
   reelyPlanUlozit: (d) => { planMojeTest = RP.moje(RP.zmen(PLAN_TEST, planMojeTest, d, Date.now(), stavyPlanuTestu()), PLAN_TEST); return planTestu(); },
+  reelKlipy: (d) => ({ klipy: RP.klipySDrahami(KLIPY_TEST, drahyWebTest, d.dil || ''), ted: Date.now() }),
+  reelKlip: (d) => { if (!KLIPY_TEST.klipy.some((k) => k.id === d.id)) throw new Error('Náhled klipu na Disku není.'); return { typ: 'video/mp4', velikost: 3786, data: MINI_VIDEO_TEST }; },
+  reelDrahaUlozit: (d) => {
+    const k = RP.klipySDrahami(KLIPY_TEST, {}, '').find((x) => x.id === d.id);
+    if (!k) throw new Error('Klip v REELY/klipy.json není.');
+    drahyWebTest[d.id] = Object.assign(RP.zkontrolujDrahu(k, d), { kdy: new Date().toISOString(), zdroj: 'web' });
+    return JSON.parse(JSON.stringify({ klip: RP.klipySDrahami(KLIPY_TEST, drahyWebTest, '').find((x) => x.id === d.id), plan: planTestu() }));
+  },
   reelUdelat: (d) => { planMojeTest = RP.moje(RP.zmen(PLAN_TEST, planMojeTest, { pozadano: d.dil }, Date.now()), PLAN_TEST); return Object.assign(planTestu(), { zalozeno: true }); },
   // Cesťáky (CLAUDE_SCHRANKA/CESTAKY): vymyšlené zápasy; ukládá jen odchylky jako motor (null = zrušit, neznámý zápas = chyba)
   cestaky: () => Object.assign(JSON.parse(JSON.stringify(CESTAKY_TEST)), JSON.parse(JSON.stringify(cestakyStavTest)), { chybne: [], ted: Date.now() }),
@@ -718,7 +726,13 @@ let planMojeTest = RP.moje(null, PLAN_TEST);
 const PLAN_VYROBA_TEST = { dily: {
   reel_benfika_souperb1: { datum: PLAN_ZAPASY_TEST.find((z) => z.id === 'pz-B2').zacatek.slice(0, 10), klipu: 3, drahRucne: 1, deska: true, popisek: true },
   'Vlna 1 dorost': { klipu: 2, drahRucne: 2 } } };
-const zdrojePlanuTestu = () => ({ plan: PLAN_TEST, moje: planMojeTest, audit: PLAN_AUDIT_TEST, vyroba: PLAN_VYROBA_TEST,
+// editor drah: 2 klipy dílu „Díl nachystaný“ (1 ruční dráha z PC u dalšího klipu je jen ve výrobě → po 2 webových = 3 / 3), video 2 s 160 × 90 z ukázky
+const MINI_VIDEO_TEST = /export const MINI_VIDEO = '([^']+)'/.exec(fs.readFileSync(path.join(KOREN, 'js', 'ukazka.js'), 'utf8'))[1];
+const klipTestu = (id, strelec) => ({ id, dil: 'reel_benfika_souperb1', datum: '2030-11-01', strelec, minuta: '10. minuta', souper: 'Soupeř B',
+  sirka: 1920, vyska: 1080, delka_s: 2, od: 0.2, do: 1.8, klice: [{ t: 0, x: 555 }], rucne: false, video: 'klipy/' + id + '.mp4', bajtu: 3786 });
+const KLIPY_TEST = { klipy: [klipTestu('kt-1', 'Hráč A'), klipTestu('kt-2', 'Hráč B')] };
+let drahyWebTest = {};
+const zdrojePlanuTestu = () => ({ klipy: RP.klipySDrahami(KLIPY_TEST, drahyWebTest, ''), plan: PLAN_TEST, moje: planMojeTest, audit: PLAN_AUDIT_TEST, vyroba: PLAN_VYROBA_TEST,
   fotbal: { zapasy: PLAN_ZAPASY_TEST, detaily: PLAN_DETAILY_TEST }, reely: REELY_TEST.map(reelTestu), zverejneno: Object.assign({}, reelyZverejneno), planIg: {} });
 const planTestu = () => JSON.parse(JSON.stringify(Object.assign(RP.vystup(zdrojePlanuTestu()), { chybne: [], ted: Date.now() })));
 const stavyPlanuTestu = () => { const s = {}; RP.vystup(zdrojePlanuTestu()).dily.forEach((d) => { s[d.id] = d.stav; }); return s; };
@@ -8617,6 +8631,90 @@ function vychoziVikendTestu() {
       if (t.chybyStranky.length) chyby.push('telefon chyby stránky: ' + t.chybyStranky.join(' | '));
     } finally { await t.ctx.close(); }
     jistota(!chyby.length, chyby.join('\n'));
+  });
+
+  await test('Reely → editor drah v aplikaci: Upravit dráhy z Plánu, klip se načte, dráha ukazatelem při přehrávání i tažením, ořez, Uložit → reelDrahaUlozit, další klip, po posledním Dráhy hotové; telefon bez přetečení', async () => {
+    planMojeTest = RP.moje(null, PLAN_TEST);
+    drahyWebTest = {};
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, { nazev: 'pc', sirka: 1920, vyska: 1080, dotyk: false }, 'dark');
+    const O = '[data-panel="drahy-editor"] ';
+    const nacteno = () => page.waitForSelector(O + '[data-de-zprava][hidden]', { state: 'attached', timeout: 15000 });
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="reely"]');
+      await page.click('#p-reely [data-reely-zalozka="plan"]');
+      await page.waitForSelector('#p-reely .rp-vlny [data-rp-drahy-web="d-nach"]');
+      jistota(/btn--plan/.test(await page.getAttribute('#p-reely .rp-vlny [data-rp-drahy-web="d-nach"]', 'class')), 'Upravit dráhy je hlavní tlačítko');
+      jistota(await page.locator('#p-reely .rp-vlny [data-rp-dil="d-nach"] .rp-editor-pc').count() === 1, 'místní editor jen jako malý odkaz');
+      await page.click('#p-reely .rp-vlny [data-rp-drahy-web="d-nach"]');
+      await nacteno();
+      jistota(await page.locator(O + '[data-de-klip]').count() === 2, 'dva klipy dílu');
+      jistota(await page.$eval(O + '[data-de-platno]', (c) => getComputedStyle(c).touchAction) === 'none', 'plátno bez posouvání prstem');
+      jistota(await page.getAttribute(O + '[data-de-rychlost="0.5"]', 'aria-pressed') === 'true', 'výchozí rychlost 0,5×');
+      // nahrání dráhy ukazatelem při přehrávání
+      const b = await page.locator(O + '[data-de-platno]').boundingBox();
+      await page.click(O + '[data-de-nahrat]');
+      for (let i = 0; i < 20; i++) { await page.mouse.move(b.x + b.width * (0.2 + i * 0.03), b.y + b.height / 2); await page.waitForTimeout(40); }
+      await page.click(O + '[data-de-nahrat]');
+      const bodu = Number((await page.textContent(O + '[data-de-pocet]')).replace(/\D/g, ''));
+      jistota(bodu > 3, 'nahraných bodů: ' + bodu);
+      // ořez: zpět po snímcích a Začátek zde
+      await page.click(O + '[data-de-krok="-0.1"]');
+      await page.keyboard.press('ArrowLeft');
+      await page.click(O + '[data-de-zacatek]');
+      jistota(/Neuloženo/.test(await page.textContent(O + '[data-de-ulozeni]')), 'neuloženo');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_reely_editor_drah.png') });
+      let pred = volano.length;
+      await page.click(O + '[data-de-ulozit]');
+      await cekej(() => volano.slice(pred).some((x) => x.akce === 'reelDrahaUlozit' && x.id === 'kt-1' && x.klice.length > 3 && typeof x.od === 'number' && x.od > 0.2), 3000, 'reelDrahaUlozit s body a ořezem');
+      await page.waitForSelector(O + '[data-de-klip="1"][aria-current="true"]');
+      await nacteno();
+      // druhý klip: zastavené video – dráha tažením
+      await page.mouse.move(b.x + b.width * 0.3, b.y + b.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(b.x + b.width * 0.6, b.y + b.height / 2, { steps: 5 });
+      await page.mouse.up();
+      pred = volano.length;
+      await page.click(O + '[data-de-ulozit]');
+      await cekej(() => volano.slice(pred).some((x) => x.akce === 'reelDrahaUlozit' && x.id === 'kt-2'), 3000, 'druhý klip uložen');
+      await page.waitForFunction((o) => Array.from(document.querySelectorAll(o + '[data-de-stav-klipu]')).every((s) => s.textContent === 'uloženo'), O);
+      await page.waitForSelector(O + '[data-de-udelat]');
+      const m = await page.evaluate(() => ({ pretok: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        okno: Math.round(document.querySelector('[data-panel="drahy-editor"]').getBoundingClientRect().width) }));
+      jistota(m.pretok <= 0 && m.okno <= 1200, 'PC: ' + JSON.stringify(m));
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_reely_editor_drah_hotovo.png') });
+      await page.click(O + '[data-zavrit-panel]');
+      await page.waitForSelector('[data-panel="drahy-editor"]', { state: 'detached' });
+      await page.waitForFunction(() => /Dráhy hotové/.test((document.querySelector('#p-reely .rp-vlny [data-rp-dil="d-nach"] .rp-stav') || {}).textContent || ''));
+      jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+    } finally { await ctx.close(); }
+    // telefon: celé okno, tlačítka ≥ 42 px, nic nepřetéká, neuložená změna → dotaz při zavření
+    drahyWebTest = {};
+    const t = await novaStranka(prohlizec, VELIKOSTI[0]);
+    try {
+      await t.page.goto(WEB);
+      await t.page.click('.hlava-ja [data-menu]');
+      await t.page.click('[data-panel="menu"] [data-menu-cil="reely"]');
+      await t.page.click('#p-reely [data-reely-zalozka="plan"]');
+      await t.page.click('#p-reely .rp-mobil [data-rp-drahy-web="d-nach"]');
+      await t.page.waitForSelector('[data-panel="drahy-editor"] [data-de-zprava][hidden]', { state: 'attached', timeout: 15000 });
+      const m = await t.page.evaluate(() => ({ pretok: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        nejmensi: Math.min(...Array.from(document.querySelectorAll('[data-panel="drahy-editor"] .de__radek .btn, [data-panel="drahy-editor"] .de__radek .chip, [data-panel="drahy-editor"] [data-de-ulozit]'))
+          .map((b) => b.getBoundingClientRect().height)) }));
+      jistota(m.pretok <= 0 && m.nejmensi >= 42, 'telefon: ' + JSON.stringify(m));
+      const b = await t.page.locator('[data-panel="drahy-editor"] [data-de-platno]').boundingBox();
+      await t.page.mouse.move(b.x + 40, b.y + 30);
+      await t.page.mouse.down();
+      await t.page.mouse.move(b.x + 200, b.y + 30, { steps: 4 });
+      await t.page.mouse.up();
+      await t.page.screenshot({ path: path.join(VYSTUP, 'telefon_reely_editor_drah.png') });
+      await t.page.click('[data-panel="drahy-editor"] [data-zavrit-panel]');
+      await t.page.waitForSelector('.okno-pozadi');
+      jistota(/Zahodit/.test(await t.page.textContent('.okno')), 'dotaz na neuloženou dráhu');
+      await t.page.click('.okno [data-okno="ano"]');
+      await t.page.waitForSelector('[data-panel="drahy-editor"]', { state: 'detached' });
+      if (t.chybyStranky.length) throw new Error('telefon chyby stránky: ' + t.chybyStranky.join(' | '));
+    } finally { await t.ctx.close(); }
   });
 
   await test('telefon: menu zleva se všemi sekcemi (Fotbal, Reely, Plakáty), zavření klepnutím vedle', async () => {
