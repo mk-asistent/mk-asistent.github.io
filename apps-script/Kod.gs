@@ -44,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-11-16.5';
+const VERZE = '2026-11-16.6';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -9574,11 +9574,20 @@ function idsTreninku_(d) {
   ids.forEach(function (id) { if (!TRENINKY_.ID.test(id)) throw new Error('Neplatný cvik.'); });
   return ids;
 }
-/** Položky se jménem ve složce (DriveApp vrací i ty v koši): kos = jen v koši / jen mimo něj, nejnovější první. */
-function polozkyTreninku_(it, kos) {
+/** Položky mimo koš (DriveApp). */
+function mimoKosTreninku_(it) {
   const v = [];
-  while (it && it.hasNext()) { const x = it.next(); if (x.isTrashed() === kos) v.push(x); }
-  return v.sort(function (a, b) { return b.getLastUpdated().getTime() - a.getLastUpdated().getTime(); });
+  while (it && it.hasNext()) { const x = it.next(); if (!x.isTrashed()) v.push(x); }
+  return v;
+}
+/** Id položek daného jména ve složce, které jsou v koši (nejnovější první). Skutečný Disk přes DriveApp (getFilesByName,
+ *  getFoldersByName) položky v koši nevrací – 16. 11. „Vrátit“ naživo nenašlo nic –, proto dotaz Drive API. Jméno je ověřené id cviku. */
+function vKosiTreninku_(slozka, nazev) {
+  if (!slozka) return [];
+  const r = Drive.Files.list({ q: "'" + slozka.getId() + "' in parents and name = '" + nazev + "' and trashed = true",
+    fields: 'files(id, name, modifiedTime)', pageSize: 50 });
+  return (r.files || []).sort(function (a, b) { return String(b.modifiedTime || '').localeCompare(String(a.modifiedTime || '')); })
+    .map(function (f) { return f.id; });
 }
 function kosTreninku_(d, doKose) {
   const ids = idsTreninku_(d);
@@ -9590,11 +9599,20 @@ function kosTreninku_(d, doKose) {
     const cviky = podslozka('cviky'), nahledy = podslozka('nahledy');
     const hotovo = [];
     ids.forEach(function (id) {
-      const karty = polozkyTreninku_(cviky ? cviky.getFilesByName(id + '.json') : null, !doKose);
-      if (!karty.length || (!doKose && polozkyTreninku_(cviky.getFilesByName(id + '.json'), false).length)) return;
-      (doKose ? karty : karty.slice(0, 1)).forEach(function (x) { x.setTrashed(doKose); });
-      const n = polozkyTreninku_(nahledy ? nahledy.getFoldersByName(id) : null, !doKose);
-      if (n.length && (doKose || !polozkyTreninku_(nahledy.getFoldersByName(id), false).length)) (doKose ? n : n.slice(0, 1)).forEach(function (x) { x.setTrashed(doKose); });
+      const zive = mimoKosTreninku_(cviky ? cviky.getFilesByName(id + '.json') : null);
+      const ziveNahledy = mimoKosTreninku_(nahledy ? nahledy.getFoldersByName(id) : null);
+      if (doKose) {
+        if (!zive.length) return; // cvik tu není
+        zive.forEach(function (x) { x.setTrashed(true); });
+        ziveNahledy.forEach(function (x) { x.setTrashed(true); });
+      } else {
+        if (zive.length) return; // cvik tu je – nic se nevrací
+        const karty = vKosiTreninku_(cviky, id + '.json');
+        if (!karty.length) return;
+        Drive.Files.update({ trashed: false }, karty[0]);
+        const n = ziveNahledy.length ? [] : vKosiTreninku_(nahledy, id);
+        if (n.length) Drive.Files.update({ trashed: false }, n[0]);
+      }
       hotovo.push(id);
     });
     return doKose ? { smazano: hotovo, ted: Date.now() } : { obnoveno: hotovo, ted: Date.now() };

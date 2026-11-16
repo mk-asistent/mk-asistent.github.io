@@ -189,11 +189,12 @@ function prostredi() {
     s.getId = () => 'slozka-' + nazev; s.getName = () => nazev;
     vsechnySlozky[s.getId()] = s;
     s.getParents = () => iterator(rodic ? [rodic] : []);
-    s.getFoldersByName = (n) => { const x = s.deti[n]; let hotovo = !x; return { hasNext: () => !hotovo, next: () => { hotovo = true; return x; } }; };
+    // jako skutečný Disk (ověřeno naživo 16. 11.): podle jména jen položky mimo koš – koš jde najít jen přes Drive API
+    s.getFoldersByName = (n) => { const x = s.deti[n] && !s.deti[n].vKosi ? s.deti[n] : null; let hotovo = !x; return { hasNext: () => !hotovo, next: () => { hotovo = true; return x; } }; };
     s.getFolders = () => iterator(Object.values(s.deti));
     s.vKosi = false; s.isTrashed = () => s.vKosi; s.setTrashed = (k) => { s.vKosi = !!k; return s; };
     s.getFiles = () => iterator(s.soubory.filter((x) => !x.vKosi));
-    s.getFilesByName = (n) => iterator(s.soubory.filter((x) => x.getName() === n)); // jako DriveApp: i soubory v koši (kód kontroluje isTrashed)
+    s.getFilesByName = (n) => iterator(s.soubory.filter((x) => x.getName() === n && !x.vKosi));
     s.createFolder = (n) => (s.deti[n] = slozka(n, s));
     s.createFile = (n, obsah) => {
       if (n && typeof n === 'object') { obsah = n; n = n.getName(); } // createFile(blob) – fotka účtenky
@@ -367,6 +368,14 @@ function prostredi() {
     },
     // výpis složky (Tréninky): jen dotaz „'<id>' in parents and trashed = false“, stránky po 3 souborech (zkouška stránkování)
     list: (dotaz) => {
+      const kos = /^'([^']+)' in parents and name = '([^']+)' and trashed = true$/.exec(dotaz.q);
+      if (kos) { // položky daného jména v koši (soubory i podsložky)
+        const s = vsechnySlozky[kos[1]];
+        assert.ok(s, 'dotaz Drive.Files.list (koš): ' + dotaz.q);
+        const cas = (x) => (x.getLastUpdated ? x.getLastUpdated().toISOString() : new Date(0).toISOString());
+        return { files: s.soubory.filter((f) => f.vKosi && f.getName() === kos[2]).concat(s.deti[kos[2]] && s.deti[kos[2]].vKosi ? [s.deti[kos[2]]] : [])
+          .map((f) => ({ id: f.getId(), name: f.getName(), modifiedTime: cas(f) })) };
+      }
       log.driveList = (log.driveList || 0) + 1;
       const m = /^'([^']+)' in parents and trashed = false$/.exec(dotaz.q);
       assert.ok(m && vsechnySlozky[m[1]], 'dotaz Drive.Files.list: ' + dotaz.q);
@@ -375,6 +384,12 @@ function prostredi() {
       const od = Number(dotaz.pageToken || 0);
       return { files: vse.slice(od, od + 3).map((f) => ({ id: f.getId(), name: f.getName(), modifiedTime: f.getLastUpdated().toISOString() })),
         nextPageToken: od + 3 < vse.length ? String(od + 3) : undefined };
+    },
+    update: (zdroj, id) => {
+      const x = vsechnySoubory[id] || vsechnySlozky[id];
+      assert.ok(x, 'Drive.Files.update: neznámé id ' + id);
+      if (zdroj && 'trashed' in zdroj) x.vKosi = !!zdroj.trashed;
+      return { id };
     } } },
     ScriptApp: { getOAuthToken: () => 'token-test' },
     GmailApp,
