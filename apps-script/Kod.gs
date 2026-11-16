@@ -44,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-11-16.9';
+const VERZE = '2026-11-16.10';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -10102,10 +10102,11 @@ const PLAN_DILU_ = (function () {
   }
 
   /** Michalovy změny jednoho dílu – jen platné hodnoty. */
-  function cistaZmena(u) {
+  function cistaZmena(u, vlny) {
     u = obj(u) || {};
     const r = {};
     if (ma(u, 'termin') && (u.termin === null || platneDatum(u.termin))) r.termin = u.termin;
+    if (typeof u.vlna === 'string' && vlny && vlny[u.vlna]) r.vlna = u.vlna;
     if (CAS.test(String(u.cas || ''))) r.cas = u.cas;
     if (odstavce(u.poznamka, 600)) r.poznamka = odstavce(u.poznamka, 600);
     FLAGY.forEach(function (k) { if (u[k] === true) r[k] = true; });
@@ -10120,11 +10121,11 @@ const PLAN_DILU_ = (function () {
     ((p && p.vlny) || []).forEach(function (v) { znameVlny[v.id] = true; });
     const dily = {};
     const dx = obj(x.dily) || {};
-    Object.keys(dx).forEach(function (id) { if (ID.test(id)) { const c = cistaZmena(dx[id]); if (Object.keys(c).length) dily[id] = c; } });
+    Object.keys(dx).forEach(function (id) { if (ID.test(id)) { const c = cistaZmena(dx[id], znameVlny); if (Object.keys(c).length) dily[id] = c; } });
     // vlastní díl nese i Michalovu poznámku (poznamka) a příznaky přímo v sobě
     const vlastni = bezDuplicit((Array.isArray(x.vlastni) ? x.vlastni : []).map(function (o) {
       const d = cistyDil(o, znameVlny);
-      return d ? Object.assign(d, cistaZmena(o)) : null;
+      return d ? Object.assign(d, cistaZmena(o, znameVlny)) : null;
     })).slice(0, MAX_VLASTNICH);
     return { dily: dily, vlastni: vlastni, napady: bezDuplicit((Array.isArray(x.napady) ? x.napady : []).map(cistyNapad)).slice(0, MAX_NAPADU),
       kdy: radek(x.kdy, 40) };
@@ -10136,6 +10137,7 @@ const PLAN_DILU_ = (function () {
       const u = m.dily[d.id] || {};
       const r = Object.assign({}, d);
       if (ma(u, 'termin')) { r.terminPlan = d.termin; r.termin = u.termin; }
+      if (u.vlna) { r.vlnaPlan = d.vlna; r.vlna = u.vlna; }
       if (u.cas) r.cas = u.cas;
       if (u.poznamka) r.poznamkaMoje = u.poznamka;
       FLAGY.forEach(function (k) { if (u[k]) r[k] = true; });
@@ -10197,8 +10199,8 @@ const PLAN_DILU_ = (function () {
   }
 
   /** Klíče, které Michal smí změnit; u vlastního dílu i jeho obsah. */
-  const ZMENY_VSUDE = ['termin', 'cas', 'poznamka', 'drahyHotove', 'hotovo', 'zruseno'];
-  const ZMENY_VLASTNI = ['nazev', 'popis', 'vlna', 'format', 'tym'];
+  const ZMENY_VSUDE = ['termin', 'vlna', 'cas', 'poznamka', 'drahyHotove', 'hotovo', 'zruseno'];
+  const ZMENY_VLASTNI = ['nazev', 'popis', 'format', 'tym'];
 
   function zkontrolujZmenu(k, v, vlny) {
     if (k === 'termin') { if (v !== null && !platneDatum(v)) throw new Error('Termín musí být datum RRRR-MM-DD.'); return v; }
@@ -10214,7 +10216,7 @@ const PLAN_DILU_ = (function () {
 
   /**
    * Akce reelyPlanUlozit nad vyčištěnými daty → nové „moje“ (obsah plan_moje.json bez kdy):
-   *   { dil: { id, zmeny: { termin?, cas?, poznamka?, drahyHotove?, hotovo?, zruseno?, (u vlastního i nazev, popis, vlna, format, tym) } } }
+   *   { dil: { id, zmeny: { termin?, vlna?, cas?, poznamka?, drahyHotove?, hotovo?, zruseno?, (u vlastního i nazev, popis, format, tym) } } }
    *     null = vrátit podle plánu (u vlastního dílu termin null = bez termínu); co se shoduje s plánem, se neukládá
    *   { novy: { nazev, popis?, termin?, cas?, vlna?, format?, tym?, napad? } }   vlastní díl (i z nápadu – nápad pak zmizí ze zásobníku)
    *   { napad: { nazev, popis? } | { id, smazat: true } }                        vlastní nápad
@@ -10250,7 +10252,7 @@ const PLAN_DILU_ = (function () {
           return;
         }
         const u = r.dily[id] || {};
-        const vychozi = k === 'termin' ? pd.termin : k === 'cas' ? pd.cas : undefined;
+        const vychozi = k === 'termin' ? pd.termin : k === 'cas' ? pd.cas : k === 'vlna' ? pd.vlna : undefined;
         if (v === null || v === false || v === '' || (vychozi !== undefined && v === vychozi)) delete u[k]; else u[k] = v;
         if (Object.keys(u).length) r.dily[id] = u; else delete r.dily[id];
       });

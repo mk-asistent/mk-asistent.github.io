@@ -1,13 +1,16 @@
 // Reely → záložky Plán · Zápasy · Nápady (Michal 16. 11.: „plán, seznam zápasů a tok reelů mít v Asistentovi na jednom místě“).
 // Data z motoru (akce reelyPlan – REELY/plan.json, zapasy_audit.json, vyroba.json z domácího PC a plan_moje.json s Michalovými změnami),
 // čisté funkce v js/reely_plan.js. Modul načte reely.js až na záložce (jako Cesťáky); klepnutí si obsluhuje sám (atributy data-rp-…).
+// Od 16. 11. večer: pravé tlačítko / podržení na kartě dílu = nabídka (termín, vlna, poznámka, vyšlo, zrušit…), karta jde na PC přetáhnout
+// do jiné vlny a každá změna se na kartě ukáže hned („ukládám…“ → „uloženo ✓“, chyba = vrácení a hláška).
 // Plán na široké obrazovce = Po vlnách (výchozí, sloupec = vlna) nebo Podle stavu, nad tím řádek Na řadě; na telefonu jeden seznam podle termínu se štítkem stavu a filtrem.
 
 import { volej, jeDemo } from './api.js';
 import { zmeneno, umiMotor } from './stav.js';
 import { esc, uloziste, prepisSPolem, tvar } from './pomocne.js';
 import { IKONY } from './ikony.js';
-import { toast, kostra, chybaHtml, segment, okno } from './ui.js';
+import { toast, toastAkce, kostra, chybaHtml, segment, okno } from './ui.js';
+import { pripoj as pripojNabidku } from './nabidka.js';
 import * as RP from './reely_plan.js';
 
 const ULOZISTE = 'asistent.data.reelyPlan';
@@ -20,6 +23,10 @@ const volby = uloziste.cti(VOLBY) || {};
 const c = { data: (ulozeno && ulozeno.data) || null, kdy: (ulozeno && ulozeno.kdy) || 0, nacita: false, chyba: null, chybaKdy: 0,
   bezi: 0, filtr: volby.filtr || 'aktivni', pohled: volby.pohled === 'stav' ? 'stav' : 'vlny', vlnaMob: volby.vlna || 'vse' };
 const ulozVolby = () => uloziste.pis(VOLBY, { filtr: c.filtr, pohled: c.pohled, vlna: c.vlnaMob });
+
+const ulozeni = {}; // id dílu → 'uklada' | 'ulozeno' | 'chyba' (stav na kartě)
+const casovaceUlozeni = {};
+const TAHNUTI = window.matchMedia('(hover: hover) and (pointer: fine)');
 
 const posledni = new WeakMap();
 function nastav(el, html) {
@@ -38,15 +45,51 @@ export function nactiPlan(znovu) {
     (e) => { c.chyba = e; c.chybaKdy = Date.now(); }).then(() => { c.nacita = false; zmeneno(); });
 }
 
-/** Zápis (reelyPlanUlozit / reelUdelat) – odpověď je celý nový plán. */
-function posli(akce, p, hotovo) {
+function oznacUlozeni(ids, stav) {
+  ids.forEach((id) => {
+    clearTimeout(casovaceUlozeni[id]);
+    if (stav) ulozeni[id] = stav; else delete ulozeni[id];
+    if (stav === 'ulozeno' || stav === 'chyba') casovaceUlozeni[id] = setTimeout(() => { delete ulozeni[id]; zmeneno(); }, stav === 'chyba' ? 6000 : 2500);
+  });
+}
+
+/** Zápis (reelyPlanUlozit / reelUdelat) – odpověď je celý nový plán.
+ *  ids = díly, kterých se změna týká (karta ukáže „ukládám…“ / „uloženo ✓“), lokalne(díl) = změna hned v aplikaci, než odpoví motor. */
+function posli(akce, p, hotovo, ids, lokalne) {
+  ids = ids || [];
+  const zaloha = c.data;
+  if (lokalne && c.data) {
+    c.data = Object.assign({}, c.data, { dily: c.data.dily.map((x) => (ids.indexOf(x.id) >= 0 ? lokalne(Object.assign({}, x)) || x : x)) });
+  }
   c.bezi++;
+  oznacUlozeni(ids, 'uklada');
   zmeneno();
   return volej(akce, p).then((d) => {
     c.data = d; c.kdy = Date.now(); uloz();
-    if (hotovo) toast(typeof hotovo === 'function' ? hotovo(d) : hotovo);
-  }, (e) => toast('Neuložilo se: ' + ((e && e.message) || 'chyba'), true))
-    .then(() => { c.bezi--; zmeneno(); });
+    oznacUlozeni(ids, 'ulozeno');
+    const text = hotovo ? (typeof hotovo === 'function' ? hotovo(d) : hotovo) : 'Uloženo';
+    if (text && typeof text === 'object') toastAkce(text.text, text.akce, text.fn); else toast(text);
+  }, (e) => {
+    if (lokalne) c.data = zaloha; // změna se nepovedla → karta zpátky, jak byla
+    oznacUlozeni(ids, 'chyba');
+    toast('Neuložilo se: ' + ((e && e.message) || 'chyba'), true);
+  }).then(() => { c.bezi--; zmeneno(); });
+}
+
+/** Změna jednoho dílu (zmeny jako v akci reelyPlanUlozit) s okamžitým zobrazením. */
+function zmenDil(d, zmeny, hotovo) {
+  return posli('reelyPlanUlozit', { dil: { id: d.id, zmeny } }, hotovo, [d.id], (x) => {
+    Object.keys(zmeny).forEach((k) => {
+      const v = zmeny[k];
+      if (k === 'termin') { if (x.terminPlan === undefined) x.terminPlan = x.termin; x.termin = v === null ? (x.vlastni ? null : x.terminPlan) : v; }
+      else if (k === 'vlna') { if (x.vlnaPlan === undefined) x.vlnaPlan = x.vlna; x.vlna = v || x.vlnaPlan; }
+      else if (k === 'poznamka') { if (v) x.poznamkaMoje = v; else delete x.poznamkaMoje; }
+      else if (k === 'hotovo' && v) x.stav = 'vyveseno';
+      else if (k === 'drahyHotove' && v && x.stav === 'nachystano') x.stav = 'drahy';
+      else if (k === 'zruseno') x.zruseno = !!v;
+    });
+    return x;
+  });
 }
 
 // ---------------------------------------------------------------- zobrazení
@@ -109,10 +152,18 @@ function kartaDilu(d, seStavem) {
   const v = vlna(d.vlna);
   const drahy = RP.drahyText(d);
   const posunuto = d.terminPlan !== undefined && d.terminPlan !== d.termin;
-  return '<li class="rp-dil rp-dil--' + d.stav + (d.chybaIg ? ' rp-dil--chyba' : '') + '" data-rp-dil="' + esc(d.id) + '"' + (d.tym ? ' data-tym="' + esc(d.tym) + '"' : '') + '>' +
+  const presunuto = d.vlnaPlan !== undefined && d.vlnaPlan !== d.vlna && vlna(d.vlnaPlan);
+  const ul = ulozeni[d.id];
+  const stavUlozeni = ul === 'uklada' ? '<span class="rp-dil__ulozeni" role="status"><span class="rp-tocka"></span>ukládám…</span>'
+    : ul === 'ulozeno' ? '<span class="rp-dil__ulozeni rp-dil__ulozeni--ok" role="status">' + IKONY.fajfka + 'uloženo</span>'
+      : ul === 'chyba' ? '<span class="rp-dil__ulozeni rp-dil__ulozeni--chyba" role="status">neuloženo</span>' : '';
+  const tah = TAHNUTI.matches && c.pohled === 'vlny' ? ' draggable="true"' : '';
+  return '<li class="rp-dil rp-dil--' + d.stav + (d.chybaIg ? ' rp-dil--chyba' : '') + (ul ? ' rp-dil--ul-' + ul : '') + '" data-rp-dil="' + esc(d.id) + '"' +
+    (d.tym ? ' data-tym="' + esc(d.tym) + '"' : '') + tah + ' title="Pravé tlačítko = úpravy' + (tah ? ', přetažením do jiné vlny' : '') + '">' +
     '<div class="rp-dil__hlava"><b class="rp-dil__kdy cisla">' + esc(RP.denADatum(d.termin)) + (d.termin && d.cas && d.cas !== '17:00' ? ' ' + esc(d.cas) : '') + '</b>' +
       (posunuto ? '<span class="tag tag--warn" title="V plánu ' + esc(RP.denADatum(d.terminPlan)) + '">posunuto</span>' : '') +
-      (seStavem ? stitekStavu(d.stav) : '') + '</div>' +
+      (presunuto ? '<span class="tag tag--warn" title="V plánu ' + esc(presunuto.nazev) + '">přesunuto</span>' : '') +
+      stavUlozeni + (seStavem ? stitekStavu(d.stav) : '') + '</div>' +
     '<div class="rp-dil__nazev">' + esc(d.nazev) + '</div>' +
     '<div class="rp-dil__meta">' + tymTag(d.tym) + (d.format !== 'reel' ? '<span class="tag tag--seda">' + RP.NAZVY_FORMATU[d.format] + '</span>' : '') +
       (drahy ? '<span class="rp-dil__drahy cisla">' + esc(drahy) + '</span>' : '') +
@@ -126,7 +177,7 @@ function kartaDilu(d, seStavem) {
 
 /** PC Po vlnách (výchozí): sloupec = vlna (auto-fit ≥ 300 px), stav jako štítek na kartě, vyvěšené ztlumené. */
 function poVlnachHtml(d) {
-  return '<div class="rp-vlny">' + RP.vlnySloupce(d.dily, d.vlny).map((s) => '<section class="rp-vlna"><div class="rp-vlna__hlava">' +
+  return '<div class="rp-vlny">' + RP.vlnySloupce(d.dily, d.vlny).map((s) => '<section class="rp-vlna"' + (s.id ? ' data-rp-cil-vlna="' + esc(s.id) + '"' : '') + '><div class="rp-vlna__hlava">' +
     '<b>' + esc(s.nazev) + '</b><span class="rp-vlna__info cisla">' + esc(RP.rozsah(s.od, s.do)) + ' · venku ' + s.venku + ' / ' + s.celkem + '</span></div>' +
     '<ul class="rp-dily">' + s.dily.map((x) => kartaDilu(x, true)).join('') + '</ul></section>').join('') + '</div>';
 }
@@ -143,7 +194,7 @@ function podleStavuHtml(d) {
 function naRadeHtml(d) {
   const x = RP.naRade(d.dily);
   if (!x) return '';
-  return '<div class="rp-narade"><span class="rp-narade__label">Na řadě</span><b class="cisla">' + esc(RP.denADatum(x.termin)) + '</b>' +
+  return '<div class="rp-narade" data-rp-dil="' + esc(x.id) + '"><span class="rp-narade__label">Na řadě</span><b class="cisla">' + esc(RP.denADatum(x.termin)) + '</b>' +
     '<span class="rp-narade__nazev">' + esc(x.nazev) + '</span>' + stitekStavu(x.stav) + '<span class="rp-narade__akce">' + hlavniTlacitko(x) + '</span></div>';
 }
 
@@ -210,7 +261,7 @@ export function vykresli(el, zalozka, zalozkyHtml) {
   }
   nastav(el.querySelector('#rp-bilance'), bilanceHtml(d));
   nastav(el.querySelector('#rp-obsah'), zalozka === 'zapasy' ? zapasyHtml(d) : zalozka === 'napady' ? napadyHtml(d) : planHtml(d));
-  nastav(el.querySelector('#rp-pata'), (c.bezi ? '<span class="napoveda">ukládám…</span>' : '') +
+  nastav(el.querySelector('#rp-pata'), (c.bezi ? '<span class="napoveda rp-pata__uklada"><span class="rp-tocka"></span>ukládám změny…</span>' : '') +
     (c.chyba ? '<span class="napoveda">Nepodařilo se obnovit · <button type="button" class="odkaz" data-rp-znovu>Zkusit znovu</button></span>' : '') +
     ((d.chybne || []).length ? '<span class="napoveda">Chyba v datech: ' + esc(d.chybne.join(', ')) + '</span>' : ''));
 }
@@ -243,14 +294,14 @@ async function termin(d) {
   const t = await okno({ ikona: IKONY.cas, nadpis: 'Termín dílu', text: d.nazev, volby: volbyT.length ? volbyT : undefined,
     pole: { popisek: 'Datum', hodnota: d.termin || '', typ: 'date' }, ano: 'Uložit' });
   if (!t || t === true) return;
-  posli('reelyPlanUlozit', { dil: { id: d.id, zmeny: { termin: t === 'bez' || t === 'plan' ? null : t } } }, 'Termín uložený');
+  zmenDil(d, { termin: t === 'bez' || t === 'plan' ? null : t }, 'Termín uložený');
 }
 
 async function poznamka(d) {
   const t = await okno({ ikona: IKONY.psat, nadpis: 'Poznámka k dílu', text: d.nazev, volby: d.poznamkaMoje ? [['smazat', 'Smazat poznámku']] : undefined,
     pole: { popisek: 'Poznámka', hodnota: d.poznamkaMoje || '', radku: 3 }, ano: 'Uložit' });
   if (!t || t === true) return;
-  posli('reelyPlanUlozit', { dil: { id: d.id, zmeny: { poznamka: t === 'smazat' ? null : t } } });
+  zmenDil(d, { poznamka: t === 'smazat' ? null : t }, t === 'smazat' ? 'Poznámka smazaná' : 'Poznámka uložená');
 }
 
 async function posunVlnu() {
@@ -260,8 +311,103 @@ async function posunVlnu() {
   if (!v || v === true) return;
   const dni = await okno({ ikona: IKONY.cas, nadpis: 'O kolik?', text: vlna(v).nazev, volby: [['-7', '− týden'], ['7', '+ týden'], ['14', '+ 2 týdny']] });
   if (!dni || dni === true) return;
-  posli('reelyPlanUlozit', { posun: { vlna: v, dni: Number(dni) } }, 'Vlna posunutá');
+  posli('reelyPlanUlozit', { posun: { vlna: v, dni: Number(dni) } }, 'Vlna posunutá', c.data.dily.filter((x) => x.vlna === v && x.termin).map((x) => x.id));
 }
+
+function presunDoVlny(d, kam) {
+  const v = vlna(kam);
+  if (!v || kam === d.vlna) return;
+  const zpet = d.vlna;
+  zmenDil(d, { vlna: kam }, { text: 'Přesunuto: ' + v.nazev.split(' · ')[0] + (d.termin ? ' · termín ' + RP.denADatum(d.termin) : ''), akce: 'Vrátit',
+    fn: () => { const x = dil(d.id); if (x) zmenDil(x, { vlna: zpet }, 'Vráceno'); } });
+}
+
+function posunDil(d, dni) {
+  if (!d.termin) { termin(d); return; }
+  const novy = RP.pridejDny(d.termin, dni);
+  zmenDil(d, { termin: novy }, 'Termín ' + RP.denADatum(novy));
+}
+
+function vyslo(d, ano) {
+  zmenDil(d, { hotovo: ano ? true : null }, ano ? { text: 'Označeno jako vyšlé', akce: 'Vrátit', fn: () => { const x = dil(d.id); if (x) vyslo(x, false); } } : 'Zpátky mezi nevyšlé');
+}
+
+function zrus(d, ano) {
+  zmenDil(d, { zruseno: ano ? true : null }, ano ? { text: 'Díl zrušený', akce: 'Vrátit', fn: () => zrus(d, false) } : 'Díl je zpátky v plánu');
+}
+
+/** Pravé tlačítko / podržení na kartě dílu (i v řádku Na řadě). */
+function nabidkaDilu(cil) {
+  const el = cil && cil.closest ? cil.closest('#p-reely [data-rp-dil]') : null;
+  const d = el && c.data && dil(el.dataset.rpDil);
+  if (!d) return null;
+  const p = [];
+  const akce = RP.akce(d, !!RP.editorOdkaz(c.data.editor, naPc(), d, datumDilu(d)), umiMotor('reelKlipy'));
+  if (akce.indexOf('upravitDrahy') >= 0) p.push({ ikona: IKONY.psat, text: 'Upravit dráhy', fn: () => otevriEditorDrah(d) });
+  if (akce.indexOf('drahyHotove') >= 0) p.push({ ikona: IKONY.fajfka, text: 'Dráhy hotové', fn: () => zmenDil(d, { drahyHotove: true }, 'Dráhy hotové') });
+  if (akce.indexOf('udelatReel') >= 0) p.push({ ikona: IKONY.reely, text: 'Udělej reel', fn: () => posli('reelUdelat', { dil: d.id }, (x) => (x.zalozeno ? 'Claude reel složí na domácím PC' : 'O reel už je požádáno'), [d.id]) });
+  if (d.reel && (akce.indexOf('naplanovat') >= 0 || akce.indexOf('otevritReel') >= 0)) p.push({ ikona: IKONY.prehrat, text: d.stav === 'reel' ? 'Otevřít a naplánovat' : 'Otevřít reel', fn: () => { if (otevriReel) otevriReel(d.reel); } });
+  const lzeTermin = d.stav !== 'vyveseno' && d.stav !== 'naplanovano';
+  if (lzeTermin) {
+    p.push({ ikona: IKONY.cas, text: 'Změnit termín…', oddel: true, fn: () => termin(d) });
+    if (d.termin) p.push({ ikona: IKONY.cas, text: 'Posunout…', dalsi: () => ({ nadpis: 'Posunout ' + d.nazev, polozky: [[-7, 'O týden dřív'], [-1, 'O den dřív'], [1, 'O den později'], [7, 'O týden později'], [14, 'O 2 týdny později']]
+      .map((x) => ({ text: x[1] + ' (' + RP.denADatum(RP.pridejDny(d.termin, x[0])) + ')', fn: () => posunDil(d, x[0]) })) }) });
+  }
+  const vlny = (c.data.vlny || []);
+  if (vlny.length) p.push({ ikona: IKONY.slozka || IKONY.cas, text: 'Přesunout do vlny…', oddel: !lzeTermin, dalsi: () => ({ nadpis: 'Do vlny', polozky: vlny.map((v) => ({
+    text: v.nazev + (v.id === d.vlna ? ' ✓' : '') + (d.vlnaPlan && v.id === d.vlnaPlan && v.id !== d.vlna ? ' (podle plánu)' : ''), fn: () => presunDoVlny(d, v.id) })) }) });
+  p.push({ ikona: IKONY.psat, text: d.poznamkaMoje ? 'Upravit poznámku…' : 'Poznámka…', fn: () => poznamka(d) });
+  if (d.stav !== 'vyveseno') p.push({ ikona: IKONY.fajfka, text: 'Vyšlo', oddel: true, fn: () => vyslo(d, true) });
+  else if (d.hotovo) p.push({ ikona: IKONY.fajfka, text: 'Ještě nevyšlo', oddel: true, fn: () => vyslo(d, false) });
+  if (d.stav !== 'vyveseno' && d.stav !== 'naplanovano') p.push({ ikona: IKONY.smazat, text: 'Zrušit díl', nebezpeci: true, fn: () => zrus(d, true) });
+  return { nadpis: RP.denADatum(d.termin) + ' · ' + d.nazev, polozky: p };
+}
+pripojNabidku(nabidkaDilu);
+
+// přetažení karty do jiné vlny (jen myš, pohled Po vlnách)
+const tah = { id: null, cil: null };
+function cilTahu(e) {
+  const s = e.target.closest && e.target.closest('#p-reely [data-rp-cil-vlna]');
+  const d = tah.id && dil(tah.id);
+  return s && d && s.dataset.rpCilVlna !== d.vlna ? s : null;
+}
+function oznacCil(s) {
+  if (tah.cil === s) return;
+  if (tah.cil) tah.cil.classList.remove('rp-vlna--cil');
+  tah.cil = s;
+  if (s) s.classList.add('rp-vlna--cil');
+}
+function konecTahu() {
+  oznacCil(null);
+  tah.id = null;
+  document.documentElement.classList.remove('tahne-dil');
+}
+document.addEventListener('dragstart', (e) => {
+  const k = e.target.closest && e.target.closest('#p-reely .rp-dil[draggable="true"]');
+  if (!k) return;
+  tah.id = k.dataset.rpDil;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', tah.id);
+  document.documentElement.classList.add('tahne-dil');
+});
+document.addEventListener('dragover', (e) => {
+  if (!tah.id) return;
+  const s = cilTahu(e);
+  oznacCil(s);
+  if (!s) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+});
+document.addEventListener('drop', (e) => {
+  if (!tah.id) return;
+  const s = cilTahu(e);
+  const d = dil(tah.id);
+  konecTahu();
+  if (!s || !d) return;
+  e.preventDefault();
+  presunDoVlny(d, s.dataset.rpCilVlna);
+});
+document.addEventListener('dragend', konecTahu);
 
 async function novyDil(napad) {
   const nazev = napad ? napad.nazev : await okno({ ikona: IKONY.plus, nadpis: 'Nový díl', pole: { popisek: 'Název', placeholder: 'Co to bude' }, ano: 'Dál' });
@@ -289,10 +435,10 @@ document.addEventListener('click', (e) => {
   if (ds.rpFiltr) { c.filtr = ds.rpFiltr; ulozVolby(); zmeneno(); return; }
   if (ds.rpPohled) { c.pohled = ds.rpPohled; ulozVolby(); zmeneno(); return; }
   if (ds.rpVlna) { c.vlnaMob = ds.rpVlna; ulozVolby(); zmeneno(); return; }
-  if (ds.rpDrahy) { posli('reelyPlanUlozit', { dil: { id: ds.rpDrahy, zmeny: { drahyHotove: true } } }); return; }
-  if (ds.rpUdelat) { posli('reelUdelat', { dil: ds.rpUdelat }, (d) => (d.zalozeno ? 'Claude reel složí na domácím PC' : 'O reel už je požádáno')); return; }
+  if (ds.rpDrahy) { const d = dil(ds.rpDrahy); if (d) zmenDil(d, { drahyHotove: true }, 'Dráhy hotové'); return; }
+  if (ds.rpUdelat) { posli('reelUdelat', { dil: ds.rpUdelat }, (d) => (d.zalozeno ? 'Claude reel složí na domácím PC' : 'O reel už je požádáno'), [ds.rpUdelat]); return; }
   if (ds.rpReel) { if (otevriReel) otevriReel(ds.rpReel); return; }
-  if (ds.rpHotovo) { posli('reelyPlanUlozit', { dil: { id: ds.rpHotovo, zmeny: { hotovo: true } } }, 'Označeno jako vyšlé'); return; }
+  if (ds.rpHotovo) { const d = dil(ds.rpHotovo); if (d) vyslo(d, true); return; }
   if (ds.rpTermin) { const d = dil(ds.rpTermin); if (d) termin(d); return; }
   if (ds.rpPoznamka) { const d = dil(ds.rpPoznamka); if (d) poznamka(d); return; }
   if (el.hasAttribute('data-rp-posun-vlnu')) { posunVlnu(); return; }

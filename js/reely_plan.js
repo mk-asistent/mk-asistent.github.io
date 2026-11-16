@@ -7,7 +7,7 @@
 //                               klipu?, reel?: id reelu (i budoucí), skupina?: skupina v editoru drah, poznamka? }
 //   zapasy_audit.json – píše jen Claude: { zapasy: { <id zápasu>: { veo, ig, stav: na_ig | chybi | bez_zaznamu | nedavat, poznamka? } }, mimo: [zápas] }
 //   vyroba.json       – píše jen domácí PC (export_reely.py): { dily: { <id reelu | skupina>: { datum?, klipu, drahRucne, deska, popisek, reel } } }
-//   plan_moje.json    – píše jen motor: Michalovy změny { dily: { <id>: { termin?, cas?, poznamka?, drahyHotove?, hotovo?, zruseno?, pozadano? } },
+//   plan_moje.json    – píše jen motor: Michalovy změny { dily: { <id>: { termin?, vlna?, cas?, poznamka?, drahyHotove?, hotovo?, zruseno?, pozadano? } },
 //                       vlastni: [díl], napady: [nápad], kdy }
 //
 // JÁDRO (od „JÁDRO“ po „KONEC JÁDRA“) má motor doslova stejné jako PLAN_DILU_ v apps-script/Kod.gs – změna tady = i tam.
@@ -93,10 +93,11 @@ export function plan(x) {
 }
 
 /** Michalovy změny jednoho dílu – jen platné hodnoty. */
-function cistaZmena(u) {
+function cistaZmena(u, vlny) {
   u = obj(u) || {};
   const r = {};
   if (ma(u, 'termin') && (u.termin === null || platneDatum(u.termin))) r.termin = u.termin;
+  if (typeof u.vlna === 'string' && vlny && vlny[u.vlna]) r.vlna = u.vlna;
   if (CAS.test(String(u.cas || ''))) r.cas = u.cas;
   if (odstavce(u.poznamka, 600)) r.poznamka = odstavce(u.poznamka, 600);
   FLAGY.forEach(function (k) { if (u[k] === true) r[k] = true; });
@@ -111,11 +112,11 @@ export function moje(x, p) {
   ((p && p.vlny) || []).forEach(function (v) { znameVlny[v.id] = true; });
   const dily = {};
   const dx = obj(x.dily) || {};
-  Object.keys(dx).forEach(function (id) { if (ID.test(id)) { const c = cistaZmena(dx[id]); if (Object.keys(c).length) dily[id] = c; } });
+  Object.keys(dx).forEach(function (id) { if (ID.test(id)) { const c = cistaZmena(dx[id], znameVlny); if (Object.keys(c).length) dily[id] = c; } });
   // vlastní díl nese i Michalovu poznámku (poznamka) a příznaky přímo v sobě
   const vlastni = bezDuplicit((Array.isArray(x.vlastni) ? x.vlastni : []).map(function (o) {
     const d = cistyDil(o, znameVlny);
-    return d ? Object.assign(d, cistaZmena(o)) : null;
+    return d ? Object.assign(d, cistaZmena(o, znameVlny)) : null;
   })).slice(0, MAX_VLASTNICH);
   return { dily: dily, vlastni: vlastni, napady: bezDuplicit((Array.isArray(x.napady) ? x.napady : []).map(cistyNapad)).slice(0, MAX_NAPADU),
     kdy: radek(x.kdy, 40) };
@@ -127,6 +128,7 @@ export function spoj(p, m) {
     const u = m.dily[d.id] || {};
     const r = Object.assign({}, d);
     if (ma(u, 'termin')) { r.terminPlan = d.termin; r.termin = u.termin; }
+    if (u.vlna) { r.vlnaPlan = d.vlna; r.vlna = u.vlna; }
     if (u.cas) r.cas = u.cas;
     if (u.poznamka) r.poznamkaMoje = u.poznamka;
     FLAGY.forEach(function (k) { if (u[k]) r[k] = true; });
@@ -188,8 +190,8 @@ export function stavDilu(d, ctx) {
 }
 
 /** Klíče, které Michal smí změnit; u vlastního dílu i jeho obsah. */
-const ZMENY_VSUDE = ['termin', 'cas', 'poznamka', 'drahyHotove', 'hotovo', 'zruseno'];
-const ZMENY_VLASTNI = ['nazev', 'popis', 'vlna', 'format', 'tym'];
+const ZMENY_VSUDE = ['termin', 'vlna', 'cas', 'poznamka', 'drahyHotove', 'hotovo', 'zruseno'];
+const ZMENY_VLASTNI = ['nazev', 'popis', 'format', 'tym'];
 
 function zkontrolujZmenu(k, v, vlny) {
   if (k === 'termin') { if (v !== null && !platneDatum(v)) throw new Error('Termín musí být datum RRRR-MM-DD.'); return v; }
@@ -205,7 +207,7 @@ function zkontrolujZmenu(k, v, vlny) {
 
 /**
  * Akce reelyPlanUlozit nad vyčištěnými daty → nové „moje“ (obsah plan_moje.json bez kdy):
- *   { dil: { id, zmeny: { termin?, cas?, poznamka?, drahyHotove?, hotovo?, zruseno?, (u vlastního i nazev, popis, vlna, format, tym) } } }
+ *   { dil: { id, zmeny: { termin?, vlna?, cas?, poznamka?, drahyHotove?, hotovo?, zruseno?, (u vlastního i nazev, popis, format, tym) } } }
  *     null = vrátit podle plánu (u vlastního dílu termin null = bez termínu); co se shoduje s plánem, se neukládá
  *   { novy: { nazev, popis?, termin?, cas?, vlna?, format?, tym?, napad? } }   vlastní díl (i z nápadu – nápad pak zmizí ze zásobníku)
  *   { napad: { nazev, popis? } | { id, smazat: true } }                        vlastní nápad
@@ -241,7 +243,7 @@ export function zmen(p, m, d, ted, stavy) {
         return;
       }
       const u = r.dily[id] || {};
-      const vychozi = k === 'termin' ? pd.termin : k === 'cas' ? pd.cas : undefined;
+      const vychozi = k === 'termin' ? pd.termin : k === 'cas' ? pd.cas : k === 'vlna' ? pd.vlna : undefined;
       if (v === null || v === false || v === '' || (vychozi !== undefined && v === vychozi)) delete u[k]; else u[k] = v;
       if (Object.keys(u).length) r.dily[id] = u; else delete r.dily[id];
     });

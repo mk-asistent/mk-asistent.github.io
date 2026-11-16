@@ -117,3 +117,21 @@
 .rp-bilance__pol--ok b { color: var(--s-hotovo); }
 .rp-zapasy__tym[data-tym]:not([data-tym="mimo"]) { --o: var(--t); }
 .tag[data-ig="nedavat"] { text-decoration: line-through; text-decoration-thickness: 1px; }
+
+/* Ukládání na kartě dílu, přetažení do vlny (16. 11. večer – Michal: „na něco kliknu a nevidím pořádně, jestli to zaznamenalo“) */
+.rp-dil__ulozeni { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 650; color: var(--muted); white-space: nowrap; }
+.rp-dil__ulozeni svg { width: 13px; height: 13px; }
+.rp-dil__ulozeni--ok { color: var(--s-hotovo, var(--ok)); }
+.rp-dil__ulozeni--chyba { color: var(--danger); }
+.rp-dil--ul-uklada { outline: 2px dashed color-mix(in srgb, var(--o, var(--accent)) 55%, transparent); outline-offset: -2px; }
+.rp-dil--ul-ulozeno { outline: 2px solid color-mix(in srgb, var(--s-hotovo, var(--ok)) 70%, transparent); outline-offset: -2px; transition: outline-color .4s; }
+.rp-dil--ul-chyba { outline: 2px solid var(--danger); outline-offset: -2px; }
+.rp-tocka { width: 11px; height: 11px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: rp-toc .8s linear infinite; flex: none; }
+@keyframes rp-toc { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .rp-tocka { animation-duration: 2.4s; } }
+.rp-pata__uklada { display: inline-flex; align-items: center; gap: 6px; font-weight: 650; }
+.rp-dil[draggable="true"] { cursor: grab; }
+.rp-dil[draggable="true"]:active { cursor: grabbing; }
+.tahne-dil .rp-vlna { transition: box-shadow .15s, background .15s; }
+.tahne-dil .rp-vlna[data-rp-cil-vlna] { box-shadow: inset 0 0 0 2px var(--line); }
+.rp-vlna.rp-vlna--cil { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--o, var(--accent)) 80%, transparent); background: color-mix(in srgb, var(--o, var(--accent)) 14%, var(--bg-soft)); }

@@ -117,6 +117,19 @@ test('zmen: vlastní díl z nápadu, nápad zmizí; vlastní nápad a smazání'
   assert.throws(() => RP.zmen(p, m, { novy: { nazev: ' ' } }, 1), /název/);
 });
 
+test('zmen: přesun dílu z plánu do jiné vlny a zpět; neznámá vlna neprojde', () => {
+  let m = RP.moje(null, p);
+  m = RP.moje(RP.zmen(p, m, { dil: { id: 'c', zmeny: { vlna: 'v1', termin: '2030-11-26' } } }, 1), p);
+  let s = RP.spoj(p, m).dily.find((d) => d.id === 'c');
+  assert.deepEqual([s.vlna, s.vlnaPlan, s.termin], ['v1', 'v2', '2030-11-26']);
+  assert.ok(RP.vlnySloupce(RP.spoj(p, m).dily, p.vlny).find((x) => x.id === 'v1').dily.some((d) => d.id === 'c'), 'sloupec nové vlny');
+  assert.throws(() => RP.zmen(p, m, { dil: { id: 'c', zmeny: { vlna: 'zz' } } }, 2), /vlna/);
+  assert.equal(RP.moje({ dily: { c: { vlna: 'zz' } } }, p).dily.c, undefined, 'neznámá vlna v souboru se zahodí');
+  m = RP.moje(RP.zmen(p, m, { dil: { id: 'c', zmeny: { vlna: 'v2' } } }, 3), p);
+  s = RP.spoj(p, m).dily.find((d) => d.id === 'c');
+  assert.deepEqual([s.vlna, s.vlnaPlan, m.dily.c.vlna], ['v2', undefined, undefined], 'zpět do vlny z plánu = bez úpravy vlny');
+});
+
 test('zmen: posun vlny a vybraných dílů (naplánované, vyvěšené, zrušené a bez termínu zůstanou)', () => {
   let m = RP.moje(null, p);
   m = RP.moje(RP.zmen(p, m, { posun: { vlna: 'v1', dni: 7 } }, 1, { a: 'nachystano', b: 'plan', e: 'vyveseno' }), p);

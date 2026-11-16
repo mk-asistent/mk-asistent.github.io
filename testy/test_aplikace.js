@@ -8633,6 +8633,82 @@ function vychoziVikendTestu() {
     jistota(!chyby.length, chyby.join('\n'));
   });
 
+  await test('Reely → Plán: pravé tlačítko na dílu (termín, posun o týden, přesun do vlny, poznámka, Vyšlo s Vrátit), přetažení karty do jiné vlny, na kartě „ukládám…“ → „uloženo“, chyba motoru kartu vrátí; telefon podržením', async () => {
+    planMojeTest = RP.moje(null, PLAN_TEST);
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, { nazev: 'pc', sirka: 1920, vyska: 1080, dotyk: false });
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="reely"]');
+      await page.waitForSelector('#p-reely [data-reely-zalozka="reely"]');
+      await page.click('#p-reely [data-reely-zalozka="plan"]');
+      await page.waitForSelector('#p-reely .rp-vlny .rp-dil');
+      const veVlne = (id, v) => page.locator('#p-reely .rp-vlna[data-rp-cil-vlna="' + v + '"] [data-rp-dil="' + id + '"]').count();
+      // nabídka: Přesunout do vlny → Vlna 2 (pomalý motor → hned na místě se „ukládám…“, pak „uloženo“)
+      zpozdeniMotoru.reelyPlanUlozit = 900;
+      let pred = volano.length;
+      await page.click('#p-reely .rp-vlny [data-rp-dil="d-plan"] .rp-dil__nazev', { button: 'right' });
+      await page.waitForSelector('.nabidka');
+      jistota(/Změnit termín/.test(await page.textContent('.nabidka')) && /Přesunout do vlny/.test(await page.textContent('.nabidka')), 'nabídka dílu');
+      await page.click('.nabidka >> text=Přesunout do vlny');
+      await page.click('.nabidka >> text=Vlna 2');
+      await page.waitForSelector('#p-reely .rp-vlna[data-rp-cil-vlna="v2"] [data-rp-dil="d-plan"].rp-dil--ul-uklada');
+      jistota(/ukládám/.test(await page.textContent('#p-reely [data-rp-dil="d-plan"]')), '„ukládám…“ na kartě');
+      await page.waitForSelector('#p-reely .rp-vlna[data-rp-cil-vlna="v2"] [data-rp-dil="d-plan"].rp-dil--ul-ulozeno');
+      jistota(/uloženo/.test(await page.textContent('#p-reely [data-rp-dil="d-plan"]')) && /přesunuto/.test(await page.textContent('#p-reely [data-rp-dil="d-plan"]')), 'uloženo + štítek přesunuto');
+      jistota(volano.slice(pred).some((x) => x.akce === 'reelyPlanUlozit' && x.dil && x.dil.id === 'd-plan' && x.dil.zmeny.vlna === 'v2'), 'vlna do motoru');
+      jistota(planMojeTest.dily['d-plan'].vlna === 'v2', 'uloženo v plan_moje');
+      zpozdeniMotoru.reelyPlanUlozit = 0;
+      // Vrátit z oznámení
+      await page.click('#toast .toast__akce');
+      await cekej(async () => (await veVlne('d-plan', 'v1')) === 1, 3000, 'Vrátit do Vlny 1');
+      jistota(!planMojeTest.dily['d-plan'] || !planMojeTest.dily['d-plan'].vlna, 'zpět = bez úpravy vlny');
+      // přetažení karty myší do Vlny 2
+      await page.dragAndDrop('#p-reely .rp-vlna[data-rp-cil-vlna="v1"] [data-rp-dil="d-nach"]', '#p-reely .rp-vlna[data-rp-cil-vlna="v2"] .rp-vlna__hlava');
+      await cekej(async () => (await veVlne('d-nach', 'v2')) === 1, 3000, 'přetažení do Vlny 2');
+      jistota(planMojeTest.dily['d-nach'] && planMojeTest.dily['d-nach'].vlna === 'v2', 'přetažení uloženo');
+      // posun o týden z nabídky
+      const termin = planTestu().dily.find((d) => d.id === 'd-plan2').termin;
+      await page.click('#p-reely [data-rp-dil="d-plan2"] .rp-dil__nazev', { button: 'right' });
+      await page.click('.nabidka >> text=Posunout…');
+      await page.click('.nabidka >> text=O týden později');
+      await cekej(() => planMojeTest.dily['d-plan2'] && planMojeTest.dily['d-plan2'].termin === RP.pridejDny(termin, 7), 3000, 'posun o týden');
+      // Vyšlo → karta vyvěšená, Vrátit
+      await page.click('#p-reely [data-rp-dil="d-kar"] .rp-dil__nazev', { button: 'right' });
+      await page.click('.nabidka >> text=Vyšlo');
+      await page.waitForSelector('#p-reely [data-rp-dil="d-kar"].rp-dil--vyveseno');
+      await page.click('#toast .toast__akce');
+      await page.waitForSelector('#p-reely [data-rp-dil="d-kar"]:not(.rp-dil--vyveseno)');
+      // chyba motoru: karta se vrátí, hláška, „neuloženo“
+      chybaMotoru.reelyPlanUlozit = 'Disk teď neodpovídá.';
+      await page.click('#p-reely [data-rp-dil="d-kar"] .rp-dil__nazev', { button: 'right' });
+      await page.click('.nabidka >> text=Přesunout do vlny');
+      await page.click('.nabidka >> text=Vlna 1');
+      await page.waitForSelector('#p-reely .rp-vlna[data-rp-cil-vlna="v2"] [data-rp-dil="d-kar"].rp-dil--ul-chyba');
+      jistota(/Neuložilo se/.test(await page.textContent('#toast')), 'hláška chyby');
+      delete chybaMotoru.reelyPlanUlozit;
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_reely_plan_nabidka.png'), fullPage: false });
+      jistota(!chybyStranky.length, chybyStranky.join(' | '));
+    } finally { delete chybaMotoru.reelyPlanUlozit; zpozdeniMotoru.reelyPlanUlozit = 0; await ctx.close(); }
+    // telefon: podržení karty = stejná nabídka
+    planMojeTest = RP.moje(null, PLAN_TEST);
+    const t = await novaStranka(prohlizec, VELIKOSTI[0]);
+    try {
+      await t.page.goto(WEB);
+      await t.page.click('.hlava-ja [data-menu]');
+      await t.page.click('[data-panel="menu"] [data-menu-cil="reely"]');
+      await t.page.click('#p-reely [data-reely-zalozka="plan"]');
+      await t.page.waitForSelector('#p-reely .rp-mobil [data-rp-dil="d-plan"]');
+      await t.page.click('#p-reely .rp-mobil [data-rp-dil="d-plan"] .rp-dil__nazev', { button: 'right' });
+      await t.page.waitForSelector('.nabidka');
+      await t.page.click('.nabidka >> text=Přesunout do vlny');
+      await t.page.click('.nabidka >> text=Vlna 2');
+      await cekej(() => planMojeTest.dily['d-plan'] && planMojeTest.dily['d-plan'].vlna === 'v2', 3000, 'telefon: přesun');
+      const pretok = await t.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      jistota(pretok <= 0, 'telefon přetéká o ' + pretok);
+      await t.page.screenshot({ path: path.join(VYSTUP, 'telefon_reely_plan_nabidka.png'), fullPage: false });
+    } finally { await t.ctx.close(); }
+  });
+
   await test('Reely → editor drah v aplikaci: Upravit dráhy z Plánu, klip se načte, dráha ukazatelem při přehrávání i tažením, ořez, Uložit → reelDrahaUlozit, další klip, po posledním Dráhy hotové; telefon bez přetečení', async () => {
     planMojeTest = RP.moje(null, PLAN_TEST);
     drahyWebTest = {};
