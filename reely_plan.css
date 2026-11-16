@@ -191,3 +191,32 @@
 /* levá část okna dílu: celá šířka (ne mřížka náhledu reelu 92 px z detailu reelu) */
 .do .reel-detail__media { display: block; }
 .do .do-galerie__obr, .do .do-media--reel .reel__nahled { margin-inline: auto; }
+
+/* přetahování (16. 11. pozdě večer – „nevidím správně, když přesunuju“): malá pilulka místo průhledné karty, všechny vlny jako cíle,
+   cíl pod kurzorem plnou barvou stránky s pruhem „Přesunout do: …“, současná vlna „tady je teď“, karta na místě ztlumená */
+.rp-tah-pilulka { position: fixed; top: -200px; left: -200px; max-width: 320px; padding: 7px 12px; border-radius: 999px; background: var(--o-reely); color: var(--na-barve, #fff);
+  font: 650 13px/1.2 system-ui, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 6px 18px rgba(0, 0, 0, .25); }
+.rp-dil--tazena { opacity: .45; outline: 2px dashed color-mix(in srgb, var(--o-reely) 70%, transparent); outline-offset: -2px; }
+.tahne-dil .rp-vlna[data-rp-cil-vlna] { position: relative; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--o-reely) 35%, var(--line)); }
+.tahne-dil .rp-vlna--zdroj::before { content: 'tady je teď'; position: absolute; top: -9px; right: 10px; padding: 1px 8px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 650; z-index: 1; }
+.rp-vlna.rp-vlna--cil { box-shadow: inset 0 0 0 3px var(--o-reely); background: color-mix(in srgb, var(--o-reely) 22%, var(--bg-soft)); padding-top: 36px; }
+.rp-vlna.rp-vlna--cil::after { content: 'Přesunout do: ' attr(data-nazev); position: absolute; top: 0; left: 0; right: 0; padding: 7px 12px; border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--o-reely); color: var(--na-barve, #fff); font-size: 13px; font-weight: 700; }
+.rp-dil--blik { animation: rp-blik 1.5s ease-out; }
+@keyframes rp-blik { 0%, 30% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--o-reely) 70%, transparent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+/* sloupec Mimo plán (reely, které nepatří žádnému dílu) – sbalitelný; Plakáty v barvě stránky Plakáty */
+.rp-vlna__sbalit { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; min-height: 32px; }
+.rp-vlna__sbalit b { font-size: 13.5px; font-weight: 700; }
+.rp-vlna--sbaleno { opacity: .85; }
+.rp-tag-plakat { background: color-mix(in srgb, var(--o-plakaty) var(--v-stitek, 14%), var(--surface)); color: color-mix(in srgb, var(--o-plakaty) 80%, var(--text)); }
+.rp-dil--plakat { cursor: pointer; border-left: 3px solid var(--o-plakaty); }
+.rp-plakat__zapasy { list-style: none; margin: 0; padding: 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+.rp-vlna--plakaty .rp-vlna__hlava b { color: color-mix(in srgb, var(--o-plakaty) 80%, var(--text)); }
+
+/* lišta Plánu: týmy, skupiny, nový příběh; pruh příběhů z fotky */
+.rp-tymy .segment { flex-wrap: wrap; }
+.rp-pribehy { display: flex; flex-direction: column; gap: 6px; }
+.rp-pribehy .reely-seznam { margin: 0; }
+.do-video-napoveda { margin: 8px 0 0; font-size: 12px; }

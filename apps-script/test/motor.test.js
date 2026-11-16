@@ -5412,4 +5412,25 @@ test('Reely → okno dílu: popisek (plán × reel), návrhy pod klíčem reelu 
   assert.ok(['dilPopisekNavrhy', 'dilObrazky'].every((a) => info.indexOf(a) >= 0) && vm.runInContext('CTENI_MOTORU', p.ctx).indexOf('dilObrazky') >= 0);
 });
 
+test('Reely → Mimo plán: reel z reely.json bez dílu = díl „mimo“ jen při čtení (nic se nezapisuje), přetažení do vlny = vlastní díl s reelem, podruhé chyba', () => {
+  const p = prostredi();
+  const re = p.schranka.createFolder('REELY');
+  re.createFile('plan.json', JSON.stringify({ vlny: [{ id: 'v1', nazev: 'Vlna 1' }], dily: [{ id: 'a', nazev: 'Áčko', vlna: 'v1', termin: '2030-11-20', format: 'reel', reel: 'reel_a-tym_a' }] }));
+  re.createFile('reely.json', JSON.stringify({ reely: [
+    { id: 'reel_a-tym_a', nazev: 'A', tymy: ['A'], zapasy: [], video: 'a.mp4', popisek: 'x', datum_zapasu: '2030-11-07' },
+    { id: 'reel_dorost_stary', nazev: 'Dorost – Starý 3:1', tymy: ['dorost'], zapasy: [], video: 'b.mp4', popisek: 'y', datum_zapasu: '2030-09-01' }] }));
+  p.vlastnosti.set('REELY_STAV', JSON.stringify({ reel_dorost_stary: '2030-09-02' }));
+  let d = p.volej('reelyPlan').data;
+  const m = d.dily.find((x) => x.id === 'reel_dorost_stary');
+  assert.deepStrictEqual([m.mimo, m.reel, m.tym, m.termin, m.stav, m.popisekReel], [true, 'reel_dorost_stary', 'dorost', '2030-09-01', 'vyveseno', true]);
+  assert.strictEqual(d.dily.filter((x) => x.mimo).length, 1, 'reel dílu plánu není mimo');
+  assert.strictEqual(re.soubory.some((f) => f.getName() === 'plan_moje.json'), false, 'čtení nic nezapsalo');
+  const r = p.volej('reelyPlanUlozit', { novy: { nazev: m.nazev, termin: m.termin, vlna: 'v1', format: 'reel', reel: m.reel, tym: 'dorost' } });
+  assert.ok(r.ok, r.chyba);
+  const v = r.data.dily.find((x) => x.reel === 'reel_dorost_stary');
+  assert.deepStrictEqual([v.mimo, v.vlastni, v.vlna], [undefined, true, 'v1']);
+  assert.strictEqual(p.volej('reelyPlanUlozit', { novy: { nazev: 'Znovu', reel: 'reel_dorost_stary' } }).ok, false, 'reel už v plánu je');
+  assert.strictEqual(p.volej('reelyPlanUlozit', { novy: { nazev: 'Zlý', reel: '../x' } }).ok, false);
+});
+
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

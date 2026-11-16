@@ -42,7 +42,7 @@ const KALENDARE = [{ id: 'g1', nazev: 'Osobní', barva: '#2f6bff', zdroj: 'googl
 const zapasFotbal = (tym, dni, h, domaci, hoste, vysledek) => ({ id: tym + dni, tym, zacatek: new Date(den(dni, h)).toISOString(), domaci, hoste,
   doma: /Vnorovy/.test(domaci), misto: '', vysledek, stav: vysledek ? 'odehrano' : 'naplanovano', url: '#' });
 const motor = {
-  info: () => ({ verze: 'test', akce: Object.keys(motor).concat(['polozkaUpravy', 'polozkaTermin', 'pitiJidloPresun', 'plakatPlanPopisek', 'igJenPribeh']), ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false, podpisy: { osobni: 'Michal', pracovni: '' } },
+  info: () => ({ verze: 'test', akce: Object.keys(motor).filter((a) => !(bezPlanuTest && AKCE_PLANU.indexOf(a) >= 0)).concat(['polozkaUpravy', 'polozkaTermin', 'pitiJidloPresun', 'plakatPlanPopisek', 'igJenPribeh']), ucet: 'tester@example.com', posta: { osobniAdresa: 'tester@example.com', pracovniAdresa: 'prace@firma.test', lzeOdesilatZPracovni: false, podpisy: { osobni: 'Michal', pracovni: '' } },
     kalendare: KALENDARE, skupinyHostu: [{ nazev: 'Dorost – rodiče', adresy: ['rodic1@x.test', 'rodic2@x.test'] }], jmeniny: jmeninyOblibeni.slice(),
     pocasi: { misto: pocasiDomov ? pocasiDomov.misto : 'Veselí nad Moravou', domov: !!pocasiDomov } }),
   pocasiDomov: (d) => {
@@ -196,7 +196,7 @@ const motor = {
     // (15. 10. dorost doma s Těšany v neděli 18. 10. = druhá velká dlaždice, test „jediná velká dlaždice“ selhal)
     zapasy: fotbalPlakat ? JSON.parse(JSON.stringify(ZAPASY_PLAKAT)) : [zapasFotbal('A', -6, 16, 'FK Agro Vnorovy', 'TJ Lysovice', '1:3'), zapasFotbal('A', 2, 15, 'FK Šardice', 'FK Agro Vnorovy', ''),
       zapasFotbal('B', -5, 15, 'Vnorovy B', 'Nová Lhota', '8:0'), zapasFotbal('dorost', -5, 10, 'FC Kyjov 1919', 'FK Agro Vnorovy', '4:1'),
-      zapasFotbal('dorost', 3, 12, 'FK Agro Vnorovy', 'TJ Sokol Těšany', '')],
+      zapasFotbal('dorost', 3, 12, 'FK Agro Vnorovy', 'TJ Sokol Těšany', '')].concat(fotbalNavic),
     // tabulky a detail zápasu (vymyšlení hráči) – stránka Fotbal
     tabulky: { A: { celkem: [{ poradi: 1, klub: 'FK Šardice', z: 9, v: 8, r: 1, p: 0, skore: '30:8', body: 25 }, { poradi: 2, klub: 'FK Agro Vnorovy', z: 9, v: 3, r: 1, p: 5, skore: '16:20', body: 10 }],
       doma: [{ poradi: 1, klub: 'FK Agro Vnorovy', z: 4, v: 3, r: 0, p: 1, skore: '9:5', body: 9 }], venku: [], aktualizovano: new Date(ted).toISOString() } },
@@ -685,6 +685,7 @@ const plakatyIg = { nastaveno: true, ucet: 'fkagrovnorovy' };
 // pevná data by jinak měnila testy, které počítají s dneškem (doplňky v den zápasu áčka, další zápas). Testy plakátů mají
 // i pevné „teď“ v prohlížeči (pevnyCasPlakatu: pondělí 12. 10. 2026) – výchozí víkend a popisky nezávisí na dni spuštění.
 let fotbalPlakat = false;
+let fotbalNavic = []; // zápasy navíc jen pro jeden test (plakát víkendu v Plánu)
 const TED_PLAKATU = new Date('2026-10-12T10:00:00+02:00');
 const pevnyCasPlakatu = (page) => page.clock.setSystemTime(TED_PLAKATU);
 const zapasPlakat = (id, tym, zacatek, domaci, hoste, navic) => Object.assign({ id, tym, zacatek, domaci, hoste, doma: /Vnorovy/.test(domaci), misto: '',
@@ -740,7 +741,7 @@ const NAVRHY_PLANU_TEST = { 'reel_a-tym_soupera1': { varianty: ['Věcný návrh 
 const SNIMEK_TEST = '/9j/4AAQSkZJRgABAgAAAQABAAD//gAPTGF2YzYzLjEuMTAwAP/bAEMACBAQExATFhYWFhYWGhgaGxsbGhoaGhsbGx0dHSIiIh0dHRsbHR0gICIiJSYlIyMiIyYmKCgoMDAuLjg4OkVFU//EAE0AAQEAAAAAAAAAAAAAAAAAAAAGAQEBAQAAAAAAAAAAAAAAAAAABQYQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCACHAGwDASIAAhEAAxEA/9oADAMBAAIRAxEAPwCHAVWuAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf//Z';
 const zdrojePlanuTestu = () => ({ navrhy: NAVRHY_PLANU_TEST, snimky: { 'd-kar': 2 },
   upravy: Object.keys(reelyUpravy).reduce((o, k) => Object.assign(o, { [k]: { text: reelyUpravy[k] } }), {}), klipy: RP.klipySDrahami(KLIPY_TEST, drahyWebTest, ''), plan: PLAN_TEST, moje: planMojeTest, audit: PLAN_AUDIT_TEST, vyroba: PLAN_VYROBA_TEST,
-  fotbal: { zapasy: PLAN_ZAPASY_TEST, detaily: PLAN_DETAILY_TEST }, reely: REELY_TEST.map(reelTestu), zverejneno: Object.assign({}, reelyZverejneno), planIg: {} });
+  fotbal: { zapasy: PLAN_ZAPASY_TEST, detaily: PLAN_DETAILY_TEST }, reely: REELY_TEST.map(reelTestu), zverejneno: Object.assign({}, reelyZverejneno), planIg: JSON.parse(JSON.stringify(reelyPlan)) });
 const planTestu = () => JSON.parse(JSON.stringify(Object.assign(RP.vystup(zdrojePlanuTestu()), { chybne: [], ted: Date.now() })));
 const stavyPlanuTestu = () => { const s = {}; RP.vystup(zdrojePlanuTestu()).dily.forEach((d) => { s[d.id] = d.stav; }); return s; };
 
@@ -954,9 +955,15 @@ async function pripravMotor(page) {
 
 // ---------------------------------------------------------------- pomůcky
 let ok = 0, chyb = 0;
+// Starý motor bez plánu reelů (16. 11.: záložka Reely je pryč, reely a Instagram jsou v okně dílu v Plánu) – aplikace pak ukáže dosavadní
+// stránku se seznamem reelů a detailem (nouzový režim). Tyhle testy ho dál hlídají; stejné scénáře v Plánu mají testy „Reely → …“.
+const AKCE_PLANU = ['reelyPlan', 'reelyPlanUlozit', 'reelUdelat', 'reelKlipy', 'reelKlip', 'reelDrahaUlozit', 'dilPopisekNavrhy', 'dilObrazky'];
+const STARE_REELY = ['Reely na PC', 'Reely na telefonu', 'Reely: ', 'Příběh z fotky', 'Skupiny ', 'Reely s účtem', 'Instagram na telefonu', 'nabídky: Reely a Plakáty'];
+let bezPlanuTest = false;
 async function test(nazev, fn) {
   // JEN=část názvu → spustí jen odpovídající testy (ladění)
   if (process.env.JEN && nazev.indexOf(process.env.JEN) < 0) return;
+  bezPlanuTest = STARE_REELY.some((x) => nazev.indexOf(x) === 0);
   try { await fn(); ok++; console.log('  ✓ ' + nazev); }
   catch (e) { chyb++; console.log('  ✗ ' + nazev + '\n    ' + String(e.message || e).split('\n').filter(Boolean).slice(0, 12).join('\n    ')); }
 }
@@ -8523,7 +8530,7 @@ function vychoziVikendTestu() {
     jistota(!chyby.length, chyby.join('\n'));
   });
 
-  await test('Reely → Plán · Zápasy · Nápady: záložky (výchozí Reely, volba se pamatuje), Plán ve sloupcích podle stavu na 1920 a 2560, Dráhy hotové, Udělej reel → reelUdelat, Posunout vlnu, Editor drah se skupinou, Zápasy ve třech sloupcích, nápad Do plánu; telefon jeden seznam bez přetečení', async () => {
+  await test('Reely → Plán · Zápasy · Nápady: záložky (výchozí Plán, volba se pamatuje), Plán ve sloupcích podle stavu na 1920 a 2560, Dráhy hotové, Udělej reel → reelUdelat, Posunout vlnu, Editor drah se skupinou, Zápasy ve třech sloupcích, nápad Do plánu; telefon jeden seznam bez přetečení', async () => {
     planMojeTest = RP.moje(null, PLAN_TEST);
     const chyby = [];
     const sloupcu = (page, sel) => page.$eval(sel, (e) => getComputedStyle(e).gridTemplateColumns.split(' ').filter((x) => parseFloat(x) > 0).length);
@@ -8535,7 +8542,7 @@ function vychoziVikendTestu() {
       try {
         await page.goto(WEB);
         await page.click('#rail [data-cil="reely"]');
-        await page.waitForSelector('#p-reely [data-reely-zalozka="reely"][aria-pressed="true"]');
+        await page.waitForSelector('#p-reely [data-reely-zalozka="plan"][aria-pressed="true"]');
         await page.click('#p-reely [data-reely-zalozka="plan"]');
         // výchozí pohled Po vlnách: sloupec = vlna, stav jako štítek na kartě, nad tím Na řadě
         await page.waitForSelector('#p-reely .rp-vlny .rp-dil');
@@ -8553,7 +8560,7 @@ function vychoziVikendTestu() {
         jistota(await sloupcu(page, '#p-reely .rp-sloupce') === 6, v.sirka + ': Plán má 6 sloupců');
         const stav = await page.$$eval('#p-reely .rp-sloupec', (s) => s.map((x) => x.querySelectorAll('.rp-dil').length).join(','));
         const ocek = RP.sloupce(planTestu().dily).map((s) => s.dily.length).join(',');
-        jistota(stav === ocek && /^\d+,1,1,1,0,1$/.test(stav), v.sirka + ' díly ve sloupcích (plán, nachystáno, dráhy, reel, naplánováno, vyvěšeno): ' + stav + ' / ' + ocek);
+        jistota(stav === ocek && /^\d+,1,1,\d+,0,\d+$/.test(stav), v.sirka + ' díly ve sloupcích (plán, nachystáno, dráhy, reel, naplánováno, vyvěšeno): ' + stav + ' / ' + ocek);
         m = await page.evaluate(MER_STRANKY);
         uz = await nejuzsi(page, '#p-reely .rp-sloupec');
         if (m.vyuziti < 80 || m.pretok > 0 || m.preroste.length || uz < 240) chyby.push(v.sirka + ' Podle stavu: ' + JSON.stringify(m) + ' nejužší ' + uz);
@@ -8646,7 +8653,7 @@ function vychoziVikendTestu() {
     try {
       await page.goto(WEB);
       await page.click('#rail [data-cil="reely"]');
-      await page.waitForSelector('#p-reely [data-reely-zalozka="reely"]');
+      await page.waitForSelector('#p-reely [data-reely-zalozka="plan"]');
       await page.click('#p-reely [data-reely-zalozka="plan"]');
       await page.waitForSelector('#p-reely .rp-vlny .rp-dil');
       const veVlne = (id, v) => page.locator('#p-reely .rp-vlna[data-rp-cil-vlna="' + v + '"] [data-rp-dil="' + id + '"]').count();
@@ -8899,6 +8906,102 @@ function vychoziVikendTestu() {
       if (tl.chybyStranky.length) chyby.push('telefon chyby stránky: ' + tl.chybyStranky.join(' | '));
     } finally { await tl.ctx.close(); }
     jistota(!chyby.length, chyby.join('\n'));
+  });
+
+  await test('Reely → Plán je jediné místo: Na Instagram z Přehledu otevře okno dílu, Naplánovat v okně (čas z termínu dílu) → karta Naplánováno bez přeskoku, Zveřejnit teď jen příběh, Mimo plán (přetažení do vlny), odezva tažení, filtr týmů, Skupiny a Nový příběh na liště, plakáty víkendů; telefon', async () => {
+    planMojeTest = RP.moje(null, PLAN_TEST);
+    for (const k of Object.keys(reelyPlan)) delete reelyPlan[k];
+    reelyZverejneno = {};
+    const lipov = REELY_TEST.find((r) => r.id === 'reel_benfika_lipov');
+    const odkazLipova = lipov.odkaz;
+    lipov.odkaz = 'https://drive.google.com/file/d/LIPOV/view'; // video už je na Disku (jen v tomhle testu)
+    const sobota = ((6 - new Date().getDay() + 7) % 7) || 7; // příští sobota – domácí zápas áčka = plakát víkendu
+    fotbalNavic = [zapasFotbal('A', sobota, 15, 'FK Agro Vnorovy', 'TJ Soupeř P', '')];
+    const O = '[data-panel="dil-okno"] ';
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, { nazev: 'pc', sirka: 1920, vyska: 1080, dotyk: false }, 'dark');
+    try {
+      // Přehled: karta „Reel k vyvěšení“ → Na Instagram = okno dílu v Plánu (žádná stránka se seznamem reelů)
+      await page.goto(WEB);
+      await page.waitForSelector('#p-dnes [data-reel-detail="reel_dorost_tesany"]');
+      await page.click('#p-dnes [data-reel-detail="reel_dorost_tesany"]');
+      await page.waitForSelector(O + '.reel-ig');
+      jistota(await page.evaluate(() => !document.getElementById('p-reely').hidden && !document.querySelector('#p-reely [data-reely-zalozka="reely"]')), 'Plán bez záložky Reely');
+      jistota(/Dorost – Soupeř|Díl s reelem/.test(await page.textContent('[data-panel="dil-okno"] .panel-titul')), 'okno dílu s reelem');
+      // Naplánovat v okně: čas předvyplněný z termínu dílu (zítra 17:00)
+      jistota(await page.inputValue(O + '[data-rd="kdy"]') === iso(den(1)) + 'T17:00', 'čas z termínu dílu: ' + await page.inputValue(O + '[data-rd="kdy"]'));
+      let pred = volano.length;
+      await page.click(O + '[data-rd-ulozit]');
+      await cekej(() => volano.slice(pred).some((x) => x.akce === 'reelNaplanovat' && x.id === 'reel_dorost_tesany' && !x.jenPribeh), 4000, 'reelNaplanovat z okna');
+      await page.waitForSelector('#p-reely .rp-vlny [data-rp-dil="d-reel"].rp-dil--naplanovano');
+      jistota(await page.locator(O + '.reel-ig, ' + O + '.ig-prubeh, ' + O + '[data-reel-zrusit-plan]').count() > 0, 'okno zůstalo otevřené se stavem');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_plan_okno_ig.png') });
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-panel="dil-okno"]', { state: 'detached' });
+      // lišta: týmy, Skupiny, Nový příběh; řádek Na řadě a plakáty víkendů
+      jistota(await page.locator('#p-reely .rp-lista [data-ig-skupiny-sprava]').count() === 1 && await page.locator('#p-reely .rp-lista [data-pribeh-novy]').count() === 1, 'Skupiny a Nový příběh na liště');
+      await page.click('#p-reely [data-rp-tym="B"]');
+      await page.waitForFunction(() => Array.from(document.querySelectorAll('#p-reely .rp-vlny .rp-dil[data-rp-dil]')).every((k) => k.dataset.tym === 'B'));
+      await page.click('#p-reely [data-rp-tym="vse"]');
+      // Mimo plán: reel bez dílu, poslední sloupec
+      await page.waitForSelector('#p-reely .rp-vlna--mimo [data-rp-dil="reel_benfika_lipov"]');
+      // Zveřejnit teď jen příběh z okna dílu mimo plán (s potvrzením)
+      await page.click('#p-reely .rp-vlna--mimo [data-rp-otevrit="reel_benfika_lipov"]');
+      await page.waitForSelector(O + '[data-rd-kam="pribeh"]');
+      await page.click(O + '[data-rd-kam="pribeh"]');
+      pred = volano.length;
+      await page.click(O + '[data-rd-ted]');
+      await page.click('.okno [data-okno="ano"]');
+      await cekej(() => volano.slice(pred).some((x) => x.akce === 'reelNaplanovat' && x.id === 'reel_benfika_lipov' && x.jenPribeh === true), 4000, 'jen příběh teď');
+      await page.waitForSelector('.okno-pozadi', { state: 'detached' });
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-panel="dil-okno"]', { state: 'detached' });
+      await page.waitForTimeout(300);
+      // odezva tažení: zdroj ztlumený, všechny vlny cíle, cíl pod kurzorem s „Přesunout do: …“, současná vlna „tady je teď“
+      const m = await page.evaluate(() => {
+        const dt = new DataTransfer();
+        const k = document.querySelector('#p-reely .rp-vlna[data-rp-cil-vlna="v1"] [data-rp-dil="d-nach"]');
+        k.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+        const cil = document.querySelector('#p-reely .rp-vlna[data-rp-cil-vlna="v2"]');
+        cil.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+        const r = { tazena: k.classList.contains('rp-dil--tazena'), zdroj: document.querySelector('#p-reely .rp-vlna[data-rp-cil-vlna="v1"]').classList.contains('rp-vlna--zdroj'),
+          cil: cil.classList.contains('rp-vlna--cil'), text: getComputedStyle(cil, '::after').content, html: document.documentElement.classList.contains('tahne-dil') };
+        return r;
+      });
+      jistota(m.tazena && m.zdroj && m.cil && m.html && /Přesunout do: Vlna 2/.test(m.text), 'odezva tažení: ' + JSON.stringify(m));
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_plan_tazeni.png') });
+      await page.evaluate(() => document.querySelector('#p-reely [data-rp-dil="d-nach"]').dispatchEvent(new DragEvent('dragend', { bubbles: true })));
+      jistota(await page.locator('#p-reely .rp-dil--tazena, #p-reely .rp-vlna--cil, #p-reely .rp-vlna--zdroj').count() === 0, 'po tažení nic nezůstane');
+      // přetažení dílu Mimo plán do vlny = vlastní díl s reelem
+      pred = volano.length;
+      await page.dragAndDrop('#p-reely .rp-vlna--mimo [data-rp-dil="reel_benfika_lipov"]', '#p-reely .rp-vlna[data-rp-cil-vlna="v1"] .rp-vlna__hlava');
+      await cekej(() => volano.slice(pred).some((x) => x.akce === 'reelyPlanUlozit' && x.novy && x.novy.reel === 'reel_benfika_lipov' && x.novy.vlna === 'v1'), 4000, 'mimo plán → vlna');
+      await page.waitForFunction(() => !document.querySelector('#p-reely .rp-vlna--mimo [data-rp-dil="reel_benfika_lipov"]'));
+      // plakáty víkendů: sloupec Plakáty a Otevřít plakát → stránka Plakáty
+      const plakat = await page.locator('#p-reely .rp-vlna--plakaty [data-rp-plakat]').count();
+      if (plakat) {
+        await page.screenshot({ path: path.join(VYSTUP, 'pc_plan_plakaty.png'), fullPage: true });
+        await page.click('#p-reely .rp-vlna--plakaty [data-rp-plakat]');
+        await page.waitForSelector('#p-plakaty:not([hidden])');
+      }
+      jistota(plakat > 0, 'v Plánu chybí sloupec Plakáty');
+      if (chybyStranky.length) throw new Error('chyby stránky: ' + chybyStranky.join(' | '));
+    } finally { await ctx.close(); lipov.odkaz = odkazLipova; fotbalNavic = []; }
+    const tl = await novaStranka(prohlizec, VELIKOSTI[0]);
+    try {
+      await tl.page.goto(WEB);
+      await tl.page.click('.hlava-ja [data-menu]');
+      await tl.page.click('[data-panel="menu"] [data-menu-cil="reely"]');
+      await tl.page.click('#p-reely [data-rp-filtr="vse"]');
+      await tl.page.click('#p-reely .rp-mobil [data-rp-dil="d-reel"] .rp-dil__nazev');
+      await tl.page.waitForSelector(O + '[data-do-pole="popisek"]');
+      await tl.page.waitForTimeout(500);
+      const m = await tl.page.evaluate(() => ({ pretok: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        ig: !!document.querySelector('[data-panel="dil-okno"] .reel-ig, [data-panel="dil-okno"] .ig-prubeh, [data-panel="dil-okno"] [data-reel-zrusit-plan]') }));
+      jistota(m.pretok <= 0 && m.ig, 'telefon okno dílu: ' + JSON.stringify(m));
+      await tl.page.screenshot({ path: path.join(VYSTUP, 'telefon_plan_okno_ig.png') });
+      // na dotyku: podržení = nabídka, Přesunout do vlny hned pod Otevřít
+      await tl.page.keyboard.press('Escape');
+    } finally { await tl.ctx.close(); }
   });
 
   await test('telefon: menu zleva se všemi sekcemi (Fotbal, Reely, Plakáty), zavření klepnutím vedle', async () => {

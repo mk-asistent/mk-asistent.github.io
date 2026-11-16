@@ -229,7 +229,7 @@ function zkontrolujZmenu(k, v, vlny) {
  * Akce reelyPlanUlozit nad vyčištěnými daty → nové „moje“ (obsah plan_moje.json bez kdy):
  *   { dil: { id, zmeny: { termin?, vlna?, cas?, poznamka?, drahyHotove?, hotovo?, zruseno?, (u vlastního i nazev, popis, format, tym) } } }
  *     null = vrátit podle plánu (u vlastního dílu termin null = bez termínu); co se shoduje s plánem, se neukládá
- *   { novy: { nazev, popis?, termin?, cas?, vlna?, format?, tym?, napad? } }   vlastní díl (i z nápadu – nápad pak zmizí ze zásobníku)
+ *   { novy: { nazev, popis?, termin?, cas?, vlna?, format?, tym?, napad?, reel? } }   vlastní díl (i z nápadu – nápad zmizí; z reelu mimo plán)
  *   { napad: { nazev, popis? } | { id, smazat: true } }                        vlastní nápad
  *   { posun: { ids?: [id] | vlna?: id, dni } }                                  posun termínů; díly naplánované, vyvěšené a zrušené zůstanou
  *   { pozadano: id }                                                             (motor) Michal klepl „Udělej reel“
@@ -283,6 +283,11 @@ export function zmen(p, m, d, ted, stavy) {
       vlna: zkontrolujZmenu('vlna', x.vlna || '', vlny), termin: x.termin == null ? null : zkontrolujZmenu('termin', x.termin, vlny),
       cas: x.cas == null ? '17:00' : zkontrolujZmenu('cas', x.cas, vlny), format: x.format == null ? 'reel' : zkontrolujZmenu('format', x.format, vlny) };
     if (x.tym) novy.tym = zkontrolujZmenu('tym', x.tym, vlny);
+    if (x.reel != null) {
+      if (!REEL.test(String(x.reel))) throw new Error('Neplatný reel.');
+      if (p.dily.concat(r.vlastni).some(function (o) { return o.reel === x.reel && !(o.id && r.dily[o.id] && r.dily[o.id].zruseno) && !o.zruseno; })) throw new Error('Reel už v plánu je.');
+      novy.reel = String(x.reel);
+    }
     if (x.napad) {
       const na = p.napady.concat(r.napady).filter(function (o) { return o.id === x.napad; })[0];
       if (!na) throw new Error('Nápad už v zásobníku není – obnov stránku.');
@@ -367,6 +372,17 @@ export function vystup(z) {
   const ctx = { reely: reely, zverejneno: obj(z.zverejneno) || {}, planIg: obj(z.planIg) || {}, audit: ig,
     vyroba: vyroba, datumy: datumy };
   const s = spoj(p, m);
+  // reel z reely.json, který nepatří žádnému dílu (starší vyvěšené, mimo plán) → díl „Mimo plán“ jen při čtení
+  const sReelem = {};
+  s.dily.forEach(function (d) { if (d.reel) sReelem[d.reel] = true; });
+  (z.reely || []).forEach(function (rl) {
+    if (!rl || !REEL.test(String(rl.id || '')) || sReelem[rl.id]) return;
+    const tym = (Array.isArray(rl.tymy) ? rl.tymy : [])[0];
+    const d = { id: String(rl.id).slice(0, 60), nazev: radek(rl.nazev, 80) || rl.id, popis: '', vlna: '', termin: platneDatum(rl.datum) ? rl.datum : null,
+      cas: '17:00', format: 'reel', reel: rl.id, mimo: true };
+    if (TYMY.indexOf(tym) >= 0) d.tym = tym;
+    s.dily.push(d);
+  });
   // popisek: díl s reelem v reely.json = popisek reelu (Michalova úprava > vybraný v plánu > z PC), jinak vybraný v plánu
   const navrhy = obj(z.navrhy) || {}, upravy = obj(z.upravy) || {}, snimky = obj(z.snimky) || {};
   const dily = s.dily.map(function (d) {
@@ -537,10 +553,11 @@ export function vlnySloupce(dily, vlny) {
   const zive = serad(filtruj(dily, {}));
   const znam = {};
   (vlny || []).forEach(function (v) { znam[v.id] = true; });
-  return (vlny || []).concat([{ id: '', nazev: 'Ostatní' }]).map(function (v) {
-    const d = zive.filter(function (x) { return v.id ? x.vlna === v.id : !znam[x.vlna]; });
+  return (vlny || []).concat([{ id: '', nazev: 'Ostatní' }, { id: '__mimo', nazev: 'Mimo plán', mimo: true }]).map(function (v) {
+    const d = zive.filter(function (x) { return v.mimo ? x.mimo : !x.mimo && (v.id ? x.vlna === v.id : !znam[x.vlna]); });
     const terminy = d.map(function (x) { return x.termin; }).filter(Boolean);
-    return { id: v.id, nazev: v.nazev, dily: d, od: terminy[0] || null, do: terminy[terminy.length - 1] || null,
+    if (v.mimo) terminy.sort();
+    return { id: v.id, nazev: v.nazev, mimo: !!v.mimo, dily: v.mimo ? d.slice().reverse() : d, od: terminy[0] || null, do: terminy[terminy.length - 1] || null,
       venku: d.filter(function (x) { return x.stav === 'vyveseno'; }).length, celkem: d.length };
   }).filter(function (s) { return s.celkem > 0; });
 }
@@ -569,6 +586,7 @@ export function drahyText(d) {
  *  v aplikaci (reelKlipy) – pak je Upravit dráhy hlavní a místní editor jen malý odkaz (editorPc). */
 export function akce(d, maEditor, maWeb) {
   const a = [];
+  if (d.mimo) return d.stav === 'reel' ? ['naplanovat'] : d.stav === 'naplanovano' ? ['otevritReel'] : [];
   const reel = d.format === 'reel' && d.reel;
   const web = maWeb && d.webKlipu > 0;
   const editor = web ? 'editorPc' : 'editor';

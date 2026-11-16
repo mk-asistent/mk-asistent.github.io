@@ -216,4 +216,16 @@ test('dráhy z webu: šířka výřezu, kontrola dráhy, spojení klipy.json s w
   assert.deepEqual([v.dily[0].stav, v.dily[0].webKlipu, v.dily[0].vyroba.drahRucne], ['drahy', 2, 2]);
 });
 
+test('mimo plán: reel bez dílu jako díl „mimo“, sloupec Mimo plán poslední (nejnovější nahoře), akce jen reelové', () => {
+  const p2 = RP.plan({ vlny: [{ id: 'v', nazev: 'V' }], dily: [{ id: 'd', nazev: 'D', vlna: 'v', termin: '2030-01-01', reel: 'reel_x' }] });
+  const v = RP.vystup({ plan: p2, moje: RP.moje(null, p2), reely: [{ id: 'reel_x', video: true }, { id: 'reel_stary', nazev: 'Starý', tymy: ['B'], video: true, datum: '2029-09-01' },
+    { id: 'reel_starsi', nazev: 'Starší', video: true, datum: '2029-08-01' }], zverejneno: { reel_stary: '2029-09-02', reel_starsi: '2029-08-02' } });
+  const mimo = v.dily.filter((x) => x.mimo);
+  assert.deepEqual(mimo.map((x) => [x.id, x.tym, x.stav]), [['reel_stary', 'B', 'vyveseno'], ['reel_starsi', undefined, 'vyveseno']]);
+  const sl = RP.vlnySloupce(v.dily, p2.vlny);
+  assert.deepEqual(sl.map((s) => [s.id, s.dily.map((x) => x.id).join(',')]), [['v', 'd'], ['__mimo', 'reel_stary,reel_starsi']]);
+  assert.deepEqual(RP.akce(Object.assign({}, mimo[0], { stav: 'reel' }), true, true), ['naplanovat']);
+  assert.deepEqual(RP.akce(mimo[0], true, true), []);
+});
+
 console.log(`\n${n} testů prošlo`);

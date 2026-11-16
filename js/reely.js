@@ -33,19 +33,27 @@ const ULOZIT_PO = 700;                // ms po posledním písmenu (jako popisek
 const PRIBEH_VIDEO_S = 60;            // video v příběhu nejvýš 60 s (motor IG_PRIBEH_VIDEO_S)
 const STAVY = ['nevydane', 'zverejnene', 'vse'];
 const OKNO = 'reel-detail';
-// záložky stránky (Michal 16. 11.): Reely (hotové reely) · Plán · Zápasy · Nápady – plán dělá js/reely_plan_stranka.js (načte se až na záložce)
+// záložky stránky: Plán · Zápasy · Nápady (Michal 16. 11. večer: „nemusí tam být ta stránka Reely asi vůbec, když to budeme mít vždy v plánu“)
+// – plán dělá js/reely_plan_stranka.js (načte se až na stránce), reely a Instagram jsou v okně dílu (js/dil_okno.js). Starý motor bez
+// plánu (umiMotor('reelyPlan') false) = dosavadní seznam reelů s detailem (nouzový režim, ať stránka není prázdná).
 const ZALOZKA = 'asistent.reely.zalozka';
-const ZALOZKY = [['reely', 'Reely'], ['plan', 'Plán'], ['zapasy', 'Zápasy'], ['napady', 'Nápady']];
-let zalozka = ZALOZKY.some((z) => z[0] === uloziste.cti(ZALOZKA)) ? uloziste.cti(ZALOZKA) : 'reely';
+const ZALOZKY = [['plan', 'Plán'], ['zapasy', 'Zápasy'], ['napady', 'Nápady']];
+let zalozka = ZALOZKY.some((z) => z[0] === uloziste.cti(ZALOZKA)) ? uloziste.cti(ZALOZKA) : 'plan'; // uložené „reely“ = Plán
 const sPlanem = () => umiMotor('reelyPlan');
 const aktivniZalozka = () => (sPlanem() ? zalozka : 'reely');
 const zalozkyHtml = () => (sPlanem() ? '<div class="reely-zalozky">' + segment(ZALOZKY, aktivniZalozka(), 'data-reely-zalozka', 'Část stránky Reely') + '</div>' : '');
 let planModul = null, planSlib = null;
+/** Modul plánu (načte se jednou). */
+function modulPlanu() {
+  if (planModul) return Promise.resolve(planModul);
+  if (!planSlib) planSlib = import('./reely_plan_stranka.js').then((m) => { planModul = m; return m; }, (e) => { planSlib = null; throw e; });
+  return planSlib;
+}
 function vykresliPlan(el) {
   if (planModul) { planModul.vykresli(el, zalozka, zalozkyHtml()); return; }
   if (!planSlib) {
     planSlib = import('./reely_plan_stranka.js')
-      .then((m) => { planModul = m; m.nastavOtevreniReelu((id) => { zalozka = 'reely'; uloziste.pis(ZALOZKA, zalozka); zmeneno(); otevriDetail(id); }); zmeneno(); return m; })
+      .then((m) => { planModul = m; zmeneno(); return m; })
       .catch(() => { planSlib = null; el.innerHTML = zalozkyHtml() + '<section class="card">' + chybaHtml({ message: 'Plán se nenačetl – zkontroluj připojení.' }) + '</section>'; });
   }
   if (!el.querySelector('#rp-obsah')) el.innerHTML = zalozkyHtml() + '<section class="card">' + kostra(4) + '</section>';
@@ -386,6 +394,34 @@ function detailReelu(r) {
   return { telo, akce: akceDetailu(r), nazev: r.nazev };
 }
 
+/** Instagram reelu pro okno dílu v Plánu: { prubeh, instagram, akce, vedlejsi } nebo null. kdy = předvyplněný čas z termínu dílu
+ *  (RRRR-MM-DDTHH:MM), když reel ještě není naplánovaný a formulář se otvírá poprvé. */
+export function instagramReelu(id, kdy) {
+  const r = najdi(id);
+  if (!r) return null;
+  if (!(f && f.id === r.id)) {
+    formular(r);
+    const p = plan(r);
+    if (kdy && !(p && p.stav === 'ceka') && Date.parse(kdy) > Date.now()) f.kdy = kdy;
+  }
+  return { prubeh: prubehHtml(r), instagram: instagramHtml(r), akce: akceDetailu(r), vedlejsi: vedlejsiAkceHtml(r) };
+}
+
+/** Psaní popisku reelu z okna dílu: stejná cesta jako pole v detailu (ed, uložení 700 ms po psaní, Naplánovat ho nejdřív uloží). */
+export function pisPopisekReelu(id, text) {
+  if (!ed || ed.id !== id) ed = { id, text, zmena: false, casovac: 0, uklada: false, ulozeno: 0, chyba: '' };
+  ed.text = text;
+  ed.zmena = true;
+  ed.ulozeno = 0;
+  clearTimeout(ed.casovac);
+  ed.casovac = setTimeout(ulozPopisek, ULOZIT_PO);
+}
+export function popisekReeluProOkno(id) { const r = najdi(id); return r ? aktualniPopisek(r) : ''; }
+export function stavPopiskuReelu(id) { return ed && ed.id === id ? stavUlozeni(ed) : ''; }
+export function rozepsanyPopisekReelu(id) { return ed && ed.id === id && (ed.zmena || ed.uklada) ? ed.text : null; }
+/** Po změně na Instagramu (naplánováno, zveřejňuje se, zrušený plán, už je venku) – plán reelů si obnoví stav dílu. */
+const poIg = (id, co) => { if (hooky.poIgReelu) hooky.poIgReelu(id, co); };
+
 function detailPolozky(id) {
   if (jePribeh(id)) { const x = pribehy.seznam().find((p) => p.id === id); return x ? pribehy.detailHtml(x) : null; }
   const r = najdi(id);
@@ -395,7 +431,14 @@ function detailPolozky(id) {
 /** Otevřít reel / příběh v okně: na PC široké okno uprostřed (vlevo video, vpravo popisek a Instagram), na telefonu přes
  *  celou obrazovku. Esc, ×, klepnutí mimo okno i Zpět ho zavřou; rozepsaný popisek se při zavření uloží. */
 export function otevriDetail(id) {
-  if (!id || !detailPolozky(id)) return;
+  if (!id) return;
+  if (sPlanem() && !jePribeh(id)) {
+    if (zalozka !== 'plan') { zalozka = 'plan'; uloziste.pis(ZALOZKA, zalozka); }
+    if (stav.pohled !== 'reely') prejdi('reely');
+    modulPlanu().then((m) => m.otevriDilReelu(id), () => toast('Plán se nenačetl – zkontroluj připojení.', true));
+    return;
+  }
+  if (!detailPolozky(id)) return;
   if (vybrany !== id) {
     if (ed && ed.id !== id) ulozPopisek();
     vybrany = id;
@@ -480,6 +523,7 @@ async function odesliPlan(r, hned) {
     if (f === fm) f = null; // formulář znovu z plánu
     toast(hned ? 'Zveřejňuji na Instagram – ' + co + ', průběh vidíš u reelu' : 'Naplánováno – ' + co + ' vyjde ' + kdyPlan(kdyPlanu));
     zmeneno();
+    poIg(r.id, 'naplanovano');
     if (hned) ig.hned('reel', r.id, 'ted');
   } catch (e) {
     fm.ukladam = false;
@@ -693,7 +737,7 @@ function strankaHtml() {
 
 let posledniStranka = '';
 export function vykresliReely(el) {
-  if (aktivniZalozka() !== 'reely') { posledniStranka = ''; vykresliPlan(el); return; }
+  if (aktivniZalozka() !== 'reely') { posledniStranka = ''; vykresliPlan(el); obnovDetailVOkne(); return; } // příběh z fotky má dál své okno
   if (el.querySelector('#rp-obsah')) el.innerHTML = ''; // návrat ze záložky plánu
   if (!stav.reely) {
     el.innerHTML = '<div class="card">' + (stav.chyby.reely ? chybaHtml(stav.chyby.reely, 'data-reely-znovu') : kostra(3)) + '</div>';
@@ -750,7 +794,7 @@ function zrusitPlan(r) {
   potvrd('Zrušit naplánované zveřejnění?', { text: r.nazev + ' – na Instagram pak nepůjde sám.', ano: 'Zrušit plán', ne: 'Nechat' }).then((ano) => {
     if (!ano) return;
     volej('reelZrusitPlan', { id: r.id })
-      .then((v) => { stav.reely.plan = v.plan || {}; if (v.popisky) stav.reely.popiskyPlanu = v.popisky; if (f && f.id === r.id) f = null; ulozDoZarizeni(); toast('Plán zrušený'); })
+      .then((v) => { stav.reely.plan = v.plan || {}; if (v.popisky) stav.reely.popiskyPlanu = v.popisky; if (f && f.id === r.id) f = null; ulozDoZarizeni(); toast('Plán zrušený'); poIg(r.id, 'reel'); })
       .catch((e) => toast(e.message, true))
       .then(zmeneno);
   });
@@ -767,6 +811,7 @@ function oznac(id, ano) {
       stav.reely.zverejneno = v.zverejneno || {};
       ulozDoZarizeni();
       toast(ano ? 'Zapsáno – reel je na Instagramu' : 'Vráceno mezi nezveřejněné');
+      poIg(id, ano ? 'vyveseno' : 'reel');
     })
     .catch((e) => { stav.reely.zverejneno = puvodni; toast(e.message, true); })
     .then(zmeneno);

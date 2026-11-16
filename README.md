@@ -319,6 +319,19 @@ výsledek doplní z FOTBAL.json, přidá Michalovy úpravy popisků (`upravy.jso
 a příběhy z fotek; stav „zveřejněno“ drží vlastnost `REELY_STAV` (akce `reelStav`). Exportér píše jen `reely.json`
 a `videa/` – úpravy z aplikace nepřepíše. Do Fotek v iPhonu: aplikace Disk → ⋯ → Poslat kopii → Uložit video.
 
+### Reely = Plán (od 16. 11. 2026 pozdě večer – záložka Reely zrušená)
+Michal: „nemusí tam být ta stránka Reely asi vůbec, když to budeme mít vždy v plánu“. Stránka Reely má záložky **Plán · Zápasy · Nápady**
+(výchozí Plán, uložená volba „Reely“ = Plán). Kde je, co bylo v záložce Reely:
+- **reel a Instagram** – v okně dílu (klepnutí na kartu, Naplánovat, Na řadě, karta „Reel k vyvěšení“ na Přehledu, oznámení na PC, mini okno, hledání,
+  nabídky): popisek s návrhy, Kam (Reel · Reel + příběh · Jen příběh), účty se skupinami, čas (předvyplněný z termínu dílu), Zveřejnit teď /
+  Naplánovat / Uložit změny / Zrušit plán, průběh, Už je venku, Kopírovat popisek, Video – stejné části z `js/reely.js` (`instagramReelu`),
+  okno se nezavírá a karta se hned posune do Naplánováno / Vyvěšeno;
+- **reely, které nepatří žádnému dílu** – sloupec **Mimo plán** (motor je přidá při čtení, nic nezapisuje; přetažením do vlny vznikne vlastní díl s reelem);
+- **Skupiny** a **Nový příběh** – na liště Plánu, příběhy z fotky v krátkém pruhu nad sloupci; **filtr týmů** Všechny · Áčko · Benfika · Dorost na liště;
+- **plakáty víkendů** – sloupec **Plakáty** (odvozené z dat Plakátů, Otevřít plakát → stránka Plakáty na ten víkend);
+- starý motor bez akcí plánu → dosavadní seznam reelů s detailem (nouzový režim).
+Přetahování: pilulka s termínem a názvem, cílová vlna plnou barvou s „Přesunout do: …“, „tady je teď“, karta po puštění zabliká.
+
 ### Reely – zimní plán (záložky Plán · Zápasy · Nápady, od 16. 11. 2026)
 Stránka Reely má nahoře záložky **Reely** (hotové reely, výchozí) · **Plán** · **Zápasy** · **Nápady**; volba se pamatuje
 (`asistent.reely.zalozka`). Plán = díly zimního seriálu: na PC sloupce podle stavu (V plánu · Nachystáno · Dráhy hotové · Reel hotový ·

@@ -3,7 +3,8 @@
 // Vlevo: náhled hotového reelu (stejná část jako v záložce Reely), galerie snímků karuselu (REELY/karusely/<díl>/NN.jpg – akce dilObrazky),
 // klipy dílu se stavem drah, nebo jen popis. Vpravo: popisek na Instagram (pole se ukládá samo), Návrh 1 / 2 od Clauda (js/ig_navrhy.js),
 // poznámka pro Clauda + Požádat o nové návrhy (dilPopisekNavrhy), Michalova poznámka k dílu. Dole tlačítka podle stavu jako na kartě.
-// Kde se popisek drží: díl s reelem v reely.json → reelPopisekUlozit (stejný text jako detail reelu), jinak plan_moje.json → dily.<id>.popisek.
+// Od 16. 11. pozdě večer i Instagram (Kam, účty, čas, Zveřejnit teď / Naplánovat / Uložit změny / Zrušit plán, průběh, Už je venku, Kopírovat,
+// video) – stejné části jako detail reelu (reely.js instagramReelu), záložka Reely je pryč. Kde se popisek drží: díl s reelem v reely.json → reelPopisekUlozit (stejný text jako detail reelu), jinak plan_moje.json → dily.<id>.popisek.
 // Modul načte js/reely_plan_stranka.js až po klepnutí na díl; data a tlačítka dílu dostane od ní (api), aby nevznikl kruhový import.
 
 import { volej, jeDemo } from './api.js';
@@ -12,7 +13,7 @@ import { IKONY } from './ikony.js';
 import { toast } from './ui.js';
 import { otevriPanel, jeOtevreny, elementPanelu } from './panely.js';
 import { navrhyHtml } from './ig_navrhy.js';
-import { nahledReeluHtml, reelPodleId, prijmiPopisekReelu } from './reely.js';
+import { nahledReeluHtml, reelPodleId, prijmiPopisekReelu, instagramReelu, pisPopisekReelu, stavPopiskuReelu, popisekReeluProOkno } from './reely.js';
 import * as RP from './reely_plan.js';
 
 const OKNO = 'dil-okno';
@@ -74,11 +75,16 @@ function dotahni() {
   }
 }
 
+/** Předvyplněný čas Instagramu z termínu dílu (RRRR-MM-DDTHH:MM). */
+const kdyDilu = (d) => (d.termin ? d.termin + 'T' + (d.cas || '17:00') : '');
+
 function mediaHtml(d) {
   const r = d.reel && reelPodleId(d.reel);
   if (r) {
-    return '<div class="do-media do-media--reel">' + nahledReeluHtml(r) +
-      '<button type="button" class="btn btn--ghost btn--sm" data-rp-reel="' + esc(r.id) + '">' + IKONY.prehrat + '<span>Otevřít reel</span></button></div>';
+    const ig = instagramReelu(r.id, kdyDilu(d));
+    return '<div class="do-media do-media--reel">' + nahledReeluHtml(r) + (ig ? ig.vedlejsi : '') +
+      '<p class="napoveda do-video-napoveda">Video je na tvém Disku Google (CLAUDE_SCHRANKA/REELY) a otevře ho jen tvůj účet. Do Fotek v iPhonu: ' +
+      'v aplikaci Disk ⋯ → Poslat kopii → Uložit video.</p></div>';
   }
   if (d.snimku) {
     const g = snimky[d.id];
@@ -122,12 +128,14 @@ function teloHtml() {
   const d = dil();
   if (!d) return '';
   const r = rozepsane(d);
-  const popisek = r.popisek != null ? r.popisek : d.popisek || '';
+  const reel = d.reel && reelPodleId(d.reel);
+  const popisek = reel ? popisekReeluProOkno(d.reel) : r.popisek != null ? r.popisek : d.popisek || '';
+  const ig = reel ? instagramReelu(d.reel, kdyDilu(d)) : null;
   const v = api.vlnaNazev(d.vlna);
   const navrhy = d.navrhy || [];
   return '<div class="reel-detail do">' +
     '<div class="reel-detail__media">' + mediaHtml(d) + '</div>' +
-    '<div class="reel-detail__obsah">' +
+    '<div class="reel-detail__obsah">' + (ig ? ig.prubeh : '') +
       '<div class="do-hlava"><span class="do-hlava__kdy cisla">' + esc(RP.denADatum(d.termin)) + (d.termin && d.cas ? ' · ' + esc(d.cas) : '') + '</span>' +
         api.stitek(d.stav) + (d.tym ? '<span class="tag tag--seda rp-tym" data-tym="' + esc(d.tym) + '">' + esc(RP.NAZVY_TYMU[d.tym] || d.tym) + '</span>' : '') +
         '<span class="tag tag--seda">' + esc(RP.NAZVY_FORMATU[d.format] || '') + '</span>' + (v ? '<span class="do-hlava__vlna">' + esc(v) + '</span>' : '') + '</div>' +
@@ -140,8 +148,9 @@ function teloHtml() {
           : '<p class="napoveda do-bez-navrhu">Návrhy ještě nejsou – požádej Clauda níž.</p>') +
         '<textarea class="odpoved reel__pole" data-do-pole="popisek" data-pole="do-popisek" rows="8" aria-label="Popisek na Instagram" ' +
           'placeholder="Text, který půjde na Instagram – napiš ho, nebo použij návrh od Clauda.">' + esc(/^\r?\n/.test(popisek) ? '\n' + popisek : popisek) + '</textarea>' +
-        '<small class="reel__ulozeni" data-do-ulozeni="popisek">' + esc(textUlozeni('popisek', 'Ukládá se samo při psaní')) + '</small></section>' +
-      '<section class="reel-detail__cast do-claude"><span class="label">Poznámka pro Clauda</span>' +
+        '<small class="reel__ulozeni" data-do-ulozeni="popisek">' + esc((reel && stavPopiskuReelu(d.reel)) || textUlozeni('popisek', 'Ukládá se samo při psaní')) + '</small></section>' +
+      (ig ? ig.instagram : '') + (d.mimo ? '<p class="napoveda">Reel mimo plán – přetáhni ho do vlny (nebo pravé tlačítko → Přesunout do vlny), pak u něj jdou i poznámky a návrhy od Clauda.</p>' : '') +
+      (d.mimo ? '' : '<section class="reel-detail__cast do-claude"><span class="label">Poznámka pro Clauda</span>' +
         '<textarea class="odpoved" data-do-pole="proClauda" data-pole="do-pro-clauda" rows="3" aria-label="Poznámka pro Clauda k návrhům" ' +
           'placeholder="Např. zmiň, že to byl první gól v áčku.">' + esc(r.proClauda != null ? r.proClauda : d.proClauda || '') + '</textarea>' +
         '<div class="do-claude__akce">' + (d.cekaNaNavrhy ? '<span class="tag tag--plan do-ceka">' + IKONY.claude + 'Claude chystá návrhy…</span>' : '') +
@@ -149,13 +158,15 @@ function teloHtml() {
       '<section class="reel-detail__cast do-poznamka"><span class="label">Moje poznámka k dílu</span>' +
         '<textarea class="odpoved" data-do-pole="poznamka" data-pole="do-poznamka" rows="2" aria-label="Moje poznámka k dílu" placeholder="Jen pro tebe – vidíš ji i na kartě.">' +
           esc(r.poznamka != null ? r.poznamka : d.poznamkaMoje || '') + '</textarea>' +
-        '<small class="reel__ulozeni" data-do-ulozeni="poznamka">' + esc(textUlozeni('poznamka', '')) + '</small></section>' +
+        '<small class="reel__ulozeni" data-do-ulozeni="poznamka">' + esc(textUlozeni('poznamka', '')) + '</small></section>') +
     '</div></div>';
 }
 
 function pataHtml() {
   const d = dil();
-  return d ? api.tlacitka(d) : '';
+  if (!d) return '';
+  const ig = d.reel && reelPodleId(d.reel) ? instagramReelu(d.reel, kdyDilu(d)) : null;
+  return api.tlacitka(d) + (ig ? ig.akce : '');
 }
 
 // ---------------------------------------------------------------- ukládání (samo při psaní, jako popisek reelu)
@@ -193,6 +204,14 @@ function pise(t) {
   const d = dil();
   if (!d) return;
   const k = t.dataset.doPole;
+  if (k === 'popisek' && d.reel && reelPodleId(d.reel)) {
+    pisPopisekReelu(d.reel, t.value);
+    const z = elementPanelu(OKNO).querySelector('[data-do-znaky]');
+    if (z) { z.textContent = pocetZnaku(t.value); z.classList.toggle('reel__znaky--moc', t.value.length > RP.POPISEK_MAX); }
+    const u = elementPanelu(OKNO).querySelector('[data-do-ulozeni="popisek"]');
+    if (u) u.textContent = stavPopiskuReelu(d.reel);
+    return;
+  }
   rozepsane(d)[k] = t.value;
   if (k === 'proClauda') return; // posílá se až s žádostí o návrhy
   if (k === 'popisek') {
@@ -207,12 +226,15 @@ function pouzijNavrh() {
   const d = dil();
   const text = d && (d.navrhy || [])[volbaNavrhu[d.id] || 0];
   if (!text) return;
-  rozepsane(d).popisek = text;
   const t = elementPanelu(OKNO).querySelector('[data-do-pole="popisek"]');
   if (t) t.value = text;
-  clearTimeout(casovace.popisek);
-  casovace.popisek = 0;
-  ulozPole('popisek');
+  if (d.reel && reelPodleId(d.reel)) pisPopisekReelu(d.reel, text);
+  else {
+    rozepsane(d).popisek = text;
+    clearTimeout(casovace.popisek);
+    casovace.popisek = 0;
+    ulozPole('popisek');
+  }
   obnovOkno();
   toast('Návrh ' + ((volbaNavrhu[d.id] || 0) + 1) + ' je v popisku – jde dál upravit');
 }

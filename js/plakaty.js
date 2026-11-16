@@ -113,6 +113,39 @@ export function podnadpis() {
   return 'Program víkendu na A3 · ' + esc(P.popisVikendu(s)) + ' · ' + (kolo && kolo.stav ? 'upraveno ručně' : 'podle rozlosování');
 }
 
+/**
+ * Plakáty víkendů pro Plán reelů (Michal 16. 11.: „do plánu se nám bude zobrazovat i plakáty, kdy se mají vydat“) – jen odvozené z dat,
+ * která aplikace už má (rozlosování z FOTBAL.json, ruční kola, PLAKATY_PLAN, obrázky na Disku); nic se nezapisuje.
+ * → [{ plakat: true, id: 'plakat-<sobota>', sobota, nazev, termin, cas, stav: plan | nachystano | naplanovano | vyveseno, stavText, zapasy: [text], planKdy? }]
+ * jen víkendy od minulého týdne, kde je aspoň jeden domácí zápas (nebo ruční kolo); termín = naplánovaný čas, jinak čtvrtek před víkendem 18:00.
+ */
+export function polozkyProPlan() {
+  if (!data() || !fotbalData()) return [];
+  const ted = Date.now();
+  const od = isoDatum(pridejDny(ted, -1)); // nadcházející víkendy (i ten, který právě běží)
+  return vikendy().filter((s) => s >= od).map((s) => {
+    const kolo = data().kola[s];
+    const st = kolo && kolo.stav ? P.normalizujPlakat(kolo.stav, s, nastaveni()) : P.zRozlosovani(s, fotbalData(), nastaveni()).stav;
+    const doma = (st && st.doma) || [];
+    if (!doma.length && !(kolo && kolo.stav)) return null;
+    const plan = (data().plan || {})[s];
+    const obr = (data().obrazky || {})[s];
+    const kdy = plan && plan.kdy ? Number(plan.kdy) : (() => { const c = new Date(pridejDny(terminDatum(s), -2)); c.setHours(18, 0, 0, 0); return c.getTime(); })();
+    const stav = plan && plan.stav === 'hotovo' ? 'vyveseno' : plan && ['ceka', 'nahrava', 'zverejnuji', 'chyba'].indexOf(plan.stav) >= 0 ? 'naplanovano'
+      : obr && obr.prispevek ? 'nachystano' : 'plan';
+    return { plakat: true, id: 'plakat-' + s, sobota: s, nazev: 'Plakát víkendu ' + P.rozsahVikendu(s), termin: isoDatum(kdy), cas: hhmm(kdy), stav,
+      stavText: { plan: 'není připraven', nachystano: 'připraven', naplanovano: 'naplánováno', vyveseno: 'vyvěšeno' }[stav],
+      zapasy: doma.map((z) => [z.den, z.cas, z.tym, z.souper].filter(Boolean).join(' · ')), planKdy: plan && plan.kdy ? Number(plan.kdy) : null };
+  }).filter(Boolean);
+}
+
+/** Z Plánu reelů na stránku Plakáty rovnou na víkend (plakát má vlastní editor – tady přeskok nevadí). */
+export function otevriVikend(sobota) {
+  prejdi('plakaty');
+  prepniVikend(sobota);
+  zmeneno();
+}
+
 /** Tlačítko „Plakát“ na stránce Fotbal (vedle Reely). */
 hooky.plakatTlacitko = (trida) => (umiMotor('plakaty')
   ? '<button type="button" class="' + (trida || 'chip') + ' plakat-tl" data-cil="plakaty">' + IKONY.plakaty + '<span>Plakát</span></button>' : '');
