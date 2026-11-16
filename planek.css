@@ -1,0 +1,121 @@
+/* Plánek cviku (16. 11.) – schéma cvičení v SVG (js/planek.js) a jeho editor (js/planek_editor.js).
+   Barvy jen tady přes proměnné --pl-*: tráva, čáry, hráči; tmavý režim tráva o tón tmavší; tisk bílý s tmavými čarami. */
+
+.planek, .planek-legenda {
+  --pl-trava: #3d8f48;  --pl-trava-2: #37843f;  --pl-cary: rgba(255, 255, 255, .88);
+  --pl-inkoust: #ffffff;  --pl-halo: rgba(6, 26, 12, .45);
+  --pl-home: #d62839;  --pl-home-text: #ffffff;
+  --pl-away: #1f5fd6;  --pl-away-text: #ffffff;
+  --pl-neutral: #ddd0a0; --pl-neutral-text: #2d2a1f;
+  --pl-gk-home: #f2c200; --pl-gk-away: #19a463; --pl-gk-text: #17200f;
+  --pl-obrys: #ffffff;
+  --pl-kuzel: #f59e0b;  --pl-figurina: #24303a;  --pl-tyc: #facc15;
+  --pl-krok: #17201b;  --pl-krok-text: #ffffff;  --pl-vyber: #ffd43b;
+  --pl-zona: rgba(255, 255, 255, .16);  --pl-zona-okraj: rgba(255, 255, 255, .85);
+  --pl-sit: rgba(255, 255, 255, .22);
+}
+:root[data-motiv="tmavy"] .planek { --pl-trava: #2c6a36; --pl-trava-2: #286131; --pl-cary: rgba(235, 245, 238, .75); --pl-obrys: #e8eee9; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-motiv="svetly"]) .planek { --pl-trava: #2c6a36; --pl-trava-2: #286131; --pl-cary: rgba(235, 245, 238, .75); --pl-obrys: #e8eee9; }
+}
+/* legenda leží na kartě (ne na trávě): čáry v barvě textu */
+.planek-legenda { --pl-figurina: var(--text-soft); --pl-krok: var(--text); --pl-krok-text: var(--surface); --pl-inkoust: var(--text); --pl-halo: transparent; --pl-zona: var(--accent-tint); --pl-zona-okraj: var(--accent); --pl-sit: transparent; --pl-obrys: var(--surface); }
+
+/* tisk – bílé pozadí, tmavé čáry */
+:root .planek.planek--tisk {
+  --pl-trava: #ffffff; --pl-trava-2: #ffffff; --pl-cary: #8f9792; --pl-inkoust: #1b231e; --pl-halo: transparent;
+  --pl-zona: rgba(31, 61, 44, .08); --pl-zona-okraj: #1f3d2c; --pl-sit: rgba(0, 0, 0, .06); --pl-obrys: #1b231e;
+  border: 1px solid #c9ccc9;
+}
+@media print {
+  :root .planek.planek {
+    --pl-trava: #ffffff; --pl-trava-2: #ffffff; --pl-cary: #8f9792; --pl-inkoust: #1b231e; --pl-halo: transparent;
+    --pl-zona: rgba(31, 61, 44, .08); --pl-zona-okraj: #1f3d2c; --pl-sit: rgba(0, 0, 0, .06); --pl-obrys: #1b231e;
+    border: 1px solid #c9ccc9;
+  }
+}
+
+/* ---------------------------------------------------------------- samotné SVG */
+.planek { display: block; width: 100%; height: auto; max-height: 78vh; border-radius: 12px; overflow: hidden;
+  font-family: var(--font); user-select: none; -webkit-user-select: none; }
+.planek text { font-weight: 800; }
+.pl-trava { fill: var(--pl-trava); }
+.pl-trava2 { fill: var(--pl-trava-2); }
+.pl-hriste { stroke: var(--pl-cary); }
+.pl-hriste-body { fill: var(--pl-cary); }
+.pl-halo { fill: none; stroke: var(--pl-halo); stroke-linecap: round; stroke-linejoin: round; }
+.pl-cara { fill: none; stroke: var(--pl-inkoust); stroke-linecap: round; stroke-linejoin: round; }
+.pl-hrot { fill: var(--pl-inkoust); }
+.pl-zasah { fill: none; stroke: transparent; stroke-linecap: round; }
+.pl-zvyrazneni { fill: none; stroke: var(--pl-vyber); stroke-opacity: .55; stroke-linecap: round; }
+.pl-krok circle { fill: var(--pl-krok); stroke: var(--pl-inkoust); }
+.pl-krok text { fill: var(--pl-krok-text); }
+.planek--tisk .pl-krok circle { stroke: #ffffff; }
+
+.pl-hrac__telo { fill: var(--pl-home); stroke: var(--pl-obrys); }
+.pl-hrac__num { fill: var(--pl-home-text); }
+.pl-hrac--away .pl-hrac__telo { fill: var(--pl-away); }
+.pl-hrac--away .pl-hrac__num { fill: var(--pl-away-text); }
+.pl-hrac--neutral .pl-hrac__telo { fill: var(--pl-neutral); }
+.pl-hrac--neutral .pl-hrac__num { fill: var(--pl-neutral-text); }
+.pl-hrac--gk .pl-hrac__telo { fill: var(--pl-gk-home); }
+.pl-hrac--gk .pl-hrac__num { fill: var(--pl-gk-text); }
+.pl-mic__telo { fill: #ffffff; stroke: #17201b; }
+.pl-mic__skvrna { fill: #17201b; }
+.pl-kuzel__telo { fill: var(--pl-kuzel); stroke: rgba(255, 255, 255, .9); }
+.planek--tisk .pl-kuzel__telo, .planek-legenda .pl-kuzel__telo { stroke: rgba(0, 0, 0, .45); }
+.pl-figurina__telo { fill: var(--pl-figurina); stroke: var(--pl-obrys); }
+.pl-tyc__pata { fill: var(--pl-tyc); stroke: #17201b; }
+.pl-tyc__telo { stroke: var(--pl-tyc); stroke-linecap: round; }
+.pl-branka__sit { fill: var(--pl-sit); stroke: var(--pl-inkoust); stroke-opacity: .55; }
+.pl-branka__ram { fill: none; stroke: var(--pl-inkoust); stroke-linecap: round; }
+.pl-zona__telo { fill: var(--pl-zona); stroke: var(--pl-zona-okraj); }
+.pl-text__telo { fill: var(--pl-inkoust); stroke: var(--pl-halo); paint-order: stroke; }
+.planek--tisk .pl-text__telo { stroke: #ffffff; }
+.pl-krouzek { fill: none; stroke: var(--pl-vyber); }
+.pl-ramecek { fill: rgba(255, 212, 59, .14); stroke: var(--pl-vyber); }
+.pl-uchyt circle { fill: #ffffff; stroke: var(--pl-home); }
+.pl-uchyt circle.pl-uchyt__zasah { fill: transparent; stroke: none; }
+
+/* ---------------------------------------------------------------- legenda */
+.planek-obal { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.planek-legenda { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--text-soft); }
+.planek-legenda li { display: inline-flex; align-items: center; gap: 6px; }
+.planek-legenda svg.planek-vzor { width: 18px; height: 18px; }
+.planek-legenda svg.planek-vzor--cara { width: 34px; height: 8px; }
+
+/* ---------------------------------------------------------------- editor */
+.planek-editor { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.planek-lista { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.planek-lista__skupina { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-right: 8px; margin-right: 2px; border-right: 1px solid var(--line); }
+.planek-lista__skupina:last-child { border-right: 0; }
+.planek-nastroj { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 10px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--text-soft); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.planek-nastroj:hover:not(:disabled) { background: var(--sand); color: var(--text); }
+.planek-nastroj[aria-pressed="true"] { background: var(--accent-btn); border-color: var(--accent-btn); color: var(--na-akcentu); }
+.planek-nastroj:disabled { opacity: .45; cursor: default; }
+.planek-nastroj svg { width: 16px; height: 16px; }
+.planek-nastroj__cislo { min-width: 22px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.planek-barva { width: 26px; height: 26px; min-height: 26px; padding: 0; border-radius: 50%; border: 2px solid var(--line); }
+.planek-barva[aria-pressed="true"] { border-color: var(--text); box-shadow: 0 0 0 2px var(--surface) inset; }
+.planek-pole { height: 34px; width: 120px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); font-size: 14px; }
+.planek-vyber { height: 34px; padding: 0 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); font-size: 13px; max-width: 170px; }
+.planek-popis { font-size: 12px; color: var(--muted); }
+.planek-platno { position: relative; touch-action: none; border-radius: 12px; outline: none; }
+.planek-platno:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.planek-platno .planek { cursor: crosshair; max-height: min(72vh, 680px); }
+.planek-platno[data-nastroj="vyber"] .planek { cursor: default; }
+.planek-platno .pl-prvek { cursor: move; }
+.planek-platno .pl-uchyt { cursor: grab; }
+
+/* dotyk: tlačítka aspoň 40 px; úzká šířka: hlavní lišta v jednom řádku s posunem do strany */
+@media (pointer: coarse) {
+  .planek-nastroj, .planek-pole, .planek-vyber { min-height: 40px; height: 40px; }
+  .planek-barva { width: 36px; height: 36px; min-height: 36px; }
+}
+@media (max-width: 640px) {
+  .planek-lista--nastroje { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .planek-lista--nastroje::-webkit-scrollbar { display: none; }
+  .planek-lista--nastroje .planek-lista__skupina { flex-wrap: nowrap; flex: none; }
+  .planek-pole { width: 96px; font-size: 16px; }
+}

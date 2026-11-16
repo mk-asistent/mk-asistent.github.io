@@ -21,6 +21,20 @@
 .tr-karta__meta { margin-top: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12px; color: var(--muted); }
 .tr-karta__hvezdy { color: var(--zluta); letter-spacing: 1px; }
 .tr-karta__obl { color: var(--oranz); }
+/* druhy (16. 11.): oddíly pod Vše a Oblíbené, výběr víc karet (lišta jako v Poště), přetažení na čip druhu nebo nadpis oddílu */
+.tr-oddil + .tr-oddil { margin-top: 24px; }
+.tr-oddil__nadpis { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 3px 10px 3px 0; border-radius: 10px; font-size: 15px; font-weight: 700;
+  letter-spacing: -.01em; transition: background .12s, padding .12s; }
+.tr-oddil__nadpis .pocet { min-width: 18px; padding: 0 6px; border-radius: 9px; background: var(--sand); color: var(--muted); font-size: 11.5px; font-weight: 650; text-align: center; }
+.tr-karta--vybrana, .tr-karta--vybrana:hover { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
+#tr-vyber { position: sticky; top: calc(8px + env(safe-area-inset-top)); z-index: 6; } /* lišta výběru se lepí nahoře i při posunu */
+.tr-vyber { margin-bottom: 14px; }
+.tr-nahledy-chyba { margin: 0 0 12px; }
+.tahne-treninky .tr-filtry .chip, .tahne-treninky .tr-oddil__nadpis { outline: 1.5px dashed var(--sand-2); outline-offset: 1px; }
+.tahne-treninky .tr-oddil__nadpis { padding-left: 10px; }
+.tr-filtry .chip.cil, .tr-oddil__nadpis.cil { background: var(--accent-btn); border-color: var(--accent-btn); color: var(--na-akcentu); outline-color: var(--accent-btn); }
+.tr-filtry .chip.cil .pocet, .tr-oddil__nadpis.cil .pocet { background: rgba(255, 255, 255, .2); color: inherit; }
+@media (hover: hover) and (pointer: fine) { .tr-filtry .segment { flex-wrap: wrap; } } /* na PC všechny druhy vidět – jsou to i cíle přetažení */
 
 /* okno cviku */
 .tr-detail { display: flex; flex-direction: column; gap: 18px; }
@@ -50,6 +64,11 @@
 .tr-moje__radek { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 10px; }
 .tr-poznamka { width: 100%; min-height: 60px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text);
   font: inherit; font-size: 16px; resize: vertical; }
+.tr-moje__druh { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; }
+.tr-moje__druh:empty { display: none; }
+.tr-druh { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text-soft); }
+.tr-skryt { margin-left: auto; }
+@media (pointer: coarse) { .tr-druh select { font-size: 16px; } } /* iPhone by menší písmo při výběru přiblížil */
 
 @media (min-width: 900px) {
   .panel.panel-okno.tr-okno { width: min(1180px, 92vw); }

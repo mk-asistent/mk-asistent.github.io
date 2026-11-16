@@ -53,6 +53,7 @@ const KOPIE_ZAPISU = {
   // Knihovna: kopii na serveru nemá (čte se z motoru na své stránce) – zápis zneplatní jen značky změn, server je hned obnoví
   // a ostatní zařízení si podle zmeny.knihovna knihovnu načtou znovu
   knihovnaPridat: ['zmeny'], knihovnaMoje: ['zmeny'], knihovnaZrusit: ['zmeny'], knihovnaTip: ['zmeny'],
+  treninkMoje: [], // Tréninky kopii na serveru nemají (čtou se z motoru na své stránce)
   vaha: [], doplnky: [], pitiJidlo: [], jidloOdpoved: [], whoopPropojit: [], whoopOdpojit: [], zdraviKlic: [], upozorneniZapnout: [], upozorneniVypnout: [], upozorneniTest: []
 };
 const SIGNAL_ZAPISU = { vaha: 'zdravi', doplnky: 'zdravi', pitiJidlo: 'zdravi', jidloOdpoved: 'zdravi', whoopPropojit: 'zdravi', whoopOdpojit: 'zdravi' };
@@ -71,7 +72,7 @@ export const CTENI = ['info', 'schranka', 'posta', 'kalendar', 'kalendare', 'poc
   'postaDetaily', // pošta: přednačtení detailů posledních konverzací (nic neoznačí jako přečtené)
   'postaPriloha', // pošta: obsah přílohy pro náhled
   'tipyNahledy', 'tipNahled', 'tipVideo', // Rešerše AI: náhledy tipů
-  'treninky', 'treninkCvik', 'treninkyNahledy', 'treninkNahled', 'treninkVideo', // Tréninky
+  'treninky', 'treninkyKarty', 'treninkCvik', 'treninkyNahledy', 'treninkNahled', 'treninkVideo', // Tréninky
   'kontakty', 'hledat', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'zmeny', 'plakaty',
   'igStav', // čtení bez kopie nic nezneplatní (igStav = průběh zveřejňování na Instagram, js/ig.js)
   'igSkupiny', // skupiny k označení (js/ig_skupiny.js) – jen když je kopie reelů ani plakátů nemá

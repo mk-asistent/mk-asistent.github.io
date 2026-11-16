@@ -1,0 +1,9 @@
+/* jen pro ukázkovou stránku plánku (testy/planek_ukazka.html) */
+.uk-stranka { max-width: 1500px; margin: 0 auto; padding: 20px 16px 40px; display: flex; flex-direction: column; gap: 16px; }
+.uk-stranka h1 { margin: 0; font-size: 22px; }
+.uk-stranka > p { margin: 0; }
+.uk-mrizka { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 16px; align-items: start; }
+.uk-karta { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.uk-karta h2, .uk-karta h3 { margin: 0; font-size: 15px; }
+.uk-karta ol { margin: 0; padding-left: 20px; font-size: 13.5px; line-height: 1.5; color: var(--text-soft); }
+.uk-json pre { max-height: 240px; overflow: auto; font-size: 11.5px; background: var(--bg); padding: 8px; border-radius: 8px; }

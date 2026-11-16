@@ -11,7 +11,7 @@
 //
 // VERZE = otisk obsahu souborů aplikace: po každé změně `node testy/sw_verze.js --zapsat` (testy jinak selžou).
 
-const VERZE = 'asistent-a3642d93cb76';
+const VERZE = 'asistent-aaa7872bf505';
 const SOUBORY = [
   './', 'index.html', 'app.css', 'manifest.webmanifest',
   'js/start.js', 'js/app.js', 'js/krouzky.js', 'js/api.js', 'js/pomocne.js', 'js/stav.js', 'js/ui.js', 'js/ikony.js', 'js/panely.js',
@@ -23,7 +23,7 @@ const SOUBORY = [
   'js/ig.js', 'js/ig_prubeh.js', 'js/ig_navrhy.js', // průběh zveřejňování na Instagram (reely, plakáty, příběhy), návrhy popisků od Clauda
   'js/ig_skupiny.js', // skupiny lidí k označení na Instagramu
   'js/pribehy.js', 'js/pribeh_obrazek.js', // příběhy z fotek z telefonu
-  'js/knihovna.js', 'js/knihovna_stranka.js', 'js/knihovna_data.js', 'js/tipy_pamet.js', 'knihovna.css', 'js/treninky.js', 'treninky.css', // Knihovna a Tréninky (filmy, knihy, rešerše) – knihovna.js a knihovna_stranka.js se načtou až na své stránce
+  'js/knihovna.js', 'js/knihovna_stranka.js', 'js/knihovna_data.js', 'js/tipy_pamet.js', 'knihovna.css', 'js/treninky.js', 'treninky.css', 'js/planek.js', 'js/planek_editor.js', 'planek.css', // Knihovna a Tréninky (filmy, knihy, rešerše) – knihovna.js a knihovna_stranka.js se načtou až na své stránce
   'js/krev.js', // krevní testy – zašifrované heslem, rozšifruje až zařízení
   'js/pripravenost.js', // přednačtení a obnova pomalých oblastí na pozadí, „aktualizuji…“
   'js/priloha.js', // náhled přílohy e-mailu (PDF přes js/vendor/pdfjs-…, načte se až při klepnutí na přílohu)

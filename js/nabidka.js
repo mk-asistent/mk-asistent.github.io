@@ -11,7 +11,7 @@ import { skryjKartu } from './bubliny.js';
 
 const DRZET_MS = 480;     // dlouhé podržení prstu (iPhone pravé tlačítko nemá a contextmenu neposílá)
 const POSUN_PX = 10;      // prst se pohnul = posouvání stránky, ne podržení
-// fn(prvek, dotyk) → { nadpis, polozky: [{ ikona, text, fn, nebezpeci, oddel (čára nad položkou) }] } | null – první, kdo nabídku
+// fn(prvek, dotyk) → { nadpis, polozky: [{ ikona, text, fn | dalsi (→ další nabídka na stejném místě), nebezpeci, oddel (čára nad položkou) }] } | null – první, kdo nabídku
 // má; dotyk = podržení prstem (nabídka celé karty ho nechce – na kartě se na telefonu označuje text a posouvá stránka)
 const zdroje = [];
 let otevrena = null;      // { el, puvod, kdy }
@@ -62,7 +62,10 @@ export function otevri(x, y, n, puvod, dotyk) {
     const b = e.target.closest('[data-nabidka-i]');
     if (!b) return;
     const p = n.polozky[Number(b.dataset.nabidkaI)];
+    const vlevo = parseFloat(el.style.left), nahore = parseFloat(el.style.top);
     zavri(true);
+    // položka s další nabídkou (Přesunout do…, Ohodnotit…): otevře ji na stejném místě
+    if (p && p.dalsi) { const dalsi = p.dalsi(); if (dalsi && dalsi.polozky && dalsi.polozky.length) otevri(vlevo, nahore, dalsi, puvod, dotyk); return; }
     if (p && p.fn) p.fn();
   });
   otevrena = { el, puvod, kdy: Date.now(), sirka };

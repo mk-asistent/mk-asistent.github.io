@@ -182,10 +182,12 @@ function prostredi() {
   // Disk: schránka CLAUDE_SCHRANKA s podsložkami, soubory v paměti
   const iterator = (pole) => { let i = 0; return { hasNext: () => i < pole.length, next: () => pole[i++] }; };
   const vsechnySoubory = {}; // id → soubor (DriveApp.getFileById)
+  const vsechnySlozky = {};  // id → složka (Drive.Files.list „'<id>' in parents“)
   let citacZmen = 0;
   const slozka = (nazev, rodic) => {
     const s = { nazev, rodic, deti: {}, soubory: [] };
     s.getId = () => 'slozka-' + nazev; s.getName = () => nazev;
+    vsechnySlozky[s.getId()] = s;
     s.getParents = () => iterator(rodic ? [rodic] : []);
     s.getFoldersByName = (n) => { const x = s.deti[n]; let hotovo = !x; return { hasNext: () => !hotovo, next: () => { hotovo = true; return x; } }; };
     s.getFolders = () => iterator(Object.values(s.deti));
@@ -362,6 +364,17 @@ function prostredi() {
       log.ocr = (log.ocr || []).concat({ zdroj, volby });
       vsechnySoubory[id] = { vKosi: false, getId: () => id, setTrashed(k) { this.vKosi = !!k; return this; } };
       return { id };
+    },
+    // výpis složky (Tréninky): jen dotaz „'<id>' in parents and trashed = false“, stránky po 3 souborech (zkouška stránkování)
+    list: (dotaz) => {
+      log.driveList = (log.driveList || 0) + 1;
+      const m = /^'([^']+)' in parents and trashed = false$/.exec(dotaz.q);
+      assert.ok(m && vsechnySlozky[m[1]], 'dotaz Drive.Files.list: ' + dotaz.q);
+      assert.ok(/files\(id, name, modifiedTime\)/.test(dotaz.fields) && dotaz.pageSize === 1000);
+      const vse = vsechnySlozky[m[1]].soubory.filter((f) => !f.vKosi);
+      const od = Number(dotaz.pageToken || 0);
+      return { files: vse.slice(od, od + 3).map((f) => ({ id: f.getId(), name: f.getName(), modifiedTime: f.getLastUpdated().toISOString() })),
+        nextPageToken: od + 3 < vse.length ? String(od + 3) : undefined };
     } } },
     ScriptApp: { getOAuthToken: () => 'token-test' },
     GmailApp,
@@ -388,6 +401,16 @@ function prostredi() {
       if (url.indexOf('googleapis.com/drive/v3/files/') >= 0) { log.export = (log.export || []).concat(url); return { getResponseCode: () => 200, getContentText: () => ocrText }; }
       if (url === 'https://ntfy.sh/') { log.ntfy = (log.ntfy || []).concat(JSON.parse(moznosti.payload)); return { getResponseCode: () => 200, getContentText: () => '{}' }; }
       return { getResponseCode: () => (url.indexOf('chyba') >= 0 ? 404 : 200), getContentText: () => (url.indexOf('rozpis') >= 0 ? rozpis : ICS) };
+    },
+    // naráz (Tréninky): jen obsah souborů Disku …/drive/v3/files/<id>?alt=media s tokenem; log.fetchAll = počty v dávkách
+    fetchAll: (pozadavky) => {
+      log.fetchAll = (log.fetchAll || []).concat(pozadavky.length);
+      return pozadavky.map((p) => {
+        const m = /^https:\/\/www\.googleapis\.com\/drive\/v3\/files\/([^?]+)\?alt=media$/.exec(p.url);
+        assert.ok(m && p.headers.Authorization === 'Bearer token-test' && p.muteHttpExceptions, 'fetchAll: ' + p.url);
+        const f = vsechnySoubory[decodeURIComponent(m[1])];
+        return f && !f.vKosi ? { getResponseCode: () => 200, getContentText: () => f.getBlob().getDataAsString() } : { getResponseCode: () => 404, getContentText: () => '' };
+      });
     } },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     Logger: { log() {} },
@@ -4941,7 +4964,7 @@ test('Tréninky: seznam cviků (bez dlouhých částí), celá karta, náhled a 
   cv.createFile('bez.json', JSON.stringify({ id: 'BezNazvu' }));
   const d = p.volej('treninky').data;
   assert.deepStrictEqual(d.cviky.map((c) => c.id), ['DffH7NXioNi', 'Starsi_1'], 'nejnovější první, velká písmena a podtržítko v id');
-  assert.deepStrictEqual(json(d.cviky[0]), { id: 'DffH7NXioNi', nazev: 'Rondo 4 na 2', kratce: 'Krátce **hlavní**.', zamereni: ['přihrávky'], hraci: '6–8', pripraveno: '2026-11-16T10:00:00+01:00' });
+  assert.deepStrictEqual(json(d.cviky[0]), { id: 'DffH7NXioNi', nazev: 'Rondo 4 na 2', kratce: 'Krátce **hlavní**.', druh: 'ostatní', zamereni: ['přihrávky'], hraci: '6–8', pripraveno: '2026-11-16T10:00:00+01:00' });
   assert.deepStrictEqual(json(d.chybne).sort(), ['bez.json', 'spatny.json']);
   const c = p.volej('treninkCvik', { id: 'DffH7NXioNi' }).data.cvik;
   assert.deepStrictEqual(json([c.organizace, c.body, c.prepis, c.odkaz || null]), [['Čtverec 10 × 10 m.'], ['Hlava nahoře.'], 'Řečeno.', null]);
@@ -4972,6 +4995,85 @@ test('Tréninky: seznam cviků (bez dlouhých částí), celá karta, náhled a 
   const idx = tr.soubory.find((f) => f.getName() === '_index_cviku.json');
   assert.ok(idx && Object.keys(JSON.parse(idx.getBlob().getDataAsString()).polozky).length === 4, 'rejstřík cviků');
   assert.deepStrictEqual(p.volej('treninky').data.cviky.map((c) => c.nazev), ['Rondo 4 na 2', 'Starší']);
+});
+
+test('Tréninky: výpis přes Drive API, karty naráz (fetchAll), otisk → beze_zmeny, celé karty z rejstříku, druh z karty i odvozený, moje druh / skryty / ids, náhledy se znam, starý rejstřík; bez Drive a fetchAll po staru', () => {
+  const p = prostredi();
+  const tr = p.schranka.createFolder('TRENINKY');
+  const cv = tr.createFolder('cviky');
+  const karta = (id, o) => cv.createFile(id + '.json', JSON.stringify(Object.assign({ id, nazev: 'Cvik ' + id, organizace: ['Organizace ' + id], pripraveno: '2026-11-16T10:00:00+01:00' }, o)));
+  karta('Rondo_01', { druh: 'hra', zamereni: ['přihrávky a kombinace'], forma: 'průpravné cvičení' }); // druh z karty má přednost
+  karta('Prihr_02', { zamereni: ['přihrávky a kombinace'], forma: 'průpravné cvičení' });
+  karta('PrihrHra_03', { zamereni: ['přihrávky a kombinace', 'technika'], forma: 'průpravná hra' });
+  karta('Koord_04', { zamereni: ['koordinace a rychlost'], forma: 'rozcvička' });
+  karta('Koord_05', { zamereni: ['koordinace a rychlost'] });
+  karta('Stand_06', { zamereni: ['standardní situace'], druh: 'neznámý' });
+  karta('Prech_07', { zamereni: ['přechodová fáze'] });
+  karta('Obrana_08', { zamereni: ['obrana a presink'] });
+  karta('Jine_009', { zamereni: ['jiné'] });
+  // starý rejstřík (bez v: 2, jen seznam) se bere jako prázdný
+  tr.createFile('_index_cviku.json', JSON.stringify({ polozky: { 'x:1': { c: { id: 'Stary_1', nazev: 'Starý' } } } }));
+  let r = p.volej('treninky');
+  assert.strictEqual(r.ok, true, r.chyba);
+  let d = r.data;
+  const druhy = Object.fromEntries(d.cviky.map((c) => [c.id, c.druh]));
+  assert.deepStrictEqual(druhy, { Rondo_01: 'hra', Prihr_02: 'přihrávky', PrihrHra_03: 'hra', Koord_04: 'rozcvička', Koord_05: 'rychlost a koordinace',
+    Stand_06: 'zahrávání', Prech_07: 'hra', Obrana_08: 'obrana', Jine_009: 'ostatní' });
+  assert.deepStrictEqual(json(d.druhy), ['rozcvička', 'rychlost a koordinace', 'technika', 'přihrávky', 'střelba', '1 na 1', 'obrana', 'hra', 'zahrávání', 'kondice', 'brankáři', 'ostatní']);
+  assert.ok(/^[0-9a-f]{32}$/.test(d.otisk) && !d.neuplne && !d.cviky.some((c) => c.organizace), 'otisk, seznam bez dlouhých částí');
+  assert.strictEqual(p.log.driveList, 3, 'výpis po stránkách (9 karet po 3)');
+  assert.deepStrictEqual(json(p.log.fetchAll), [9], 'nové karty jedním fetchAll');
+  const idx = JSON.parse(tr.soubory.find((f) => f.getName() === '_index_cviku.json').getBlob().getDataAsString());
+  assert.strictEqual(idx.v, 2);
+  assert.ok(Object.values(idx.polozky).every((x) => x.c && x.c.organizace), 'rejstřík drží celé karty');
+  // stejný otisk → beze_zmeny (bez čtení karet)
+  r = p.volej('treninky', { otisk: d.otisk });
+  assert.deepStrictEqual([r.data.beze_zmeny, r.data.otisk, r.data.cviky], [true, d.otisk, undefined]);
+  assert.deepStrictEqual(json(p.log.fetchAll), [9], 'podruhé se nic nečte');
+  assert.strictEqual(p.volej('treninky', { otisk: 'jiny' }).data.cviky.length, 9);
+  // celé karty z rejstříku se stejným otiskem
+  const k = p.volej('treninkyKarty').data;
+  assert.strictEqual(k.otisk, d.otiskKaret, 'karty mají vlastní otisk');
+  const otiskKaret = d.otiskKaret;
+  assert.deepStrictEqual([Object.keys(k.karty).length, k.karty.Prihr_02.organizace[0], k.karty.Prihr_02.druh], [9, 'Organizace Prihr_02', 'přihrávky']);
+  // moje: přesunutí do druhu a skrytí pro víc cviků naráz, otisk se změní
+  r = p.volej('treninkMoje', { ids: ['Prihr_02', 'Koord_05', 'Prihr_02'], druh: 'technika' });
+  assert.strictEqual(r.ok, true, r.chyba);
+  assert.deepStrictEqual([r.data.moje.polozky.Prihr_02.druh, r.data.moje.polozky.Koord_05.druh], ['technika', 'technika'], 'položka jen s druhem zůstane');
+  r = p.volej('treninkMoje', { id: 'Jine_009', skryty: true });
+  assert.strictEqual(r.data.moje.polozky.Jine_009.skryty, true);
+  d = p.volej('treninky', { otisk: d.otisk }).data;
+  assert.ok(!d.beze_zmeny && d.moje.polozky.Jine_009.skryty && d.moje.polozky.Koord_05.druh === 'technika', 'po zápisu moje nový otisk');
+  assert.strictEqual(d.otiskKaret, otiskKaret, 'změna mého otisk karet nemění (karty se znovu nestahují)');
+  assert.strictEqual(p.volej('treninkMoje', { id: 'Koord_05', druh: 'neznámý' }).ok, false, 'druh jen z číselníku');
+  assert.strictEqual(p.volej('treninkMoje', { ids: ['Prihr_02', 'Neni_0001'], oblibene: true }).ok, false, 'neznámý cvik v ids');
+  assert.strictEqual(p.volej('treninkMoje', { ids: Array.from({ length: 201 }, (_, i) => 'Cvik_' + i), oblibene: true }).ok, false, 'nejvýš 200');
+  r = p.volej('treninkMoje', { ids: ['Prihr_02', 'Koord_05'], druh: null });
+  assert.deepStrictEqual(json(r.data.moje.polozky), { Jine_009: r.data.moje.polozky.Jine_009 }, 'druh null = zrušit přesunutí');
+  r = p.volej('treninkMoje', { id: 'Jine_009', skryty: false });
+  assert.deepStrictEqual(json(r.data.moje.polozky), {});
+  // náhledy se znam: stejný čas úpravy _index.json → beze_zmeny
+  const nahledy = tr.createFolder('nahledy');
+  nahledy.createFile('_index.json', JSON.stringify({ tipy: { Rondo_01: { ikona: 'QUJD', video: false, snimku: 1 } } }));
+  const n1 = p.volej('treninkyNahledy').data;
+  assert.ok(n1.kdy > 0 && n1.tipy.Rondo_01, 'náhledy s časem');
+  assert.deepStrictEqual(json(p.volej('treninkyNahledy', { znam: n1.kdy }).data), { beze_zmeny: true, kdy: n1.kdy });
+  assert.ok(p.volej('treninkyNahledy', { znam: n1.kdy - 1 }).data.tipy.Rondo_01, 'jiný čas → celé');
+  // změněná karta: přečte se jen ona
+  cv.soubory.find((f) => f.getName() === 'Koord_05.json').setContent(JSON.stringify({ id: 'Koord_05', nazev: 'Nový název', zamereni: ['brankáři'] }));
+  d = p.volej('treninky').data;
+  assert.deepStrictEqual([d.cviky.find((c) => c.id === 'Koord_05').nazev, d.cviky.find((c) => c.id === 'Koord_05').druh, json(p.log.fetchAll)], ['Nový název', 'brankáři', [9, 1]]);
+  // bez Drive API a fetchAll: průchod složkou a čtení po jedné (nejvýš 25 na dotaz)
+  const p2 = prostredi();
+  vm.runInContext('Drive = undefined; UrlFetchApp.fetchAll = undefined;', p2.ctx);
+  const cv2 = p2.schranka.createFolder('TRENINKY').createFolder('cviky');
+  for (let i = 0; i < 30; i++) cv2.createFile('Cvik_' + i + '.json', JSON.stringify({ id: 'Cvik_' + i, nazev: 'Cvik ' + i, zamereni: ['kondice'] }));
+  d = p2.volej('treninky').data;
+  assert.deepStrictEqual([d.cviky.length, d.neuplne, d.otisk], [25, true, ''], 'neúplný seznam bez otisku');
+  d = p2.volej('treninky').data;
+  assert.deepStrictEqual([d.cviky.length, !!d.neuplne, d.cviky[0].druh], [30, false, 'kondice']);
+  assert.ok(/^[0-9a-f]{32}$/.test(d.otisk) && !p2.log.driveList && !p2.log.fetchAll);
+  assert.strictEqual(p2.volej('treninkMoje', { ids: ['Cvik_1', 'Cvik_2'], skryty: true }).ok, true);
 });
 
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

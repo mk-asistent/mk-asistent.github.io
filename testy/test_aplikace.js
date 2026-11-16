@@ -416,19 +416,32 @@ const motor = {
     return JSON.parse(JSON.stringify(autoData));
   },
   // Knihovna (motor 2026-10-11.5, CLAUDE_SCHRANKA/KNIHOVNA): karty, index rešerší, můj stav, požadavky – testy data mění jako Claude
-  // Tréninky (motor 2026-11-16.1, CLAUDE_SCHRANKA/TRENINKY): cviky, celá karta, náhled, moje
-  treninky: () => ({ cviky: TRENINKY_TEST.map((c) => ({ id: c.id, nazev: c.nazev, kratce: c.kratce, zamereni: c.zamereni, hraci: c.hraci, delka: c.delka, pripraveno: c.pripraveno })),
-    moje: { polozky: JSON.parse(JSON.stringify(treninkyMojeTest)) }, chybne: [], ted: Date.now() }),
+  // Tréninky (motor 2026-11-16.4, CLAUDE_SCHRANKA/TRENINKY): cviky s druhem a otiskem, celé karty, celá karta, náhled, moje (i druh, skrytí, víc cviků)
+  treninky: (d) => {
+    const otisk = 'otisk-' + treninkyVerzeTest;
+    if (d && d.otisk === otisk) return { beze_zmeny: true, otisk, otiskKaret: 'karty-1', ted: Date.now() };
+    return { cviky: TRENINKY_TEST.map((c) => ({ id: c.id, nazev: c.nazev, kratce: c.kratce, druh: c.druh, zamereni: c.zamereni, hraci: c.hraci, delka: c.delka, odkaz: c.odkaz, pripraveno: c.pripraveno })),
+      moje: { polozky: JSON.parse(JSON.stringify(treninkyMojeTest)) }, druhy: DRUHY_TEST.slice(), otisk, otiskKaret: 'karty-1', chybne: [], ted: Date.now() };
+  },
+  treninkyKarty: () => ({ karty: Object.fromEntries(TRENINKY_TEST.map((c) => [c.id, JSON.parse(JSON.stringify(c))])), otisk: 'karty-1', ted: Date.now() }),
   treninkCvik: (d) => ({ cvik: JSON.parse(JSON.stringify(TRENINKY_TEST.find((c) => c.id === d.id))) }),
-  treninkyNahledy: () => ({ tipy: { RondoTest_1: { ikona: JPG_TEST, video: false, snimku: 1, delka_s: 20, zdroj: 'instagram' } } }),
+  treninkyNahledy: (d) => {
+    if (treninkyNahledyChyby > 0) { treninkyNahledyChyby--; throw new Error('Disk teď neodpovídá.'); } // selhání: aplikace to má zkusit znovu
+    if (d && d.znam === 1000) return { beze_zmeny: true, kdy: 1000 };
+    return { tipy: { RondoTest_1: { ikona: JPG_TEST, video: false, snimku: 1, delka_s: 20, zdroj: 'instagram' } }, kdy: 1000 };
+  },
   treninkNahled: (d) => ({ nahled: d.id === 'RondoTest_1' ? { zdroj: 'instagram', text: 'Popisek', delka_s: 20, video: false, snimky: [JPG_TEST], miniatura: '', prepis: 'Hlava nahoře.' } : null }),
   treninkVideo: () => { throw new Error('Video u cviku není.'); },
   treninkMoje: (d) => {
-    const o = Object.assign({}, treninkyMojeTest[d.id]);
-    if (d.hvezdy !== undefined) { if (d.hvezdy) o.hvezdy = d.hvezdy; else delete o.hvezdy; }
-    if (d.oblibene !== undefined) { if (d.oblibene) o.oblibene = true; else delete o.oblibene; }
-    if (d.poznamka !== undefined) { if (d.poznamka) o.poznamka = d.poznamka; else delete o.poznamka; }
-    treninkyMojeTest[d.id] = o;
+    const ids = Array.isArray(d.ids) ? d.ids : [d.id];
+    if (ids.some((id) => !TRENINKY_TEST.some((c) => c.id === id))) throw new Error('Cvik v Trénincích není – obnov stránku.');
+    if (d.druh && DRUHY_TEST.indexOf(d.druh) < 0) throw new Error('Neznámý druh cviku.');
+    ids.forEach((id) => {
+      const o = Object.assign({}, treninkyMojeTest[id]);
+      for (const k of ['hvezdy', 'oblibene', 'poznamka', 'druh', 'skryty']) { if (d[k] !== undefined) { if (d[k]) o[k] = d[k]; else delete o[k]; } }
+      if (Object.keys(o).length) treninkyMojeTest[id] = o; else delete treninkyMojeTest[id];
+    });
+    treninkyVerzeTest++;
     return { moje: { polozky: JSON.parse(JSON.stringify(treninkyMojeTest)) } };
   },
   knihovna: () => Object.assign(JSON.parse(JSON.stringify(knihovnaTest)), { ted: Date.now() }),
@@ -480,11 +493,16 @@ const motor = {
 const volano = [];
 const JPG_TEST = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP////////////////////////////////////////////////////////////////////////////////////' +
   '//////////////////////////////////////////////////////////////////////////////////////wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==';
+const DRUHY_TEST = ['rozcvička', 'rychlost a koordinace', 'technika', 'přihrávky', 'střelba', '1 na 1', 'obrana', 'hra', 'zahrávání', 'kondice', 'brankáři', 'ostatní'];
 const TRENINKY_TEST = [
-  { id: 'RondoTest_1', nazev: 'Rondo 4 na 2', kratce: 'Kombinace ve čtverci. **Hlava nahoře.**', zamereni: ['přihrávky', 'rozcvička'], hraci: '6–8', delka: '10 min',
-    organizace: ['Čtverec 12 × 12 m.'], body: ['Otevřené postavení.'], varianty: ['Na dva doteky.'], pripraveno: '2026-11-16T10:00:00+01:00' },
-  { id: 'Strelba-2', nazev: 'Zakončení z křídla', kratce: 'Střela z první.', zamereni: ['střelba'], hraci: '10–14', delka: '15 min', pripraveno: '2026-11-15T10:00:00+01:00' }];
+  { id: 'RondoTest_1', nazev: 'Rondo 4 na 2', kratce: 'Kombinace ve čtverci. **Hlava nahoře.**', druh: 'přihrávky', zamereni: ['přihrávky a kombinace', 'rozcvička'], hraci: '6–8', delka: '10 min',
+    organizace: ['Čtverec 12 × 12 m.'], body: ['Otevřené postavení.'], varianty: ['Na dva doteky.'], odkaz: 'https://www.instagram.com/reel/RondoTest_1/', pripraveno: '2026-11-16T10:00:00+01:00' },
+  { id: 'Strelba-2', nazev: 'Zakončení z křídla', kratce: 'Střela z první.', druh: 'střelba', zamereni: ['střelba a zakončení'], hraci: '10–14', delka: '15 min', pripraveno: '2026-11-15T10:00:00+01:00' },
+  { id: 'Strelba-3', nazev: 'Střela po obrátce', kratce: 'Obrátka a střela.', druh: 'střelba', zamereni: ['střelba a zakončení'], pripraveno: '2026-11-14T10:00:00+01:00' },
+  { id: 'Kondice-4', nazev: 'Běhy s míčem', kratce: 'Úseky naplno.', druh: 'kondice', zamereni: ['kondice'], pripraveno: '2026-11-13T10:00:00+01:00' }];
 const treninkyMojeTest = {};
+let treninkyVerzeTest = 1;     // otisk napodobeného motoru – změna mého = nový otisk
+let treninkyNahledyChyby = 0;  // kolik dotazů treninkyNahledy selže (test opakování)
 let ztratitOdpovedi = 0;          // kolik dalších odpovědí motoru „ztratí Google“ (test opakování)
 const odpovediRid = new Map();    // rid → odpověď (motor opakovaný zápis neprovede)
 let navrhZahozen = false;
@@ -6980,20 +6998,25 @@ function vychoziVikendTestu() {
   });
 
   // ---------- stránka tipu (Michal 8. 11.): jedna stránka bez záložek, malý název, můj text, video nebo snímky, přepis; pravé tlačítko = zavrhnout celý návrh
-  await test('Tréninky: v pásu, karty s filtrem zaměření a hledáním, okno cviku (podbarvení, organizace, snímky), hvězdy, oblíbené a poznámka do motoru; telefon', async () => {
+  await test('Tréninky: v pásu, karty s filtrem druhů a hledáním, okno cviku (podbarvení, organizace, snímky), hvězdy, oblíbené a poznámka do motoru; telefon', async () => {
     for (const k of Object.keys(treninkyMojeTest)) delete treninkyMojeTest[k];
     const { ctx, page } = await novaStranka(prohlizec, VELIKOSTI[3]);
     try {
       await page.goto(WEB);
       await page.click('.rail [data-cil="treninky"], [data-cil="treninky"]');
       await page.waitForSelector('#p-treninky .tr-karta');
-      jistota(await page.locator('#p-treninky .tr-karta').count() === 2, 'dvě karty');
-      jistota(/2 cviky/.test(await page.textContent('.hlava')), 'podnadpis s počtem');
+      jistota(await page.locator('#p-treninky .tr-karta').count() === 4, 'čtyři karty');
+      jistota(/4 cviky/.test(await page.textContent('.hlava')), 'podnadpis s počtem');
+      const cipy = await page.$$eval('#tr-filtry [data-tr-filtr]', (x) => x.map((e) => e.dataset.trFiltr).join(','));
+      jistota(cipy === 'vse,přihrávky,střelba,kondice', 'čipy druhů v pořadí číselníku: ' + cipy);
       await page.click('[data-tr-filtr="střelba"]');
-      await page.waitForFunction(() => document.querySelectorAll('#p-treninky .tr-karta').length === 1);
+      await page.waitForFunction(() => document.querySelectorAll('#p-treninky .tr-karta').length === 2 && !document.querySelector('#p-treninky .tr-oddil'));
       await page.click('[data-tr-filtr="vse"]');
       await page.fill('[data-tr-hledat]', 'rondo');
       await page.waitForFunction(() => document.querySelectorAll('#p-treninky .tr-karta').length === 1 && /Rondo/.test(document.querySelector('.tr-karta').textContent));
+      await page.fill('[data-tr-hledat]', '');
+      await page.fill('[data-tr-hledat]', 'kondice');
+      await page.waitForFunction(() => document.querySelectorAll('#p-treninky .tr-karta').length === 1, null, { timeout: 3000 }); // hledá i v druhu
       await page.fill('[data-tr-hledat]', '');
       await page.click('[data-tr-otevri="RondoTest_1"]');
       await page.waitForSelector('[data-panel="tr-cvik"] .tr-sekce h3');
@@ -7026,6 +7049,149 @@ function vychoziVikendTestu() {
       jistota(pretika <= 0, 'telefon nepřetéká');
       await t.page.screenshot({ path: path.join(VYSTUP, 'telefon_treninky_cvik.png') });
     } finally { await t.ctx.close(); }
+  });
+
+  await test('Tréninky: oddíly druhů, pravé tlačítko → Přesunout do… / Skrýt a Vrátit, výběr Ctrl+klik s lištou, přetažení na druh, okno cviku – druh a skrytí', async () => {
+    for (const k of Object.keys(treninkyMojeTest)) delete treninkyMojeTest[k];
+    const { ctx, page } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    const chyby = [];
+    page.on('pageerror', (e) => chyby.push(e.message));
+    const oddily = () => page.$$eval('#p-treninky .tr-oddil', (x) => x.map((o) => o.querySelector('.tr-oddil__nadpis').firstChild.textContent + ':' +
+      [...o.querySelectorAll('.tr-karta')].map((k) => k.dataset.trOtevri).join('+')).join(' | '));
+    try {
+      await page.goto(WEB);
+      await pripraveno(page);
+      await page.click('.rail [data-cil="treninky"], [data-cil="treninky"]');
+      await page.waitForSelector('#p-treninky .tr-oddil');
+      let o = await oddily();
+      jistota(o === 'Přihrávky:RondoTest_1 | Střelba:Strelba-2+Strelba-3 | Kondice:Kondice-4', 'oddíly: ' + o);
+      // pravé tlačítko → Přesunout do… (druhá nabídka na stejném místě) → Technika
+      let pred = volano.length;
+      await page.click('[data-tr-otevri="Strelba-3"]', { button: 'right' });
+      await page.waitForSelector('.nabidka .nabidka__polozka:has-text("Přesunout do…")');
+      const polozky = await page.$$eval('.nabidka .nabidka__polozka', (x) => x.map((e) => e.textContent).join(','));
+      jistota(polozky === 'Otevřít,Do oblíbených,Ohodnotit…,Přesunout do…,Skrýt cvik', 'nabídka karty: ' + polozky);
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_treninky_nabidka.png') });
+      await page.click('.nabidka .nabidka__polozka:has-text("Přesunout do…")');
+      await page.waitForSelector('.nabidka .nabidka__polozka:has-text("Střelba ✓")');
+      await page.click('.nabidka .nabidka__polozka:has-text("Technika")');
+      await page.waitForFunction(() => /Technika/.test((document.querySelector('[data-tr-otevri="Strelba-3"]').closest('.tr-oddil') || {}).textContent || ''));
+      await cekej(() => volano.slice(pred).some((x) => x.akce === 'treninkMoje' && x.id === 'Strelba-3' && x.druh === 'technika'), 3000, 'druh do motoru');
+      o = await oddily();
+      jistota(o === 'Technika:Strelba-3 | Přihrávky:RondoTest_1 | Střelba:Strelba-2 | Kondice:Kondice-4', 'po přesunu: ' + o);
+      // Ohodnotit… → 4 hvězdy
+      await page.click('[data-tr-otevri="RondoTest_1"]', { button: 'right' });
+      await page.click('.nabidka .nabidka__polozka:has-text("Ohodnotit…")');
+      await page.click('.nabidka .nabidka__polozka:has-text("★★★★☆")');
+      await cekej(() => volano.slice(pred).some((x) => x.akce === 'treninkMoje' && x.id === 'RondoTest_1' && x.hvezdy === 4), 3000, 'hodnocení z nabídky');
+      // Skrýt → zmizí, čip Skryté, Vrátit
+      pred = volano.length;
+      await page.click('[data-tr-otevri="Kondice-4"]', { button: 'right' });
+      await page.click('.nabidka .nabidka__polozka:has-text("Skrýt cvik")');
+      await page.waitForFunction(() => !document.querySelector('[data-tr-otevri="Kondice-4"]') && document.querySelector('[data-tr-filtr="skryte"]'));
+      await cekej(() => volano.slice(pred).some((x) => x.akce === 'treninkMoje' && x.id === 'Kondice-4' && x.skryty === true), 3000, 'skrytí do motoru');
+      await page.click('[data-tr-filtr="skryte"]');
+      await page.waitForFunction(() => document.querySelectorAll('#p-treninky .tr-karta').length === 1 && document.querySelector('[data-tr-otevri="Kondice-4"]'));
+      await page.click('[data-tr-filtr="vse"]');
+      await page.click('#toast .toast__akce');
+      await page.waitForFunction(() => document.querySelector('[data-tr-otevri="Kondice-4"]') && !document.querySelector('[data-tr-filtr="skryte"]'));
+      await cekej(() => volano.slice(pred).some((x) => x.akce === 'treninkMoje' && x.id === 'Kondice-4' && x.skryty === false), 3000, 'Vrátit do motoru');
+      // výběr: Ctrl+klik, lišta, Esc; pak Do oblíbených pro oba jedním zápisem
+      await page.click('[data-tr-otevri="RondoTest_1"]', { modifiers: ['Control'] });
+      await page.click('[data-tr-otevri="Strelba-2"]', { modifiers: ['Control'] });
+      await page.waitForSelector('#tr-vyber .tr-vyber');
+      jistota(await page.locator('.tr-karta--vybrana').count() === 2 && /Vybráno 2/.test(await page.textContent('#tr-vyber')), 'dvě vybrané a lišta');
+      jistota(!(await page.$('[data-panel="tr-cvik"]')), 'Ctrl+klik okno neotevřel');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_treninky_vyber.png') });
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.querySelector('.tr-karta--vybrana') && !document.querySelector('#tr-vyber .tr-vyber'));
+      await page.click('[data-tr-otevri="RondoTest_1"]', { modifiers: ['Control'] });
+      await page.click('[data-tr-otevri="Kondice-4"]', { modifiers: ['Shift'] }); // rozsah v pořadí, jak jsou karty vidět
+      await page.waitForFunction(() => document.querySelectorAll('.tr-karta--vybrana').length === 3);
+      pred = volano.length;
+      await page.click('#tr-vyber [data-tr-vyber="oblibene"]');
+      await cekej(() => volano.slice(pred).some((x) => x.akce === 'treninkMoje' && Array.isArray(x.ids) && x.ids.length === 3 && x.oblibene === true), 3000, 'oblíbené pro výběr jedním zápisem');
+      await page.waitForSelector('[data-tr-filtr="oblibene"]');
+      // přetažení karty na čip druhu
+      pred = volano.length;
+      await page.waitForFunction(() => !document.querySelector("#tr-vyber .tr-vyber"));
+      await page.waitForTimeout(300); // lišta výběru zmizela a oblíbené přibyly – rozložení se ustálí
+      await page.setViewportSize({ width: 1440, height: 2200 }); // karta i cíl na obrazovce zároveň (posun při tažení vezme jinou kartu)
+      await page.dragAndDrop('[data-tr-otevri="Strelba-2"]', '#tr-filtry [data-tr-filtr="kondice"]');
+      await cekej(() => volano.slice(pred).some((x) => x.akce === 'treninkMoje' && x.id === 'Strelba-2' && x.druh === 'kondice'), 3000, 'přetažení do motoru');
+      await page.waitForFunction(() => /Kondice/.test((document.querySelector('[data-tr-otevri="Strelba-2"]').closest('.tr-oddil') || {}).textContent || ''));
+      jistota(!(await page.$('[data-tr-filtr="střelba"]')), 'prázdný druh nemá čip');
+      // přetažení na nadpis oddílu
+      pred = volano.length;
+      await page.dragAndDrop('[data-tr-otevri="Kondice-4"]', '.tr-oddil__nadpis[data-tr-oddil="technika"]');
+      await cekej(() => volano.slice(pred).some((x) => x.akce === 'treninkMoje' && x.id === 'Kondice-4' && x.druh === 'technika'), 3000, 'přetažení na nadpis oddílu');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_treninky_druhy.png') });
+      await page.setViewportSize({ width: 1440, height: 900 });
+      // okno cviku: druh (výběr, původně, Vrátit) a Skrýt
+      await page.click('[data-tr-otevri="Strelba-3"]');
+      await page.waitForSelector('[data-panel="tr-cvik"] [data-tr-druh]');
+      jistota(await page.inputValue('[data-panel="tr-cvik"] [data-tr-druh]') === 'technika' && /původně: střelba/.test(await page.textContent('[data-panel="tr-cvik"] [data-tr-moje-druh]')), 'druh v okně');
+      pred = volano.length;
+      await page.click('[data-panel="tr-cvik"] [data-tr-druh-vratit]');
+      await cekej(() => volano.slice(pred).some((x) => x.akce === 'treninkMoje' && x.id === 'Strelba-3' && x.druh === null), 3000, 'vrátit původní druh');
+      await page.waitForFunction(() => document.querySelector('[data-panel="tr-cvik"] [data-tr-druh]').value === 'střelba' && !/původně/.test(document.querySelector('[data-tr-moje-druh]').textContent));
+      await page.selectOption('[data-panel="tr-cvik"] [data-tr-druh]', 'hra');
+      await cekej(() => volano.slice(pred).some((x) => x.akce === 'treninkMoje' && x.id === 'Strelba-3' && x.druh === 'hra'), 3000, 'druh z okna');
+      await page.click('[data-panel="tr-cvik"] [data-tr-skryt]');
+      await cekej(() => volano.slice(pred).some((x) => x.akce === 'treninkMoje' && x.id === 'Strelba-3' && x.skryty === true), 3000, 'skrýt z okna');
+      jistota(/Vrátit ze skrytých/.test(await page.textContent('[data-panel="tr-cvik"] [data-tr-skryt]')), 'tlačítko Vrátit ze skrytých');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_treninky_okno_druh.png') });
+      jistota(!chyby.length, 'chyby stránky: ' + chyby.join(' | '));
+    } finally { await ctx.close(); }
+  });
+
+  await test('Tréninky: náhledy po chybě motoru znovu (okno netvrdí „Video k cviku není“), podruhé seznam a náhledy beze změny; telefon – čipy se posouvají, stránka ne', async () => {
+    for (const k of Object.keys(treninkyMojeTest)) delete treninkyMojeTest[k];
+    treninkyNahledyChyby = 1;
+    const { ctx, page } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    try {
+      const pred = volano.length;
+      await page.goto(WEB);
+      await pripraveno(page);
+      await page.click('.rail [data-cil="treninky"], [data-cil="treninky"]');
+      await page.waitForSelector('#p-treninky .tr-karta');
+      await page.click('[data-tr-otevri="RondoTest_1"]');
+      await page.waitForSelector('[data-panel="tr-cvik"] .kn-tip__snimky img');
+      jistota(!/Video k cviku není/.test(await page.textContent('[data-panel="tr-cvik"]')), 'okno netvrdí, že video není');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-tr-otevri="RondoTest_1"] .tr-karta__obr img', { timeout: 12000 }); // druhý pokus za 5 s
+      const nahledy = volano.slice(pred).filter((x) => x.akce === 'treninkyNahledy').length;
+      jistota(nahledy >= 2 && treninkyNahledyChyby === 0, 'náhledy znovu po chybě: ' + nahledy);
+      // pořadí za sebou: seznam → náhledy → celé karty
+      const poradi = volano.slice(pred).map((x) => x.akce).filter((a) => /^trenink(y|yNahledy|yKarty)$/.test(a));
+      jistota(poradi.slice(0, 3).join(',') === 'treninky,treninkyNahledy,treninkyKarty', 'pořadí dotazů: ' + poradi.join(','));
+      // znovu načtená stránka: seznam s otiskem a náhledy se znam → beze změny
+      const pred2 = volano.length;
+      await page.reload();
+      await page.$eval('.rail [data-cil="treninky"]', (b) => b.click()); // po znovunačtení může být nahoře okno (Co je nového)
+      await page.waitForSelector('[data-tr-otevri="RondoTest_1"] .tr-karta__obr img');
+      await page.evaluate(() => { localStorage.setItem('asistent.data.treninky', JSON.stringify(Object.assign(JSON.parse(localStorage.getItem('asistent.data.treninky')), { kdy: 0 }))); });
+      await page.reload();
+      await page.$eval('.rail [data-cil="treninky"]', (b) => b.click());
+      await cekej(() => volano.slice(pred2).some((x) => x.akce === 'treninky' && x.otisk) && volano.slice(pred2).some((x) => x.akce === 'treninkyNahledy' && x.znam === 1000), 6000, 'otisk a znam');
+    } finally { await ctx.close(); }
+    treninkyNahledyChyby = 0;
+    Object.assign(treninkyMojeTest, { RondoTest_1: { oblibene: true }, 'Strelba-3': { druh: 'technika' }, 'Kondice-4': { druh: 'rozcvička' } });
+    const t = await novaStranka(prohlizec, VELIKOSTI[0]);
+    try {
+      await t.page.goto(WEB);
+      await t.page.click('.hlava-ja [data-menu]');
+      await t.page.click('[data-panel="menu"] [data-menu-cil="treninky"]');
+      await t.page.waitForSelector('#p-treninky .tr-oddil');
+      const s = await t.page.evaluate(() => {
+        const seg = document.querySelector('#tr-filtry .segment');
+        return { posun: seg.scrollWidth > seg.clientWidth + 10, overflow: getComputedStyle(seg).overflowX, radky: new Set([...seg.children].map((c) => c.offsetTop)).size,
+          pretika: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+      });
+      jistota(s.posun && s.overflow === 'auto' && s.radky === 1 && s.pretika <= 0, 'telefon: čipy v jednom řádku s posunem, stránka bez posunu: ' + JSON.stringify(s));
+      await t.page.screenshot({ path: path.join(VYSTUP, 'telefon_treninky_druhy.png') });
+    } finally { await t.ctx.close(); }
+    for (const k of Object.keys(treninkyMojeTest)) delete treninkyMojeTest[k];
   });
 
   await test('Knihovna: tip v Rešerších AI – jedna stránka (malý název, text, snímky místo nepřehratelného videa, přepis), pravé tlačítko Zavrhnout, náhled do koše a Vrátit, počet k projití; telefon', async () => {

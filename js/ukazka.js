@@ -11,16 +11,24 @@ const iso = (t) => { const d = new Date(t); return d.getFullYear() + '-' + Strin
 const kopie = (o) => JSON.parse(JSON.stringify(o));
 // Tréninky v ukázce (vymyšlené cviky)
 const treninkyUkazka = [
-  { id: 'UkazkaRondo1', nazev: 'Rondo 4 na 2 se změnou strany', kratce: 'Rychlá kombinace ve čtverci. **Hlava nahoře a první dotyk od sebe.**', zamereni: ['přihrávky', 'rozcvička'],
+  { id: 'UkazkaRondo1', nazev: 'Rondo 4 na 2 se změnou strany', kratce: 'Rychlá kombinace ve čtverci. **Hlava nahoře a první dotyk od sebe.**', druh: 'přihrávky', zamereni: ['přihrávky a kombinace', 'rozcvička'],
     forma: 'průpravné cvičení', kategorie: ['dorost', 'dospělí'], hraci: '6–8', prostor: '12 × 12 m', delka: '10–15 min', intenzita: 'střední', pomucky: ['kužely', 'rozlišováky'],
     organizace: ['Čtyři hráči po stranách čtverce, dva uprostřed. Po 8 přihrávkách bod.'], body: ['Postavení těla otevřené do hřiště.', 'Přihrávka do lepší nohy.'],
     varianty: ['Na dva doteky.', 'Po zisku míče obránci kontrují do malé branky.'], autor: '@ukazka', pripraveno: '2026-11-15T10:00:00+01:00' },
-  { id: 'UkazkaZakonceni2', nazev: 'Zakončení po kombinaci křídlem', kratce: 'Útok po křídle a střela z první. **Náběh do prostoru mezi stopera a beka.**', zamereni: ['střelba'],
+  { id: 'UkazkaZakonceni2', nazev: 'Zakončení po kombinaci křídlem', kratce: 'Útok po křídle a střela z první. **Náběh do prostoru mezi stopera a beka.**', druh: 'střelba', zamereni: ['střelba a zakončení'],
     forma: 'herní cvičení', kategorie: ['dorost'], hraci: '10–14', prostor: 'půlka hřiště', delka: '15–20 min', intenzita: 'vysoká', pomucky: ['branky', 'kužely'],
     organizace: ['Dvě skupiny střídavě z obou křídel.'], body: ['Načasování náběhu.'], autor: '@ukazka', pripraveno: '2026-11-14T10:00:00+01:00' },
-  { id: 'UkazkaKondice3', nazev: 'Intervalové běhy s míčem', kratce: '**Krátké úseky s maximální rychlostí**, mezi nimi vedení míče.', zamereni: ['kondice'],
-    forma: 'kondiční cvičení', kategorie: ['dospělí'], hraci: 'libovolně', delka: '12 min', intenzita: 'vysoká', autor: '@ukazka', pripraveno: '2026-11-13T10:00:00+01:00' }];
+  { id: 'UkazkaKondice3', nazev: 'Intervalové běhy s míčem', kratce: '**Krátké úseky s maximální rychlostí**, mezi nimi vedení míče.', druh: 'kondice', zamereni: ['kondice'],
+    forma: 'kondiční cvičení', kategorie: ['dospělí'], hraci: 'libovolně', delka: '12 min', intenzita: 'vysoká', autor: '@ukazka', pripraveno: '2026-11-13T10:00:00+01:00' },
+  { id: 'UkazkaPrihravky4', nazev: 'Přihrávky v trojúhelníku s doběhem', kratce: 'Přihrávka a doběh za míčem. **První dotyk do směru další přihrávky.**', druh: 'přihrávky',
+    zamereni: ['přihrávky a kombinace', 'technika'], forma: 'průpravné cvičení', kategorie: ['dorost'], hraci: '6–9', delka: '10 min', intenzita: 'nízká', autor: '@ukazka',
+    pripraveno: '2026-11-12T10:00:00+01:00' },
+  { id: 'UkazkaStrelba5', nazev: 'Střelba po obrátce', kratce: 'Zpracování zády k bráně a střela. **Obrátka přes rameno, kam se dívám.**', druh: 'střelba',
+    zamereni: ['střelba a zakončení'], forma: 'průpravné cvičení', kategorie: ['dorost', 'dospělí'], hraci: '8–12', delka: '15 min', intenzita: 'střední', autor: '@ukazka',
+    pripraveno: '2026-11-11T10:00:00+01:00' }];
 const treninkyMoje = { UkazkaRondo1: { hvezdy: 5, oblibene: true } };
+let treninkyVerze = 1; // otisk ukázky: změna mého = nový otisk
+const TRENINKY_DRUHY = ['rozcvička', 'rychlost a koordinace', 'technika', 'přihrávky', 'střelba', '1 na 1', 'obrana', 'hra', 'zahrávání', 'kondice', 'brankáři', 'ostatní'];
 
 const SNIMEK_UKAZKA = '/9j/4AAQSkZJRgABAgAAAQABAAD//gAPTGF2YzYzLjEuMTAwAP/bAEMACCgoLygvNzc3Nzc3QTxBQ0NDQUFBQUNDQ0hISFVVVUhISENDSEhQUFVVXF9cV1dVV19fZGRkeHhzc4yMkaysz//EAE0AAQEAAAAAAAAAAAAAAAAAAAAHAQEBAQAAAAAAAAAAAAAAAAAAAwQQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAEcAKADASIAAhEAAxEA/9oADAMBAAIRAxEAPwCYgJsIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD//2Q=='; // vymyšlený snímek k tipům v Rešerších AI
 let hnedUkazky = null; // žádost „Odpovědět hned“ v ukázce
@@ -1044,20 +1052,33 @@ const akce = {
   tipyNahledy: () => ({ tipy: { 'reserse-tip-ukazkovy-plugin': { ikona: SNIMEK_UKAZKA, video: false, snimku: 4, delka_s: 92, zdroj: 'x' } } }),
   tipNahled: (d) => (d.id === 'reserse-tip-ukazkovy-plugin' && !(knihovnaUkazka.moje[d.id] || {}).tip ? { nahled: { zdroj: 'x', autor: '@ukazka', odkaz: 'https://example.com/ukazkovy-tip',
     text: 'Vymyšlený text příspěvku k ukázce.', delka_s: 92, video: false, video_mb: 0, snimky: [SNIMEK_UKAZKA, SNIMEK_UKAZKA, SNIMEK_UKAZKA, SNIMEK_UKAZKA], miniatura: '', prepis: '', poznamka: '' } } : { nahled: null }),
-  // Tréninky: tři vymyšlené cviky, moje hvězdy a oblíbené jen v paměti ukázky
-  treninky: () => ({ cviky: treninkyUkazka.map((c) => { const o = Object.assign({}, c); delete o.organizace; delete o.body; delete o.varianty; return o; }),
-    moje: { polozky: kopie(treninkyMoje) }, chybne: [], ted: Date.now() }),
+  // Tréninky: pět vymyšlených cviků ve třech druzích, moje hvězdy, oblíbené, přesunutí a skrytí jen v paměti ukázky
+  treninky: (d) => {
+    const otisk = 'ukazka-' + treninkyVerze;
+    if (d && d.otisk === otisk) return { beze_zmeny: true, otisk, otiskKaret: 'ukazka-karty', ted: Date.now() };
+    return { cviky: treninkyUkazka.map((c) => { const o = Object.assign({}, c); delete o.organizace; delete o.body; delete o.varianty; return o; }),
+      moje: { polozky: kopie(treninkyMoje) }, druhy: TRENINKY_DRUHY.slice(), otisk, otiskKaret: 'ukazka-karty', chybne: [], ted: Date.now() };
+  },
+  treninkyKarty: () => ({ karty: Object.fromEntries(treninkyUkazka.map((c) => [c.id, kopie(c)])), otisk: 'ukazka-karty', ted: Date.now() }),
   treninkCvik: (d) => { const c = treninkyUkazka.find((x) => x.id === d.id); if (!c) throw new Error('Cvik v Trénincích není – obnov stránku.'); return { cvik: kopie(c) }; },
   treninkyNahledy: () => ({ tipy: { UkazkaRondo1: { ikona: SNIMEK_UKAZKA, video: false, snimku: 2, delka_s: 30, zdroj: 'instagram' } } }),
   treninkNahled: (d) => ({ nahled: d.id === 'UkazkaRondo1' ? { zdroj: 'instagram', autor: '@ukazka', text: 'Vymyšlený popisek reelu.', delka_s: 30, video: false, video_mb: 0,
     snimky: [SNIMEK_UKAZKA, SNIMEK_UKAZKA], miniatura: '', prepis: 'Vymyšlený přepis: „Hlava nahoře, první dotyk od sebe.“', poznamka: '' } : null }),
   treninkVideo: () => { throw new Error('Video u cviku není.'); },
   treninkMoje: (d) => {
-    const o = Object.assign({}, treninkyMoje[d.id]);
-    if (d.hvezdy !== undefined) { if (d.hvezdy) o.hvezdy = d.hvezdy; else delete o.hvezdy; }
-    if (d.oblibene !== undefined) { if (d.oblibene) o.oblibene = true; else delete o.oblibene; }
-    if (d.poznamka !== undefined) { if (d.poznamka) o.poznamka = d.poznamka; else delete o.poznamka; }
-    if (Object.keys(o).length) treninkyMoje[d.id] = o; else delete treninkyMoje[d.id];
+    const ids = Array.isArray(d.ids) ? d.ids : [d.id];
+    if (ids.some((id) => !treninkyUkazka.some((c) => c.id === id))) throw new Error('Cvik v Trénincích není – obnov stránku.');
+    if (d.druh && TRENINKY_DRUHY.indexOf(d.druh) < 0) throw new Error('Neznámý druh cviku.');
+    ids.forEach((id) => {
+      const o = Object.assign({}, treninkyMoje[id]);
+      if (d.hvezdy !== undefined) { if (d.hvezdy) o.hvezdy = d.hvezdy; else delete o.hvezdy; }
+      if (d.oblibene !== undefined) { if (d.oblibene) o.oblibene = true; else delete o.oblibene; }
+      if (d.poznamka !== undefined) { if (d.poznamka) o.poznamka = d.poznamka; else delete o.poznamka; }
+      if (d.druh !== undefined) { if (d.druh) o.druh = d.druh; else delete o.druh; }
+      if (d.skryty !== undefined) { if (d.skryty) o.skryty = true; else delete o.skryty; }
+      if (Object.keys(o).length) treninkyMoje[id] = o; else delete treninkyMoje[id];
+    });
+    treninkyVerze++;
     return { moje: { polozky: kopie(treninkyMoje) } };
   },
   knihovnaTip: (d) => {

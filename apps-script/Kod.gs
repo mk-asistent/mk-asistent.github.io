@@ -44,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-11-16.3';
+const VERZE = '2026-11-16.4';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -142,7 +142,7 @@ const CTENI_MOTORU = ['info', 'schranka', 'posta', 'vlakno', 'hledat', 'kalendar
   'igSkupiny', // skupiny účtů k označení (REELY/skupiny.json)
   'knihovna', 'knihovnaReserse', // Knihovna: karty, index rešerší, můj stav a požadavky; celá rešerše
   'tipyNahledy', 'tipNahled', 'tipVideo', // Rešerše AI: náhledy tipů (KNIHOVNA/nahledy)
-  'treninky', 'treninkCvik', 'treninkyNahledy', 'treninkNahled', 'treninkVideo']; // Tréninky: cviky a jejich videa (TRENINKY)
+  'treninky', 'treninkyKarty', 'treninkCvik', 'treninkyNahledy', 'treninkNahled', 'treninkVideo']; // Tréninky: cviky, celé karty a videa (TRENINKY)
 
 /** Výsledek dřívějšího běhu téhož požadavku (JSON), nebo null; když ještě běží, počká na něj (nejvýš ~25 s). */
 function vysledekRid_(rid) {
@@ -281,10 +281,12 @@ const AKCE = {
   knihovnaPridat: function (d) { return knihovnaPridat_(d); },
   knihovnaMoje: function (d) { return knihovnaMoje_(d); },
   knihovnaZrusit: function (d) { return knihovnaZrusit_(d.id); },
-  // Tréninky (studnice cviků z reelů): seznam, celá karta, malé obrázky, náhled a video (stejně jako tipy), moje hvězdy / poznámka / oblíbené
-  treninky: function () { return treninky_(); },
+  // Tréninky (studnice cviků z reelů): seznam s otiskem, celé karty z rejstříku, celá karta, malé obrázky, náhled a video (stejně jako
+  // tipy), moje hvězdy / poznámka / oblíbené / přesunutí do druhu / skryté (i pro víc cviků naráz)
+  treninky: function (d) { return treninky_(d); },
+  treninkyKarty: function () { return treninkyKarty_(); },
   treninkCvik: function (d) { return treninkCvik_(d.id); },
-  treninkyNahledy: function () { return tipyNahledy_('treninky'); },
+  treninkyNahledy: function (d) { return tipyNahledy_('treninky', d.znam); },
   treninkNahled: function (d) { return tipNahled_(d.id, 'treninky'); },
   treninkVideo: function (d) { return tipVideo_(d.id, 'treninky'); },
   treninkMoje: function (d) { return treninkMoje_(d); },
@@ -9085,12 +9087,18 @@ function souborVeSlozce_(slozka, nazev) {
   return null;
 }
 
-/** Akce tipyNahledy: malé obrázky a co u tipu je ({ tipy: { id: { ikona, video, snimku, delka_s, zdroj } } }). */
-function tipyNahledy_(oblast) {
+/** Akce tipyNahledy: malé obrázky a co u tipu je ({ tipy: { id: { ikona, video, snimku, delka_s, zdroj } }, kdy }); kdy = čas úpravy
+ *  _index.json (ms) – znam = stejný čas → { beze_zmeny, kdy } bez čtení obsahu (Tréninky: 1,2 MB obrázků jen při změně). */
+function tipyNahledy_(oblast, znam) {
   const k = slozkaOblasti_(oblast);
   const it = k ? k.getFoldersByName('nahledy') : null;
   if (!it || !it.hasNext()) return { tipy: {} };
-  const d = nactiJson_(it.next(), '_index.json').data;
+  const f = souborVeSlozce_(it.next(), '_index.json');
+  if (!f) return { tipy: {} };
+  const kdy = f.getLastUpdated().getTime();
+  if (znam && Number(znam) === kdy) return { beze_zmeny: true, kdy: kdy };
+  let d = null;
+  try { d = JSON.parse(f.getBlob().getDataAsString('UTF-8')); } catch (chyba) { d = null; }
   const tipy = {};
   const zdroj = (d && typeof d.tipy === 'object' && d.tipy) || {};
   Object.keys(zdroj).forEach(function (id) {
@@ -9099,7 +9107,7 @@ function tipyNahledy_(oblast) {
     tipy[id] = { video: !!x.video, snimku: Number(x.snimku) || 0, delka_s: Number(x.delka_s) || 0, zdroj: KNIHOVNA_.radek(x.zdroj, 20) };
     if (typeof x.ikona === 'string' && x.ikona.length < 20000 && /^[A-Za-z0-9+/=]+$/.test(x.ikona)) tipy[id].ikona = x.ikona;
   });
-  return { tipy: tipy };
+  return { tipy: tipy, kdy: kdy };
 }
 
 /** Akce tipNahled { id }: text příspěvku, přepis, snímky (base64); video jen příznak – stahuje se zvlášť (tipVideo). */
@@ -9145,6 +9153,20 @@ const TRENINKY_ = (function () {
   const K = KNIHOVNA_;
   const ID = /^[A-Za-z0-9_-]{4,60}$/;
   const MAX_POZNAMKY = 2000;
+  // druhy cvičení (Michal 16. 11.: „přihrávky, střely, hra, rozcvička, zahrávání…“) – pořadí = pořadí na stránce
+  const DRUHY = ['rozcvička', 'rychlost a koordinace', 'technika', 'přihrávky', 'střelba', '1 na 1', 'obrana', 'hra', 'zahrávání', 'kondice', 'brankáři', 'ostatní'];
+  const HRA = ['herní cvičení', 'průpravná hra', 'hra'];
+  /** Druh z karty (když je v číselníku), jinak odvozený z prvního zaměření a formy. */
+  function druh(d, zamereni, forma) {
+    const x = K.radek(d.druh, 40);
+    if (DRUHY.indexOf(x) >= 0) return x;
+    const z = zamereni[0] || '';
+    if (z === 'přihrávky a kombinace') return HRA.indexOf(forma) >= 0 ? 'hra' : 'přihrávky';
+    if (z === 'koordinace a rychlost') return forma === 'rozcvička' ? 'rozcvička' : 'rychlost a koordinace';
+    return Object.prototype.hasOwnProperty.call(PODLE_ZAMERENI, z) ? PODLE_ZAMERENI[z] : 'ostatní';
+  }
+  const PODLE_ZAMERENI = { 'rozcvička': 'rozcvička', 'střelba a zakončení': 'střelba', 'technika': 'technika', '1 na 1': '1 na 1', 'kondice': 'kondice',
+    'standardní situace': 'zahrávání', 'obrana a presink': 'obrana', 'přechodová fáze': 'hra', 'herní situace': 'hra', 'brankáři': 'brankáři' };
   const obj = function (x) { return x && typeof x === 'object' && !Array.isArray(x) ? x : null; };
   const pole = function (x, max, fn) { return (Array.isArray(x) ? x : []).map(fn).filter(function (v) { return v !== '' && v != null; }).slice(0, max); };
   function bezPrazdnych(o) {
@@ -9157,9 +9179,10 @@ const TRENINKY_ = (function () {
     const id = K.radek(d.id, 60), nazev = K.radek(d.nazev, 160);
     if (!ID.test(id) || !nazev) return null;
     const radky = function (x, n, max) { return pole(x, n, function (v) { return K.txt(v, max); }); };
+    const zamereni = pole(d.zamereni, 6, function (v) { return K.radek(v, 40); }), forma = K.radek(d.forma, 60);
     return bezPrazdnych({
-      id: id, nazev: nazev, kratce: K.txt(d.kratce, 1200),
-      zamereni: pole(d.zamereni, 6, function (v) { return K.radek(v, 40); }), forma: K.radek(d.forma, 60),
+      id: id, nazev: nazev, kratce: K.txt(d.kratce, 1200), druh: druh(d, zamereni, forma),
+      zamereni: zamereni, forma: forma,
       kategorie: pole(d.kategorie, 8, function (v) { return K.radek(v, 30); }), hraci: K.radek(d.hraci, 40), prostor: K.radek(d.prostor, 80),
       delka: K.radek(d.delka, 40), intenzita: K.radek(d.intenzita, 40), pomucky: pole(d.pomucky, 12, function (v) { return K.radek(v, 60); }),
       organizace: radky(d.organizace, 12, 1200), body: radky(d.body, 12, 400), varianty: radky(d.varianty, 10, 400),
@@ -9168,29 +9191,33 @@ const TRENINKY_ = (function () {
   }
   /** Do seznamu: bez organizace, bodů, variant a přepisu. */
   function index(c) {
-    return bezPrazdnych({ id: c.id, nazev: c.nazev, kratce: K.txt(c.kratce, 400), zamereni: c.zamereni, forma: c.forma, kategorie: c.kategorie,
-      hraci: c.hraci, delka: c.delka, intenzita: c.intenzita, autor: c.autor, pripraveno: c.pripraveno });
+    return bezPrazdnych({ id: c.id, nazev: c.nazev, kratce: K.txt(c.kratce, 400), druh: c.druh, zamereni: c.zamereni, forma: c.forma, kategorie: c.kategorie,
+      hraci: c.hraci, delka: c.delka, intenzita: c.intenzita, autor: c.autor, odkaz: c.odkaz, pripraveno: c.pripraveno });
   }
   function hvezdy(x) { const n = Number(x); return Number.isInteger(n) && n >= 1 && n <= 5 ? n : null; }
-  /** moje.json → { polozky: { id: { hvezdy?, poznamka?, oblibene?, kdy } } } */
+  /** moje.json → { polozky: { id: { hvezdy?, poznamka?, oblibene?, druh? (Michalovo přesunutí), skryty?, kdy } } } */
   function moje(x) {
     const p = obj(x) && obj(x.polozky) ? x.polozky : {};
     const polozky = {};
     Object.keys(p).forEach(function (id) {
       const v = obj(p[id]);
       if (!ID.test(id) || !v) return;
-      const o = bezPrazdnych({ hvezdy: hvezdy(v.hvezdy), poznamka: K.txt(v.poznamka, MAX_POZNAMKY), oblibene: v.oblibene === true ? true : null, kdy: K.radek(v.kdy, 40) });
-      if (o.hvezdy || o.poznamka || o.oblibene) polozky[id] = o;
+      const o = bezPrazdnych({ hvezdy: hvezdy(v.hvezdy), poznamka: K.txt(v.poznamka, MAX_POZNAMKY), oblibene: v.oblibene === true ? true : null,
+        druh: DRUHY.indexOf(v.druh) >= 0 ? v.druh : null, skryty: v.skryty === true ? true : null, kdy: K.radek(v.kdy, 40) });
+      if (o.hvezdy || o.poznamka || o.oblibene || o.druh || o.skryty) polozky[id] = o;
     });
     return { polozky: polozky };
   }
-  /** Změna mého u cviku: hvezdy 0 = zrušit, poznamka '' = smazat, oblibene true/false; pole, které nepřišlo, zůstává. */
+  /** Změna mého u cviku: hvezdy 0 = zrušit, poznamka '' = smazat, oblibene / skryty true/false, druh '' / null = zrušit přesunutí;
+   *  pole, které nepřišlo, zůstává. */
   function zmenMoje(m, id, z, kdy) {
     if (!ID.test(String(id || ''))) throw new Error('Neplatný cvik.');
     const o = Object.assign({}, m.polozky[id] || {});
     if (z.hvezdy !== undefined) { if (z.hvezdy === 0 || z.hvezdy === null) delete o.hvezdy; else { const h = hvezdy(z.hvezdy); if (!h) throw new Error('Hvězdy 1–5.'); o.hvezdy = h; } }
     if (z.poznamka !== undefined) { const t = K.txt(z.poznamka, MAX_POZNAMKY); if (t) o.poznamka = t; else delete o.poznamka; }
     if (z.oblibene !== undefined) { if (z.oblibene === true) o.oblibene = true; else delete o.oblibene; }
+    if (z.druh !== undefined) { if (z.druh === '' || z.druh === null) delete o.druh; else { if (DRUHY.indexOf(z.druh) < 0) throw new Error('Neznámý druh cviku.'); o.druh = z.druh; } }
+    if (z.skryty !== undefined) { if (z.skryty === true) o.skryty = true; else delete o.skryty; }
     delete o.kdy;
     if (Object.keys(o).length) { o.kdy = kdy; m.polozky[id] = o; } else delete m.polozky[id];
     return m;
@@ -9201,9 +9228,9 @@ const TRENINKY_ = (function () {
     const polozky = {};
     Object.keys(m.polozky).forEach(function (id) { if (ids[id]) polozky[id] = m.polozky[id]; });
     return { cviky: cviky.map(index).sort(function (a, b) { return String(b.pripraveno || '').localeCompare(String(a.pripraveno || '')); }),
-      moje: { polozky: polozky }, chybne: chybne.slice(0, 20), ted: ted };
+      moje: { polozky: polozky }, druhy: DRUHY.slice(), chybne: chybne.slice(0, 20), ted: ted };
   }
-  return { ID: ID, cvik: cvik, index: index, moje: moje, zmenMoje: zmenMoje, vystup: vystup };
+  return { ID: ID, DRUHY: DRUHY, cvik: cvik, index: index, moje: moje, zmenMoje: zmenMoje, vystup: vystup };
 })();
 
 /** Složka TRENINKY (čtení ji nezakládá). */
@@ -9215,38 +9242,108 @@ function slozkaTreninku_(zalozit) {
 }
 
 /**
- * Seznam cviků přes trvalý rejstřík TRENINKY/_index_cviku.json (klíč = id souboru : čas úpravy → položka seznamu nebo chyba):
+ * Seznam cviků přes trvalý rejstřík TRENINKY/_index_cviku.json { v: 2, polozky: { 'id souboru:čas úpravy': { c: celá karta } | { chyba } } }:
  * čte se jen nový nebo změněný soubor. Mezipaměť skriptu vyprší po 6 h a 178 karet by se pak četlo přes minutu (16. 11.).
+ * Michal 16. 11.: „načítá se to celkem dlouho – vymysli lepší způsob“ → výpis složky jedním dotazem Drive API, nové karty naráz
+ * (fetchAll), rejstřík drží celé karty (treninkyKarty je pošle bez čtení souborů) a otisk (stejný = beze_zmeny, nic se neposílá).
+ * Rejstřík bez v: 2 (seznam bez celých karet) se bere jako prázdný.
  */
-const MAX_NOVYCH_CVIKU = 25; // karet přečtených v jednom dotazu (soubor z Disku ~1 s) – zbytek při dalším dotazu, aplikace se zeptá sama
+const MAX_NOVYCH_CVIKU = 25;        // karet po jedné přes DriveApp (~1 s každá), když fetchAll nejde – zbytek při dalším dotazu
+const MAX_NOVYCH_CVIKU_NARAZ = 120; // karet přes fetchAll v jednom dotazu
+const SOUBEZNE_CVIKY = 40;          // souběžných stažení v jednom fetchAll
 
-function cvikyTreninku_(slozka) {
-  const soubory = jsonKnihovny_(slozka, 'cviky');
-  let precteno = 0, neuplne = false;
+/** Soubory .json ve složce cviky: [{ id, nazev, klic }] – Drive API jedním dotazem (po 1000), jinak průchod getFiles(). */
+function souboryCviku_(slozka) {
+  const it = slozka ? slozka.getFoldersByName('cviky') : null;
+  if (!it || !it.hasNext()) return [];
+  const cviky = it.next();
+  const json = function (n) { return /\.json$/i.test(String(n || '')); };
+  if (typeof Drive !== 'undefined' && Drive && Drive.Files && typeof Drive.Files.list === 'function') {
+    try {
+      const vysledek = [];
+      let stranka = '';
+      do {
+        const dotaz = { q: "'" + cviky.getId() + "' in parents and trashed = false", fields: 'nextPageToken, files(id, name, modifiedTime)', pageSize: 1000 };
+        if (stranka) dotaz.pageToken = stranka;
+        const r = Drive.Files.list(dotaz);
+        (r.files || []).forEach(function (f) { if (json(f.name)) vysledek.push({ id: f.id, nazev: f.name, klic: f.id + ':' + new Date(f.modifiedTime).getTime() }); });
+        stranka = r.nextPageToken || '';
+      } while (stranka);
+      return vysledek;
+    } catch (chyba) { /* po staru níž */ }
+  }
+  const vysledek = [];
+  const fit = cviky.getFiles();
+  while (fit.hasNext()) {
+    const f = fit.next();
+    if (json(f.getName()) && !f.isTrashed()) vysledek.push({ id: f.getId(), nazev: f.getName(), klic: f.getId() + ':' + f.getLastUpdated().getTime() });
+  }
+  return vysledek;
+}
+
+/** Obsah karet { id souboru: text | null }: naráz přes fetchAll (po SOUBEZNE_CVIKY), co tak nejde, po jedné přes DriveApp
+ *  (nejvýš MAX_NOVYCH_CVIKU). Co se nepřečetlo, v objektu chybí (přečte se při dalším dotazu). */
+function textyCviku_(seznam) {
+  const texty = {}, pozdeji = [];
+  let i = 0;
+  if (seznam.length && typeof UrlFetchApp.fetchAll === 'function') {
+    try {
+      const hlavicky = { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() };
+      for (; i < seznam.length; i += SOUBEZNE_CVIKY) {
+        const davka = seznam.slice(i, i + SOUBEZNE_CVIKY);
+        UrlFetchApp.fetchAll(davka.map(function (f) {
+          return { url: 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id) + '?alt=media', headers: hlavicky, muteHttpExceptions: true };
+        })).forEach(function (r, j) { if (r.getResponseCode() === 200) texty[davka[j].id] = r.getContentText('UTF-8'); else pozdeji.push(davka[j]); });
+      }
+    } catch (chyba) { /* zbytek po jedné */ }
+  }
+  pozdeji.concat(seznam.slice(i)).slice(0, MAX_NOVYCH_CVIKU).forEach(function (f) {
+    try { texty[f.id] = DriveApp.getFileById(f.id).getBlob().getDataAsString('UTF-8'); } catch (chyba) { texty[f.id] = null; }
+  });
+  return texty;
+}
+
+/** Položky rejstříku (jen v: 2), jinak prázdno. */
+function rejstrikCviku_(slozka) {
   const r = slozka ? nactiJson_(slozka, '_index_cviku.json') : { soubor: null, data: null };
-  const stare = (r.data && typeof r.data.polozky === 'object' && r.data.polozky) || {};
+  return { soubor: r.soubor, polozky: (r.data && r.data.v === 2 && r.data.polozky && typeof r.data.polozky === 'object' && r.data.polozky) || {} };
+}
+
+/** Otisk stavu Tréninků: klíče karet (id souboru : čas úpravy) + čas úpravy moje.json. */
+function otiskTreninku_(klice, mojeCas) { return md5_('v2|' + klice.slice().sort().join(',') + '|' + (mojeCas || 0)); }
+/** Otisk samotných karet (bez moje.json) – změna hvězd nebo druhu nesmí znovu stahovat všechny karty. */
+function otiskKaretTreninku_(klice) { return md5_('k2|' + klice.slice().sort().join(',')); }
+
+function casMojeTreninku_(slozka) {
+  const f = slozka ? souborVeSlozce_(slozka, 'moje.json') : null;
+  return f ? f.getLastUpdated().getTime() : 0;
+}
+
+function cvikyTreninku_(slozka, soubory) {
+  const stare = rejstrikCviku_(slozka).polozky;
+  const chybi = soubory.filter(function (f) { return !stare[f.klic]; });
+  const texty = textyCviku_(chybi.slice(0, typeof UrlFetchApp.fetchAll === 'function' ? MAX_NOVYCH_CVIKU_NARAZ : MAX_NOVYCH_CVIKU));
+  let neuplne = false;
   const nove = {}, cviky = [], chybne = [], videno = {};
   let zmena = Object.keys(stare).length !== soubory.length;
   soubory.forEach(function (f) {
-    const k = f.getId() + ':' + f.getLastUpdated().getTime();
-    let v = stare[k];
+    let v = stare[f.klic];
     if (!v) {
-      if (precteno >= MAX_NOVYCH_CVIKU) { neuplne = true; return; }
-      precteno++;
+      if (!Object.prototype.hasOwnProperty.call(texty, f.id)) { neuplne = true; return; }
       zmena = true;
       let c = null;
-      try { c = TRENINKY_.cvik(JSON.parse(f.getBlob().getDataAsString('UTF-8').replace(/^\uFEFF/, ''))); } catch (chyba) { c = null; }
-      v = c ? { c: TRENINKY_.index(c) } : { chyba: f.getName() };
+      try { c = TRENINKY_.cvik(JSON.parse(String(texty[f.id]).replace(/^\uFEFF/, ''))); } catch (chyba) { c = null; }
+      v = c ? { c: c } : { chyba: f.nazev };
     }
-    nove[k] = v;
-    if (v.chyba || !v.c) { chybne.push(v.chyba || f.getName()); return; }
-    if (videno[v.c.id]) { chybne.push(f.getName() + ' (stejné id jako ' + videno[v.c.id] + ')'); return; }
-    videno[v.c.id] = f.getName();
+    nove[f.klic] = v;
+    if (v.chyba || !v.c) { chybne.push(v.chyba || f.nazev); return; }
+    if (videno[v.c.id]) { chybne.push(f.nazev + ' (stejné id jako ' + videno[v.c.id] + ')'); return; }
+    videno[v.c.id] = f.nazev;
     cviky.push(v.c);
   });
   if (zmena && slozka) {
     // pod zámkem a s novým pohledem na Disk – dva souběžné dotazy jinak založí dva soubory se stejným jménem
-    const obsah = JSON.stringify({ polozky: nove });
+    const obsah = JSON.stringify({ v: 2, polozky: nove });
     const zamek = LockService.getScriptLock();
     try {
       zamek.waitLock(10000);
@@ -9255,12 +9352,6 @@ function cvikyTreninku_(slozka) {
     } catch (chyba) { /* jen zrychlení */ } finally { try { zamek.releaseLock(); } catch (chyba) { /* nic */ } }
   }
   return { cviky: cviky, chybne: chybne, neuplne: neuplne };
-}
-
-function obsahTreninku_(slozka) {
-  const c = cvikyTreninku_(slozka);
-  let m = mojeTreninku_(slozka);
-  return { cviky: c.cviky, moje: m, chybne: c.chybne.concat(m.chyba ? ['moje.json'] : []), neuplne: c.neuplne };
 }
 
 function mojeTreninku_(slozka) {
@@ -9275,12 +9366,30 @@ function mojeTreninku_(slozka) {
   return m;
 }
 
-/** Akce treninky: seznam cviků (bez dlouhých částí) a moje hvězdy, poznámky a oblíbené. */
-function treninky_() {
-  const o = obsahTreninku_(slozkaTreninku_(false));
-  const v = TRENINKY_.vystup(o.cviky, o.moje.data, o.chybne, Date.now());
-  if (o.neuplne) v.neuplne = true; // ještě se čtou nové karty – aplikace se hned zeptá znovu
+/** Akce treninky { otisk? }: seznam cviků (bez dlouhých částí), druhy, moje hvězdy / poznámky / oblíbené / přesunutí / skryté a otisk;
+ *  stejný otisk = { beze_zmeny } (jen výpis složky a čas moje.json, karty ani rejstřík se nečtou). */
+function treninky_(d) {
+  const slozka = slozkaTreninku_(false);
+  const soubory = souboryCviku_(slozka);
+  const klice = soubory.map(function (f) { return f.klic; });
+  const otisk = otiskTreninku_(klice, casMojeTreninku_(slozka)), otiskKaret = otiskKaretTreninku_(klice);
+  if (d && typeof d.otisk === 'string' && d.otisk && d.otisk === otisk) return { beze_zmeny: true, otisk: otisk, otiskKaret: otiskKaret, ted: Date.now() };
+  const c = cvikyTreninku_(slozka, soubory);
+  const m = mojeTreninku_(slozka);
+  const v = TRENINKY_.vystup(c.cviky, m.data, c.chybne.concat(m.chyba ? ['moje.json'] : []), Date.now());
+  v.otisk = c.neuplne ? '' : otisk; // neúplný seznam otisk nedostane (příště se pošle celý)
+  v.otiskKaret = c.neuplne ? '' : otiskKaret;
+  if (c.neuplne) v.neuplne = true; // ještě se čtou nové karty – aplikace se hned zeptá znovu
   return v;
+}
+
+/** Akce treninkyKarty: celé karty všech cviků jen z rejstříku (žádné čtení jednotlivých souborů) + otisk karet (= otiskKaret u treninky). */
+function treninkyKarty_() {
+  const slozka = slozkaTreninku_(false);
+  const p = rejstrikCviku_(slozka).polozky;
+  const karty = {};
+  Object.keys(p).forEach(function (k) { const c = p[k] && p[k].c; if (c && c.id && !karty[c.id]) karty[c.id] = c; });
+  return { karty: karty, otisk: otiskKaretTreninku_(Object.keys(p)), ted: Date.now() };
 }
 
 /** Akce treninkCvik { id }: celá karta cviku. */
@@ -9294,23 +9403,26 @@ function treninkCvik_(id) {
   return { cvik: c };
 }
 
-/** Akce treninkMoje { id, hvezdy?, poznamka?, oblibene? } – zápis pod zámkem, vrací { moje } (seznam cviků se kvůli rychlosti nečte). */
+/** Akce treninkMoje { id | ids: [nejvýš 200], hvezdy?, poznamka?, oblibene?, druh?, skryty? } – stejná změna pro všechny cviky jedním
+ *  zápisem pod zámkem; cviky se ověří proti rejstříku. Vrací { moje } (seznam cviků se kvůli rychlosti nečte). */
 function treninkMoje_(d) {
-  const id = String(d.id || '');
-  if (!TRENINKY_.ID.test(id)) throw new Error('Neplatný cvik.');
+  const ids = (Array.isArray(d.ids) ? d.ids : [d.id]).map(function (x) { return String(x || ''); })
+    .filter(function (x, i, a) { return a.indexOf(x) === i; });
+  if (!ids.length || ids.length > 200) throw new Error('Vyber 1 až 200 cviků.');
+  ids.forEach(function (id) { if (!TRENINKY_.ID.test(id)) throw new Error('Neplatný cvik.'); });
   const zamek = LockService.getScriptLock();
   zamek.waitLock(30000);
   try {
     const slozka = slozkaTreninku_(true);
-    const it = slozka.getFoldersByName('cviky');
-    const cviky = it.hasNext() ? it.next() : null;
-    const soubor = cviky ? cviky.getFilesByName(id + '.json') : null;
-    let je = false;
-    while (soubor && soubor.hasNext() && !je) je = !soubor.next().isTrashed();
-    if (!je) throw new Error('Cvik v Trénincích není – obnov stránku.');
+    const p = rejstrikCviku_(slozka).polozky;
+    const znam = {};
+    Object.keys(p).forEach(function (k) { if (p[k] && p[k].c) znam[p[k].c.id] = true; });
+    if (ids.some(function (id) { return !znam[id]; })) throw new Error('Cvik v Trénincích není – obnov stránku.');
     const m = mojeTreninku_(slozka);
     if (m.chyba) throw new Error('TRENINKY/moje.json není platný JSON – nic jsem nepřepsal.');
-    TRENINKY_.zmenMoje(m.data, id, { hvezdy: d.hvezdy, poznamka: d.poznamka, oblibene: d.oblibene }, kdyKnihovny_(new Date(Date.now())));
+    const kdy = kdyKnihovny_(new Date(Date.now()));
+    const zmena = { hvezdy: d.hvezdy, poznamka: d.poznamka, oblibene: d.oblibene, druh: d.druh, skryty: d.skryty };
+    ids.forEach(function (id) { TRENINKY_.zmenMoje(m.data, id, zmena, kdy); });
     const obsah = JSON.stringify(m.data, null, 1);
     if (m.soubor) m.soubor.setContent(obsah); else slozka.createFile('moje.json', obsah, MimeType.PLAIN_TEXT);
     return { moje: m.data, ted: Date.now() };

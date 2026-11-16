@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; base-uri 'self'; form-action 'none'; object-src 'none'">
+<title>Plánek cviku – ukázka</title>
+<link rel="stylesheet" href="../app.css">
+<link rel="stylesheet" href="../planek.css">
+<link rel="stylesheet" href="planek_ukazka.css">
+<script type="module" src="planek_ukazka.js"></script>
+</head>
+<body>
+<main class="uk-stranka">
+  <div class="spread">
+    <h1>Plánek cviku – ukázka</h1>
+    <button type="button" class="btn btn--ghost btn--sm" id="uk-motiv">Přepnout motiv</button>
+  </div>
+  <p class="muted">Čtyři vymyšlené plánky jen ke čtení a jeden editor. Žádná skutečná data.</p>
+  <ul class="uk-mrizka" id="uk-plany"></ul>
+  <section class="uk-karta">
+    <h2>Editor</h2>
+    <div id="uk-editor"></div>
+    <details class="uk-json"><summary>Data plánku (onZmena)</summary><pre id="uk-vystup"></pre></details>
+  </section>
+</main>
+</body>
+</html>

@@ -81,7 +81,8 @@ export async function volej(akce, data, jinePripojeni) {
 // akce, které v motoru trvají déle (čtení účtenky přes OCR Disku a zápis do tabulky; Google bývá pomalý)
 // igKrok: motor v něm čeká na zpracování na Instagramu až 20 s (a zakládá kontejnery, zveřejňuje)
 const DLOUHE_AKCE = { autoUctenka: 150000, autoUctenkaFoto: 60000, autoUpravit: 60000, autoZapsat: 60000, plakatObrazky: 120000, igKrok: 75000,
-  postaPriloha: 120000, tipVideo: 120000, tipNahled: 60000, treninkVideo: 120000, treninkNahled: 60000 }; // příloha k náhledu až 15 MB
+  postaPriloha: 120000, tipVideo: 120000, tipNahled: 60000, treninkVideo: 120000, treninkNahled: 60000, // příloha k náhledu až 15 MB
+  treninky: 90000, treninkyNahledy: 90000, treninkyKarty: 90000 }; // Tréninky: první čtení nových karet, 1,2 MB obrázků, všechny celé karty
 
 // Google odpověď na POST občas ztratí: prohlížeč pak skončí na úvodu motoru (doGet), nebo na 404 / bez CORS. Motor ale
 // akci provedl – proto pokus znovu se stejným rid: motor zápis podruhé neprovede a vrátí výsledek prvního běhu.
