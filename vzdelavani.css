@@ -1,0 +1,208 @@
+/* ================================================================ Vzdělávání (js/vzdelavani.js, 16. 11. 2026): trenérské kurzy přehledově.
+   Barva stránky --o-vzdelavani (indigo, app.css sekce barvy). Témata mají každé svůj odstín (--tm) z barev oblastí aplikace.
+   PC: nahoře tmavě zelená karta kurzu vedle zásad (od 1 200 px), pod tím dlaždice témat v mřížce přes celou šířku, dole Co dál a Zdroje
+   ve dvou sloupcích. Telefon: jeden sloupec. Okno tématu = široké okno uprostřed (.panel-reel) se dvěma sloupci. */
+
+.vz-stranka { display: flex; flex-direction: column; gap: 18px; }
+.vz-vyber .segment { flex-wrap: wrap; overflow: visible; }
+/* volba témat v Procvičit: na PC zalomená, na telefonu jeden posuvný řádek (7 čipů by zabralo půl obrazovky) */
+@media (min-width: 760px) { .vz-rozsah .segment { flex-wrap: wrap; overflow: visible; } }
+
+/* paleta témat – stejné barvy jako oblasti aplikace (světlý i tmavý režim se přepnou samy) */
+.vz-odstin-0 { --tm: var(--o-vzdelavani); }
+.vz-odstin-1 { --tm: var(--o-treninky); }
+.vz-odstin-2 { --tm: var(--o-kalendar); }
+.vz-odstin-3 { --tm: var(--t-dorost); }
+.vz-odstin-4 { --tm: var(--o-reely); }
+.vz-odstin-5 { --tm: var(--o-auto); }
+.vz-odstin-6 { --tm: var(--o-plakaty); }
+.vz-odstin-7 { --tm: var(--o-fotbal); }
+
+/* ---------- horní řada: karta kurzu + zásady */
+.vz-horni { display: grid; gap: 16px; }
+@media (min-width: 1200px) { .vz-horni { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: stretch; } }
+
+.vz-kurz { display: grid; gap: 8px; padding: 8px; border-radius: 22px; background: var(--tmava); color: var(--tmava-text); min-width: 0; }
+@media (min-width: 640px) { .vz-kurz { grid-template-columns: minmax(0, 1.55fr) minmax(210px, 1fr); } }
+.vz-kurz__hlavni { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 14px 12px 10px 14px; }
+.vz-kurz__stitky { display: flex; flex-wrap: wrap; gap: 6px; }
+.vz-kurz__stav { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px 5px 9px; border-radius: 999px; background: #fff; color: #17301f;
+    font-size: 13px; font-weight: 650; }
+.vz-kurz__stav svg { width: 15px; height: 15px; }
+.vz-kurz__stav--splneno svg { color: #2f7a4f; }
+.vz-kurz__uroven { padding: 5px 11px; border-radius: 999px; background: rgba(255, 255, 255, .14); font-size: 12.5px; font-weight: 600; }
+.vz-kurz__nazev { margin: 6px 0 0; font-size: 27px; line-height: 1.15; font-weight: 700; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.vz-kurz__pod { margin: 0; font-size: 13.5px; color: rgba(255, 255, 255, .78); }
+.vz-kurz__shrnuti { margin: 4px 0 0; max-width: 68ch; font-size: 14px; line-height: 1.5; color: rgba(255, 255, 255, .92); }
+.vz-kurz__akce { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 8px; }
+.vz-tl-hlavni, .vz-tl-odkaz { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 18px; border-radius: 999px; font: inherit;
+    font-size: 14.5px; font-weight: 700; text-decoration: none; cursor: pointer; }
+.vz-tl-hlavni { border: 0; background: var(--limetka); color: var(--na-limetce); }
+.vz-tl-hlavni:hover { filter: brightness(1.05); }
+.vz-tl-odkaz { border: 1px solid rgba(255, 255, 255, .3); background: rgba(255, 255, 255, .1); color: #fff; font-weight: 600; }
+.vz-tl-odkaz:hover { background: rgba(255, 255, 255, .18); }
+.vz-tl-hlavni svg, .vz-tl-odkaz svg { width: 17px; height: 17px; }
+.vz-kurz__telo { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 16px; border-radius: 16px; background: rgba(0, 0, 0, .24); }
+.vz-kurz__telo > small, .vz-kurz__deleni small { font-size: 11px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: rgba(255, 255, 255, .72); }
+.vz-kurz__cislo { font-size: 56px; line-height: 1.02; font-weight: 650; letter-spacing: -.03em; white-space: nowrap; }
+.vz-kurz__test { font-size: 13px; color: rgba(255, 255, 255, .85); }
+.vz-kurz__deleni { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: auto; padding-top: 0; border: 1px solid rgba(255, 255, 255, .22);
+    border-radius: 12px; overflow: hidden; }
+.vz-kurz__test { margin-bottom: 14px; }
+.vz-kurz__deleni > div { min-width: 0; padding: 9px 11px; }
+.vz-kurz__deleni > div + div { border-left: 1px solid rgba(255, 255, 255, .22); }
+.vz-kurz__deleni b { display: block; font-size: 17px; font-weight: 650; white-space: nowrap; }
+
+.vz-zasady { display: flex; flex-direction: column; min-width: 0; }
+.vz-zasady__mrizka { list-style: none; margin: 0; padding: 8px 14px 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: 10px; }
+.vz-zasady__mrizka li { display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px; border-radius: 12px; background: var(--surface);
+    border: 1px solid color-mix(in srgb, var(--o) 24%, var(--line)); font-size: 13.5px; line-height: 1.42; }
+.vz-zasady__c { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: var(--o); color: var(--na-barve);
+    font-size: 13px; font-weight: 700; }
+
+/* ---------- dlaždice témat */
+.vz-nadpis { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin: 2px 2px 10px; font-size: 13px; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; color: color-mix(in srgb, var(--o) 80%, var(--text)); }
+.vz-nadpis small { font-size: 12.5px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--muted); }
+.vz-temata { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 12px; }
+.vz-tema { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; min-height: 172px; padding: 14px 15px 13px;
+    border: 1px solid color-mix(in srgb, var(--tm) 40%, var(--line)); border-radius: 16px; box-shadow: inset 0 4px 0 var(--tm);
+    background: color-mix(in srgb, var(--tm) var(--v-dlazdice), var(--surface)); color: var(--text); font: inherit; text-align: left; cursor: pointer;
+    transition: transform .12s, background .12s; }
+.vz-tema:hover { background: color-mix(in srgb, var(--tm) calc(var(--v-dlazdice) + 7%), var(--surface)); transform: translateY(-1px); }
+.vz-tema:focus-visible { outline: 2px solid var(--tm); outline-offset: 2px; }
+.vz-tema__hlava { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+.vz-tema__ikona { flex: none; width: 34px; height: 34px; display: inline-grid; place-items: center; border-radius: 50%; background: var(--tm); color: var(--na-barve); }
+.vz-tema__ikona svg { width: 17px; height: 17px; }
+.vz-tema__c { font-size: 26px; font-weight: 700; line-height: 1; color: color-mix(in srgb, var(--tm) 70%, var(--text)); opacity: .8; }
+.vz-tema__nazev { margin-top: 4px; font-size: 16.5px; line-height: 1.25; font-weight: 700; color: color-mix(in srgb, var(--tm) 72%, var(--text)); }
+.vz-tema__veta { font-size: 13.5px; line-height: 1.45; color: var(--text-soft); }
+.vz-tema__pocty { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: auto; padding-top: 6px; font-size: 12.5px; color: var(--muted); }
+.vz-zopakovat { display: inline-block; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--zluta) var(--v-stitek), var(--surface));
+    color: var(--s-chybi); font-size: 11.5px; font-weight: 650; white-space: nowrap; }
+
+/* ---------- dole: Co dál a Zdroje */
+.vz-spodek { display: grid; gap: 16px; }
+@media (min-width: 900px) { .vz-spodek { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } }
+.vz-seznam { list-style: none; margin: 0; padding: 4px 16px 10px; display: flex; flex-direction: column; }
+.vz-seznam li { display: flex; flex-direction: column; gap: 2px; padding: 9px 2px; font-size: 13.5px; }
+.vz-seznam li + li { border-top: 1px solid var(--line); }
+.vz-seznam li > span { color: var(--text-soft); line-height: 1.45; }
+.vz-seznam--odkazy li { padding: 7px 2px; }
+.vz-sekce .vz-seznam { padding: 0; }
+.vz-odkaz { display: inline-flex; align-items: center; gap: 6px; color: color-mix(in srgb, var(--o, var(--accent)) 82%, var(--text)); font-weight: 600;
+    text-decoration: none; overflow-wrap: anywhere; }
+.vz-odkaz:hover { text-decoration: underline; }
+.vz-odkaz svg { flex: none; width: 13px; height: 13px; }
+
+/* ---------- okno tématu */
+.vz-panel { --o: var(--o-vzdelavani); }
+.vz-okno__veta { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; padding: 12px 14px; border-radius: 14px;
+    background: color-mix(in srgb, var(--tm) var(--v-dlazdice), var(--surface)); border: 1px solid color-mix(in srgb, var(--tm) 32%, var(--line));
+    font-size: 15px; line-height: 1.4; font-weight: 550; }
+.vz-okno__sloupce { display: grid; gap: 20px; }
+.vz-okno__sloupec { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+@media (min-width: 1000px) {
+    .vz-okno__sloupce { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 26px; align-items: start; }
+    .vz-okno__sloupec + .vz-okno__sloupec { padding-left: 26px; border-left: 1px solid var(--line); }
+}
+.vz-sekce { min-width: 0; }
+.vz-sekce h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 12.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+    color: color-mix(in srgb, var(--tm, var(--o)) 78%, var(--text)); }
+.vz-sekce h3 svg { box-sizing: content-box; width: 13px; height: 13px; padding: 5px; border-radius: 50%; background: var(--tm, var(--o)); color: var(--na-barve); }
+.vz-sekce--pozor h3 { color: var(--s-dulezite); }
+.vz-sekce--pozor h3 svg { background: var(--s-dulezite); }
+.vz-myslenky { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: 8px; }
+.vz-myslenka { padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--tm) 6%, var(--surface)); border: 1px solid color-mix(in srgb, var(--tm) 22%, var(--line)); }
+.vz-myslenka b { display: block; margin-bottom: 3px; font-size: 14px; }
+.vz-myslenka p { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--text-soft); }
+.vz-cisla { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr)); gap: 8px; }
+.vz-cislo { padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--tm) var(--v-dlazdice), var(--surface)); }
+.vz-cislo b { display: block; font-size: 23px; line-height: 1.1; font-weight: 700; color: color-mix(in srgb, var(--tm) 80%, var(--text)); overflow-wrap: anywhere; }
+.vz-cislo span { display: block; margin-top: 3px; font-size: 12.5px; line-height: 1.35; color: var(--text-soft); }
+.vz-tabulky { display: grid; gap: 14px; }
+@media (min-width: 1000px) { .vz-tabulky { grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); align-items: start; } }
+.vz-tabulka { min-width: 0; }
+.vz-tabulka h4 { margin: 0 0 6px; font-size: 13.5px; font-weight: 650; }
+.vz-tabulka .tabulka-obal { border: 1px solid color-mix(in srgb, var(--tm) 24%, var(--line)); border-radius: 12px; }
+.vz-tabulka table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.vz-tabulka th, .vz-tabulka td { padding: 7px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+.vz-tabulka tbody tr:last-child > * { border-bottom: 0; }
+.vz-tabulka thead th { background: color-mix(in srgb, var(--tm) 12%, var(--surface)); font-weight: 650; color: color-mix(in srgb, var(--tm) 70%, var(--text)); }
+.vz-tabulka tbody th { font-weight: 600; }
+.vz-tabulka .vz-kratke { white-space: nowrap; } /* „U6–U7“, „24–27 m“ se nezlomí na pomlčce */
+.vz-fajfky { list-style: none; margin: 0; padding: 0; }
+.vz-fajfky li { display: flex; align-items: flex-start; gap: 9px; padding: 5px 0; font-size: 14px; line-height: 1.45; }
+.vz-fajfky svg { flex: none; width: 18px; height: 18px; margin-top: 1px; color: var(--s-hotovo); }
+.vz-pozor { display: flex; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--oranz-tint); border: 1px solid color-mix(in srgb, var(--oranz) 35%, var(--line)); }
+.vz-pozor + .vz-pozor { margin-top: 8px; }
+.vz-pozor > svg { flex: none; width: 18px; height: 18px; margin-top: 1px; color: var(--s-dulezite); }
+.vz-pozor p { margin: 0; font-size: 13.5px; line-height: 1.45; }
+.vz-pozor small { display: block; margin-top: 3px; font-size: 12px; color: var(--muted); }
+.vz-otazky__lista { display: flex; justify-content: flex-end; margin: -6px 0 8px; }
+.vz-otazky { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+/* otázky pod oběma sloupci přes celou šířku okna, na PC ve dvou sloupcích (17 otázek by jinak dělalo jeden dlouhý pruh) */
+.vz-sekce--siroka { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+@media (min-width: 1000px) { .vz-otazky { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } }
+.vz-otazka { border: 1px solid color-mix(in srgb, var(--tm) 24%, var(--line)); border-radius: 12px; background: var(--surface); }
+.vz-otazka[open] { background: color-mix(in srgb, var(--tm) 5%, var(--surface)); }
+.vz-otazka summary { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; list-style: none; cursor: pointer; font-size: 14px; line-height: 1.4; font-weight: 550; }
+.vz-otazka summary::-webkit-details-marker { display: none; }
+.vz-otazka summary:focus-visible { outline: 2px solid var(--tm); outline-offset: -2px; border-radius: 12px; }
+.vz-otazka__c { flex: none; min-width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; font-size: 12px; font-weight: 700;
+    background: color-mix(in srgb, var(--tm) 16%, var(--surface)); color: color-mix(in srgb, var(--tm) 80%, var(--text)); }
+.vz-otazka[open] .vz-otazka__c { background: var(--tm); color: var(--na-barve); }
+.vz-otazka__text { min-width: 0; }
+.vz-odpoved { margin: 0 12px 12px 46px; padding: 9px 12px; border-left: 3px solid var(--s-hotovo); border-radius: 0 10px 10px 0;
+    background: color-mix(in srgb, var(--s-hotovo) 9%, var(--surface)); }
+.vz-odpoved b { display: block; font-size: 14px; font-weight: 650; }
+.vz-odpoved p { margin: 4px 0 0; font-size: 13px; line-height: 1.45; color: var(--text-soft); }
+.vz-odpoved--velka { margin: 16px 0 0; }
+.vz-odpoved--velka b { font-size: 16px; }
+.vz-odpoved--velka p { font-size: 14px; }
+
+/* patička oken: předchozí · n / N · další; v Procvičit tlačítka vpravo */
+.vz-paticka { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.vz-paticka .btn { min-width: 0; max-width: 46%; }
+.vz-paticka .btn svg { flex: none; }
+.vz-paticka__nazev { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vz-paticka__c { flex: none; font-size: 13px; color: var(--muted); }
+.vz-panel--procvic .vz-paticka { justify-content: flex-end; }
+
+/* ---------- Procvičit */
+.vz-rozsah { margin-bottom: 14px; }
+/* vybraná volba v barvě stránky jako filtry na stránkách (v okně neplatí pravidlo „main .chip“ z app.css) */
+.vz-rozsah .chip[aria-pressed="true"] { background: var(--o-vzdelavani); border-color: var(--o-vzdelavani); color: var(--na-barve); }
+.vz-rozsah .chip[aria-pressed="true"] .pocet { background: var(--pocet-na-barve); color: inherit; }
+.vz-prubeh { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--muted); }
+.vz-prubeh b { color: var(--text); }
+.vz-prubeh__cara { height: 6px; margin: 6px 0 14px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.vz-prubeh__cara i { display: block; height: 100%; border-radius: 3px; background: var(--o-vzdelavani); transition: width .2s; }
+.vz-otazka-blok { min-height: 190px; padding: 18px; border-radius: 18px; background: color-mix(in srgb, var(--tm) var(--v-dlazdice), var(--surface));
+    border: 1px solid color-mix(in srgb, var(--tm) 36%, var(--line)); box-shadow: inset 0 4px 0 var(--tm); }
+.vz-otazka-blok__tema { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; color: color-mix(in srgb, var(--tm) 80%, var(--text)); }
+.vz-otazka-blok__tema .vz-tema__ikona { width: 26px; height: 26px; }
+.vz-otazka-blok__tema .vz-tema__ikona svg { width: 14px; height: 14px; }
+.vz-otazka-blok__text { margin: 12px 0 0; font-size: 19px; line-height: 1.4; font-weight: 600; }
+.vz-souhrn { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 20px; border-radius: 18px; background: var(--tmava); color: var(--tmava-text); text-align: center; }
+.vz-souhrn small { font-size: 11px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: rgba(255, 255, 255, .72); }
+.vz-souhrn b { font-size: 52px; line-height: 1.05; font-weight: 650; }
+.vz-souhrn span { font-size: 14px; color: rgba(255, 255, 255, .88); }
+.vz-souhrn__nadpis { margin: 18px 0 6px; font-size: 12.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--s-chybi); }
+.vz-souhrn__seznam { list-style: none; margin: 0; padding: 0; }
+.vz-souhrn__seznam li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; font-size: 14px; line-height: 1.4; }
+.vz-souhrn__seznam li + li { border-top: 1px solid var(--line); }
+.vz-souhrn__seznam .btn { flex: none; max-width: 45%; }
+.vz-souhrn__seznam .btn svg { width: 14px; height: 14px; }
+
+/* ---------- telefon */
+@media (max-width: 759px) {
+    .vz-kurz { border-radius: 26px; }
+    .vz-kurz__nazev { font-size: 23px; }
+    .vz-kurz__cislo { font-size: 48px; }
+    .vz-tema { min-height: 0; }
+    .vz-tabulka th, .vz-tabulka td { white-space: nowrap; } /* na telefonu tabulka posuvná uvnitř karty */
+    .vz-otazka-blok__text { font-size: 17px; }
+    .vz-odpoved { margin-left: 12px; }
+    .vz-paticka__c { display: none; }
+}

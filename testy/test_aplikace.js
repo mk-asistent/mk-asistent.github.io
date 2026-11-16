@@ -450,6 +450,8 @@ const motor = {
     s.kdy = new Date().toISOString();
     return Object.assign(JSON.parse(JSON.stringify(s)), { ted: Date.now() });
   },
+  // Vzdělávání (motor 2026-11-16.13, CLAUDE_SCHRANKA/VZDELAVANI/kurzy): vymyšlené kurzy, motor jen čte
+  vzdelavani: () => ({ kurzy: JSON.parse(JSON.stringify(vzdelavaniTest)), chybne: [], ted: Date.now() }),
   // Knihovna (motor 2026-10-11.5, CLAUDE_SCHRANKA/KNIHOVNA): karty, index rešerší, můj stav, požadavky – testy data mění jako Claude
   // Tréninky (motor 2026-11-16.4, CLAUDE_SCHRANKA/TRENINKY): cviky s druhem a otiskem, celé karty, celá karta, náhled, moje (i druh, skrytí, víc cviků)
   treninky: (d) => {
@@ -759,6 +761,22 @@ const CESTAKY_TEST = {
 };
 const CESTAKY_STAV_VYCHOZI = () => ({ nastaveni: { sazba: 2, auta: 2, pohary: false }, upravy: {}, kdy: '' });
 let cestakyStavTest = CESTAKY_STAV_VYCHOZI();
+// Vzdělávání: vymyšlený kurz se třemi tématy (8 otázek, tabulka s dlouhými buňkami) + plánovaný kurz bez témat
+const vzOt = (n, p) => Array.from({ length: n }, (_, i) => ({ o: p + ' – otázka ' + (i + 1) + '?', a: 'Odpověď ' + (i + 1), proc: 'Protože ' + (i + 1) + '.' }));
+const vzTema = (id, nazev, n, navic) => Object.assign({ id, nazev, veta: 'O čem je ' + nazev.toLowerCase() + '.',
+  myslenky: [1, 2, 3, 4].map((i) => ({ nadpis: 'Myšlenka ' + i, text: 'Text myšlenky ' + i + ' k tématu ' + nazev + '.' })),
+  cisla: [{ hodnota: '4+1', popis: 'hráči v malé hře' }], tabulky: [], doPraxe: ['První do tréninku', 'Druhé do tréninku', 'Třetí do tréninku'],
+  pozor: [], otazky: vzOt(n, nazev), zdroje: [{ nazev: 'Zdroj ' + nazev, url: 'https://example.com/' + id }] }, navic || {});
+const vzdelavaniTest = [
+  { id: 'kurz-test', nazev: 'Testovací kurz trenéra', poradatel: 'Testovací akademie', odkaz: 'https://example.com/kurz', uroven: 'vstupní', proKoho: 'přípravky',
+    stav: 'splneno', splneno: '2030-10-18', vysledek: '7 / 8', test: '8 otázek · 20 minut', shrnuti: 'Krátké shrnutí testovacího kurzu.',
+    zasady: ['Zásada jedna', 'Zásada dvě', 'Zásada tři', 'Zásada čtyři', 'Zásada pět'],
+    temata: [vzTema('hra', 'Hra', 3, { tabulky: [{ nazev: 'Formáty', sloupce: ['Kategorie', 'Hra', 'Hřiště', 'Branky', 'Poznámka'],
+      radky: [['U8–U9 mladší přípravka', '4+1 na menším hřišti', '35 × 25 m s pomezím', '5 × 2 m malé branky', 'bez ofsajdu a s kopem od brány']] }],
+      pozor: [{ text: 'Testovací upozornění.', zdroj: 'test' }] }), vzTema('plan', 'Plán tréninku', 3), vzTema('bezpeci', 'Bezpečí', 2)],
+    coDal: [{ nazev: 'Další kurz', popis: 'Pokračování.', odkaz: 'https://example.com/dal' }], zdroje: [{ nazev: 'E-learning', url: 'https://example.com/kurz' }] },
+  { id: 'kurz-plan', nazev: 'Plánovaný kurz', poradatel: '', odkaz: '', uroven: '', proKoho: '', stav: 'planuji', splneno: '', vysledek: '', test: '', shrnuti: '',
+    zasady: [], temata: [], coDal: [], zdroje: [] }];
 const KNIHOVNA_VYCHOZI = () => ({
   karty: [
     { id: 'film-zkusebni-let', druh: 'film', nazev: 'Zkušební let', original: 'Test Flight', rok: 2020, delka: '120 min', zeme: 'Česko',
@@ -7202,6 +7220,110 @@ function vychoziVikendTestu() {
     } finally { await t.ctx.close(); }
   });
 
+  // ---------- Vzdělávání (Michal 16. 11.): trenérské kurzy přehledově – data VZDELAVANI/kurzy píše Claude, motor jen čte
+  await test('Vzdělávání: v pásu za Tréninky, karta kurzu vedle zásad, dlaždice v řadě, okno tématu (odpověď, všechny odpovědi, další téma, šipky, Esc), Procvičit do konce (výsledek a zopakovat jen v zařízení), jedno téma, přepínač kurzů; PC 1920 světlý i tmavý, telefon 390 bez přetečení', async () => {
+    const PRC = '[data-panel="vz-procvic"]', TEMA = '[data-panel="vz-tema"]';
+    const titul = (page) => page.textContent(TEMA + ' .panel-titul');
+    for (const motiv of ['light', 'dark']) {
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, { nazev: 'pc', sirka: 1920, vyska: 1080, dotyk: false }, motiv);
+      const tmavy = motiv === 'dark';
+      try {
+        await page.goto(WEB);
+        const pas = await page.$$eval('#rail [data-cil]', (x) => x.map((e) => e.dataset.cil));
+        jistota(pas.indexOf('vzdelavani') === pas.indexOf('treninky') + 1, 'Vzdělávání hned za Tréninky: ' + pas.join(','));
+        await page.click('#rail [data-cil="vzdelavani"]');
+        await page.waitForSelector('#p-vzdelavani .vz-tema');
+        jistota(await page.locator('#p-vzdelavani [data-vz-kurz]').count() === 2, 'přepínač dvou kurzů');
+        jistota(/Splněno 18\. 10\. 2030/.test(await page.textContent('.vz-kurz__stav')) && (await page.textContent('.vz-kurz__cislo')).trim() === '7 / 8', 'stav a výsledek');
+        jistota(await page.locator('#p-vzdelavani .vz-tema').count() === 3 && await page.locator('.vz-zasady__mrizka li').count() === 5, 'tři témata, pět zásad');
+        const el = await page.$eval('.vz-tl-odkaz', (a) => [a.target, a.rel, a.href].join(' '));
+        jistota(el === '_blank noopener noreferrer https://example.com/kurz', 'e-learning v novém okně: ' + el);
+        const m = await page.evaluate(() => {
+          const k = document.querySelector('.vz-kurz').getBoundingClientRect(), z = document.querySelector('.vz-zasady').getBoundingClientRect();
+          const t = Array.from(document.querySelectorAll('.vz-tema')).map((e) => Math.round(e.getBoundingClientRect().top));
+          return { vedle: Math.abs(k.top - z.top) < 2 && z.left > k.right, radek: new Set(t).size === 1, pretok: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+        });
+        jistota(m.vedle && m.radek && m.pretok <= 0, 'PC rozvržení: ' + JSON.stringify(m));
+        await page.screenshot({ path: path.join(VYSTUP, tmavy ? 'pc_vzdelavani_tmavy.png' : 'pc_vzdelavani.png'), fullPage: true });
+        // okno tématu
+        await page.click('#p-vzdelavani [data-vz-tema="0"]');
+        await page.waitForSelector(TEMA + '.otevreny .vz-otazka');
+        jistota((await titul(page)).trim() === 'Hra' && await page.locator(TEMA + ' details.vz-otazka[open]').count() === 0, 'okno Hra, odpovědi schované');
+        await page.click(TEMA + ' .vz-otazka summary >> nth=0');
+        jistota(await page.locator(TEMA + ' details.vz-otazka[open]').count() === 1 && await page.isVisible(TEMA + ' .vz-odpoved >> text=Odpověď 1'), 'klepnutí rozbalí odpověď');
+        const ok = await page.evaluate((s) => { const p = document.querySelector(s); return { sirka: Math.round(p.getBoundingClientRect().width), sloupce: getComputedStyle(p.querySelector('.vz-okno__sloupce')).gridTemplateColumns.split(' ').length }; }, TEMA);
+        jistota(ok.sirka >= 1000 && ok.sloupce === 2, 'široké okno se dvěma sloupci: ' + JSON.stringify(ok));
+        if (!tmavy) await page.screenshot({ path: path.join(VYSTUP, 'pc_vzdelavani_tema.png') });
+        await page.click(TEMA + ' [data-vz-vse]');
+        jistota(await page.locator(TEMA + ' details.vz-otazka[open]').count() === 3, 'Ukázat všechny odpovědi');
+        await page.click(TEMA + ' [data-vz-krok="1"]');
+        await page.waitForFunction((s) => document.querySelector(s + ' .panel-titul').textContent.trim() === 'Plán tréninku', TEMA);
+        jistota(await page.locator(TEMA + ' details.vz-otazka[open]').count() === 0, 'další téma začíná schované');
+        await page.keyboard.press('ArrowLeft');
+        await page.waitForFunction((s) => document.querySelector(s + ' .panel-titul').textContent.trim() === 'Hra', TEMA);
+        await page.keyboard.press('Escape');
+        await page.waitForSelector(TEMA, { state: 'detached' });
+        // Procvičit: 8 otázek, dvě zopakovat
+        await page.click('#p-vzdelavani [data-vz-procvicit]');
+        await page.waitForSelector(PRC + ' [data-vz-ukaz]');
+        for (let i = 0; i < 8; i++) {
+          jistota(new RegExp('Otázka ' + (i + 1) + '\\s*z 8').test(await page.textContent(PRC + ' .vz-prubeh')), 'průběh ' + (i + 1));
+          await page.click(PRC + ' [data-vz-ukaz]');
+          await page.waitForSelector(PRC + ' .vz-odpoved');
+          if (i === 3 && !tmavy) await page.screenshot({ path: path.join(VYSTUP, 'pc_vzdelavani_procvicit.png') });
+          await page.click(PRC + ' [data-vz-znalost="' + (i < 2 ? 0 : 1) + '"]');
+        }
+        await page.waitForSelector(PRC + ' .vz-souhrn');
+        jistota((await page.textContent(PRC + ' .vz-souhrn b')).trim() === '6 / 8' && await page.locator(PRC + ' .vz-souhrn__seznam li').count() === 2, 'souhrn 6 / 8, dvě zopakovat');
+        const pm = await page.evaluate(() => JSON.parse(localStorage.getItem('asistent.vzdelavani.procvic'))['kurz-test']);
+        jistota(pm.posledni.vedel === 6 && pm.posledni.celkem === 8 && Object.keys(pm.zopakovat).length === 2, 'v zařízení: ' + JSON.stringify(pm));
+        jistota(!volano.some((x) => /^vzdelavani./.test(x.akce)), 'na motor jde jen čtení');
+        // ze souhrnu do tématu
+        await page.click(PRC + ' [data-vz-do-tematu] >> nth=0');
+        await page.waitForSelector(TEMA + '.otevreny .vz-otazka');
+        jistota(await page.locator(PRC).count() === 0 && await page.locator(TEMA + ' .vz-zopakovat').count() >= 1, 'téma se značkou zopakovat');
+        await page.keyboard.press('Escape');
+        await page.waitForSelector(TEMA, { state: 'detached' });
+        jistota(await page.locator('#p-vzdelavani .vz-tema .vz-zopakovat').count() >= 1 && /6 \/ 8/.test(await page.textContent('.vz-kurz__deleni')), 'dlaždice a karta s výsledkem');
+        // jen jedno téma
+        await page.click('#p-vzdelavani [data-vz-procvicit]');
+        await page.click(PRC + ' [data-vz-rozsah="bezpeci"]');
+        await page.waitForFunction((s) => /z 2/.test(document.querySelector(s + ' .vz-prubeh').textContent), PRC);
+        await page.keyboard.press('Escape');
+        await page.waitForSelector(PRC, { state: 'detached' });
+        // druhý kurz bez témat
+        await page.click('[data-vz-kurz="kurz-plan"]');
+        await page.waitForFunction(() => /Plánovaný kurz/.test(document.querySelector('.vz-kurz__nazev').textContent) && /zatím nejsou/.test(document.getElementById('p-vzdelavani').textContent));
+        await page.click('[data-vz-kurz="kurz-test"]');
+        await page.waitForSelector('#p-vzdelavani .vz-tema');
+        jistota(!chybyStranky.length, 'chyby stránky: ' + chybyStranky.join(' | '));
+      } finally { await ctx.close(); }
+    }
+    const t = await novaStranka(prohlizec, VELIKOSTI[0]);
+    try {
+      await t.page.goto(WEB);
+      await t.page.click('.hlava-ja [data-menu]');
+      await t.page.click('[data-panel="menu"] [data-menu-cil="vzdelavani"]');
+      await t.page.waitForSelector('#p-vzdelavani .vz-tema');
+      await t.page.waitForSelector('.panel-menu', { state: 'detached' }); // zavírající se menu je v DOM ještě ~260 ms bez data-panel
+      const m = await t.page.evaluate(() => ({ pretok: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        mimo: Array.from(document.querySelectorAll('#p-vzdelavani *')).filter((e) => e.getBoundingClientRect().right > innerWidth + 0.5).length,
+        tl: Math.round(document.querySelector('.vz-tl-hlavni').getBoundingClientRect().height) }));
+      jistota(m.pretok <= 0 && !m.mimo && m.tl >= 42, 'telefon: ' + JSON.stringify(m));
+      await t.page.screenshot({ path: path.join(VYSTUP, 'telefon_vzdelavani.png'), fullPage: true });
+      await t.page.click('#p-vzdelavani [data-vz-tema="0"]');
+      await t.page.waitForSelector(TEMA + '.otevreny .vz-otazka');
+      await t.page.waitForTimeout(300);
+      await t.page.click(TEMA + ' .vz-otazka summary >> nth=0');
+      const o = await t.page.evaluate((s) => { const p = document.querySelector(s), telo = p.querySelector('.panel-telo'), tab = p.querySelector('.tabulka-obal');
+        return { telo: telo.scrollWidth - telo.clientWidth, tabPosun: tab.scrollWidth > tab.clientWidth, tabSirka: Math.round(tab.getBoundingClientRect().right) <= innerWidth }; }, TEMA);
+      jistota(o.telo <= 0 && o.tabPosun && o.tabSirka, 'telefon okno: tabulka posuvná uvnitř, okno nepřetéká ' + JSON.stringify(o));
+      await t.page.screenshot({ path: path.join(VYSTUP, 'telefon_vzdelavani_tema.png') });
+      await t.page.click(TEMA + ' [data-vz-krok="1"]');
+      await t.page.waitForFunction((s) => document.querySelector(s + ' .panel-titul').textContent.trim() === 'Plán tréninku', TEMA);
+    } finally { await t.ctx.close(); }
+  });
+
   await test('Tréninky: v pásu, karty s filtrem druhů a hledáním, okno cviku (podbarvení, organizace, snímky), hvězdy, oblíbené a poznámka do motoru; telefon', async () => {
     for (const k of Object.keys(treninkyMojeTest)) delete treninkyMojeTest[k];
     const { ctx, page } = await novaStranka(prohlizec, VELIKOSTI[3]);
@@ -9010,7 +9132,7 @@ function vychoziVikendTestu() {
     await page.click('.hlava-ja [data-menu]');
     await page.waitForSelector('[data-panel="menu"].otevreny');
     const sekce = await page.$$eval('[data-panel="menu"] [data-menu-cil]', (b) => b.map((x) => x.dataset.menuCil).join());
-    jistota(sekce === 'dnes,schranka,posta,kalendar,zdravi,fotbal,treninky,reely,plakaty,cestaky,auto,knihovna', 'sekce v menu: ' + sekce);
+    jistota(sekce === 'dnes,schranka,posta,kalendar,zdravi,fotbal,treninky,vzdelavani,reely,plakaty,cestaky,auto,knihovna', 'sekce v menu: ' + sekce);
     jistota(await page.locator('[data-panel="menu"] [data-menu-cil="dnes"][aria-current="page"]').count() === 1, 'aktivní sekce');
     await page.click('[data-panel="menu"] [data-menu-cil="fotbal"]');
     await page.waitForSelector('#p-fotbal:not([hidden]) .fotbal-stranka');

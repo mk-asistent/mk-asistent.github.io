@@ -44,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-11-16.12';
+const VERZE = '2026-11-16.13';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -143,6 +143,7 @@ const CTENI_MOTORU = ['info', 'schranka', 'posta', 'vlakno', 'hledat', 'kalendar
   'knihovna', 'knihovnaReserse', // Knihovna: karty, index rešerší, můj stav a požadavky; celá rešerše
   'tipyNahledy', 'tipNahled', 'tipVideo', // Rešerše AI: náhledy tipů (KNIHOVNA/nahledy)
   'treninky', 'treninkyKarty', 'treninkCvik', 'treninkyNahledy', 'treninkNahled', 'treninkVideo', // Tréninky
+  'vzdelavani', // Vzdělávání: kurzy (VZDELAVANI/kurzy)
   'cestaky', 'reelyPlan', 'reelKlipy', 'reelKlip', 'dilObrazky']; // Cesťáky; Reely → Plán, Zápasy, Nápady (REELY/plan.json…) –: zápasy, výchozí a moje úpravy (CESTAKY): cviky, celé karty a videa (TRENINKY)
 
 /** Výsledek dřívějšího běhu téhož požadavku (JSON), nebo null; když ještě běží, počká na něj (nejvýš ~25 s). */
@@ -309,6 +310,8 @@ const AKCE = {
   // zápasy píše Claude do CESTAKY/zapasy.json, Michalovy úpravy motor do CESTAKY/upravy.json
   cestaky: function () { return cestaky_(); },
   cestakyUlozit: function (d) { return cestakyUlozit_(d); }, // a zpět // Michalova úprava karty (název, kroky, plánek…) / vrátit původní
+  // Vzdělávání (Michal 16. 11.): trenérské kurzy z VZDELAVANI/kurzy (píše Claude, motor jen čte)
+  vzdelavani: function () { return vzdelavani_(); },
   // značky změn: kdy se naposledy zapisovalo (auto, zdraví) – server je posílá s každou obnovou, aplikace podle nich načítá
   zmeny: function () { return zmeny_(); },
   // víc čtení v jednom požadavku – aplikace při startu neposílá deset dotazů naráz (ty se pak řadí do fronty)
@@ -10019,6 +10022,102 @@ function cestakyUlozit_(d) {
   } finally {
     zamek.releaseLock();
   }
+}
+
+// ---------------------------------------------------------------- Vzdělávání
+// Trenérské kurzy přehledově (Michal 16. 11.). VZDELAVANI/kurzy/<id>.json píše jen Claude (formát v 1: kurz → témata s myšlenkami,
+// čísly, tabulkami, Do tréninku, Pozor, otázkami a zdroji), motor jen čte, očistí a omezí – nic nezapisuje. Vadný soubor přeskočí.
+const VZDELAVANI_SLOZKA = 'VZDELAVANI';
+
+/** Čisté funkce Vzdělávání (testuje motor.test.js). */
+const VZDELAVANI_ = (function () {
+  const ID = /^[a-z0-9][a-z0-9_-]{0,59}$/i;
+  const DATUM = /^\d{4}-\d{2}-\d{2}$/;
+  const STAVY = ['splneno', 'rozpracovano', 'planuji'];
+  const obj = function (x) { return x && typeof x === 'object' && !Array.isArray(x) ? x : null; };
+  const pole = function (x, max) { return Array.isArray(x) ? x.slice(0, max) : []; };
+  const t = function (s, max) {
+    return typeof s === 'string' || typeof s === 'number' ? String(s).replace(/\s+/g, ' ').trim().slice(0, max) : '';
+  };
+  const odkaz = function (s) { const u = t(s, 500); return /^https:\/\/[^\s"'<>]+$/i.test(u) ? u : ''; };
+  const texty = function (x, maxPocet, maxDelka) { return pole(x, 50).map(function (s) { return t(s, maxDelka); }).filter(Boolean).slice(0, maxPocet); };
+  const zdroje = function (x, max) {
+    return pole(x, max).map(obj).filter(Boolean).map(function (z) { return { nazev: t(z.nazev, 120), url: odkaz(z.url) }; })
+      .filter(function (z) { return z.url; }).map(function (z) { return { nazev: z.nazev || z.url, url: z.url }; });
+  };
+
+  function tabulka(x) {
+    const o = obj(x);
+    if (!o) return null;
+    const sloupce = pole(o.sloupce, 6).map(function (s) { return t(s, 40); });
+    const n = sloupce.length || 6;
+    const radky = pole(o.radky, 8).filter(Array.isArray).map(function (r) {
+      const b = r.slice(0, n).map(function (s) { return t(s, 40); });
+      while (b.length < sloupce.length) b.push('');
+      return b;
+    }).filter(function (r) { return r.some(Boolean); });
+    return radky.length ? { nazev: t(o.nazev, 80), sloupce: sloupce, radky: radky } : null;
+  }
+
+  function tema(x) {
+    const o = obj(x);
+    if (!o || !ID.test(t(o.id, 60)) || !t(o.nazev, 60)) return null;
+    return {
+      id: t(o.id, 60), nazev: t(o.nazev, 60), veta: t(o.veta, 140),
+      myslenky: pole(o.myslenky, 7).map(obj).filter(Boolean).map(function (m) { return { nadpis: t(m.nadpis, 45), text: t(m.text, 240) }; })
+        .filter(function (m) { return m.nadpis || m.text; }),
+      cisla: pole(o.cisla, 8).map(obj).filter(Boolean).map(function (c) { return { hodnota: t(c.hodnota, 14), popis: t(c.popis, 70) }; })
+        .filter(function (c) { return c.hodnota; }),
+      tabulky: pole(o.tabulky, 2).map(tabulka).filter(Boolean),
+      doPraxe: texty(o.doPraxe, 6, 150),
+      pozor: pole(o.pozor, 3).map(obj).filter(Boolean).map(function (p) { return { text: t(p.text, 260), zdroj: t(p.zdroj, 120) }; })
+        .filter(function (p) { return p.text; }),
+      otazky: pole(o.otazky, 80).map(obj).filter(Boolean).map(function (q) { return { o: t(q.o, 170), a: t(q.a, 170), proc: t(q.proc, 240) }; })
+        .filter(function (q) { return q.o && q.a; }),
+      zdroje: zdroje(o.zdroje, 6)
+    };
+  }
+
+  /** Kurz z JSON → očištěný kurz (neznámá pole pryč, délky a počty omezené, odkazy jen https), nebo null (chybí id / název). */
+  function kurz(x) {
+    const o = obj(x);
+    if (!o || !ID.test(t(o.id, 60)) || !t(o.nazev, 80)) return null;
+    const stav = STAVY.indexOf(o.stav) >= 0 ? o.stav : 'planuji';
+    const videno = {};
+    const temata = pole(o.temata, 12).map(tema).filter(function (m) {
+      if (!m || videno[m.id]) return false;
+      videno[m.id] = true;
+      return true;
+    });
+    return {
+      id: t(o.id, 60), nazev: t(o.nazev, 80), poradatel: t(o.poradatel, 100), odkaz: odkaz(o.odkaz), uroven: t(o.uroven, 100),
+      proKoho: t(o.proKoho, 100), stav: stav, splneno: stav === 'splneno' && DATUM.test(t(o.splneno, 10)) ? t(o.splneno, 10) : '',
+      vysledek: t(o.vysledek, 20), test: t(o.test, 120), shrnuti: t(o.shrnuti, 500), zasady: texty(o.zasady, 8, 110), temata: temata,
+      coDal: pole(o.coDal, 6).map(obj).filter(Boolean).map(function (c) { return { nazev: t(c.nazev, 60), popis: t(c.popis, 200), odkaz: odkaz(c.odkaz) }; })
+        .filter(function (c) { return c.nazev; }),
+      zdroje: zdroje(o.zdroje, 10)
+    };
+  }
+
+  /** Pořadí: splněné od nejnovějšího, pak rozpracované, plánované; jinak podle názvu. */
+  function serad(kurzy) {
+    return kurzy.slice().sort(function (a, b) {
+      const s = STAVY.indexOf(a.stav) - STAVY.indexOf(b.stav);
+      if (s) return s;
+      if (a.splneno !== b.splneno) return a.splneno < b.splneno ? 1 : -1;
+      return a.nazev.localeCompare(b.nazev, 'cs');
+    });
+  }
+
+  return { kurz: kurz, tema: tema, serad: serad, ID: ID };
+})();
+
+/** Akce vzdelavani: všechny kurzy z VZDELAVANI/kurzy (složka nemusí být → prázdný seznam), přes mezipaměť Knihovny. */
+function vzdelavani_() {
+  const it = koren_().getFoldersByName(VZDELAVANI_SLOZKA);
+  const slozka = it.hasNext() ? it.next() : null;
+  const r = rozeberKnihovnu_(jsonKnihovny_(slozka, 'kurzy'), 'vz1', VZDELAVANI_.kurz);
+  return { kurzy: VZDELAVANI_.serad(r.polozky), chybne: r.chybne, ted: Date.now() };
 }
 
 // ---------------------------------------------------------------- Reely: zimní plán (Plán · Zápasy · Nápady)

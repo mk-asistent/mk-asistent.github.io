@@ -5253,6 +5253,67 @@ test('Cesťáky: čtení zapasy.json (čištění) + upravy.json, zápis jen odc
   assert.ok(p.volej('info').data.akce.indexOf('cestaky') >= 0 && p.volej('info').data.akce.indexOf('cestakyUlozit') >= 0, 'aplikace podle info.akce ukáže stránku');
 });
 
+test('Vzdělávání: bez složky prázdno, čtení kurzů (očištění, meze, jen https, neznámá pole pryč), vadný soubor přeskočí, pořadí podle stavu a data, nic nezapíše', () => {
+  const p = prostredi();
+  let r = p.volej('vzdelavani');
+  assert.strictEqual(r.ok, true, r.chyba);
+  assert.deepStrictEqual(json(r.data.kurzy), [], 'bez složky VZDELAVANI prázdný seznam');
+  const vz = p.schranka.createFolder('VZDELAVANI');
+  assert.deepStrictEqual(json(p.volej('vzdelavani').data.kurzy), [], 'bez podsložky kurzy prázdno');
+  const ku = vz.createFolder('kurzy');
+  assert.deepStrictEqual(json(p.volej('vzdelavani').data.kurzy), [], 'prázdná složka');
+  const dlouhy = 'x'.repeat(600);
+  ku.createFile('kurz-a.json', JSON.stringify({
+    v: 1, id: 'kurz-a', nazev: '  Kurz   A ', poradatel: 'Pořadatel', odkaz: 'javascript:alert(1)', uroven: 'vstupní', proKoho: 'přípravky',
+    stav: 'splneno', splneno: '2030-10-18', vysledek: '20 / 22', test: '22 otázek', shrnuti: dlouhy, tajne: 'pryč',
+    zasady: ['jedna', '', 'dva', 3, null, 'a', 'b', 'c', 'd', 'e', 'f'],
+    temata: [
+      { id: 't1', nazev: 'Téma 1', veta: dlouhy, navic: 1,
+        myslenky: [{ nadpis: 'N', text: 'T', x: 1 }, 'špatně', {}],
+        cisla: [{ hodnota: '4+1', popis: 'hráči' }, { hodnota: '', popis: 'bez hodnoty' }, { hodnota: '123456789012345678', popis: 'dlouhé' }],
+        tabulky: [{ nazev: 'Tab', sloupce: ['A', 'B'], radky: [['1', '2', '3'], ['4'], 'špatně', ['', '']] }, { nazev: 'Prázdná', sloupce: ['A'], radky: [] }],
+        doPraxe: ['a', 'b'],
+        pozor: [{ text: 'Pozor', zdroj: 'ERC' }, { zdroj: 'bez textu' }],
+        otazky: [{ o: 'Otázka?', a: 'Odpověď', proc: 'Proto' }, { o: 'Bez odpovědi' }],
+        zdroje: [{ nazev: 'Web', url: 'https://example.com/a' }, { nazev: 'HTTP', url: 'http://example.com' }, { url: 'https://example.com/b' }] },
+      { id: 't1', nazev: 'Dvojí id' }, { id: '../x', nazev: 'Zlé id' }, { id: 't2' }],
+    coDal: [{ nazev: 'UEFA C', popis: 'dál', odkaz: 'https://example.com/c' }, { nazev: 'Bez odkazu', odkaz: 'ftp://x' }, { popis: 'bez názvu' }],
+    zdroje: [{ nazev: 'Z', url: 'https://example.com/z' }, { nazev: 'Zlý', url: 'https://ex ample.com' }]
+  }));
+  ku.createFile('kurz-b.json', JSON.stringify({ id: 'kurz-b', nazev: 'Kurz B', stav: 'planuji' }));
+  ku.createFile('kurz-c.json', JSON.stringify({ id: 'kurz-c', nazev: 'Kurz C', stav: 'rozpracovano', splneno: '2030-01-01' }));
+  ku.createFile('kurz-d.json', JSON.stringify({ id: 'kurz-d', nazev: 'Kurz D', stav: 'splneno', splneno: '2031-02-01' }));
+  ku.createFile('kurz-e.json', JSON.stringify({ id: 'kurz-e', nazev: 'Kurz E', stav: 'divny' }));
+  ku.createFile('rozbity.json', '{ rozbité');
+  ku.createFile('bez-id.json', JSON.stringify({ nazev: 'Bez id' }));
+  ku.createFile('poznamka.txt', 'není json');
+  const pocet = ku.soubory.length;
+  r = p.volej('vzdelavani');
+  assert.strictEqual(r.ok, true, r.chyba);
+  const d = r.data;
+  assert.deepStrictEqual(d.kurzy.map((k) => k.id), ['kurz-d', 'kurz-a', 'kurz-c', 'kurz-b', 'kurz-e'], 'splněné od nejnovějšího, rozpracované, plánované');
+  assert.deepStrictEqual(json(d.chybne).sort(), ['bez-id.json', 'rozbity.json'], 'vadné soubory přeskočené a nahlášené');
+  const a = d.kurzy[1];
+  assert.deepStrictEqual(Object.keys(a).sort(), ['coDal', 'id', 'nazev', 'odkaz', 'poradatel', 'proKoho', 'shrnuti', 'splneno', 'stav', 'temata', 'test', 'uroven', 'vysledek', 'zasady', 'zdroje'].sort(), 'neznámá pole pryč');
+  assert.deepStrictEqual([a.nazev, a.odkaz, a.shrnuti.length, a.splneno], ['Kurz A', '', 500, '2030-10-18'], 'mezery, jen https, délka');
+  assert.deepStrictEqual(json(a.zasady), ['jedna', 'dva', '3', 'a', 'b', 'c', 'd', 'e'], 'nejvýš 8 zásad, prázdné pryč');
+  assert.deepStrictEqual(a.temata.map((t) => t.id), ['t1'], 'dvojí id, zlé id a téma bez názvu pryč');
+  const t1 = a.temata[0];
+  assert.strictEqual(t1.veta.length, 140);
+  assert.ok(!('navic' in t1));
+  assert.deepStrictEqual(json(t1.myslenky), [{ nadpis: 'N', text: 'T' }]);
+  assert.deepStrictEqual(json(t1.cisla), [{ hodnota: '4+1', popis: 'hráči' }, { hodnota: '12345678901234', popis: 'dlouhé' }]);
+  assert.deepStrictEqual(json(t1.tabulky), [{ nazev: 'Tab', sloupce: ['A', 'B'], radky: [['1', '2'], ['4', '']] }], 'buňky podle sloupců, prázdná tabulka pryč');
+  assert.deepStrictEqual(json(t1.pozor), [{ text: 'Pozor', zdroj: 'ERC' }]);
+  assert.deepStrictEqual(json(t1.otazky), [{ o: 'Otázka?', a: 'Odpověď', proc: 'Proto' }]);
+  assert.deepStrictEqual(json(t1.zdroje), [{ nazev: 'Web', url: 'https://example.com/a' }, { nazev: 'https://example.com/b', url: 'https://example.com/b' }]);
+  assert.deepStrictEqual(json(a.coDal), [{ nazev: 'UEFA C', popis: 'dál', odkaz: 'https://example.com/c' }, { nazev: 'Bez odkazu', popis: '', odkaz: '' }]);
+  assert.deepStrictEqual(json(a.zdroje), [{ nazev: 'Z', url: 'https://example.com/z' }]);
+  assert.deepStrictEqual([d.kurzy[2].splneno, d.kurzy[4].stav], ['', 'planuji'], 'datum jen u splněného, neznámý stav = plánuji');
+  assert.strictEqual(ku.soubory.length, pocet, 'nic se nezapsalo');
+  assert.ok(p.volej('info').data.akce.indexOf('vzdelavani') >= 0, 'aplikace podle info.akce ukáže stránku');
+});
+
 test('Reely → Plán: plan.json + audit + výroba + REELY_STAV/REELY_PLAN → díly se stavem, zápasy, bilance; změny do plan_moje.json pod zámkem; posun; Udělej reel = skrytá poznámka _vyr.md jen pro domácí PC', () => {
   const p = prostredi();
   assert.strictEqual(p.volej('reelyPlan').ok, false, 'bez plan.json chyba');

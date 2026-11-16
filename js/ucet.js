@@ -74,6 +74,7 @@ export const CTENI = ['info', 'schranka', 'posta', 'kalendar', 'kalendare', 'poc
   'tipyNahledy', 'tipNahled', 'tipVideo', // Rešerše AI: náhledy tipů
   'treninky', 'treninkyKarty', 'treninkCvik', 'treninkyNahledy', 'treninkNahled', 'treninkVideo', // Tréninky
   'cestaky', // Cesťáky (čtou se z motoru na své stránce)
+  'vzdelavani', // Vzdělávání (kurzy – jen z motoru na své stránce)
   'reelyPlan', // Reely → Plán, Zápasy, Nápady (jen z motoru, kopii na serveru nemá)
   'reelKlipy', 'reelKlip', 'dilObrazky', // editor drah v aplikaci (klipy dílu, náhled klipu), snímky karuselu v okně dílu
   'kontakty', 'hledat', 'postaStitek', 'postaKategorie', 'auto', 'upozorneni', 'autoUctenkaFoto', 'zmeny', 'plakaty',

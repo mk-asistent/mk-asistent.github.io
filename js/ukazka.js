@@ -644,6 +644,56 @@ const knihovnaKopie = () => kopie(Object.assign({}, knihovnaUkazka, { ted: Date.
 
 let domovUkazka = ''; // domov pro počasí v ukázce (Nastavení → Počasí → Domov)
 
+// Vzdělávání v ukázce: vymyšlený kurz (skutečné kurzy jsou jen na Disku ve VZDELAVANI/kurzy)
+const vzdelavaniUkazka = { kurzy: [{
+  id: 'ukazkovy-kurz', nazev: 'Ukázkový kurz trenéra', poradatel: 'Vymyšlená akademie · on-line kurz', odkaz: 'https://example.com/kurz',
+  uroven: 'vstupní kurz', proKoho: 'trenéři mládeže', stav: 'splneno', splneno: '2030-10-18', vysledek: '9 / 10', test: '10 otázek · 30 minut · hranice 80 %',
+  shrnuti: 'Krátký vymyšlený kurz o tom, jak vést trénink dětí: hodně hry, málo stání a čekání, bezpečí na prvním místě. Hlavní myšlenka: dítě se učí hraním.',
+  zasady: ['Víc hry, méně stání ve frontě.', 'Každé cvičení má jasný cíl.', 'Chvalte snahu, ne jen výsledek.', 'Bezpečí hřiště zkontrolovat před tréninkem.', 'Krátké vysvětlení, hned hrát.', 'Každý hráč hodně dotyků s míčem.'],
+  temata: [
+    { id: 'hra-a-radost', nazev: 'Hra a radost', veta: 'Proč je hra nejlepší učitel a jak udržet děti v pohybu.',
+      myslenky: [{ nadpis: 'Hra učí sama', text: 'V malé hře dítě řeší skutečné situace – kam přihrát, kdy vystřelit. Naučí se víc než ve frontě u kužele.' },
+        { nadpis: 'Málo čekání', text: 'Když stojí víc dětí než hraje, cvičení se rozdělí do více skupin nebo se zmenší hřiště.' },
+        { nadpis: 'Úspěch pro každého', text: 'Pravidla se dají upravit tak, aby i slabší hráč zažil gól nebo dobrou přihrávku.' },
+        { nadpis: 'Trenér jako průvodce', text: 'Méně přerušovat, víc se ptát: co jsi viděl, co zkusíš příště?' }],
+      cisla: [{ hodnota: '3+1', popis: 'malá hra: tři hráči a brankář' }, { hodnota: '70 %', popis: 'času tréninku v pohybu s míčem' }, { hodnota: '2 min', popis: 'nejdelší vysvětlování najednou' }],
+      tabulky: [{ nazev: 'Malé hry podle věku', sloupce: ['Věk', 'Hra', 'Hřiště'], radky: [['6–7 let', '3+0', '20 × 15 m'], ['8–9 let', '4+1', '30 × 20 m'], ['10–11 let', '5+1', '40 × 25 m']] }],
+      doPraxe: ['Začít trénink hrou, ne rozcvičkou ve frontě.', 'Hřiště zmenšit, když se hráči míjejí s míčem.', 'Po hře se zeptat jednou otázkou, co fungovalo.'],
+      pozor: [{ text: 'Ukázková data – čísla jsou vymyšlená a neplatí pro žádnou soutěž.', zdroj: 'ukázka' }],
+      otazky: [{ o: 'Co dělat, když v cvičení čeká víc dětí, než jich hraje?', a: 'Rozdělit je do více skupin nebo zmenšit hřiště.', proc: 'Čekání bere čas na míči a děti se nudí.' },
+        { o: 'Jak dlouho nejvýš vysvětlovat najednou?', a: 'Asi dvě minuty, pak hned hrát.', proc: 'Děti si dlouhý výklad nezapamatují, naučí je to až hra.' },
+        { o: 'Proč upravovat pravidla malé hry?', a: 'Aby úspěch zažil každý hráč.', proc: 'Úspěch drží motivaci a chuť chodit na trénink.' }],
+      zdroje: [{ nazev: 'Ukázkový zdroj – malé hry', url: 'https://example.com/male-hry' }, { nazev: 'Ukázkový zdroj – trénink dětí', url: 'https://example.com/trenink' }] },
+    { id: 'trenink-krok-za-krokem', nazev: 'Trénink krok za krokem', veta: 'Jak poskládat jednu tréninkovou jednotku od rozcvičení po závěr.',
+      myslenky: [{ nadpis: 'Jeden cíl', text: 'Každý trénink má jedno hlavní téma, ke kterému míří všechna cvičení.' },
+        { nadpis: 'Od jednoduchého ke hře', text: 'Nejdřív cvičení s málo rozhodnutími, na konci hra se vším.' },
+        { nadpis: 'Čas na pití', text: 'Krátké přestávky plánovat dopředu, ne až když děti nemůžou.' },
+        { nadpis: 'Závěr s otázkou', text: 'Na konci krátce shrnout, co se dnes povedlo.' }],
+      cisla: [{ hodnota: '60–75', popis: 'minut trvá trénink mladších hráčů' }, { hodnota: '4', popis: 'části tréninku' }],
+      tabulky: [],
+      doPraxe: ['Napsat si cíl tréninku na jeden řádek.', 'Připravit kužely a míče před příchodem dětí.', 'Hru nechat na konec, ať se těší.'],
+      pozor: [],
+      otazky: [{ o: 'Kolik hlavních témat má mít jeden trénink?', a: 'Jedno.', proc: 'Víc témat najednou děti rozptyluje.' },
+        { o: 'Co patří na konec tréninku?', a: 'Hra a krátké shrnutí.', proc: 'Hra spojí naučené, shrnutí ho připomene.' },
+        { o: 'Kdy plánovat přestávky na pití?', a: 'Dopředu, pravidelně během tréninku.', proc: 'Děti si o pití často samy neřeknou.' }],
+      zdroje: [{ nazev: 'Ukázkový zdroj – plán tréninku', url: 'https://example.com/plan' }, { nazev: 'Ukázkový zdroj – části jednotky', url: 'https://example.com/casti' }] },
+    { id: 'bezpeci', nazev: 'Bezpečí a zdraví', veta: 'Co zkontrolovat před tréninkem a jak reagovat při zranění.',
+      myslenky: [{ nadpis: 'Kontrola hřiště', text: 'Branky ukotvené, na trávníku nic ostrého, dost vody.' },
+        { nadpis: 'Lékárnička po ruce', text: 'Lékárnička a telefon na rodiče vždy u hřiště.' },
+        { nadpis: 'Při zranění klid', text: 'Hru zastavit, hráče nepřesouvat, zavolat pomoc.' },
+        { nadpis: 'Teplo a zima', text: 'V horku víc přestávek, v zimě delší rozehřátí.' }],
+      cisla: [{ hodnota: '155', popis: 'záchranná služba' }, { hodnota: '112', popis: 'tísňové volání v celé EU' }],
+      tabulky: [],
+      doPraxe: ['Před tréninkem obejít hřiště.', 'Mít v telefonu kontakty na rodiče.', 'Branky vždy ukotvit.'],
+      pozor: [{ text: 'Neukotvená branka se může převrhnout – vždy zkontrolovat.', zdroj: '' }],
+      otazky: [{ o: 'Co zkontrolovat na hřišti před tréninkem?', a: 'Ukotvení branek, povrch a vodu.', proc: 'Většině úrazů se dá předejít kontrolou.' },
+        { o: 'Jaké číslo má záchranná služba?', a: '155 (nebo 112).', proc: 'Při vážném zranění se volá hned.' }],
+      zdroje: [{ nazev: 'Ukázkový zdroj – bezpečné hřiště', url: 'https://example.com/hriste' }, { nazev: 'Ukázkový zdroj – první pomoc', url: 'https://example.com/prvni-pomoc' }] }],
+  coDal: [{ nazev: 'Pokračovací kurz', popis: 'Další stupeň pro trenéry starších žáků (ukázka).', odkaz: 'https://example.com/dalsi' },
+    { nazev: 'Kurz první pomoci', popis: 'Praktický kurz na půl dne (ukázka).', odkaz: 'https://example.com/prvni-pomoc-kurz' }],
+  zdroje: [{ nazev: 'Ukázková akademie – e-learning', url: 'https://example.com/kurz' }]
+}] };
+
 // Cesťáky v ukázce: vymyšlené zápasy, sazba a vzdálenosti (skutečné jsou jen na Disku v CESTAKY)
 const cestakyUkazka = {
   obdobi: [{ id: 'podzim', nazev: 'Podzim 2030', kratce: 'Podz. 30' }, { id: 'jaro', nazev: 'Jaro 2031', kratce: 'Jaro 31' }],
@@ -726,6 +776,7 @@ const planUkazky = () => kopie(Object.assign(RP.vystup(zdrojePlanu()), { chybne:
 const stavyUkazky = () => { const s = {}; RP.vystup(zdrojePlanu()).dily.forEach((d) => { s[d.id] = d.stav; }); return s; };
 
 const akce = {
+  vzdelavani: () => Object.assign(kopie(vzdelavaniUkazka), { chybne: [], ted: Date.now() }),
   // Reely → Plán, Zápasy, Nápady: stejné jádro jako motor (js/reely_plan.js), změny jen v paměti ukázky
   reelyPlan: () => planUkazky(),
   reelyPlanUlozit: (d) => { planMoje = RP.moje(RP.zmen(planPlan, planMoje, d, Date.now(), stavyUkazky()), planPlan); return planUkazky(); },

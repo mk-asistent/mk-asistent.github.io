@@ -33,11 +33,11 @@ import * as pripravenost from './pripravenost.js';
 
 // Hlavní stránka se od 10. 10. jmenuje Přehled (Michal: „hlavní stránku pojmenuj jinak než Dnes“) – klíč „dnes“ zůstal
 // (odkazy data-cil, uložená stránka asistent.pohled, snímek, testy); ikona dlaždic, slunce zůstalo znakem aplikace.
-const SEKCE = [['dnes', 'Přehled'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář'], ['zdravi', 'Zdraví'], ['fotbal', 'Fotbal'], ['treninky', 'Tréninky'], ['reely', 'Reely'],
-  ['plakaty', 'Plakáty'], ['cestaky', 'Cesťáky'], ['auto', 'Auto'], ['knihovna', 'Knihovna']];
+const SEKCE = [['dnes', 'Přehled'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář'], ['zdravi', 'Zdraví'], ['fotbal', 'Fotbal'], ['treninky', 'Tréninky'], ['vzdelavani', 'Vzdělávání'],
+  ['reely', 'Reely'], ['plakaty', 'Plakáty'], ['cestaky', 'Cesťáky'], ['auto', 'Auto'], ['knihovna', 'Knihovna']];
 const ikonaSekce = (id) => IKONY[id === 'dnes' ? 'prehled' : id];
 // sekce, které ukáže jen motor, který je umí (starší verze motoru je schová)
-const viditelna = (s) => ['fotbal', 'treninky', 'reely', 'plakaty', 'cestaky', 'auto', 'knihovna'].indexOf(s[0]) < 0 || umiMotor(s[0]);
+const viditelna = (s) => ['fotbal', 'treninky', 'vzdelavani', 'reely', 'plakaty', 'cestaky', 'auto', 'knihovna'].indexOf(s[0]) < 0 || umiMotor(s[0]);
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
 const TELEFON = window.matchMedia('(max-width: 759px)');
 const SIROKA_POSTA = window.matchMedia('(min-width: 1000px)'); // Pošta se seznamem a detailem vedle sebe
@@ -326,6 +326,7 @@ function obnovVse(znovu) {
   if (stav.pohled === 'knihovna' && knihovnaModul) knihovnaModul.nactiKnihovnu(); // knihovna jen na své stránce (Knihovna níž)
   if (stav.pohled === 'treninky' && treninkyModul) treninkyModul.nactiTreninky(true);
   if (stav.pohled === 'cestaky' && cestakyModul) cestakyModul.nactiCestaky(true);
+  if (stav.pohled === 'vzdelavani' && vzdelavaniModul) vzdelavaniModul.nactiVzdelavani(true);
   // Obnovit = i čerstvé kopie na serveru (třeba hned po nasazení motoru); jinak jen když jsou kopie starší
   if (znovu) ucet.obnovNaServeru(true);
   else ucet.obnovStare();
@@ -500,6 +501,7 @@ function vykresliStranku(el, p) {
   else if (stav.pohled === 'knihovna') vykresliKnihovnu(el);
   else if (stav.pohled === 'treninky') vykresliTreninky(el);
   else if (stav.pohled === 'cestaky') vykresliCestaky(el);
+  else if (stav.pohled === 'vzdelavani') vykresliVzdelavani(el);
   else kal.vykresliKalendar(el);
 }
 
@@ -693,6 +695,8 @@ function vykresliHlavu(p) {
     pod = esc(treninkyModul ? treninkyModul.podnadpis() : 'Studnice cviků z reelů');
   } else if (stav.pohled === 'cestaky') {
     pod = esc(cestakyModul ? cestakyModul.podnadpis() : 'Cestovné na venkovní zápasy');
+  } else if (stav.pohled === 'vzdelavani') {
+    pod = esc(vzdelavaniModul ? vzdelavaniModul.podnadpis() : 'Trenérské kurzy přehledově');
   } else if (stav.pohled === 'zdravi') {
     const z = stav.zdravi;
     pod = 'WHOOP a Apple Watch' + (z && z.whoop && z.whoop.sync && z.whoop.sync.kdy ? ' · aktualizováno ' + esc(kdyKratce(z.whoop.sync.kdy)) : '');
@@ -1398,6 +1402,18 @@ function vykresliCestaky(el) {
     cestakySlib = import('./cestaky.js')
       .then((m) => { cestakyModul = m; zmeneno(); return m; })
       .catch(() => { cestakySlib = null; nastavHtml(el, '<section class="card">' + chybaHtml({ message: 'Cesťáky se nenačetly – zkontroluj připojení.' }) + '</section>'); });
+  }
+  if (!el.firstChild) nastavHtml(el, '<section class="card">' + kostra(5) + '</section>');
+}
+
+// ---------------------------------------------------------------- Vzdělávání (js/vzdelavani.js – trenérské kurzy, načte se až na své stránce)
+let vzdelavaniModul = null, vzdelavaniSlib = null;
+function vykresliVzdelavani(el) {
+  if (vzdelavaniModul) { vzdelavaniModul.vykresliVzdelavani(el); return; }
+  if (!vzdelavaniSlib) {
+    vzdelavaniSlib = import('./vzdelavani.js')
+      .then((m) => { vzdelavaniModul = m; zmeneno(); return m; })
+      .catch(() => { vzdelavaniSlib = null; nastavHtml(el, '<section class="card">' + chybaHtml({ message: 'Vzdělávání se nenačetlo – zkontroluj připojení.' }) + '</section>'); });
   }
   if (!el.firstChild) nastavHtml(el, '<section class="card">' + kostra(5) + '</section>');
 }

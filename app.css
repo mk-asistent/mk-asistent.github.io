@@ -3088,7 +3088,7 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 /* ---------- 1) proměnné: oblasti (světlý = text a plochy na bílé ≥ 4,5 : 1, tmavý = zesvětlené ≥ 6 : 1), týmy, stavy, podbarvení */
 :root {
     --o-prehled: #2f7a4f; --o-schranka: #7a5cc4; --o-posta: #946505; --o-kalendar: #2f68d6; --o-zdravi: #cc3b55; --o-fotbal: #387d28;
-    --o-treninky: #12795a; --o-reely: #b0368f; --o-plakaty: #8a44bf; --o-cestaky: #66730c; --o-auto: #0b7685;
+    --o-treninky: #12795a; --o-reely: #b0368f; --o-plakaty: #8a44bf; --o-cestaky: #66730c; --o-auto: #0b7685; --o-vzdelavani: #4549c0;
     --o-pocasi: #1b86c4; --o-zdravi-hero: #b8394f;   /* --o-knihovna má knihovna.css */
     /* týmy – stejné všude (Fotbal, Cesťáky, Reely, Kalendář); odstíny podle motoru (BARVY_TYMU), dorost ztmavený kvůli textu */
     --t-a: #2e7a4d; --t-b: #0f7c8c; --t-dorost: #9a5a0b; --t-zaci: #7c4fc4;
@@ -3101,7 +3101,7 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 @media (prefers-color-scheme: dark) {
     :root:not([data-motiv="svetly"]) {
         --o-prehled: #7cc49a; --o-schranka: #ad95f2; --o-posta: #e8b04a; --o-kalendar: #7ea6ff; --o-zdravi: #ff7d93; --o-fotbal: #8fd16a;
-        --o-treninky: #4fd1a0; --o-reely: #f28bd0; --o-plakaty: #c993f5; --o-cestaky: #cfd65c; --o-auto: #4cc6d4;
+        --o-treninky: #4fd1a0; --o-reely: #f28bd0; --o-plakaty: #c993f5; --o-cestaky: #cfd65c; --o-auto: #4cc6d4; --o-vzdelavani: #a9acff;
         --o-pocasi: #6cc3ef; --o-zdravi-hero: #8f2c3f;
         --t-a: #6fcf8f; --t-b: #4cc6d4; --t-dorost: #f0a64e; --t-zaci: #b99af5;
         --s-chybi: var(--zluta); --s-dulezite: var(--oranz);
@@ -3112,7 +3112,7 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 }
 :root[data-motiv="tmavy"] {
     --o-prehled: #7cc49a; --o-schranka: #ad95f2; --o-posta: #e8b04a; --o-kalendar: #7ea6ff; --o-zdravi: #ff7d93; --o-fotbal: #8fd16a;
-    --o-treninky: #4fd1a0; --o-reely: #f28bd0; --o-plakaty: #c993f5; --o-cestaky: #cfd65c; --o-auto: #4cc6d4;
+    --o-treninky: #4fd1a0; --o-reely: #f28bd0; --o-plakaty: #c993f5; --o-cestaky: #cfd65c; --o-auto: #4cc6d4; --o-vzdelavani: #a9acff;
     --o-pocasi: #6cc3ef; --o-zdravi-hero: #8f2c3f;
     --t-a: #6fcf8f; --t-b: #4cc6d4; --t-dorost: #f0a64e; --t-zaci: #b99af5;
     --s-chybi: var(--zluta); --s-dulezite: var(--oranz);
@@ -3133,6 +3133,7 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 .pohled-reely, [data-oblast="reely"] { --o: var(--o-reely); }
 .pohled-plakaty, [data-oblast="plakaty"] { --o: var(--o-plakaty); }
 .pohled-cestaky, [data-oblast="cestaky"] { --o: var(--o-cestaky); }
+.pohled-vzdelavani, [data-oblast="vzdelavani"] { --o: var(--o-vzdelavani); }
 .aplikace:has(#p-reely:not([hidden])) .hlava-ikona { --o: var(--o-reely); } /* JS posílá u Reelů data-oblast="fotbal" */
 .rail__btn[data-cil="dnes"], .lista__btn[data-cil="dnes"], .menu__btn[data-menu-cil="dnes"] { --o: var(--o-prehled); }
 .rail__btn[data-cil="schranka"], .menu__btn[data-menu-cil="schranka"], .lista__btn[data-cil="schranka"] { --o: var(--o-schranka); }
@@ -3145,6 +3146,7 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 .rail__btn[data-cil="reely"], .menu__btn[data-menu-cil="reely"], .lista__btn[data-cil="reely"] { --o: var(--o-reely); }
 .rail__btn[data-cil="plakaty"], .menu__btn[data-menu-cil="plakaty"], .lista__btn[data-cil="plakaty"] { --o: var(--o-plakaty); }
 .rail__btn[data-cil="cestaky"], .menu__btn[data-menu-cil="cestaky"], .lista__btn[data-cil="cestaky"] { --o: var(--o-cestaky); }
+.rail__btn[data-cil="vzdelavani"], .menu__btn[data-menu-cil="vzdelavani"], .lista__btn[data-cil="vzdelavani"] { --o: var(--o-vzdelavani); }
 .aplikace { --stranka: var(--accent); }
 .aplikace:has(#p-schranka:not([hidden])) { --stranka: var(--o-schranka); }
 .aplikace:has(#p-posta:not([hidden])) { --stranka: var(--o-posta); }
@@ -3155,6 +3157,7 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 .aplikace:has(#p-reely:not([hidden])) { --stranka: var(--o-reely); }
 .aplikace:has(#p-plakaty:not([hidden])) { --stranka: var(--o-plakaty); }
 .aplikace:has(#p-cestaky:not([hidden])) { --stranka: var(--o-cestaky); }
+.aplikace:has(#p-vzdelavani:not([hidden])) { --stranka: var(--o-vzdelavani); }
 .aplikace:has(#p-auto:not([hidden])) { --stranka: var(--o-auto); }
 .aplikace:has(#p-knihovna:not([hidden])) { --stranka: var(--o-knihovna); }
 /* Přehled (dnes) má barvu hlavní barvy z Nastavení – vlastní akcent tak dál funguje */
@@ -3176,7 +3179,7 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size
 /* ---------- 4) karty a dlaždice podbarvené barvou oblasti (dřív 7 % – v tmavém režimu šedohnědé) */
 .card[data-oblast], .kpi[data-oblast], .mini-kpi[data-oblast],
 .pohled-fotbal .card, .pohled-reely .card, .pohled-zdravi .card:not(.zdravi-hero), .pohled-auto .card,
-.pohled-treninky .card, .pohled-plakaty .card, .pohled-cestaky .card, .pohled-knihovna .card, .pohled-kalendar .card,
+.pohled-treninky .card, .pohled-plakaty .card, .pohled-cestaky .card, .pohled-vzdelavani .card, .pohled-knihovna .card, .pohled-kalendar .card,
 .pohled-schranka .card, .pohled-cestaky .kpi, .mo-karta[data-oblast] {
     background: color-mix(in srgb, var(--o) var(--v-karta), var(--surface));
     border-color: color-mix(in srgb, var(--o) var(--v-okraj), var(--line));

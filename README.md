@@ -569,6 +569,15 @@ na každou novou sezónu** – `id` zápasů se nemění, úpravy se k nim váž
 Motor: akce `cestaky`, `cestakyUlozit` (pravidla `CESTAKY_` v `Kod.gs` = `js/cestaky_vypocet.js`). **Sazby, částky a skutečné
 zápasy nikdy do repa** – ukázka a testy mají vymyšlená čísla a soupeře.
 
+## Vzdělávání (trenérské kurzy – od 16. 11. 2026)
+Stránka v pásu za Tréninky. Nahoře tmavě zelená karta kurzu (stav, výsledek testu, počty, shrnutí, **Procvičit**, odkaz na
+e-learning) vedle zásad kurzu, pod tím barevné dlaždice témat. Klepnutí na téma otevře okno: hlavní myšlenky, klíčová čísla,
+tabulky, Do tréninku, Pozor, otázky (klepnutím odpověď, „Ukázat všechny odpovědi“), zdroje; šipky / tlačítka dole = předchozí
+a další téma. **Procvičit**: otázky v náhodném pořadí (všechna témata nebo jedno), Ukázat odpověď → Věděl jsem / Zopakovat, na
+konci souhrn s odkazy do témat. Výsledek a značky „zopakovat“ jsou jen v zařízení. Víc kurzů = přepínač nad kartou.
+Data jen čtená: `CLAUDE_SCHRANKA/VZDELAVANI/kurzy/<id>.json` píše Claude (formát v 1), motor je akcí `vzdelavani` očistí a omezí
+(vadný soubor přeskočí). Ukázka má vymyšlený kurz.
+
 ## Auto (náklady a tankování)
 Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**, **Přehled**) – tabulka zůstává hlavní a je i záloha.
 - Přehled: najeto od koupě, spotřeba (litry mezi tankováními se známým stavem km), nafta na 1 km, provoz bez koupě,
