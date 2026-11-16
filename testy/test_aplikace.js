@@ -8381,6 +8381,89 @@ function vychoziVikendTestu() {
     }
   });
 
+  // ---------- obecný hlídač šířky (Michal 16. 11. u Cesťáků: „zase to je špatně designově a není to na šířku … máme s tím problém
+  // všude“): projde VŠECHNY stránky z pásu (nová stránka se otestuje sama) v ukázkovém režimu na 1920 a 2560 px. Stejné meze jako
+  // testy výše: obsah ≥ 80 % místa vedle pásu, žádný vodorovný posun, tlačítko nejvýš půl stránky, tabulka / obrázek / graf ≤ 760 px
+  // (náhled plakátu, tabulka Fotbalu), pole nejvýš max(760 px, půl stránky), karta přes skoro celou šířku (> 90 %) jen s vlastními
+  // sloupci uvnitř (mřížka / columns – Auto: Co řešit, zápisy). Mřížka auto-fill se počítá celá (místo pro další karty, ukázka jich má málo).
+  // Výjimky – čtecí stránky .pohled-uzky (skill osobni-vzhled): žádná; nová čtecí stránka sem patří se zdůvodněním.
+  const UZKE_STRANKY = {};
+  const MER_STRANKY = () => {
+    const pohled = Array.from(document.querySelectorAll('.pohled')).find((e) => e.getClientRects().length > 0);
+    const main = pohled.parentElement, cs = getComputedStyle(main);
+    const misto = Math.min(main.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), 2200);
+    const pb = pohled.getBoundingClientRect();
+    const vid = (e) => { const b = e.getBoundingClientRect(); return b.width > 1 && b.height > 1 && (!e.checkVisibility || e.checkVisibility({ visibilityProperty: true })); }; // ne v zavřeném <details>
+    const PRVEK = /^(IMG|CANVAS|VIDEO|TABLE|INPUT|SELECT|TEXTAREA|BUTTON)$/;
+    const sObsahem = (e) => { // prvek s viditelnou plochou: karta, dlaždice, panel, tabulka, obrázek, pole
+      if (PRVEK.test(e.tagName)) return true;
+      const s = getComputedStyle(e);
+      return e.getBoundingClientRect().height >= 24 && (!/rgba\(0, 0, 0, 0\)|transparent/.test(s.backgroundColor) || parseFloat(s.borderTopWidth) > 0 && parseFloat(s.borderLeftWidth) > 0);
+    };
+    const vse = Array.from(pohled.querySelectorAll('*')).filter((e) => vid(e) && sObsahem(e) && !e.closest('[hidden]'));
+    /** pravý okraj; karta v mřížce s volnými stopami (auto-fill, ukázka má málo karet) = konec poslední stopy mřížky */
+    const prave = (e) => {
+      let r = e.getBoundingClientRect().right;
+      for (let x = e; x && x !== pohled; x = x.parentElement) {
+        const rodic = x.parentElement, s = rodic && getComputedStyle(rodic);
+        if (!s || !/grid/.test(s.display)) continue;
+        const stopy = s.gridTemplateColumns.split(' ').map(parseFloat).filter((n) => !isNaN(n));
+        if (stopy.length <= Array.from(rodic.children).filter(vid).length) continue; // mřížka plná – platí skutečný okraj
+        const mezera = parseFloat(s.columnGap) || 0;
+        r = Math.max(r, rodic.getBoundingClientRect().left + parseFloat(s.paddingLeft) + stopy.reduce((a, b) => a + b, 0) + mezera * Math.max(0, stopy.length - 1));
+      }
+      return r;
+    };
+    const sloupceUvnitr = (k) => Array.from(k.querySelectorAll('*')).some((e) => {
+      const s = getComputedStyle(e);
+      return vid(e) && (/grid/.test(s.display) && s.gridTemplateColumns.split(' ').filter((x) => parseFloat(x) >= 140).length >= 2 || s.columnCount !== 'auto' || s.columnWidth !== 'auto');
+    });
+    const w = (e) => Math.round(e.getBoundingClientRect().width);
+    const popis = (e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\s+/).slice(0, 2).join('.') : '') + ' ' + w(e) + ' px';
+    const preroste = [];
+    vse.forEach((e) => {
+      const sirka = w(e);
+      if (e.matches('.btn, button.btn') && sirka > misto / 2) preroste.push('tlačítko ' + popis(e));
+      else if (e.tagName === 'TABLE' && sirka > 760) preroste.push('tabulka ' + popis(e));
+      else if (/^(IMG|CANVAS|VIDEO)$/.test(e.tagName) && sirka > 760) preroste.push('obrázek ' + popis(e));
+      else if ((e.matches('textarea, select') || e.matches('input') && !/^(checkbox|radio|range|hidden)$/.test(e.type)) && sirka > Math.max(760, misto / 2)) preroste.push('pole ' + popis(e));
+      else if (e.matches('.card, [class*="karta"]') && sirka > 0.9 * misto && !sloupceUvnitr(e)) preroste.push('karta přes celou šířku bez sloupců ' + popis(e));
+    });
+    Array.from(pohled.querySelectorAll('svg')).filter(vid).forEach((e) => { if (w(e) > 760) preroste.push('graf ' + popis(e)); });
+    return { misto: Math.round(misto), pohled: Math.round(pb.width), vyuziti: Math.round((Math.max(...vse.map(prave)) - pb.left) / misto * 100),
+      pretok: document.documentElement.scrollWidth - document.documentElement.clientWidth, preroste: preroste.slice(0, 5), prvku: vse.length };
+  };
+  await test('šířka stránek na PC – obecný hlídač: všechny stránky z pásu na 1920 × 1080 a 2560 × 1300 využívají ≥ 80 % místa vedle pásu, bez posunu do strany, nic přerostlého (ukázkový režim)', async () => {
+    const chyby = [];
+    for (const v of [{ sirka: 1920, vyska: 1080 }, { sirka: 2560, vyska: 1300 }]) {
+      const ctx = await prohlizec.newContext(Object.assign({ viewport: { width: v.sirka, height: v.vyska } }, PRAHA));
+      await ctx.addInitScript(() => localStorage.setItem('asistent.pripojeni', JSON.stringify({ demo: true })));
+      const page = await ctx.newPage();
+      const chybyStranky = [];
+      page.on('pageerror', (e) => chybyStranky.push(e.message));
+      try {
+        await page.goto(WEB);
+        await page.waitForSelector('#rail [data-cil="knihovna"]', { state: 'attached' });
+        const stranky = [...new Set(await page.$$eval('#rail [data-cil]', (x) => x.map((e) => e.dataset.cil)))];
+        jistota(stranky.length >= 12, 'v pásu chybí stránky: ' + stranky.join(','));
+        for (const s of stranky) {
+          await page.click('#rail [data-cil="' + s + '"]');
+          await page.waitForSelector('#p-' + s + ':not([hidden])');
+          await page.waitForFunction((id) => { const p = document.getElementById(id); return p && p.querySelector('.card, [class*="karta"], .kpi, table') && !p.querySelector('.kostra'); }, 'p-' + s, { timeout: 8000 }).catch(() => { /* změří se, co je */ });
+          await page.waitForTimeout(300);
+          const m = await page.evaluate(MER_STRANKY);
+          const kde = v.sirka + ' ' + s + ': ';
+          if (!UZKE_STRANKY[s] && (m.pohled < 0.98 * m.misto || m.vyuziti < 80)) chyby.push(kde + 'obsah využívá ' + m.vyuziti + ' % místa vedle pásu (stránka ' + m.pohled + ' z ' + m.misto + ' px)');
+          if (m.pretok > 0) chyby.push(kde + 'vodorovný posun ' + m.pretok + ' px');
+          if (m.preroste.length) chyby.push(kde + 'přerostlé: ' + m.preroste.join(' · '));
+          if (process.env.SNIMKY_SIRKY) await page.screenshot({ path: path.join(VYSTUP, 'sirka_vse_' + v.sirka + '_' + s + '.png') });
+        }
+        if (chybyStranky.length) chyby.push(v.sirka + ' chyby stránky: ' + chybyStranky.join(' | '));
+      } finally { await ctx.close(); }
+    }
+    jistota(!chyby.length, chyby.join('\n'));
+  });
+
   await test('telefon: menu zleva se všemi sekcemi (Fotbal, Reely, Plakáty), zavření klepnutím vedle', async () => {
     const { ctx, page, chybyStranky } = await novaStranka(prohlizec, VELIKOSTI[0]);
     await page.goto(WEB);

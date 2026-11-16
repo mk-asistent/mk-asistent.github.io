@@ -1,7 +1,32 @@
 /* Cesťáky (16. 11.) – cestovné na venkovní zápasy: nastavení, filtr týmu, dlaždice, souhrn týmy × období, zápasy po obdobích.
-   Telefon: zápas ve dvou řádcích (soupeř + Kč, pod tím km · bus · auta), žádná široká tabulka; pole 16 px (iPhone jinak přibližuje). */
+   Telefon: zápas ve dvou řádcích (soupeř + Kč, pod tím km · bus · auta), žádná široká tabulka; pole 16 px (iPhone jinak přibližuje).
+   PC (Michal 16. 11. „není to na šířku“): nahoře pruh tým · nastavení · uloženo, pod tím dlaždice vedle souhrnu (tabulka ≤ 760 px),
+   období ve sloupcích (auto-fit, sloupec ≥ 440 px: 1500 px = 3, 1000 px = 2); řádek zápasu podle šířky sloupce (@container). */
 .ce-stranka { display: flex; flex-direction: column; gap: 14px; }
-.ce-nast { padding: 14px 16px; }
+.ce-lista { display: contents; } /* telefon: nastavení, tým, …, pata až dole */
+.ce-nast { order: -2; padding: 14px 16px; }
+.ce-filtr { order: -1; }
+.ce-pata { order: 9; }
+.ce-prehled { display: flex; flex-direction: column; gap: 14px; }
+.ce-souhrn { max-width: 760px; } /* tabulka nikdy roztažená */
+@media (min-width: 760px) {
+  .ce-lista { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+  .ce-filtr, .ce-nast, .ce-pata { order: 0; }
+  .ce-nast { padding: 8px 16px; }
+  .ce-nast .ce-pole { flex-direction: row; align-items: center; gap: 8px; }
+  .ce-nast .ce-pole .label { margin: 0; }
+  .ce-pata { margin-left: auto; }
+}
+@media (min-width: 1100px) {
+  .ce-prehled { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 760px); align-items: start; }
+  .ce-kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); } /* vedle tabulky 2 × 2, od 1 700 px v řadě */
+}
+@media (min-width: 1700px) { /* dlaždice v řadě, stejně vysoké jako souhrn vedle nich (jinak pod nimi zbyde prázdný pruh) */
+  .ce-prehled { align-items: stretch; }
+  .ce-kpi { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 1fr; }
+  .ce-kpi > * { display: flex; flex-direction: column; justify-content: center; }
+  .ce-kpi .kpi__hodnota { font-size: 30px; }
+}
 .ce-nast__radek { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 24px; }
 .ce-pole { display: flex; flex-direction: column; min-width: 0; }
 .ce-pole .label { margin-bottom: 6px; }
@@ -35,8 +60,9 @@
   .ce-souhrn__tab th, .ce-souhrn__tab td { padding: 8px 6px; }
 }
 
-/* zápasy po obdobích */
-.ce-obdobi-seznam { display: flex; flex-direction: column; gap: 14px; }
+/* zápasy po obdobích – sloupce vedle sebe, kolik se vejde */
+.ce-obdobi-seznam { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 14px; align-items: start; }
+.ce-obdobi { container-type: inline-size; min-width: 0; }
 .ce-obdobi .card-hlava { padding-bottom: 8px; }
 .ce-obdobi__kc { font-size: 15px; }
 .ce-zapasy { list-style: none; margin: 0; padding: 0; }
@@ -53,9 +79,13 @@
 .ce-zapas__kc { grid-area: kc; display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
 .ce-zapas__kc b { font-size: 15px; font-weight: 700; white-space: nowrap; }
 .ce-zapas__kc small { font-size: 12px; color: var(--muted); white-space: nowrap; }
-@media (min-width: 900px) {
-  .ce-zapas { grid-template-columns: minmax(0, 1fr) auto 120px; grid-template-areas: "info ovl kc"; align-items: center; }
+@container (min-width: 560px) { /* střední sloupec: vlevo zápas, vpravo Kč a pod nimi ovládání; dlouhý soupeř se zkrátí třemi tečkami */
+  .ce-zapas { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "info kc" "info ovl"; gap: 4px 12px; }
   .ce-zapas__ovl { flex-wrap: nowrap; justify-content: flex-end; }
+  .ce-zapas__souper, .ce-zapas__hriste { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+}
+@container (min-width: 700px) { /* široký sloupec: zápas na jednom řádku */
+  .ce-zapas { grid-template-columns: minmax(0, 1fr) auto 112px; grid-template-areas: "info ovl kc"; align-items: center; }
 }
 
 .ce-pata { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }

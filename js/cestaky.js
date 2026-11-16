@@ -181,7 +181,7 @@ function zapasHtml(d, z) {
   return '<li class="ce-zapas' + (z.bus ? ' ce-zapas--bus' : '') + '" data-ce-id="' + id + '">' +
     '<div class="ce-zapas__info"><span class="ce-zapas__nahore">' + tymTag(d, z.tym) + '<span class="ce-zapas__den cisla">' + V.den(z.datum) + '</span>' +
       (z.pohar ? '<span class="tag tag--warn">pohár</span>' : '') + (z.upraveno ? '<span class="tag tag--seda">upraveno</span>' : '') + '</span>' +
-      '<b class="ce-zapas__souper">' + esc(z.souper) + '</b>' + (z.hriste ? '<small class="ce-zapas__hriste">' + esc(z.hriste) + '</small>' : '') + '</div>' +
+      '<b class="ce-zapas__souper" title="' + esc(z.souper) + '">' + esc(z.souper) + '</b>' + (z.hriste ? '<small class="ce-zapas__hriste">' + esc(z.hriste) + '</small>' : '') + '</div>' +
     '<div class="ce-zapas__ovl">' + ovl + '</div>' +
     '<div class="ce-zapas__kc"><b class="cisla">' + V.kc(z.castka) + '</b><small>' + (z.bus ? 'bus' : V.cislo(z.autaKm) + ' km') + '</small></div></li>';
 }
@@ -214,9 +214,11 @@ export function vykresliCestaky(el) {
   }
   if (!el.querySelector('#ce-zapasy')) {
     posledni.delete(el);
-    el.innerHTML = '<div class="ce-stranka"><section class="card ce-nast" id="ce-nast"></section><div class="ce-filtr" id="ce-filtr"></div>' +
-      '<div class="kpi-mrizka ce-kpi" id="ce-kpi"></div><section class="card ce-souhrn" id="ce-souhrn"></section>' +
-      '<div class="ce-obdobi-seznam" id="ce-zapasy"></div><div class="ce-pata" id="ce-pata"></div></div>';
+    // PC (16. 11.): nahoře pruh tým · nastavení · uloženo, pod ním dlaždice vedle souhrnu, období ve sloupcích (cestaky.css)
+    el.innerHTML = '<div class="ce-stranka"><div class="ce-lista"><div class="ce-filtr" id="ce-filtr"></div><section class="card ce-nast" id="ce-nast"></section>' +
+      '<div class="ce-pata" id="ce-pata"></div></div>' +
+      '<div class="ce-prehled"><div class="kpi-mrizka ce-kpi" id="ce-kpi"></div><section class="card ce-souhrn" id="ce-souhrn"></section></div>' +
+      '<div class="ce-obdobi-seznam" id="ce-zapasy"></div></div>';
   }
   const s = V.souhrn(d, { tym: platnyTym(d) });
   nastav(el.querySelector('#ce-nast'), nastaveniHtml(d));

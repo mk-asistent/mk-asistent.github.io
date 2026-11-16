@@ -240,7 +240,7 @@
   .plakaty > .plakaty-lista { grid-column: 1 / -1; }
   .plakaty-levy { position: sticky; top: 16px; }
   .plakaty-mrizka { display: flex; flex-direction: column; align-items: stretch; }
-  .pl-editor { container-type: inline-size; }
+  .pl-editor, .plakaty-nastaveni { container-type: inline-size; }
   .plakaty-vpravo { display: contents; }
   .plakaty-mrizka .pl-ig { order: -1; }
   .plakaty-tisk-napoveda { margin: -4px 2px 0; max-width: var(--sirka-cteni); }
@@ -250,6 +250,18 @@
   .pl-editor .pl-telo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; align-items: start; }
   .pl-editor .pl-telo > :not(.pl-karta) { grid-column: 1 / -1; }
   .pl-editor .pl-telo > .pl-pridat { justify-self: start; }
+}
+/* obecný hlídač šířky (16. 11.): patička a nastavení v širokém sloupci po dvou (dřív pole po ~1 000 px), popisek nejvýš čtecí blok */
+@container (min-width: 860px) {
+  .pl-editor .pl-telo > .pl-mrizka > .pl-cely, .plakaty-nastaveni .pl-mrizka > .pl-cely { grid-column: auto; }
+}
+.pl-ig textarea.odpoved, .pl-ig .pl-styl { max-width: var(--sirka-bloku); }
+/* ultraširoký monitor: tři sloupce náhled · Instagram + nastavení · editor (dřív pole po 1 400 px) */
+@media (min-width: 2300px) {
+  .plakaty-mrizka { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto 1fr; gap: 14px; align-items: start; }
+  .plakaty-mrizka .pl-ig { grid-column: 1; grid-row: 1; }
+  .plakaty-mrizka .plakaty-nastaveni { grid-column: 1; grid-row: 2; }
+  .plakaty-mrizka .pl-editor { grid-column: 2; grid-row: 1 / span 2; }
 }
 /* úzký editor (PC 1 100–1 400 px): po třech polích by se texty uřízly → po dvou, první přes celou šířku (jako v telefonu) */
 @container (max-width: 560px) {
