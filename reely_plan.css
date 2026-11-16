@@ -38,19 +38,43 @@
 .rp-ceka { display: inline-flex; align-items: center; gap: 4px; }
 .rp-ceka svg { width: 13px; height: 13px; }
 
-/* Plán: sloupce (PC) / seznam (telefon) */
-.rp-sloupce { display: none; }
+/* Plán: PC Po vlnách / Podle stavu (+ řádek Na řadě), telefon seznam */
+.rp-pc { display: none; }
 .rp-mobil { display: flex; flex-direction: column; gap: 10px; }
+.rp-filtr { display: flex; flex-direction: column; gap: 8px; }
 .rp-filtr .segment { flex-wrap: wrap; }
+.rp-pohled { display: none; margin-right: auto; } /* přepínač pohledu jen na PC – telefon má seznam */
+.rp-lista .rp-pohled .segment { flex-wrap: nowrap; }
+.rp-dil--vyveseno { opacity: .62; }
+.rp-vlna .rp-dil__vlna { display: none; } /* ve sloupci vlny je vlna v hlavičce */
+.rp-dil--vyveseno:hover, .rp-dil--vyveseno:focus-within { opacity: 1; }
+/* štítek stavu = barva hlavičky sloupce v pohledu Podle stavu */
+.rp-stav.tag--seda { background: var(--bg-soft); }
 @media (min-width: 900px) {
   .rp-mobil { display: none; }
+  .rp-pohled { display: inline-flex; }
+  .rp-pc { display: flex; flex-direction: column; gap: 12px; }
+  .rp-narade { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--surface); font-size: 13.5px; }
+  .rp-narade__label { font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .rp-narade__nazev { font-weight: 650; min-width: 0; overflow-wrap: anywhere; }
+  .rp-narade__akce { margin-left: auto; display: inline-flex; }
+  .rp-vlny { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; align-items: start; }
+  .rp-vlna { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px; border-radius: var(--radius-lg); background: var(--bg-soft); }
+  .rp-vlna__hlava { display: flex; flex-direction: column; gap: 1px; padding: 2px 2px 4px; }
+  .rp-vlna__hlava b { font-size: 13.5px; font-weight: 700; }
+  .rp-vlna__info { font-size: 12px; color: var(--muted); }
   .rp-sloupce { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; }
   .rp-sloupec { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px; border-radius: var(--radius-lg); background: var(--bg-soft); }
   .rp-sloupec__hlava { display: flex; align-items: center; gap: 8px; padding: 2px 2px 4px; }
   .rp-sloupec__hlava .pocet { font-size: 12px; font-weight: 650; color: var(--muted); }
-  .rp-prazdny { padding: 6px 4px 10px; color: var(--muted); font-size: 13px; text-align: center; }
+  .rp-sloupec--prazdny { opacity: .7; }
 }
-@media (min-width: 1400px) { .rp-sloupce { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+/* od 1 400 px všech 6 stavů v řadě: prázdné úzké, plné podle počtu dílů (--rp-sablona), karty v plném sloupci v mřížce */
+@media (min-width: 1400px) {
+  .rp-sloupce { grid-template-columns: var(--rp-sablona, repeat(6, minmax(0, 1fr))); }
+  .rp-sloupec .rp-dily { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; align-items: start; }
+}
 
 /* Zápasy: tři týmy vedle sebe */
 .rp-zapasy { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
@@ -74,3 +98,21 @@
 .rp-napad p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted); flex: 1; }
 .rp-napad__akce { display: flex; align-items: center; gap: 6px; justify-content: flex-end; margin-top: 4px; }
 .rp-napad__akce .tag { margin-right: auto; }
+
+/* ================================================================ barvy (16. 11., varianta B z Iris – app.css sekce „barvy“)
+   Karty dílů a řádek Na řadě podbarvené barvou Reelů (--o), sloupce jen jemně. Tým = stálá barva (--t-*, [data-tym]): štítek,
+   proužek vlevo na kartě dílu, karta týmu v Zápasech. Stavy dílu: V plánu šedá · Nachystáno žlutá (chybí dodělat) · Dráhy hotové
+   modrá (vlastní) · Reel hotový limetková · Naplánováno fialová (čeká) · Vyvěšeno zelená (hotovo). Zápasy: Na IG hotovo, Chybí
+   důležité (korálová), Bez záznamu šedá, Nedávat šedá přeškrtnutá. */
+:root { --rp-drahy: #1f6aa5; }
+@media (prefers-color-scheme: dark) { :root:not([data-motiv="svetly"]) { --rp-drahy: #6cc3ef; } }
+:root[data-motiv="tmavy"] { --rp-drahy: #6cc3ef; }
+.rp-dil:not(.rp-dil--vyveseno), .rp-narade { background: color-mix(in srgb, var(--o) var(--v-karta), var(--surface)); border-color: color-mix(in srgb, var(--o) var(--v-okraj), var(--line)); }
+.rp-dil--chyba { border-color: var(--danger); }
+.rp-dil[data-tym] { box-shadow: inset 3px 0 0 var(--t), var(--shadow); }
+.rp-vlna, .rp-sloupec { background: color-mix(in srgb, var(--o) var(--v-cteni), var(--bg-soft)); }
+.rp-stav.tag--fialova { background: color-mix(in srgb, var(--rp-drahy) var(--v-stitek), var(--surface)); color: color-mix(in srgb, var(--rp-drahy) 85%, var(--text)); }
+.rp-bilance__pol--chybi b { color: var(--s-dulezite); }
+.rp-bilance__pol--ok b { color: var(--s-hotovo); }
+.rp-zapasy__tym[data-tym]:not([data-tym="mimo"]) { --o: var(--t); }
+.tag[data-ig="nedavat"] { text-decoration: line-through; text-decoration-thickness: 1px; }

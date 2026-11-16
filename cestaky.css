@@ -52,7 +52,7 @@
 .ce-souhrn__tab thead th { border-top: 0; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .ce-souhrn__tab th[scope="row"], .ce-souhrn__tab thead th:first-child { text-align: left; padding-left: 16px; font-weight: 650; }
 .ce-souhrn__tab td:last-child, .ce-souhrn__tab th:last-child { padding-right: 16px; }
-.ce-souhrn__celkem th, .ce-souhrn__celkem td { font-weight: 700; background: var(--bg-soft); }
+.ce-souhrn__celkem th, .ce-souhrn__celkem td { font-weight: 700; background: color-mix(in srgb, var(--o) 12%, var(--surface)); }
 .ce-mob { display: none; }
 @media (max-width: 759px) {
   .ce-pc { display: none; }
@@ -68,7 +68,10 @@
 .ce-zapasy { list-style: none; margin: 0; padding: 0; }
 .ce-zapas { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "info kc" "ovl ovl"; gap: 8px 12px; align-items: start;
   padding: 11px 16px 12px; border-top: 1px solid var(--line-soft); }
-.ce-zapas--bus { background: color-mix(in srgb, var(--fialova) 5%, var(--surface)); }
+/* bus modře (doprava / počasí), tým zápasu proužkem vlevo v barvě týmu (barvy 16. 11.) */
+.ce-zapas--bus { background: color-mix(in srgb, var(--o-pocasi) 8%, transparent); }
+.ce-zapas--bus .ce-zapas__kc small { color: color-mix(in srgb, var(--o-pocasi) 70%, var(--text)); font-weight: 650; }
+.ce-bus input:checked + span { background: var(--o-pocasi); }
 .ce-zapas__info { grid-area: info; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .ce-zapas__nahore { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
 .ce-zapas__souper { font-size: 14.5px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
@@ -90,3 +93,17 @@
 
 .ce-pata { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .ce-pata:empty { display: none; }
+
+/* týmy – stálé barvy (--t-*, app.css „barvy“): filtr týmu, štítek a proužek zápasu. Štítek nese název týmu v title (js/cestaky.js tymTag). */
+[data-ce-filtr="A"], .ce-tym[title="Áčko"], .ce-tym[title="A-tým"] { --t: var(--t-a); }
+[data-ce-filtr="B"], .ce-tym[title="B-tým"], .ce-tym[title="Benfika"] { --t: var(--t-b); }
+[data-ce-filtr="D"], .ce-tym[title="Dorost"] { --t: var(--t-dorost); }
+[data-ce-filtr^="Z"], .ce-tym[title^="Žác"], .ce-tym[title^="Žák"] { --t: var(--t-zaci); }
+main .chip[data-ce-filtr]:not([data-ce-filtr="vse"])::before { content: ""; width: 9px; height: 9px; border-radius: 3px; background: var(--t, var(--stranka)); }
+main .chip[data-ce-filtr]:not([data-ce-filtr="vse"])[aria-pressed="true"] { background: var(--t); border-color: var(--t); }
+main .chip[data-ce-filtr]:not([data-ce-filtr="vse"])[aria-pressed="true"]::before { background: var(--na-barve); }
+.ce-tym.tag { background: color-mix(in srgb, var(--t, var(--stranka)) var(--v-stitek), var(--surface)); color: color-mix(in srgb, var(--t, var(--stranka)) 80%, var(--text)); }
+.ce-zapas:has(.ce-tym[title]) { box-shadow: inset 3px 0 0 var(--t-zapas, transparent); }
+.ce-zapas:has(.ce-tym[title="Áčko"]), .ce-zapas:has(.ce-tym[title="A-tým"]) { --t-zapas: var(--t-a); }
+.ce-zapas:has(.ce-tym[title="B-tým"]), .ce-zapas:has(.ce-tym[title="Benfika"]) { --t-zapas: var(--t-b); }
+.ce-zapas:has(.ce-tym[title="Dorost"]) { --t-zapas: var(--t-dorost); }

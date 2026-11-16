@@ -1,7 +1,7 @@
 // Reely → záložky Plán · Zápasy · Nápady (Michal 16. 11.: „plán, seznam zápasů a tok reelů mít v Asistentovi na jednom místě“).
 // Data z motoru (akce reelyPlan – REELY/plan.json, zapasy_audit.json, vyroba.json z domácího PC a plan_moje.json s Michalovými změnami),
 // čisté funkce v js/reely_plan.js. Modul načte reely.js až na záložce (jako Cesťáky); klepnutí si obsluhuje sám (atributy data-rp-…).
-// Plán na široké obrazovce = sloupce podle stavu dílu, na telefonu jeden seznam podle termínu se štítkem stavu a filtrem.
+// Plán na široké obrazovce = Po vlnách (výchozí, sloupec = vlna) nebo Podle stavu, nad tím řádek Na řadě; na telefonu jeden seznam podle termínu se štítkem stavu a filtrem.
 
 import { volej, jeDemo } from './api.js';
 import { zmeneno } from './stav.js';
@@ -18,7 +18,8 @@ const ZNOVU_PO_CHYBE = 60000;
 const ulozeno = uloziste.cti(ULOZISTE);
 const volby = uloziste.cti(VOLBY) || {};
 const c = { data: (ulozeno && ulozeno.data) || null, kdy: (ulozeno && ulozeno.kdy) || 0, nacita: false, chyba: null, chybaKdy: 0,
-  bezi: 0, filtr: volby.filtr || 'aktivni' };
+  bezi: 0, filtr: volby.filtr || 'aktivni', pohled: volby.pohled === 'stav' ? 'stav' : 'vlny', vlnaMob: volby.vlna || 'vse' };
+const ulozVolby = () => uloziste.pis(VOLBY, { filtr: c.filtr, pohled: c.pohled, vlna: c.vlnaMob });
 
 const posledni = new WeakMap();
 function nastav(el, html) {
@@ -56,7 +57,7 @@ const dil = (id) => ((c.data && c.data.dily) || []).find((d) => d.id === id);
 const TON = { plan: 'seda', nachystano: 'warn', drahy: 'fialova', reel: 'limetka', naplanovano: 'plan', vyveseno: 'ok' };
 const TON_IG = { na_ig: 'ok', chybi: 'danger', bez_zaznamu: 'seda', nedavat: 'seda', neznamy: 'seda' };
 const stitekStavu = (s) => '<span class="tag tag--' + TON[s] + ' rp-stav">' + RP.NAZVY_STAVU[s] + '</span>';
-const tymTag = (t) => (t ? '<span class="tag tag--seda rp-tym">' + esc(RP.NAZVY_TYMU[t] || t) + '</span>' : '');
+const tymTag = (t) => (t ? '<span class="tag tag--seda rp-tym" data-tym="' + esc(t) + '">' + esc(RP.NAZVY_TYMU[t] || t) + '</span>' : '');
 
 function bilanceHtml(d) {
   const b = d.bilance;
@@ -92,11 +93,19 @@ function tlacitka(d) {
   }).join('');
 }
 
+/** Hlavní tlačítko podle stavu (řádek Na řadě) – první z akcí dílu kromě termínu a poznámky. */
+function hlavniTlacitko(d) {
+  const h = document.createElement('div');
+  h.innerHTML = tlacitka(d);
+  const b = Array.from(h.children).find((x) => !x.matches('[data-rp-termin], [data-rp-poznamka]'));
+  return b ? b.outerHTML : '';
+}
+
 function kartaDilu(d, seStavem) {
   const v = vlna(d.vlna);
   const drahy = RP.drahyText(d);
   const posunuto = d.terminPlan !== undefined && d.terminPlan !== d.termin;
-  return '<li class="rp-dil rp-dil--' + d.stav + (d.chybaIg ? ' rp-dil--chyba' : '') + '" data-rp-dil="' + esc(d.id) + '">' +
+  return '<li class="rp-dil rp-dil--' + d.stav + (d.chybaIg ? ' rp-dil--chyba' : '') + '" data-rp-dil="' + esc(d.id) + '"' + (d.tym ? ' data-tym="' + esc(d.tym) + '"' : '') + '>' +
     '<div class="rp-dil__hlava"><b class="rp-dil__kdy cisla">' + esc(RP.denADatum(d.termin)) + (d.termin && d.cas && d.cas !== '17:00' ? ' ' + esc(d.cas) : '') + '</b>' +
       (posunuto ? '<span class="tag tag--warn" title="V plánu ' + esc(RP.denADatum(d.terminPlan)) + '">posunuto</span>' : '') +
       (seStavem ? stitekStavu(d.stav) : '') + '</div>' +
@@ -111,18 +120,41 @@ function kartaDilu(d, seStavem) {
     '<div class="rp-dil__akce">' + tlacitka(d) + '</div></li>';
 }
 
-function planHtml(d) {
+/** PC Po vlnách (výchozí): sloupec = vlna (auto-fit ≥ 300 px), stav jako štítek na kartě, vyvěšené ztlumené. */
+function poVlnachHtml(d) {
+  return '<div class="rp-vlny">' + RP.vlnySloupce(d.dily, d.vlny).map((s) => '<section class="rp-vlna"><div class="rp-vlna__hlava">' +
+    '<b>' + esc(s.nazev) + '</b><span class="rp-vlna__info cisla">' + esc(RP.rozsah(s.od, s.do)) + ' · venku ' + s.venku + ' / ' + s.celkem + '</span></div>' +
+    '<ul class="rp-dily">' + s.dily.map((x) => kartaDilu(x, true)).join('') + '</ul></section>').join('') + '</div>';
+}
+
+/** PC Podle stavu: prázdné sloupce úzké (jen hlavička s nulou), plné se dělí o místo podle počtu dílů a karty v nich jdou do mřížky. */
+function podleStavuHtml(d) {
   const sloupce = RP.sloupce(d.dily);
-  // PC: sloupce podle stavu (prázdný sloupec zůstane, ať je vidět tok); telefon: jeden seznam s filtrem
-  const pc = '<div class="rp-sloupce">' + sloupce.map((s) => '<section class="rp-sloupec rp-sloupec--' + s.stav + '"><div class="rp-sloupec__hlava">' +
-    stitekStavu(s.stav) + '<span class="pocet cisla">' + s.dily.length + '</span></div>' +
-    (s.dily.length ? '<ul class="rp-dily">' + s.dily.map((x) => kartaDilu(x, false)).join('') + '</ul>' : '<div class="rp-prazdny">–</div>') + '</section>').join('') + '</div>';
+  const sablona = sloupce.map((s) => (s.dily.length ? 'minmax(260px, ' + Math.min(4, Math.ceil(s.dily.length / 3)) + 'fr)' : '132px')).join(' ');
+  return '<div class="rp-sloupce" style="--rp-sablona: ' + sablona + '">' + sloupce.map((s) => '<section class="rp-sloupec rp-sloupec--' + s.stav +
+    (s.dily.length ? '' : ' rp-sloupec--prazdny') + '"><div class="rp-sloupec__hlava">' + stitekStavu(s.stav) + '<span class="pocet cisla">' + s.dily.length + '</span></div>' +
+    (s.dily.length ? '<ul class="rp-dily">' + s.dily.map((x) => kartaDilu(x, false)).join('') + '</ul>' : '') + '</section>').join('') + '</div>';
+}
+
+function naRadeHtml(d) {
+  const x = RP.naRade(d.dily);
+  if (!x) return '';
+  return '<div class="rp-narade"><span class="rp-narade__label">Na řadě</span><b class="cisla">' + esc(RP.denADatum(x.termin)) + '</b>' +
+    '<span class="rp-narade__nazev">' + esc(x.nazev) + '</span>' + stitekStavu(x.stav) + '<span class="rp-narade__akce">' + hlavniTlacitko(x) + '</span></div>';
+}
+
+function planHtml(d) {
+  // PC: Po vlnách / Podle stavu (volba se pamatuje); telefon: jeden seznam podle termínu s filtrem stavu a vlny
+  const pc = '<div class="rp-pc">' + naRadeHtml(d) + (c.pohled === 'stav' ? podleStavuHtml(d) : poVlnachHtml(d)) + '</div>';
   const filtry = [['aktivni', 'Rozpracované'], ['vse', 'Vše']].concat(RP.STAVY.map((s) => [s, RP.NAZVY_STAVU[s]]))
     .map((x) => x.concat([RP.filtruj(d.dily, { stav: x[0] }).length])).filter((x) => x[2] || x[0] === c.filtr || x[0] === 'aktivni');
-  const seznam = RP.serad(RP.filtruj(d.dily, { stav: c.filtr }));
-  const mob = '<div class="rp-mobil">' + '<div class="rp-filtr">' + segment(filtry, c.filtr, 'data-rp-filtr', 'Které díly ukázat') + '</div>' +
+  const vlnaMob = c.vlnaMob === 'vse' || d.vlny.some((v) => v.id === c.vlnaMob) ? c.vlnaMob : 'vse';
+  const seznam = RP.serad(RP.filtruj(d.dily, { stav: c.filtr, vlna: vlnaMob }));
+  const mob = '<div class="rp-mobil">' + '<div class="rp-filtr">' + segment(filtry, c.filtr, 'data-rp-filtr', 'Které díly ukázat') +
+    segment([['vse', 'Všechny vlny']].concat(d.vlny.map((v) => [v.id, v.nazev.split(' · ')[0]])), vlnaMob, 'data-rp-vlna', 'Vlna') + '</div>' +
     (seznam.length ? '<ul class="rp-dily">' + seznam.map((x) => kartaDilu(x, true)).join('') + '</ul>' : '<div class="prazdne">Nic tu není.</div>') + '</div>';
-  const lista = '<div class="rp-lista"><button type="button" class="btn btn--ghost btn--sm" data-rp-posun-vlnu>' + IKONY.cas + '<span>Posunout vlnu</span></button>' +
+  const lista = '<div class="rp-lista"><span class="rp-pohled">' + segment([['vlny', 'Po vlnách'], ['stav', 'Podle stavu']], c.pohled, 'data-rp-pohled', 'Pohled plánu') + '</span>' +
+    '<button type="button" class="btn btn--ghost btn--sm" data-rp-posun-vlnu>' + IKONY.cas + '<span>Posunout vlnu</span></button>' +
     '<button type="button" class="btn btn--ghost btn--sm" data-rp-novy>' + IKONY.plus + '<span>Nový díl</span></button></div>';
   return lista + pc + mob;
 }
@@ -136,13 +168,13 @@ function zapasHtml(z, d) {
     '<span class="rp-zapas__datum cisla">' + esc(RP.denADatum(z.datum)) + '</span>' +
     '<span class="rp-zapas__tym"><b>' + esc(z.domaci) + ' – ' + esc(z.hoste) + '</b>' + (strelci ? '<small>' + esc(strelci) + '</small>' : z.poznamka ? '<small>' + esc(z.poznamka) + '</small>' : '') + '</span>' +
     '<span class="rp-zapas__skore cisla">' + esc(z.skore || '–') + '</span>' +
-    '<span class="rp-zapas__stav"><span class="tag tag--' + TON_IG[z.stavIg] + '">' + esc(RP.stitekZapasu(z)) + '</span>' + odkaz + '</span></li>';
+    '<span class="rp-zapas__stav"><span class="tag tag--' + TON_IG[z.stavIg] + '" data-ig="' + esc(z.stavIg) + '">' + esc(RP.stitekZapasu(z)) + '</span>' + odkaz + '</span></li>';
 }
 
 function zapasyHtml(d) {
   return '<div class="rp-zapasy">' + RP.zapasySloupce(d.zapasy, d.mimo).map((s) => {
     const naIg = s.zapasy.filter((z) => z.stavIg === 'na_ig').length;
-    return '<section class="card rp-zapasy__tym"><div class="card-hlava"><span class="nadpis">' + IKONY.zapas + '<span>' + esc(s.nazev) + '</span></span>' +
+    return '<section class="card rp-zapasy__tym" data-tym="' + esc(s.tym) + '"><div class="card-hlava"><span class="nadpis">' + IKONY.zapas + '<span>' + esc(s.nazev) + '</span></span>' +
       '<span class="vpravo"><span class="napoveda cisla">' + s.zapasy.length + ' · na IG ' + naIg + '</span></span></div>' +
       '<ul class="rp-zapasy__seznam">' + s.zapasy.map((z) => zapasHtml(z, d)).join('') + '</ul></section>';
   }).join('') + '</div>';
@@ -237,11 +269,13 @@ async function novyNapad() {
 }
 
 document.addEventListener('click', (e) => {
-  const el = e.target.closest && e.target.closest('[data-rp-filtr], [data-rp-drahy], [data-rp-udelat], [data-rp-reel], [data-rp-hotovo], [data-rp-termin], ' +
+  const el = e.target.closest && e.target.closest('[data-rp-filtr], [data-rp-pohled], [data-rp-vlna], [data-rp-drahy], [data-rp-udelat], [data-rp-reel], [data-rp-hotovo], [data-rp-termin], ' +
     '[data-rp-poznamka], [data-rp-posun-vlnu], [data-rp-novy], [data-rp-na-dil], [data-rp-napad-novy], [data-rp-napad-smazat], [data-rp-do-planu], [data-rp-znovu]');
   if (!vStrance(el) || !c.data) return;
   const ds = el.dataset;
-  if (ds.rpFiltr) { c.filtr = ds.rpFiltr; uloziste.pis(VOLBY, { filtr: c.filtr }); zmeneno(); return; }
+  if (ds.rpFiltr) { c.filtr = ds.rpFiltr; ulozVolby(); zmeneno(); return; }
+  if (ds.rpPohled) { c.pohled = ds.rpPohled; ulozVolby(); zmeneno(); return; }
+  if (ds.rpVlna) { c.vlnaMob = ds.rpVlna; ulozVolby(); zmeneno(); return; }
   if (ds.rpDrahy) { posli('reelyPlanUlozit', { dil: { id: ds.rpDrahy, zmeny: { drahyHotove: true } } }); return; }
   if (ds.rpUdelat) { posli('reelUdelat', { dil: ds.rpUdelat }, (d) => (d.zalozeno ? 'Claude reel složí na domácím PC' : 'O reel už je požádáno')); return; }
   if (ds.rpReel) { if (otevriReel) otevriReel(ds.rpReel); return; }

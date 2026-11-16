@@ -8506,6 +8506,8 @@ function vychoziVikendTestu() {
     planMojeTest = RP.moje(null, PLAN_TEST);
     const chyby = [];
     const sloupcu = (page, sel) => page.$eval(sel, (e) => getComputedStyle(e).gridTemplateColumns.split(' ').filter((x) => parseFloat(x) > 0).length);
+    // nejužší sloupec s díly (prázdné sloupce v pohledu Podle stavu jsou záměrně úzké)
+    const nejuzsi = (page, sel) => page.$$eval(sel, (s) => Math.min(...s.filter((x) => x.querySelector('.rp-dil')).map((x) => Math.round(x.getBoundingClientRect().width))));
     for (const v of [{ sirka: 1920, vyska: 1080 }, { sirka: 2560, vyska: 1300 }]) {
       planMojeTest = RP.moje(null, PLAN_TEST); // každá šířka od začátku
       const { ctx, page, chybyStranky } = await novaStranka(prohlizec, { nazev: 'pc', sirka: v.sirka, vyska: v.vyska, dotyk: false }, 'dark');
@@ -8514,13 +8516,27 @@ function vychoziVikendTestu() {
         await page.click('#rail [data-cil="reely"]');
         await page.waitForSelector('#p-reely [data-reely-zalozka="reely"][aria-pressed="true"]');
         await page.click('#p-reely [data-reely-zalozka="plan"]');
+        // výchozí pohled Po vlnách: sloupec = vlna, stav jako štítek na kartě, nad tím Na řadě
+        await page.waitForSelector('#p-reely .rp-vlny .rp-dil');
+        jistota(await page.getAttribute('#p-reely [data-rp-pohled="vlny"]', 'aria-pressed') === 'true', 'výchozí pohled Po vlnách');
+        jistota(await sloupcu(page, '#p-reely .rp-vlny') === RP.vlnySloupce(planTestu().dily, PLAN_TEST.vlny).length, v.sirka + ': sloupec na vlnu');
+        jistota(await page.locator('#p-reely .rp-vlny .rp-dil .rp-stav').count() === await page.locator('#p-reely .rp-vlny .rp-dil').count(), 'štítek stavu na každé kartě');
+        jistota(/Na řadě/.test(await page.textContent('#p-reely .rp-narade')) && await page.locator('#p-reely .rp-narade [data-rp-dil], #p-reely .rp-narade .btn, #p-reely .rp-narade .tag').count() > 0, 'řádek Na řadě');
+        let m = await page.evaluate(MER_STRANKY);
+        let uz = await nejuzsi(page, '#p-reely .rp-vlna');
+        if (m.vyuziti < 80 || m.pretok > 0 || m.preroste.length || uz < 240) chyby.push(v.sirka + ' Po vlnách: ' + JSON.stringify(m) + ' nejužší ' + uz);
+        if (v.sirka === 1920) await page.screenshot({ path: path.join(VYSTUP, 'pc_reely_plan_vlny.png'), fullPage: true });
+        // Podle stavu
+        await page.click('#p-reely [data-rp-pohled="stav"]');
         await page.waitForSelector('#p-reely .rp-sloupce .rp-dil');
         jistota(await sloupcu(page, '#p-reely .rp-sloupce') === 6, v.sirka + ': Plán má 6 sloupců');
         const stav = await page.$$eval('#p-reely .rp-sloupec', (s) => s.map((x) => x.querySelectorAll('.rp-dil').length).join(','));
         const ocek = RP.sloupce(planTestu().dily).map((s) => s.dily.length).join(',');
         jistota(stav === ocek && /^\d+,1,1,1,0,1$/.test(stav), v.sirka + ' díly ve sloupcích (plán, nachystáno, dráhy, reel, naplánováno, vyvěšeno): ' + stav + ' / ' + ocek);
-        let m = await page.evaluate(MER_STRANKY);
-        if (m.vyuziti < 80 || m.pretok > 0 || m.preroste.length) chyby.push(v.sirka + ' Plán: ' + JSON.stringify(m));
+        m = await page.evaluate(MER_STRANKY);
+        uz = await nejuzsi(page, '#p-reely .rp-sloupec');
+        if (m.vyuziti < 80 || m.pretok > 0 || m.preroste.length || uz < 240) chyby.push(v.sirka + ' Podle stavu: ' + JSON.stringify(m) + ' nejužší ' + uz);
+        jistota(await page.$eval('#p-reely .rp-sloupec--naplanovano', (e) => e.getBoundingClientRect().width) < 160, 'prázdný sloupec je úzký');
         const editor = await page.getAttribute('#p-reely .rp-sloupec--drahy a[href*="editor"]', 'href');
         jistota(editor === 'http://127.0.0.1:8080/editor.html?skupina=Vlna%201%20dorost', 'editor drah se skupinou: ' + editor);
         jistota(/domácím PC/.test(await page.getAttribute('#p-reely .rp-sloupec--drahy a[href*="editor"]', 'title')), 'nápověda „jen na domácím PC“');
@@ -8544,7 +8560,7 @@ function vychoziVikendTestu() {
           await cekej(() => volano.slice(pred).some((x) => x.akce === 'reelyPlanUlozit' && x.posun && x.posun.vlna === 'v1' && x.posun.dni === 7), 3000, 'posun do motoru');
           await page.waitForSelector('#p-reely .rp-sloupce [data-rp-dil="d-plan"] .tag--warn');
           await page.waitForSelector('.okno-pozadi', { state: 'detached' });
-          await page.screenshot({ path: path.join(VYSTUP, 'pc_reely_plan.png'), fullPage: true });
+          await page.screenshot({ path: path.join(VYSTUP, 'pc_reely_plan_stav.png'), fullPage: true });
         }
         // Zápasy: tři týmy vedle sebe
         await page.click('#p-reely [data-reely-zalozka="zapasy"]');
@@ -8584,10 +8600,14 @@ function vychoziVikendTestu() {
       await t.page.click('#p-reely [data-reely-zalozka="plan"]');
       await t.page.waitForSelector('#p-reely .rp-mobil .rp-dil');
       const m = await t.page.evaluate(() => ({ pretok: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-        sloupce: getComputedStyle(document.querySelector('.rp-sloupce')).display, stitku: document.querySelectorAll('.rp-mobil .rp-dil .rp-stav').length,
+        sloupce: getComputedStyle(document.querySelector('.rp-pc')).display, stitku: document.querySelectorAll('.rp-mobil .rp-dil .rp-stav').length,
         dilu: document.querySelectorAll('.rp-mobil .rp-dil').length }));
       jistota(m.pretok <= 0 && m.sloupce === 'none' && m.stitku === m.dilu && m.dilu > 0, 'telefon Plán: ' + JSON.stringify(m));
       await t.page.click('#p-reely [data-rp-filtr="vse"]');
+      const vsech = await t.page.locator('#p-reely .rp-mobil .rp-dil').count();
+      await t.page.click('#p-reely [data-rp-vlna="v2"]');
+      await t.page.waitForFunction((n) => document.querySelectorAll('#p-reely .rp-mobil .rp-dil').length < n, vsech);
+      await t.page.click('#p-reely [data-rp-vlna="vse"]');
       await t.page.screenshot({ path: path.join(VYSTUP, 'telefon_reely_plan.png'), fullPage: true });
       await t.page.click('#p-reely [data-reely-zalozka="zapasy"]');
       await t.page.waitForSelector('#p-reely .rp-zapas');

@@ -105,7 +105,7 @@ export function kartaDnesHtml() {
     '<button type="button" class="sipka" data-cil="fotbal" aria-label="Tabulky a zápasy" title="Tabulky a zápasy">' + IKONY.sipka + '</button>') +
     '<ul class="fotbal-tymy">' + p.map((x) => {
       const v = x.posledni ? vrp(x.posledni) : '';
-      return '<li><b class="fotbal-tym" style="--b:' + esc(x.tym.barva || 'var(--accent)') + '">' + esc(x.tym.nazev) + '</b>' +
+      return '<li><b class="fotbal-tym" data-tym="' + esc(x.tym.klic) + '" style="--b:' + esc(x.tym.barva || 'var(--accent)') + '">' + esc(x.tym.nazev) + '</b>' +
         // vyjetá karta se zápasem (skóre, poločas, střelci, karty – dřív bublina a ještě dřív textový title); pravé tlačítko = nabídka
         (x.posledni ? '<span class="fotbal-vysledek fotbal-vysledek--' + v + '" data-zapas-id="' + esc(x.posledni.id) + '"' + karta('zapas', false, x.posledni.id) +
           ' aria-label="' + esc(x.tym.nazev + ': ' + x.posledni.domaci + ' – ' + x.posledni.hoste + ' ' + x.posledni.vysledek) + '">' +

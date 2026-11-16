@@ -3,13 +3,13 @@
 .tr-hledat { flex: 0 1 300px; }
 .tr-filtry { flex: 1 1 360px; min-width: 0; }
 .tr-mrizka { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 14px; }
-.tr-karta { width: 100%; height: 100%; display: flex; flex-direction: column; text-align: left; padding: 0; border: 1px solid var(--line); border-radius: 16px;
-  background: var(--surface); color: var(--text); overflow: hidden; cursor: pointer; font: inherit; }
+.tr-karta { width: 100%; height: 100%; display: flex; flex-direction: column; text-align: left; padding: 0; border: 1px solid color-mix(in srgb, var(--druh) var(--v-okraj), var(--line)); border-radius: 16px;
+  background: color-mix(in srgb, var(--druh) 6%, var(--surface)); color: var(--text); overflow: hidden; cursor: pointer; font: inherit; }
 .tr-karta:hover { border-color: var(--sand-2); }
 .tr-karta:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.tr-karta__obr { position: relative; display: grid; place-items: center; aspect-ratio: 4 / 3; background: var(--sand); overflow: hidden; }
+.tr-karta__obr { position: relative; display: grid; place-items: center; aspect-ratio: 4 / 3; background: color-mix(in srgb, var(--druh) var(--v-obr), var(--surface)); overflow: hidden; }
 .tr-karta__obr img { width: 100%; height: 100%; object-fit: cover; }
-.tr-karta__obr > i { width: 40px; height: 40px; color: var(--muted); }
+.tr-karta__obr > i { width: 40px; height: 40px; color: color-mix(in srgb, var(--druh) 45%, var(--text)); }
 .tr-karta__obr > i svg { width: 100%; height: 100%; }
 .tr-karta__video { position: absolute; right: 8px; bottom: 8px; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
   background: rgba(16, 20, 18, .72); color: #fff; }
@@ -19,13 +19,61 @@
 .tr-karta__telo b { font-size: 14.5px; line-height: 1.3; font-weight: 650; }
 .tr-karta__telo small { font-size: 12.5px; line-height: 1.4; color: var(--text-soft); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .tr-karta__meta { margin-top: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12px; color: var(--muted); }
-.tr-karta__hvezdy { color: var(--zluta); letter-spacing: 1px; }
-.tr-karta__obl { color: var(--oranz); }
+.tr-karta__hvezdy { color: var(--zluta-text); letter-spacing: 1px; }
+.tr-karta__obl { color: var(--s-dulezite); }
 /* druhy (16. 11.): oddíly pod Vše a Oblíbené, výběr víc karet (lišta jako v Poště), přetažení na čip druhu nebo nadpis oddílu */
 .tr-oddil + .tr-oddil { margin-top: 24px; }
-.tr-oddil__nadpis { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 3px 10px 3px 0; border-radius: 10px; font-size: 15px; font-weight: 700;
+.tr-oddil__nadpis { display: inline-flex; align-items: center; gap: 10px; margin: 0 0 10px; padding: 3px 10px 3px 0; border-radius: 10px; font-size: 15px; font-weight: 700;
   letter-spacing: -.01em; transition: background .12s, padding .12s; }
-.tr-oddil__nadpis .pocet { min-width: 18px; padding: 0 6px; border-radius: 9px; background: var(--sand); color: var(--muted); font-size: 11.5px; font-weight: 650; text-align: center; }
+.tr-oddil__nadpis .pocet { min-width: 18px; padding: 0 6px; border-radius: 9px; background: color-mix(in srgb, var(--druh) var(--v-stitek), var(--surface)); color: var(--text); font-size: 11.5px; font-weight: 650; text-align: center; }
+/* barvy (16. 11., varianta B z Iris): každý druh cviku svou barvou (--druh) – čip filtru, nadpis oddílu, karta, náhled, štítky,
+   okno cviku (podle pole Druh). Stejné odstíny ve světlém i tmavém režimu, text se míchá s barvou textu (≥ 4,5 : 1). */
+.pohled-treninky, .tr-okno { --druh: var(--o-treninky); }
+.tr-oddil:has([data-tr-oddil="rozcvička"]), [data-tr-filtr="rozcvička"] { --druh: #c9a51a; }
+.tr-oddil:has([data-tr-oddil="rychlost a koordinace"]), [data-tr-filtr="rychlost a koordinace"] { --druh: #1b86c4; }
+.tr-oddil:has([data-tr-oddil="technika"]), [data-tr-filtr="technika"] { --druh: #5a64d8; }
+.tr-oddil:has([data-tr-oddil="přihrávky"]), [data-tr-filtr="přihrávky"] { --druh: #2e9a4e; }
+.tr-oddil:has([data-tr-oddil="střelba"]), [data-tr-filtr="střelba"] { --druh: #c0398a; }
+.tr-oddil:has([data-tr-oddil="1 na 1"]), [data-tr-filtr="1 na 1"] { --druh: #cc3b55; }
+.tr-oddil:has([data-tr-oddil="obrana"]), [data-tr-filtr="obrana"] { --druh: #2f68d6; }
+.tr-oddil:has([data-tr-oddil="hra"]), [data-tr-filtr="hra"] { --druh: #12795a; }
+.tr-oddil:has([data-tr-oddil="zahrávání"]), [data-tr-filtr="zahrávání"] { --druh: #7a8a10; }
+.tr-oddil:has([data-tr-oddil="kondice"]), [data-tr-filtr="kondice"] { --druh: #b8800f; }
+.tr-oddil:has([data-tr-oddil="brankáři"]), [data-tr-filtr="brankáři"] { --druh: #0c7f8f; }
+.tr-oddil:has([data-tr-oddil="ostatní"]), [data-tr-filtr="ostatní"] { --druh: #7a817c; }
+/* filtr jednoho druhu (bez oddílů): karty v barvě vybraného druhu */
+.pohled-treninky:has([data-tr-filtr="rozcvička"][aria-pressed="true"]) .tr-mrizka { --druh: #c9a51a; }
+.pohled-treninky:has([data-tr-filtr="rychlost a koordinace"][aria-pressed="true"]) .tr-mrizka { --druh: #1b86c4; }
+.pohled-treninky:has([data-tr-filtr="technika"][aria-pressed="true"]) .tr-mrizka { --druh: #5a64d8; }
+.pohled-treninky:has([data-tr-filtr="přihrávky"][aria-pressed="true"]) .tr-mrizka { --druh: #2e9a4e; }
+.pohled-treninky:has([data-tr-filtr="střelba"][aria-pressed="true"]) .tr-mrizka { --druh: #c0398a; }
+.pohled-treninky:has([data-tr-filtr="1 na 1"][aria-pressed="true"]) .tr-mrizka { --druh: #cc3b55; }
+.pohled-treninky:has([data-tr-filtr="obrana"][aria-pressed="true"]) .tr-mrizka { --druh: #2f68d6; }
+.pohled-treninky:has([data-tr-filtr="hra"][aria-pressed="true"]) .tr-mrizka { --druh: #12795a; }
+.pohled-treninky:has([data-tr-filtr="zahrávání"][aria-pressed="true"]) .tr-mrizka { --druh: #7a8a10; }
+.pohled-treninky:has([data-tr-filtr="kondice"][aria-pressed="true"]) .tr-mrizka { --druh: #b8800f; }
+.pohled-treninky:has([data-tr-filtr="brankáři"][aria-pressed="true"]) .tr-mrizka { --druh: #0c7f8f; }
+.pohled-treninky:has([data-tr-filtr="ostatní"][aria-pressed="true"]) .tr-mrizka { --druh: #7a817c; }
+/* okno cviku: druh podle vybraného v „Druh“ */
+.tr-okno:has(.tr-druh option[value="rozcvička"]:checked) { --druh: #c9a51a; }
+.tr-okno:has(.tr-druh option[value="rychlost a koordinace"]:checked) { --druh: #1b86c4; }
+.tr-okno:has(.tr-druh option[value="technika"]:checked) { --druh: #5a64d8; }
+.tr-okno:has(.tr-druh option[value="přihrávky"]:checked) { --druh: #2e9a4e; }
+.tr-okno:has(.tr-druh option[value="střelba"]:checked) { --druh: #c0398a; }
+.tr-okno:has(.tr-druh option[value="1 na 1"]:checked) { --druh: #cc3b55; }
+.tr-okno:has(.tr-druh option[value="obrana"]:checked) { --druh: #2f68d6; }
+.tr-okno:has(.tr-druh option[value="hra"]:checked) { --druh: #12795a; }
+.tr-okno:has(.tr-druh option[value="zahrávání"]:checked) { --druh: #7a8a10; }
+.tr-okno:has(.tr-druh option[value="kondice"]:checked) { --druh: #b8800f; }
+.tr-okno:has(.tr-druh option[value="brankáři"]:checked) { --druh: #0c7f8f; }
+main .chip[data-tr-filtr]:not([data-tr-filtr="vse"]):not([data-tr-filtr="oblibene"]):not([data-tr-filtr="chci"]):not([data-tr-filtr="skryte"])::before {
+    content: ""; width: 9px; height: 9px; border-radius: 3px; background: var(--druh); }
+main .chip[data-tr-filtr][aria-pressed="true"]:not([data-tr-filtr="vse"]):not([data-tr-filtr="oblibene"]):not([data-tr-filtr="chci"]):not([data-tr-filtr="skryte"]) {
+    background: color-mix(in srgb, var(--druh) 24%, var(--surface)); border-color: var(--druh); color: var(--text); box-shadow: inset 0 0 0 1px var(--druh); }
+main .chip[data-tr-filtr][aria-pressed="true"]:not([data-tr-filtr="vse"]):not([data-tr-filtr="oblibene"]) .pocet { background: var(--druh); color: #fff; }
+.tr-oddil__nadpis::before { content: ''; width: 12px; height: 12px; border-radius: 4px; background: var(--druh); }
+.tr-karta__stitky .tag { background: color-mix(in srgb, var(--druh) var(--v-stitek), var(--surface)); color: color-mix(in srgb, var(--druh) 45%, var(--text)); }
+.tr-okno .tr-stitky .tag--ok { background: color-mix(in srgb, var(--druh) var(--v-stitek), var(--surface)); color: color-mix(in srgb, var(--druh) 45%, var(--text)); }
 .tr-karta--vybrana, .tr-karta--vybrana:hover { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
 #tr-vyber { position: sticky; top: calc(8px + env(safe-area-inset-top)); z-index: 6; } /* lišta výběru se lepí nahoře i při posunu */
 .tr-vyber { margin-bottom: 14px; }
@@ -53,7 +101,7 @@
 .tr-kratce p { margin: 0; }
 .tr-kratce p + p { margin-top: 8px; }
 .tr-fakta { margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
-.tr-fakta div { padding: 9px 12px; border-radius: 12px; background: var(--sand); }
+.tr-fakta div { padding: 9px 12px; border-radius: 12px; background: color-mix(in srgb, var(--druh) 10%, var(--surface)); }
 .tr-fakta dt { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .tr-fakta dd { margin: 2px 0 0; font-size: 14px; font-weight: 600; }
 .tr-sekce h3 { margin: 0 0 8px; font-size: 15px; font-weight: 700; }

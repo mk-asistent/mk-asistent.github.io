@@ -231,7 +231,7 @@ function kartaHtml(r) {
   return '<li class="reel reel--' + kategorie(r) + (vyb ? ' reel--vybrany' : '') + '" data-reel="' + esc(r.id) + '">' +
     '<button type="button" class="reel__vyber" data-reel-vyber="' + esc(r.id) + '"' + (vyb ? ' aria-current="true"' : '') + '>' +
       '<span class="reel__nahled">' + obr + (r.delka ? '<span class="reel__delka cisla">' + delkaText(r.delka) + '</span>' : '') + '</span>' +
-      '<span class="reel__souhrn"><span class="reel__stitky">' + r.tymy.map((k) => '<span class="tag tag--seda">' + esc(nazevTymu(k)) + '</span>').join('') +
+      '<span class="reel__souhrn"><span class="reel__stitky">' + r.tymy.map((k) => '<span class="tag tag--seda" data-tym="' + esc(k) + '">' + esc(nazevTymu(k)) + '</span>').join('') +
         stitekHtml(r, true) + '</span>' +
         '<b class="reel__nazev">' + esc(r.nazev) + '</b>' +
         '<small class="reel__meta">' + esc(meta.join(' · ')) + (upraveny(r) ? ' · upravený popisek' : '') + (r.cekaNaClauda ? ' · Claude píše návrhy' : '') + '</small></span>' +
@@ -379,7 +379,7 @@ function detailReelu(r) {
     r.velikost ? Math.round(r.velikost) + ' MB' : ''].filter(Boolean);
   const telo = '<div class="reel-detail" data-reel-detail="' + esc(r.id) + '">' +
     '<div class="reel-detail__media">' + nahledHtml(r) +
-      '<div class="reel-detail__titul"><div class="reel__stitky">' + r.tymy.map((k) => '<span class="tag tag--seda">' + esc(nazevTymu(k)) + '</span>').join('') +
+      '<div class="reel-detail__titul"><div class="reel__stitky">' + r.tymy.map((k) => '<span class="tag tag--seda" data-tym="' + esc(k) + '">' + esc(nazevTymu(k)) + '</span>').join('') +
         stitekHtml(r) + '</div><h2 class="reel__nazev">' + esc(r.nazev) + '</h2><small class="reel__meta">' + esc(meta.join(' · ')) + '</small></div>' +
       vedlejsiAkceHtml(r) + '</div>' +
     '<div class="reel-detail__obsah">' + prubehHtml(r) + popisekHtml(r) + instagramHtml(r) + '</div></div>';

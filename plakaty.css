@@ -203,10 +203,7 @@
 .plakat .pfoot .txt { font-size: 23px; font-weight: 700; line-height: 1.14; letter-spacing: .03em; margin-top: 9px; }
 
 /* ================================================================ 2) stránka Plakáty (vzhled Asistenta, světlý i tmavý režim) */
-.pohled-plakaty, [data-oblast="plakaty"] { --o: var(--o-fotbal); }
-.rail__btn[data-cil="plakaty"], .menu__btn[data-menu-cil="plakaty"], .lista__btn[data-cil="plakaty"] { --o: var(--o-fotbal); }
-.pohled-plakaty .card { background: color-mix(in srgb, var(--o) 5%, var(--surface)); border-color: color-mix(in srgb, var(--o) 20%, var(--line)); }
-.pohled-plakaty .card-hlava .nadpis { color: color-mix(in srgb, var(--o) 78%, var(--text)); }
+/* barva oblasti (--o-plakaty), podbarvení karet a nadpisy: app.css, sekce „barvy“ (16. 11.) */
 .plakat-tl svg { width: 15px; height: 15px; }
 .fotbal-odkazy-stranek { display: inline-flex; flex-wrap: wrap; gap: 8px; }  /* stránka Fotbal: Reely a Plakát vedle sebe */
 

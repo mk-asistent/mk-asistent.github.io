@@ -176,6 +176,14 @@ test('aplikace: řazení, sloupce, filtr, akce, datum, editor', () => {
   assert.equal(RP.editorOdkaz(PLAN.editor, true, { skupina: 'Vlna 2 dorost' }), 'http://127.0.0.1:9/editor.html?skupina=Vlna%202%20dorost');
   assert.equal(RP.editorOdkaz(PLAN.editor, false, {}, '2030-11-07'), 'http://pc.local:9/editor.html?tyden=2030-11-07');
   assert.equal(RP.kratkyKlub('TJ Sokol Soupeř'), 'Soupeř');
+  const vl = RP.vlnySloupce([{ id: 'a', vlna: 'v2', termin: '2030-12-01', stav: 'plan' }, { id: 'b', vlna: 'v1', termin: '2030-11-20', stav: 'vyveseno' },
+    { id: 'c', vlna: 'v1', termin: '2030-11-27', stav: 'drahy' }, { id: 'd', vlna: '', termin: null, stav: 'plan', vlastni: true }, { id: 'e', vlna: 'v1', termin: '2030-11-21', stav: 'plan', zruseno: true }],
+  [{ id: 'v1', nazev: 'Vlna 1' }, { id: 'v2', nazev: 'Vlna 2' }, { id: 'v3', nazev: 'Prázdná' }]);
+  assert.deepEqual(vl.map((s) => [s.id, s.dily.map((x) => x.id).join(''), s.venku, s.celkem, RP.rozsah(s.od, s.do)]),
+    [['v1', 'bc', 1, 2, '20. 11. – 27. 11.'], ['v2', 'a', 0, 1, '1. 12.'], ['', 'd', 0, 1, 'bez termínu']]);
+  assert.equal(vl[2].nazev, 'Ostatní');
+  assert.equal(RP.naRade([{ id: 'x', termin: null, stav: 'plan' }, { id: 'y', termin: '2030-11-20', stav: 'vyveseno' }, { id: 'z', termin: '2030-11-25', stav: 'drahy' }]).id, 'z');
+  assert.equal(RP.naRade([]), null);
 });
 
 console.log(`\n${n} testů prošlo`);

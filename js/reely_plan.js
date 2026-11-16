@@ -419,6 +419,33 @@ export function sloupce(dily) {
   return STAVY.map(function (s) { return { stav: s, nazev: NAZVY_STAVU[s], dily: zive.filter(function (d) { return d.stav === s; }) }; });
 }
 
+/** Sloupce Plánu po vlnách: [{ id, nazev, dily (podle termínu), od, do, venku, celkem }] v pořadí vln plánu; díly bez vlny
+ *  (vlastní) na konci jako „Ostatní“; vlna bez dílů se vynechá; zrušené pryč. */
+export function vlnySloupce(dily, vlny) {
+  const zive = serad(filtruj(dily, {}));
+  const znam = {};
+  (vlny || []).forEach(function (v) { znam[v.id] = true; });
+  return (vlny || []).concat([{ id: '', nazev: 'Ostatní' }]).map(function (v) {
+    const d = zive.filter(function (x) { return v.id ? x.vlna === v.id : !znam[x.vlna]; });
+    const terminy = d.map(function (x) { return x.termin; }).filter(Boolean);
+    return { id: v.id, nazev: v.nazev, dily: d, od: terminy[0] || null, do: terminy[terminy.length - 1] || null,
+      venku: d.filter(function (x) { return x.stav === 'vyveseno'; }).length, celkem: d.length };
+  }).filter(function (s) { return s.celkem > 0; });
+}
+
+/** Na řadě: nejbližší nevyvěšený a nezrušený díl s termínem (i prošlý – ten je nejnaléhavější), jinak první bez termínu. */
+export function naRade(dily) {
+  const zive = serad(filtruj(dily, { stav: 'aktivni' }));
+  return zive.filter(function (x) { return x.termin; })[0] || zive[0] || null;
+}
+
+/** „18. 11. – 27. 12.“ (krátce, bez dne v týdnu). */
+export function rozsah(od, doo) {
+  const k = function (s) { const d = new Date(s + 'T12:00:00Z'); return d.getUTCDate() + '. ' + (d.getUTCMonth() + 1) + '.'; };
+  if (!od) return 'bez termínu';
+  return od === doo ? k(od) : k(od) + ' – ' + k(doo);
+}
+
 /** „dráhy 2/3“ – null, když díl klipy nemá. */
 export function drahyText(d) {
   const v = d.vyroba;
