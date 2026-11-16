@@ -5253,4 +5253,75 @@ test('Cesťáky: čtení zapasy.json (čištění) + upravy.json, zápis jen odc
   assert.ok(p.volej('info').data.akce.indexOf('cestaky') >= 0 && p.volej('info').data.akce.indexOf('cestakyUlozit') >= 0, 'aplikace podle info.akce ukáže stránku');
 });
 
+test('Reely → Plán: plan.json + audit + výroba + REELY_STAV/REELY_PLAN → díly se stavem, zápasy, bilance; změny do plan_moje.json pod zámkem; posun; Udělej reel = skrytá poznámka _vyr.md jen pro domácí PC', () => {
+  const p = prostredi();
+  assert.strictEqual(p.volej('reelyPlan').ok, false, 'bez plan.json chyba');
+  const re = p.schranka.createFolder('REELY');
+  p.schranka.createFile('FOTBAL.json', JSON.stringify({ zapasy: [
+    { id: 'z1', tym: 'A', zacatek: '2030-11-07T14:00:00+01:00', domaci: 'FK Agro Domov', hoste: 'TJ Sokol Soupeř A', doma: true, vysledek: '3:0' },
+    { id: 'z2', tym: 'dorost', zacatek: '2030-11-01T10:00:00+01:00', domaci: 'FK Agro Domov', hoste: 'SK Soupeř B', doma: true, vysledek: '7:0' },
+    { id: 'z3', tym: 'B', zacatek: '2030-10-01T10:00:00+02:00', domaci: 'FC Soupeř C', hoste: 'Domov B', doma: false, vysledek: '1:2' }],
+  detaily: { z1: { goly: [{ min: 27, hrac: 'Hráč Jedna', strana: 'domaci' }, { min: 50, hrac: 'Cizí Hráč', strana: 'hoste' }] } } }));
+  re.createFile('plan.json', JSON.stringify({ nazev: 'Zimní plán', editor: { pc: 'http://127.0.0.1:9/editor.html', mobil: 'http://pc.local:9/editor.html' },
+    vlny: [{ id: 'v1', nazev: 'Vlna 1' }],
+    dily: [
+      { id: 'a', nazev: 'Áčko – Soupeř A', vlna: 'v1', termin: '2030-11-20', cas: '17:00', format: 'reel', tym: 'A', zapasy: ['z1'], klipu: 3, reel: 'reel_a-tym_soupera' },
+      { id: 'b', nazev: 'Dorost – Soupeř B', vlna: 'v1', termin: '2030-11-24', format: 'reel', tym: 'dorost', zapasy: ['z2'], reel: 'reel_dorost_souperb' },
+      { id: 'c', nazev: 'Benfika venku', vlna: 'v1', termin: '2030-11-10', format: 'reel', zapasy: ['z3'], reel: 'reel_benfika_souperc' },
+      { id: 'd', nazev: 'Čísla', vlna: 'v1', termin: '2030-12-31', format: 'karusel' }],
+    napady: [{ id: 'n1', nazev: 'Nápad 1', popis: 'Hráč 3' }] }));
+  re.createFile('zapasy_audit.json', JSON.stringify({ zapasy: { z1: { veo: 'slug-1', ig: null, stav: 'chybi' }, z2: { stav: 'chybi' }, z3: { ig: '2030-10-02', stav: 'na_ig' } }, mimo: [] }));
+  re.createFile('vyroba.json', JSON.stringify({ dily: {
+    'reel_a-tym_soupera': { datum: '2030-11-07', klipu: 3, drahRucne: 3, deska: true, popisek: true, reel: false },
+    reel_dorost_souperb: { datum: '2030-11-01', klipu: 7, drahRucne: 2 } } }));
+  p.vlastnosti.set('REELY_PLAN', JSON.stringify({ reel_dorost_souperb: { kdy: 1, stav: 'hotovo', jenPribeh: true } }));
+  let d = p.volej('reelyPlan').data;
+  const stav = (x, id) => x.dily.find((y) => y.id === id).stav;
+  assert.deepStrictEqual(['a', 'b', 'c', 'd'].map((id) => stav(d, id)), ['drahy', 'nachystano', 'vyveseno', 'plan'], 'jen příběh se za vyvěšený reel nepočítá');
+  assert.deepStrictEqual(d.bilance, { zapasu: 3, natoceno: 3, naIg: 1, chybi: 2, bezZaznamu: 0, nedavat: 0 });
+  const z1 = d.zapasy.find((z) => z.id === 'z1');
+  assert.deepStrictEqual([z1.domaci, z1.hoste, z1.strelci.length, z1.veo, z1.dily], ['Domov', 'Soupeř A', 1, 'slug-1', ['a']]);
+  assert.strictEqual(d.editor.mobil, 'http://pc.local:9/editor.html');
+  assert.deepStrictEqual(d.napady.map((n) => n.id), ['n1']);
+
+  // změny Michala → plan_moje.json (jen motor)
+  let r = p.volej('reelyPlanUlozit', { dil: { id: 'b', zmeny: { termin: '2030-11-29', drahyHotove: true, poznamka: 'hudba' } } });
+  assert.ok(r.ok, r.chyba);
+  assert.deepStrictEqual([stav(r.data, 'b'), r.data.dily.find((x) => x.id === 'b').termin], ['drahy', '2030-11-29']);
+  const moje = () => JSON.parse(re.soubory.find((f) => f.getName() === 'plan_moje.json').getBlob().getDataAsString());
+  assert.deepStrictEqual(moje().dily.b, { termin: '2030-11-29', poznamka: 'hudba', drahyHotove: true });
+  r = p.volej('reelyPlanUlozit', { posun: { vlna: 'v1', dni: 7 } });
+  assert.deepStrictEqual(['a', 'b', 'c', 'd'].map((id) => r.data.dily.find((x) => x.id === id).termin), ['2030-11-27', '2030-12-06', '2030-11-10', '2031-01-07'], 'vyvěšený díl se neposouvá');
+  r = p.volej('reelyPlanUlozit', { novy: { nazev: 'Z nápadu', napad: 'n1', termin: '2031-01-10' } });
+  assert.deepStrictEqual([r.data.napady.length, r.data.dily.filter((x) => x.vlastni).length], [0, 1]);
+  assert.strictEqual(p.volej('reelyPlanUlozit', { dil: { id: 'a', zmeny: { nazev: 'x' } } }).ok, false, 'název dílu z plánu se nemění');
+  assert.strictEqual(p.volej('reelyPlanUlozit', { pozadano: 'a' }).ok, false, 'pozadano jen přes reelUdelat');
+  assert.strictEqual(p.volej('reelyPlanUlozit', {}).ok, false);
+
+  // Udělej reel: poznámka _vyr.md (skrytá), plny + pc: domaci, podruhé do 30 min nic nového
+  r = p.volej('reelUdelat', { dil: 'a' });
+  assert.ok(r.ok && r.data.zalozeno, r.chyba);
+  const nove = p.schranka.getFoldersByName('NOVE').next();
+  const vyr = nove.soubory.filter((f) => /_vyr\.md$/.test(f.getName()));
+  assert.strictEqual(vyr.length, 1);
+  const text = vyr[0].getBlob().getDataAsString();
+  assert.ok(/typ: reel-vyroba/.test(text) && /pc: domaci/.test(text) && /plny: ano/.test(text) && /reel_a-tym_soupera/.test(text) && /Domov – TJ Sokol Soupeř A 3:0|FK Agro Domov – TJ Sokol Soupeř A 3:0/.test(text), text);
+  assert.ok(r.data.dily.find((x) => x.id === 'a').pozadano > 0);
+  r = p.volej('reelUdelat', { dil: 'a' });
+  assert.ok(r.ok && !r.data.zalozeno, 'druhé klepnutí nic nezaloží');
+  assert.strictEqual(nove.soubory.filter((f) => /_vyr\.md$/.test(f.getName())).length, 1);
+  assert.strictEqual(p.volej('reelUdelat', { dil: 'd' }).ok, false, 'karusel není reel');
+  assert.strictEqual(p.volej('reelUdelat', { dil: 'c' }).ok, false, 'vyvěšený reel znovu ne');
+  assert.ok(vm.runInContext('SKRYTE_POZNAMKY', p.ctx).test(vyr[0].getName()), 'aplikace poznámku neukáže');
+
+  // poškozený plan_moje.json se nepřepíše
+  re.soubory.find((f) => f.getName() === 'plan_moje.json').setContent('{ rozbité');
+  assert.deepStrictEqual(p.volej('reelyPlan').data.chybne, ['plan_moje.json']);
+  assert.strictEqual(p.volej('reelyPlanUlozit', { dil: { id: 'a', zmeny: { termin: null } } }).ok, false);
+  assert.strictEqual(re.soubory.find((f) => f.getName() === 'plan_moje.json').getBlob().getDataAsString(), '{ rozbité');
+  const info = p.volej('info').data.akce;
+  assert.ok(['reelyPlan', 'reelyPlanUlozit', 'reelUdelat'].every((a) => info.indexOf(a) >= 0));
+  assert.ok(vm.runInContext('CTENI_MOTORU', p.ctx).indexOf('reelyPlan') >= 0);
+});
+
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

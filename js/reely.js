@@ -32,7 +32,24 @@ const POPISEK_MAX = 2200;             // Instagram vezme popisek nejvýš 2 200 
 const ULOZIT_PO = 700;                // ms po posledním písmenu (jako popisek plakátu)
 const PRIBEH_VIDEO_S = 60;            // video v příběhu nejvýš 60 s (motor IG_PRIBEH_VIDEO_S)
 const STAVY = ['nevydane', 'zverejnene', 'vse'];
-const OKNO = 'reel-detail';           // okno detailu reelu / příběhu (na PC široké uprostřed, na telefonu přes celou obrazovku)
+const OKNO = 'reel-detail';
+// záložky stránky (Michal 16. 11.): Reely (hotové reely) · Plán · Zápasy · Nápady – plán dělá js/reely_plan_stranka.js (načte se až na záložce)
+const ZALOZKA = 'asistent.reely.zalozka';
+const ZALOZKY = [['reely', 'Reely'], ['plan', 'Plán'], ['zapasy', 'Zápasy'], ['napady', 'Nápady']];
+let zalozka = ZALOZKY.some((z) => z[0] === uloziste.cti(ZALOZKA)) ? uloziste.cti(ZALOZKA) : 'reely';
+const sPlanem = () => umiMotor('reelyPlan');
+const aktivniZalozka = () => (sPlanem() ? zalozka : 'reely');
+const zalozkyHtml = () => (sPlanem() ? '<div class="reely-zalozky">' + segment(ZALOZKY, aktivniZalozka(), 'data-reely-zalozka', 'Část stránky Reely') + '</div>' : '');
+let planModul = null, planSlib = null;
+function vykresliPlan(el) {
+  if (planModul) { planModul.vykresli(el, zalozka, zalozkyHtml()); return; }
+  if (!planSlib) {
+    planSlib = import('./reely_plan_stranka.js')
+      .then((m) => { planModul = m; m.nastavOtevreniReelu((id) => { zalozka = 'reely'; uloziste.pis(ZALOZKA, zalozka); zmeneno(); otevriDetail(id); }); zmeneno(); return m; })
+      .catch(() => { planSlib = null; el.innerHTML = zalozkyHtml() + '<section class="card">' + chybaHtml({ message: 'Plán se nenačetl – zkontroluj připojení.' }) + '</section>'; });
+  }
+  if (!el.querySelector('#rp-obsah')) el.innerHTML = zalozkyHtml() + '<section class="card">' + kostra(4) + '</section>';
+}           // okno detailu reelu / příběhu (na PC široké uprostřed, na telefonu přes celou obrazovku)
 
 function nactiVyber() {
   const v = uloziste.cti(VYBER);
@@ -78,6 +95,8 @@ function hlidejNavrhy() {
 }
 
 function seznam() { return (stav.reely && stav.reely.reely) || []; }
+// reel bez videa (z PC zatím jen popisek – díl se teprve dělá) není k vyvěšení: na stránce i na Dnes jen hotové; rozpracovaný je v Plánu jako Nachystáno
+function hotove() { return seznam().filter((r) => r.video || zverejneno(r) || plan(r)); }
 function zverejneno(r) { return !!(stav.reely && stav.reely.zverejneno && stav.reely.zverejneno[r.id]); }
 function plan(r) { return (stav.reely && stav.reely.plan && stav.reely.plan[r.id]) || null; }
 const naplanovano = (r) => { const p = plan(r); return !!(p && ['ceka', 'nahrava', 'zverejnuji'].indexOf(p.stav) >= 0); };
@@ -124,14 +143,15 @@ function kategorie(r) {
 
 /** Nezveřejněné reely ze zápasů za poslední týden (nejnovější první) – Dnes a odznak v panelu. */
 export function kVyveseni() {
-  return seznam().filter((r) => !zverejneno(r) && !naplanovano(r) && (r.popisek || r.video) && rozdilDni(datumReelu(r)) >= -CERSTVY_DNI);
+  return hotove().filter((r) => !zverejneno(r) && !naplanovano(r) && rozdilDni(datumReelu(r)) >= -CERSTVY_DNI);
 }
 
 export function podnadpis() {
+  if (aktivniZalozka() !== 'reely') return planModul ? planModul.podnadpis() : 'Plán Instagramu';
   if (!stav.reely) return stav.chyby.reely ? 'Reely se nenačetly' : 'Načítám…';
-  const n = seznam().length;
-  const k = seznam().filter((r) => kategorie(r) === 'ceka' || kategorie(r) === 'chyba').length;
-  const pl = seznam().filter((r) => kategorie(r) === 'plan' || kategorie(r) === 'bezi').length +
+  const n = hotove().length;
+  const k = hotove().filter((r) => kategorie(r) === 'ceka' || kategorie(r) === 'chyba').length;
+  const pl = hotove().filter((r) => kategorie(r) === 'plan' || kategorie(r) === 'bezi').length +
     pribehy.seznam().filter((x) => ['plan', 'bezi'].indexOf(pribehy.kategorie(x)) >= 0).length;
   return n ? n + ' ' + tvar(n, 'reel', 'reely', 'reelů') + (k ? ' · ' + k + ' ' + tvar(k, 'čeká', 'čekají', 'čeká') + ' na Instagram' : pl ? '' : ' · všechny zveřejněné') +
     (pl ? ' · ' + pl + ' ' + tvar(pl, 'naplánovaný', 'naplánované', 'naplánovaných') : '') +
@@ -588,7 +608,7 @@ function nadpisTydne(pondeli) {
 
 /** Reely i příběhy z fotek jako položky seznamu: { druh, id, kat, kdy (čas plánu), datum (zápas / nahrání) }. */
 function polozky() {
-  const vse = seznam().filter((r) => !vyber.tym || r.tymy.indexOf(vyber.tym) >= 0).map((r) => {
+  const vse = hotove().filter((r) => !vyber.tym || r.tymy.indexOf(vyber.tym) >= 0).map((r) => {
     const p = plan(r);
     return { druh: 'reel', id: r.id, r, kat: kategorie(r), kdy: p ? Number(p.kdy) || 0 : 0, datum: datumReelu(r) };
   });
@@ -640,7 +660,7 @@ function seznamStranky(vse) {
 
 function strankaHtml() {
   const vse = polozky();
-  const vsechnyReely = seznam();
+  const vsechnyReely = hotove();
   const tymy = [];
   vsechnyReely.forEach((r) => r.tymy.forEach((k) => { if (tymy.indexOf(k) < 0) tymy.push(k); }));
   const nNe = vse.filter(nevydana).length, nZv = vse.length - nNe;
@@ -653,7 +673,7 @@ function strankaHtml() {
       (skupiny.umi() ? '<button type="button" class="btn btn--ghost reely-skupiny" data-ig-skupiny-sprava>' + IKONY.lide + '<span>Skupiny</span>' +
         (nSk ? '<span class="pocet cisla">' + nSk + '</span>' : '') + '</button>' : '') +
       (pribehy.umi() ? '<button type="button" class="btn btn--plan reely-novy" data-pribeh-novy>' + IKONY.foto + '<span>Nový příběh</span></button>' : '') + '</span></div>';
-  let h = '<div class="reely-stranka">' + (vsechnyReely.length || pribehy.seznam().length || pribehy.umi() || skupiny.umi() ? lista : '');
+  let h = '<div class="reely-stranka">' + zalozkyHtml() + (vsechnyReely.length || pribehy.seznam().length || pribehy.umi() || skupiny.umi() ? lista : '');
   if (stav.chyby.reely) h += chybaHtml(stav.chyby.reely, 'data-reely-znovu');
   if (!vsechnyReely.length && !pribehy.seznam().length) {
     h += '<div class="card"><div class="prazdne">Zatím tu žádný reel není. Hotové reely sem posílá domácí PC – po dokončení reelu export ' +
@@ -670,6 +690,8 @@ function strankaHtml() {
 
 let posledniStranka = '';
 export function vykresliReely(el) {
+  if (aktivniZalozka() !== 'reely') { posledniStranka = ''; vykresliPlan(el); return; }
+  if (el.querySelector('#rp-obsah')) el.innerHTML = ''; // návrat ze záložky plánu
   if (!stav.reely) {
     el.innerHTML = '<div class="card">' + (stav.chyby.reely ? chybaHtml(stav.chyby.reely, 'data-reely-znovu') : kostra(3)) + '</div>';
     posledniStranka = '';
@@ -782,6 +804,7 @@ export function klikReely(el) {
   if (el.dataset.reelyFiltr) { nastavVyber({ stav: el.dataset.reelyFiltr }); return true; }
   if (el.dataset.reelyTym != null && el.hasAttribute('data-reely-tym')) { nastavVyber({ tym: el.dataset.reelyTym }); return true; }
   if (el.hasAttribute('data-reely-znovu')) { nactiReely(true); return true; }
+  if (el.dataset.reelyZalozka) { zalozka = el.dataset.reelyZalozka; uloziste.pis(ZALOZKA, zalozka); zmeneno(); return true; }
   return false;
 }
 

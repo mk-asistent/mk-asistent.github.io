@@ -1,0 +1,76 @@
+/* Reely → Plán · Zápasy · Nápady (16. 11.). PC: Plán ve sloupcích podle stavu dílu (6 od 1 400 px, 3 od 900 px), Zápasy tři sloupce
+   podle týmu, Nápady mřížka karet. Telefon: Plán jeden seznam podle termínu se štítkem stavu a filtrem, vše v jednom sloupci. */
+.reely-zalozky { margin-bottom: 2px; }
+.rp-stranka { display: flex; flex-direction: column; gap: 14px; }
+.rp-hlava { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 18px; }
+.rp-bilance { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; font-size: 13px; color: var(--muted); }
+.rp-bilance__pol b { margin-right: 4px; font-size: 16px; font-weight: 700; color: var(--text); }
+.rp-bilance__pol--ok b { color: var(--ok, var(--accent)); }
+.rp-bilance__pol--chybi b { color: var(--oranz); }
+.rp-bilance__oddel { width: 1px; height: 14px; background: var(--line); align-self: center; }
+.rp-lista { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.rp-pata { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.rp-pata:empty { display: none; }
+
+/* karta dílu */
+.rp-dily { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rp-dil { display: flex; flex-direction: column; gap: 5px; padding: 10px 12px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface);
+  box-shadow: var(--shadow); min-width: 0; }
+.rp-dil--vyveseno { background: var(--bg-soft); box-shadow: none; }
+.rp-dil--chyba { border-color: var(--danger); }
+.rp-dil__hlava { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rp-dil__kdy { font-size: 12.5px; font-weight: 700; letter-spacing: .02em; color: var(--muted); text-transform: uppercase; }
+.rp-dil__hlava .rp-stav { margin-left: auto; }
+.rp-dil__nazev { font-size: 14.5px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
+.rp-dil__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; color: var(--muted); }
+.rp-dil__drahy { white-space: nowrap; }
+.rp-dil__drahy + .rp-dil__drahy::before { content: '·'; margin-right: 8px; }
+.rp-dil__vlna { flex-basis: 100%; font-size: 11.5px; }
+.rp-dil__info { font-size: 12.5px; color: var(--muted); }
+.rp-dil__pozn { font-size: 12.5px; line-height: 1.4; padding: 6px 8px; border-radius: 8px; background: var(--bg-soft); white-space: pre-line; overflow-wrap: anywhere; }
+.rp-dil__akce { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
+.rp-dil__akce:empty { display: none; }
+.rp-dil__akce .rp-mala { margin-left: 0; }
+.rp-dil__akce .rp-mala:first-of-type:not(:first-child) { margin-left: auto; }
+.rp-mala.btn--ikona { width: 32px; height: 32px; min-height: 32px; padding: 0; }
+.rp-mala svg { width: 15px; height: 15px; }
+.rp-doma { font-size: 11px; font-weight: 500; color: var(--muted); }
+.rp-ceka { display: inline-flex; align-items: center; gap: 4px; }
+.rp-ceka svg { width: 13px; height: 13px; }
+
+/* Plán: sloupce (PC) / seznam (telefon) */
+.rp-sloupce { display: none; }
+.rp-mobil { display: flex; flex-direction: column; gap: 10px; }
+.rp-filtr .segment { flex-wrap: wrap; }
+@media (min-width: 900px) {
+  .rp-mobil { display: none; }
+  .rp-sloupce { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; }
+  .rp-sloupec { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px; border-radius: var(--radius-lg); background: var(--bg-soft); }
+  .rp-sloupec__hlava { display: flex; align-items: center; gap: 8px; padding: 2px 2px 4px; }
+  .rp-sloupec__hlava .pocet { font-size: 12px; font-weight: 650; color: var(--muted); }
+  .rp-prazdny { padding: 6px 4px 10px; color: var(--muted); font-size: 13px; text-align: center; }
+}
+@media (min-width: 1400px) { .rp-sloupce { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+
+/* Zápasy: tři týmy vedle sebe */
+.rp-zapasy { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
+@media (min-width: 1100px) { .rp-zapasy { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.rp-zapasy__seznam { list-style: none; margin: 0; padding: 0 0 4px; }
+.rp-zapas { display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; grid-template-areas: "datum tym skore" ". stav stav"; gap: 3px 10px;
+  padding: 9px 16px; border-top: 1px solid var(--line-soft); font-size: 13.5px; }
+.rp-zapas__datum { grid-area: datum; color: var(--muted); font-size: 12.5px; padding-top: 1px; white-space: nowrap; }
+.rp-zapas__tym { grid-area: tym; display: flex; flex-direction: column; min-width: 0; }
+.rp-zapas__tym b { font-weight: 650; overflow-wrap: anywhere; }
+.rp-zapas__tym small { color: var(--muted); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+.rp-zapas__skore { grid-area: skore; font-weight: 700; white-space: nowrap; }
+.rp-zapas__stav { grid-area: stav; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.rp-zapas__odkaz { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; }
+.rp-zapas__odkaz svg { width: 11px; height: 11px; }
+
+/* Nápady: mřížka karet */
+.rp-napady { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 12px; }
+.rp-napad { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; }
+.rp-napad b { font-size: 14.5px; font-weight: 650; }
+.rp-napad p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted); flex: 1; }
+.rp-napad__akce { display: flex; align-items: center; gap: 6px; justify-content: flex-end; margin-top: 4px; }
+.rp-napad__akce .tag { margin-right: auto; }

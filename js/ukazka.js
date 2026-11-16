@@ -3,6 +3,7 @@
 
 import { pulnoc, pridejDny } from './pomocne.js';
 import { pouzij as cestakyPouzij } from './cestaky_vypocet.js';
+import * as RP from './reely_plan.js';
 
 const H = 36e5;
 const ted = Date.now();
@@ -660,7 +661,60 @@ const cestakyUkazka = {
 };
 let cestakyStav = { nastaveni: { sazba: 3, auta: 3, pohary: false }, upravy: { 'A-2030-09-01': { auta: 4 } }, kdy: new Date(ted - 2 * H).toISOString() };
 
+// Reely → Plán v ukázce: vymyšlený zimní plán, zápasy a výroba (skutečné jsou jen na Disku v REELY). Termíny kolem dneška.
+const dP = (n) => iso(pridejDny(dnes, n));
+const planZapasy = [];
+const planDetaily = {};
+[['A', 'Áčko'], ['dorost', 'Dorost'], ['B', 'Béčko']].forEach(([tym], t) => {
+  for (let i = 0; i < 6; i++) {
+    const id = 'uk-' + tym + '-' + i;
+    const doma = i % 2 === 0;
+    const nase = (i * 3 + t) % 5, jejich = (i + 2 * t) % 3;
+    planZapasy.push({ id, tym, zacatek: dP(-80 + i * 12 + t) + 'T15:00:00+01:00', domaci: doma ? 'FK Domov' : 'TJ Soupeř ' + 'ABCDEFGHIJKLMNOPQR'[t * 6 + i],
+      hoste: doma ? 'TJ Soupeř ' + 'ABCDEFGHIJKLMNOPQR'[t * 6 + i] : 'FK Domov', doma, vysledek: doma ? nase + ':' + jejich : jejich + ':' + nase });
+    planDetaily[id] = { goly: Array.from({ length: nase }, (_, g) => ({ min: 10 + g * 17, hrac: ['Sokol', 'Beran', 'Kos', 'Vrána', 'Liška', 'Holub', 'Zajíc'][(g + i) % 7] + ' Jan', strana: doma ? 'domaci' : 'hoste' })) };
+  }
+});
+const planAudit = { zapasy: {}, mimo: [{ id: 'mimo_uk_zaci', tym: 'zaci', tymNazev: 'Žáci', datum: dP(-8), domaci: 'Domov', hoste: 'Soupeř Z', stav: 'chybi', poznamka: 'výsledek doplnit' }] };
+planZapasy.forEach((z, i) => {
+  const s = ['na_ig', 'na_ig', 'chybi', 'bez_zaznamu', 'na_ig', 'chybi'][i % 6];
+  planAudit.zapasy[z.id] = { veo: s === 'bez_zaznamu' ? null : 'ukazka', ig: s === 'na_ig' ? iso(pridejDny(Date.parse(z.zacatek), 1)) : null, stav: i === 9 ? 'nedavat' : s };
+});
+const planPlan = RP.plan({
+  nazev: 'Zimní plán (ukázka)', editor: { pc: 'http://127.0.0.1:8080/editor.html', mobil: 'http://127.0.0.1:8080/editor.html' },
+  vlny: [{ id: 'v1', nazev: 'Vlna 1 · Dohráváme podzim' }, { id: 'v2', nazev: 'Vlna 2 · Střelci' }, { id: 'v3', nazev: 'Jaro' }],
+  dily: [
+    { id: 'u1', nazev: 'Áčko – Soupeř C', popis: 'Tři góly, vlastní výhra.', vlna: 'v1', termin: dP(-6), format: 'reel', tym: 'A', zapasy: ['uk-A-2'], klipu: 3, reel: 'reel_a-tym_lysovice' },
+    { id: 'u2', nazev: 'Dorost – Soupeř I', vlna: 'v1', termin: dP(2), format: 'reel', tym: 'dorost', zapasy: ['uk-dorost-2'], klipu: 4, reel: 'reel_dorost_souperi' },
+    { id: 'u3', nazev: 'Béčko – Soupeř P', vlna: 'v1', termin: dP(6), format: 'reel', tym: 'B', zapasy: ['uk-B-5'], klipu: 6, reel: 'reel_benfika_souperp' },
+    { id: 'u4', nazev: 'Áčko – Soupeř F', vlna: 'v1', termin: dP(13), format: 'reel', tym: 'A', zapasy: ['uk-A-5'], klipu: 2, reel: 'reel_a-tym_souperf' },
+    { id: 'u5', nazev: 'Žáci – Soupeř Z', vlna: 'v1', termin: dP(16), format: 'reel', tym: 'zaci', zapasy: ['mimo_uk_zaci'], reel: 'reel_zaci_souperz' },
+    { id: 'u6', nazev: 'Hráč 1: nejlepší střelec', popis: 'Všechny góly podzimu.', vlna: 'v2', termin: dP(20), format: 'reel', reel: 'reel_hrac1' },
+    { id: 'u7', nazev: 'Podzim v číslech', vlna: 'v2', termin: dP(27), format: 'karusel' },
+    { id: 'u8', nazev: 'Gól podzimu – anketa', vlna: 'v2', termin: dP(34), format: 'pribeh' },
+    { id: 'u9', nazev: 'Béčko – Soupeř M', vlna: 'v1', termin: dP(-20), format: 'reel', tym: 'B', zapasy: ['uk-B-0'], reel: 'reel_benfika_nova-lhota' },
+    { id: 'u10', nazev: 'Dorost – Soupeř G', vlna: 'v1', termin: dP(-30), format: 'reel', tym: 'dorost', zapasy: ['uk-dorost-0'], reel: 'reel_dorost_kyjov' },
+    { id: 'u11', nazev: 'Odpočet do jara', vlna: 'v3', termin: null, format: 'karusel' }],
+  napady: [{ id: 'un1', nazev: 'Hattricky podzimu', popis: 'Hráč 1, Hráč 3 a Hráč 5 – každý tři góly v zápase.' },
+    { id: 'un2', nazev: 'Do poslední minuty', popis: 'Góly po 85. minutě, které rozhodly.' },
+    { id: 'un3', nazev: 'Kdo to dá?', popis: 'Video se zastaví před střelou, odpověď do komentářů.' },
+    { id: 'un4', nazev: 'Představení maskota', popis: 'Lehčí díl mezi zápasy.' }]
+});
+let planMoje = RP.moje({ dily: { u4: { poznamka: 'Dát hudbu ze hřiště' } } }, planPlan);
+const planVyroba = { dily: {
+  reel_dorost_souperi: { datum: planZapasy.find((z) => z.id === 'uk-dorost-2').zacatek.slice(0, 10), klipu: 4, drahRucne: 4, deska: true, popisek: true, reel: false },
+  reel_benfika_souperp: { datum: planZapasy.find((z) => z.id === 'uk-B-5').zacatek.slice(0, 10), klipu: 6, drahRucne: 2, deska: true, popisek: false, reel: false },
+  'reel_a-tym_souperf': { datum: planZapasy.find((z) => z.id === 'uk-A-5').zacatek.slice(0, 10), klipu: 2, drahRucne: 0, deska: false, popisek: false, reel: false } } };
+const zdrojePlanu = () => ({ plan: planPlan, moje: planMoje, audit: planAudit, vyroba: planVyroba, fotbal: { zapasy: planZapasy, detaily: planDetaily },
+  reely: reelyUkazka.map(reelUkazky), zverejneno: reelyZverejneno, planIg: reelyPlan });
+const planUkazky = () => kopie(Object.assign(RP.vystup(zdrojePlanu()), { chybne: [], ted: Date.now() }));
+const stavyUkazky = () => { const s = {}; RP.vystup(zdrojePlanu()).dily.forEach((d) => { s[d.id] = d.stav; }); return s; };
+
 const akce = {
+  // Reely → Plán, Zápasy, Nápady: stejné jádro jako motor (js/reely_plan.js), změny jen v paměti ukázky
+  reelyPlan: () => planUkazky(),
+  reelyPlanUlozit: (d) => { planMoje = RP.moje(RP.zmen(planPlan, planMoje, d, Date.now(), stavyUkazky()), planPlan); return planUkazky(); },
+  reelUdelat: (d) => { planMoje = RP.moje(RP.zmen(planPlan, planMoje, { pozadano: d.dil }, Date.now()), planPlan); return Object.assign(planUkazky(), { zalozeno: true }); },
   // Cesťáky: úpravy jen v paměti ukázky, stejná pravidla jako motor (cestaky_vypocet.js pouzij)
   cestaky: () => Object.assign(kopie(cestakyUkazka), kopie(cestakyStav), { chybne: [], ted: Date.now() }),
   cestakyUlozit: (d) => {

@@ -6,6 +6,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
+const RP = require('../js/reely_plan.js'); // Reely → Plán: stejné jádro jako motor (PLAN_DILU_)
 
 const KOREN = path.join(__dirname, '..');
 const VYSTUP = path.join(__dirname, 'vystup');
@@ -415,6 +416,10 @@ const motor = {
     autoData.odlozene = vse.filter((y) => y.stav === 'odlozeno');
     return JSON.parse(JSON.stringify(autoData));
   },
+  // Reely → Plán (REELY/plan.json, zapasy_audit.json, vyroba.json, plan_moje.json): jádro js/reely_plan.js jako motor, vymyšlená data
+  reelyPlan: () => planTestu(),
+  reelyPlanUlozit: (d) => { planMojeTest = RP.moje(RP.zmen(PLAN_TEST, planMojeTest, d, Date.now(), stavyPlanuTestu()), PLAN_TEST); return planTestu(); },
+  reelUdelat: (d) => { planMojeTest = RP.moje(RP.zmen(PLAN_TEST, planMojeTest, { pozadano: d.dil }, Date.now()), PLAN_TEST); return Object.assign(planTestu(), { zalozeno: true }); },
   // Cesťáky (CLAUDE_SCHRANKA/CESTAKY): vymyšlené zápasy; ukládá jen odchylky jako motor (null = zrušit, neznámý zápas = chyba)
   cestaky: () => Object.assign(JSON.parse(JSON.stringify(CESTAKY_TEST)), JSON.parse(JSON.stringify(cestakyStavTest)), { chybne: [], ted: Date.now() }),
   cestakyUlozit: (d) => {
@@ -685,6 +690,39 @@ const ZAPASY_PLAKAT = [
 ];
 
 // Knihovna: vymyšlené karty (film s plakátem a sérií, seriál s obrázkem, který nejde načíst, kniha), jedna rešerše
+// Reely → Plán: 3 týmy × 4 zápasy, 8 dílů ve všech stavech kromě „naplánováno“, 3 nápady (vše vymyšlené)
+const PLAN_ZAPASY_TEST = [];
+['A', 'dorost', 'B'].forEach((tym, t) => {
+  for (let i = 0; i < 4; i++) {
+    const doma = i % 2 === 0;
+    PLAN_ZAPASY_TEST.push({ id: 'pz-' + tym + i, tym, zacatek: iso(den(-60 + i * 10 + t)) + 'T15:00:00+01:00', doma, vysledek: '2:1',
+      domaci: doma ? 'FK Domov' : 'TJ Soupeř ' + tym + i, hoste: doma ? 'TJ Soupeř ' + tym + i : 'FK Domov' });
+  }
+});
+const PLAN_DETAILY_TEST = { 'pz-A0': { goly: [{ min: 5, hrac: 'Hráčík Jan', strana: 'domaci' }, { min: 50, hrac: 'Hráčík Jan', strana: 'domaci' }, { min: 70, hrac: 'Cizí Petr', strana: 'hoste' }] } };
+const PLAN_AUDIT_TEST = { zapasy: {}, mimo: [] };
+PLAN_ZAPASY_TEST.forEach((z, i) => { PLAN_AUDIT_TEST.zapasy[z.id] = i % 3 === 0 ? { stav: 'na_ig', ig: z.zacatek.slice(0, 10) } : i % 3 === 1 ? { stav: 'chybi', veo: 'x' } : { stav: 'bez_zaznamu' }; });
+const PLAN_TEST = RP.plan({ nazev: 'Plán testu', editor: { pc: 'http://127.0.0.1:8080/editor.html', mobil: 'http://pc.local:8080/editor.html' },
+  vlny: [{ id: 'v1', nazev: 'Vlna 1' }, { id: 'v2', nazev: 'Vlna 2' }],
+  dily: [
+    { id: 'd-plan', nazev: 'Díl v plánu', vlna: 'v1', termin: iso(den(9)), format: 'reel', tym: 'A', zapasy: ['pz-A1'], reel: 'reel_a-tym_soupera1' },
+    { id: 'd-nach', nazev: 'Díl nachystaný', vlna: 'v1', termin: iso(den(2)), format: 'reel', tym: 'B', zapasy: ['pz-B2'], klipu: 3, reel: 'reel_benfika_souperb1' },
+    { id: 'd-drahy', nazev: 'Díl s drahami', vlna: 'v1', termin: iso(den(5)), format: 'reel', tym: 'dorost', zapasy: ['pz-dorost1'], reel: 'reel_dorost_souperd1', skupina: 'Vlna 1 dorost' },
+    { id: 'd-reel', nazev: 'Díl s reelem', vlna: 'v1', termin: iso(den(1)), format: 'reel', tym: 'dorost', reel: 'reel_dorost_tesany' },
+    { id: 'd-venku', nazev: 'Díl venku', vlna: 'v1', termin: iso(den(-20)), format: 'reel', tym: 'A', zapasy: ['pz-A0'] },
+    { id: 'd-kar', nazev: 'Karusel čísel', vlna: 'v2', termin: iso(den(20)), format: 'karusel' },
+    { id: 'd-bez', nazev: 'Díl bez termínu', vlna: 'v2', termin: null, format: 'reel', reel: 'reel_bez' },
+    { id: 'd-plan2', nazev: 'Druhý díl v plánu', vlna: 'v2', termin: iso(den(27)), format: 'reel', reel: 'reel_druhy' }],
+  napady: [{ id: 'np1', nazev: 'Nápad jedna', popis: 'Popis jedna' }, { id: 'np2', nazev: 'Nápad dva' }, { id: 'np3', nazev: 'Nápad tři' }] });
+let planMojeTest = RP.moje(null, PLAN_TEST);
+const PLAN_VYROBA_TEST = { dily: {
+  reel_benfika_souperb1: { datum: PLAN_ZAPASY_TEST.find((z) => z.id === 'pz-B2').zacatek.slice(0, 10), klipu: 3, drahRucne: 1, deska: true, popisek: true },
+  'Vlna 1 dorost': { klipu: 2, drahRucne: 2 } } };
+const zdrojePlanuTestu = () => ({ plan: PLAN_TEST, moje: planMojeTest, audit: PLAN_AUDIT_TEST, vyroba: PLAN_VYROBA_TEST,
+  fotbal: { zapasy: PLAN_ZAPASY_TEST, detaily: PLAN_DETAILY_TEST }, reely: REELY_TEST.map(reelTestu), zverejneno: Object.assign({}, reelyZverejneno), planIg: {} });
+const planTestu = () => JSON.parse(JSON.stringify(Object.assign(RP.vystup(zdrojePlanuTestu()), { chybne: [], ted: Date.now() })));
+const stavyPlanuTestu = () => { const s = {}; RP.vystup(zdrojePlanuTestu()).dily.forEach((d) => { s[d.id] = d.stav; }); return s; };
+
 // Cesťáky: sazba 2 Kč/km, 2 auta; A1 160 Kč, A2 bus 0 Kč, D1 80 Kč, D2 120 Kč (pohár se nepočítá) = 4 zápasy, 360 Kč
 const CESTAKY_TEST = {
   obdobi: [{ id: 'p1', nazev: 'Podzim 2030', kratce: 'Podz. 30' }, { id: 'j1', nazev: 'Jaro 2031', kratce: 'Jaro 31' }],
@@ -8461,6 +8499,103 @@ function vychoziVikendTestu() {
         if (chybyStranky.length) chyby.push(v.sirka + ' chyby stránky: ' + chybyStranky.join(' | '));
       } finally { await ctx.close(); }
     }
+    jistota(!chyby.length, chyby.join('\n'));
+  });
+
+  await test('Reely → Plán · Zápasy · Nápady: záložky (výchozí Reely, volba se pamatuje), Plán ve sloupcích podle stavu na 1920 a 2560, Dráhy hotové, Udělej reel → reelUdelat, Posunout vlnu, Editor drah se skupinou, Zápasy ve třech sloupcích, nápad Do plánu; telefon jeden seznam bez přetečení', async () => {
+    planMojeTest = RP.moje(null, PLAN_TEST);
+    const chyby = [];
+    const sloupcu = (page, sel) => page.$eval(sel, (e) => getComputedStyle(e).gridTemplateColumns.split(' ').filter((x) => parseFloat(x) > 0).length);
+    for (const v of [{ sirka: 1920, vyska: 1080 }, { sirka: 2560, vyska: 1300 }]) {
+      planMojeTest = RP.moje(null, PLAN_TEST); // každá šířka od začátku
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, { nazev: 'pc', sirka: v.sirka, vyska: v.vyska, dotyk: false }, 'dark');
+      try {
+        await page.goto(WEB);
+        await page.click('#rail [data-cil="reely"]');
+        await page.waitForSelector('#p-reely [data-reely-zalozka="reely"][aria-pressed="true"]');
+        await page.click('#p-reely [data-reely-zalozka="plan"]');
+        await page.waitForSelector('#p-reely .rp-sloupce .rp-dil');
+        jistota(await sloupcu(page, '#p-reely .rp-sloupce') === 6, v.sirka + ': Plán má 6 sloupců');
+        const stav = await page.$$eval('#p-reely .rp-sloupec', (s) => s.map((x) => x.querySelectorAll('.rp-dil').length).join(','));
+        const ocek = RP.sloupce(planTestu().dily).map((s) => s.dily.length).join(',');
+        jistota(stav === ocek && /^\d+,1,1,1,0,1$/.test(stav), v.sirka + ' díly ve sloupcích (plán, nachystáno, dráhy, reel, naplánováno, vyvěšeno): ' + stav + ' / ' + ocek);
+        let m = await page.evaluate(MER_STRANKY);
+        if (m.vyuziti < 80 || m.pretok > 0 || m.preroste.length) chyby.push(v.sirka + ' Plán: ' + JSON.stringify(m));
+        const editor = await page.getAttribute('#p-reely .rp-sloupec--drahy a[href*="editor"]', 'href');
+        jistota(editor === 'http://127.0.0.1:8080/editor.html?skupina=Vlna%201%20dorost', 'editor drah se skupinou: ' + editor);
+        jistota(/domácím PC/.test(await page.getAttribute('#p-reely .rp-sloupec--drahy a[href*="editor"]', 'title')), 'nápověda „jen na domácím PC“');
+        if (v.sirka === 1920) {
+          // Dráhy hotové → díl do sloupce Dráhy hotové
+          let pred = volano.length;
+          await page.click('#p-reely .rp-sloupec--nachystano [data-rp-drahy="d-nach"]');
+          await page.waitForSelector('#p-reely .rp-sloupec--drahy [data-rp-dil="d-nach"]');
+          jistota(volano.slice(pred).some((x) => x.akce === 'reelyPlanUlozit' && x.dil && x.dil.zmeny.drahyHotove === true), 'drahyHotove do motoru');
+          // Udělej reel → reelUdelat, „Reel skládá Claude“
+          pred = volano.length;
+          await page.click('#p-reely .rp-sloupce [data-rp-udelat="d-drahy"]');
+          await page.waitForSelector('#p-reely .rp-sloupce [data-rp-dil="d-drahy"] .rp-ceka');
+          jistota(volano.slice(pred).some((x) => x.akce === 'reelUdelat' && x.dil === 'd-drahy'), 'reelUdelat do motoru');
+          // Posunout vlnu o týden
+          pred = volano.length;
+          await page.click('#p-reely [data-rp-posun-vlnu]');
+          await page.click('.okno [data-okno-volba="v1"]');
+          await page.waitForTimeout(300);
+          await page.click('.okno [data-okno-volba="7"]');
+          await cekej(() => volano.slice(pred).some((x) => x.akce === 'reelyPlanUlozit' && x.posun && x.posun.vlna === 'v1' && x.posun.dni === 7), 3000, 'posun do motoru');
+          await page.waitForSelector('#p-reely .rp-sloupce [data-rp-dil="d-plan"] .tag--warn');
+          await page.waitForSelector('.okno-pozadi', { state: 'detached' });
+          await page.screenshot({ path: path.join(VYSTUP, 'pc_reely_plan.png'), fullPage: true });
+        }
+        // Zápasy: tři týmy vedle sebe
+        await page.click('#p-reely [data-reely-zalozka="zapasy"]');
+        await page.waitForSelector('#p-reely .rp-zapas');
+        jistota(await sloupcu(page, '#p-reely .rp-zapasy') === 3, v.sirka + ': Zápasy ve třech sloupcích');
+        jistota(/Hráčík 2×/.test(await page.textContent('#p-reely .rp-zapasy')), 'střelci u zápasu');
+        m = await page.evaluate(MER_STRANKY);
+        if (m.vyuziti < 80 || m.pretok > 0 || m.preroste.length) chyby.push(v.sirka + ' Zápasy: ' + JSON.stringify(m));
+        if (v.sirka === 1920) {
+          await page.screenshot({ path: path.join(VYSTUP, 'pc_reely_zapasy.png'), fullPage: true });
+          // Nápady: Do plánu bez termínu → nápad zmizí, díl přibude
+          await page.click('#p-reely [data-reely-zalozka="napady"]');
+          await page.waitForSelector('#p-reely .rp-napad');
+          const n = await page.locator('#p-reely .rp-napad').count();
+          await page.click('#p-reely [data-rp-do-planu="np1"]');
+          await page.click('.okno [data-okno-volba="bez"]');
+          await page.waitForFunction((x) => document.querySelectorAll('#p-reely .rp-napad').length === x - 1, n);
+          jistota(planMojeTest.vlastni.some((d) => d.napad === 'np1' && d.termin === null), 'vlastní díl z nápadu');
+          // volba záložky se pamatuje
+          jistota(await page.evaluate(() => localStorage.getItem('asistent.reely.zalozka')) === '"napady"', 'volba záložky uložená');
+          await page.reload();
+          await page.waitForSelector('#rail [data-cil="reely"]');
+          await page.waitForTimeout(500);
+          if (await page.locator('.okno-pozadi').count()) await page.keyboard.press('Escape'); // „Co je nového“ po novém načtení
+          await page.waitForSelector('.okno-pozadi', { state: 'detached' });
+          await page.click('#rail [data-cil="reely"]');
+          await page.waitForSelector('#p-reely [data-reely-zalozka="napady"][aria-pressed="true"]');
+        }
+        if (chybyStranky.length) chyby.push(v.sirka + ' chyby stránky: ' + chybyStranky.join(' | '));
+      } finally { await ctx.close(); }
+    }
+    const t = await novaStranka(prohlizec, VELIKOSTI[0]);
+    try {
+      await t.page.goto(WEB);
+      await t.page.click('.hlava-ja [data-menu]');
+      await t.page.click('[data-panel="menu"] [data-menu-cil="reely"]');
+      await t.page.click('#p-reely [data-reely-zalozka="plan"]');
+      await t.page.waitForSelector('#p-reely .rp-mobil .rp-dil');
+      const m = await t.page.evaluate(() => ({ pretok: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        sloupce: getComputedStyle(document.querySelector('.rp-sloupce')).display, stitku: document.querySelectorAll('.rp-mobil .rp-dil .rp-stav').length,
+        dilu: document.querySelectorAll('.rp-mobil .rp-dil').length }));
+      jistota(m.pretok <= 0 && m.sloupce === 'none' && m.stitku === m.dilu && m.dilu > 0, 'telefon Plán: ' + JSON.stringify(m));
+      await t.page.click('#p-reely [data-rp-filtr="vse"]');
+      await t.page.screenshot({ path: path.join(VYSTUP, 'telefon_reely_plan.png'), fullPage: true });
+      await t.page.click('#p-reely [data-reely-zalozka="zapasy"]');
+      await t.page.waitForSelector('#p-reely .rp-zapas');
+      const z = await t.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      jistota(z <= 0, 'telefon Zápasy přetékají o ' + z + ' px');
+      await t.page.screenshot({ path: path.join(VYSTUP, 'telefon_reely_zapasy.png'), fullPage: true });
+      if (t.chybyStranky.length) chyby.push('telefon chyby stránky: ' + t.chybyStranky.join(' | '));
+    } finally { await t.ctx.close(); }
     jistota(!chyby.length, chyby.join('\n'));
   });
 

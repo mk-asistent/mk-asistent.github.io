@@ -319,6 +319,19 @@ výsledek doplní z FOTBAL.json, přidá Michalovy úpravy popisků (`upravy.jso
 a příběhy z fotek; stav „zveřejněno“ drží vlastnost `REELY_STAV` (akce `reelStav`). Exportér píše jen `reely.json`
 a `videa/` – úpravy z aplikace nepřepíše. Do Fotek v iPhonu: aplikace Disk → ⋯ → Poslat kopii → Uložit video.
 
+### Reely – zimní plán (záložky Plán · Zápasy · Nápady, od 16. 11. 2026)
+Stránka Reely má nahoře záložky **Reely** (hotové reely, výchozí) · **Plán** · **Zápasy** · **Nápady**; volba se pamatuje
+(`asistent.reely.zalozka`). Plán = díly zimního seriálu: na PC sloupce podle stavu (V plánu · Nachystáno · Dráhy hotové · Reel hotový ·
+Naplánováno · Vyvěšeno), na telefonu jeden seznam podle termínu se štítkem stavu a filtrem. U dílu podle stavu Editor drah (jen domácí PC,
+rovnou na skupině / týdnu), Dráhy hotové, **Udělej reel** (poznámka pro Clauda na domácím PC), Naplánovat / Otevřít reel, Vyšlo (karusel,
+příběh), termín, poznámka; nahoře Posunout vlnu a Nový díl. Zápasy = tři sloupce Áčko · Dorost · Benfika se střelci a stavem na Instagramu,
+Nápady = zásobník, Do plánu s termínem, vlastní nápad. Reel bez videa (z PC zatím jen popisek) se v záložce Reely ani na Přehledu neukazuje.
+
+Data na Disku `CLAUDE_SCHRANKA/REELY/`: `plan.json` a `zapasy_audit.json` píše jen Claude, `vyroba.json` jen domácí PC (`export_reely.py`
+– klipy, ruční dráhy z `drahy/_rucne.json` editoru, deska, popisek, reel), `plan_moje.json` jen motor (Michalovy změny: termíny, poznámky,
+Dráhy hotové, Vyšlo, vlastní díly a nápady). Motor: `reelyPlan`, `reelyPlanUlozit`, `reelUdelat` (`…_vyr.md`, `plny: ano`, `pc: domaci`).
+Čisté funkce `js/reely_plan.js` (test `node testy/test_reely_plan.mjs`), stránka `js/reely_plan_stranka.js` + `reely_plan.css`.
+
 ### Příběhy na Instagram (od 15. 10.)
 - **Jen příběh** u reelu i plakátu (Kam: Reel · Reel + příběh · Jen příběh; u plakátu Příspěvek · Příspěvek + příběh ·
   Jen příběh): kontejner STORIES bez příspěvku a bez popisku; video do příběhu nejvýš 60 s (delší reel motor odmítne).
