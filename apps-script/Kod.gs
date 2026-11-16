@@ -44,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-11-16.2';
+const VERZE = '2026-11-16.3';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -9218,8 +9218,11 @@ function slozkaTreninku_(zalozit) {
  * Seznam cviků přes trvalý rejstřík TRENINKY/_index_cviku.json (klíč = id souboru : čas úpravy → položka seznamu nebo chyba):
  * čte se jen nový nebo změněný soubor. Mezipaměť skriptu vyprší po 6 h a 178 karet by se pak četlo přes minutu (16. 11.).
  */
+const MAX_NOVYCH_CVIKU = 25; // karet přečtených v jednom dotazu (soubor z Disku ~1 s) – zbytek při dalším dotazu, aplikace se zeptá sama
+
 function cvikyTreninku_(slozka) {
   const soubory = jsonKnihovny_(slozka, 'cviky');
+  let precteno = 0, neuplne = false;
   const r = slozka ? nactiJson_(slozka, '_index_cviku.json') : { soubor: null, data: null };
   const stare = (r.data && typeof r.data.polozky === 'object' && r.data.polozky) || {};
   const nove = {}, cviky = [], chybne = [], videno = {};
@@ -9228,6 +9231,8 @@ function cvikyTreninku_(slozka) {
     const k = f.getId() + ':' + f.getLastUpdated().getTime();
     let v = stare[k];
     if (!v) {
+      if (precteno >= MAX_NOVYCH_CVIKU) { neuplne = true; return; }
+      precteno++;
       zmena = true;
       let c = null;
       try { c = TRENINKY_.cvik(JSON.parse(f.getBlob().getDataAsString('UTF-8').replace(/^\uFEFF/, ''))); } catch (chyba) { c = null; }
@@ -9240,16 +9245,22 @@ function cvikyTreninku_(slozka) {
     cviky.push(v.c);
   });
   if (zmena && slozka) {
+    // pod zámkem a s novým pohledem na Disk – dva souběžné dotazy jinak založí dva soubory se stejným jménem
     const obsah = JSON.stringify({ polozky: nove });
-    try { if (r.soubor) r.soubor.setContent(obsah); else slozka.createFile('_index_cviku.json', obsah, MimeType.PLAIN_TEXT); } catch (chyba) { /* jen zrychlení */ }
+    const zamek = LockService.getScriptLock();
+    try {
+      zamek.waitLock(10000);
+      const r2 = nactiJson_(slozka, '_index_cviku.json');
+      if (r2.soubor) r2.soubor.setContent(obsah); else slozka.createFile('_index_cviku.json', obsah, MimeType.PLAIN_TEXT);
+    } catch (chyba) { /* jen zrychlení */ } finally { try { zamek.releaseLock(); } catch (chyba) { /* nic */ } }
   }
-  return { cviky: cviky, chybne: chybne };
+  return { cviky: cviky, chybne: chybne, neuplne: neuplne };
 }
 
 function obsahTreninku_(slozka) {
   const c = cvikyTreninku_(slozka);
   let m = mojeTreninku_(slozka);
-  return { cviky: c.cviky, moje: m, chybne: c.chybne.concat(m.chyba ? ['moje.json'] : []) };
+  return { cviky: c.cviky, moje: m, chybne: c.chybne.concat(m.chyba ? ['moje.json'] : []), neuplne: c.neuplne };
 }
 
 function mojeTreninku_(slozka) {
@@ -9267,7 +9278,9 @@ function mojeTreninku_(slozka) {
 /** Akce treninky: seznam cviků (bez dlouhých částí) a moje hvězdy, poznámky a oblíbené. */
 function treninky_() {
   const o = obsahTreninku_(slozkaTreninku_(false));
-  return TRENINKY_.vystup(o.cviky, o.moje.data, o.chybne, Date.now());
+  const v = TRENINKY_.vystup(o.cviky, o.moje.data, o.chybne, Date.now());
+  if (o.neuplne) v.neuplne = true; // ještě se čtou nové karty – aplikace se hned zeptá znovu
+  return v;
 }
 
 /** Akce treninkCvik { id }: celá karta cviku. */

@@ -48,7 +48,12 @@ export function nactiTreninky(znovu) {
   t.nacita = true;
   t.chyba = null;
   volej('treninky').then((d) => { prijmi(d); }, (e) => { t.chyba = e; })
-    .then(() => { t.nacita = false; zmeneno(); });
+    .then(() => {
+      t.nacita = false;
+      zmeneno();
+      // motor čte nové karty po 25 (soubor z Disku ~1 s) – zbytek hned dalším dotazem
+      if (t.data && t.data.neuplne && !t.chyba) setTimeout(() => nactiTreninky(true), 300);
+    });
 }
 
 function prijmi(d) {
