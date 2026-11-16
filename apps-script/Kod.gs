@@ -44,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-11-16.6';
+const VERZE = '2026-11-16.7';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -142,7 +142,8 @@ const CTENI_MOTORU = ['info', 'schranka', 'posta', 'vlakno', 'hledat', 'kalendar
   'igSkupiny', // skupiny účtů k označení (REELY/skupiny.json)
   'knihovna', 'knihovnaReserse', // Knihovna: karty, index rešerší, můj stav a požadavky; celá rešerše
   'tipyNahledy', 'tipNahled', 'tipVideo', // Rešerše AI: náhledy tipů (KNIHOVNA/nahledy)
-  'treninky', 'treninkyKarty', 'treninkCvik', 'treninkyNahledy', 'treninkNahled', 'treninkVideo']; // Tréninky: cviky, celé karty a videa (TRENINKY)
+  'treninky', 'treninkyKarty', 'treninkCvik', 'treninkyNahledy', 'treninkNahled', 'treninkVideo', // Tréninky
+  'cestaky']; // Cesťáky: zápasy, výchozí a moje úpravy (CESTAKY): cviky, celé karty a videa (TRENINKY)
 
 /** Výsledek dřívějšího běhu téhož požadavku (JSON), nebo null; když ještě běží, počká na něj (nejvýš ~25 s). */
 function vysledekRid_(rid) {
@@ -292,7 +293,11 @@ const AKCE = {
   treninkMoje: function (d) { return treninkMoje_(d); },
   treninkUprava: function (d) { return treninkUprava_(d); },
   treninkSmazat: function (d) { return kosTreninku_(d, true); },   // cvik do koše Disku (karta i náhled)
-  treninkObnovit: function (d) { return kosTreninku_(d, false); }, // a zpět // Michalova úprava karty (název, kroky, plánek…) / vrátit původní
+  treninkObnovit: function (d) { return kosTreninku_(d, false); },
+  // Cesťáky (Michal 16. 11.: „přesuňme do asistenta z webu dorostu cesťáky“): cestovné na venkovní zápasy áčka a dorostu,
+  // zápasy píše Claude do CESTAKY/zapasy.json, Michalovy úpravy motor do CESTAKY/upravy.json
+  cestaky: function () { return cestaky_(); },
+  cestakyUlozit: function (d) { return cestakyUlozit_(d); }, // a zpět // Michalova úprava karty (název, kroky, plánek…) / vrátit původní
   // značky změn: kdy se naposledy zapisovalo (auto, zdraví) – server je posílá s každou obnovou, aplikace podle nich načítá
   zmeny: function () { return zmeny_(); },
   // víc čtení v jednom požadavku – aplikace při startu neposílá deset dotazů naráz (ty se pak řadí do fronty)
@@ -9783,4 +9788,221 @@ function smazCache_(klic) {
 function md5_(text) {
   return Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, String(text), Utilities.Charset.UTF_8)
     .map(function (b) { return ('0' + ((b + 256) % 256).toString(16)).slice(-2); }).join('');
+}
+
+// ---------------------------------------------------------------- Cesťáky
+// Cestovné na venkovní zápasy (přestěhované z webu dorostu 16. 11. – tam byla data ve veřejně čitelném Firestore).
+// CESTAKY/zapasy.json píše jen Claude (každou sezónu): { obdobi: [{ id, nazev, kratce? }], tymy: [{ id, nazev, kratce? }],
+//   vychozi: { sazba, auta, pohary }, zapasy: [{ id, tym, obdobi, datum, souper, hriste, km, bus?, pohar? }] } – id zápasu se nemění
+//   (úpravy se k zápasu vážou přes něj). CESTAKY/upravy.json píše jen motor: { nastaveni: { sazba?, auta?, pohary? },
+//   zapasy: { <id>: { bus?, auta?, km?, busKc? } }, kdy } – jen odchylky od výchozího stavu. Sazba a částky jen na Disku.
+// Stejná pravidla úprav má aplikace v js/cestaky_vypocet.js (pouzij, cistaUprava, zkontroluj) – změna tady = i tam.
+const CESTAKY_SLOZKA = 'CESTAKY';
+
+/** Čisté funkce Cesťáků (testuje motor.test.js). */
+const CESTAKY_ = (function () {
+  const ID = /^[A-Za-z0-9_-]{1,60}$/;
+  const DATUM = /^\d{4}-\d{2}-\d{2}$/;
+  const KLICE_NASTAVENI = ['sazba', 'auta', 'pohary'];
+  const KLICE_ZAPASU = ['bus', 'auta', 'km', 'busKc'];
+  const ma = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
+  const obj = function (x) { return x && typeof x === 'object' && !Array.isArray(x) ? x : null; };
+  const radek = function (s, max) { return typeof s === 'string' ? s.replace(/\s+/g, ' ').trim().slice(0, max) : ''; };
+
+  /** Platná hodnota nastavení nebo úpravy zápasu, jinak chyba s českou hláškou (stejně jako zkontroluj v aplikaci). */
+  function zkontroluj(k, v) {
+    if (k === 'bus' || k === 'pohary') {
+      if (typeof v !== 'boolean') throw new Error(k === 'bus' ? 'Bus musí být ano, nebo ne.' : 'Poháry musí být ano, nebo ne.');
+      return v;
+    }
+    const x = typeof v === 'number' ? v : Number(String(v == null ? '' : v).replace(/\s/g, '').replace(',', '.'));
+    const mimo = function (a, b) { return !(typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')) || !isFinite(x) || x < a || x > b; };
+    if (k === 'sazba') { if (mimo(0, 50)) throw new Error('Sazba musí být 0–50 Kč/km.'); return Math.round(x * 100) / 100; }
+    if (k === 'auta') { if (mimo(0, 20) || Math.round(x) !== x) throw new Error('Počet aut musí být celé číslo 0–20.'); return x; }
+    if (k === 'km') { if (mimo(0, 2000)) throw new Error('Km musí být 0–2000.'); return Math.round(x); }
+    if (k === 'busKc') { if (mimo(0, 200000)) throw new Error('Cena busu musí být 0–200 000 Kč.'); return Math.round(x); }
+    throw new Error('Neznámá hodnota: ' + k);
+  }
+  /** Hodnota, nebo null, když neplatí (při čtení souborů se nic nehlásí, neplatné se vynechá). */
+  function nebo(k, v) { try { return zkontroluj(k, v); } catch (chyba) { return null; } }
+
+  /** zapasy.json → { obdobi, tymy, vychozi, zapasy, chybne: [id | pořadí] } (neplatný zápas se vynechá, duplicitní id taky). */
+  function zapasy(d) {
+    const x = obj(d) || {};
+    const seznam = function (a) {
+      const videno = {};
+      return (Array.isArray(a) ? a : []).map(function (o) {
+        o = obj(o) || {};
+        const id = radek(o.id, 60);
+        if (!ID.test(id) || videno[id]) return null;
+        videno[id] = true;
+        const r = { id: id, nazev: radek(o.nazev, 40) || id };
+        if (radek(o.kratce, 20)) r.kratce = radek(o.kratce, 20);
+        return r;
+      }).filter(Boolean);
+    };
+    const obdobi = seznam(x.obdobi), tymy = seznam(x.tymy);
+    const znamO = {}, znamT = {};
+    obdobi.forEach(function (o) { znamO[o.id] = true; });
+    tymy.forEach(function (t) { znamT[t.id] = true; });
+    const v = obj(x.vychozi) || {};
+    const vychozi = { sazba: nebo('sazba', v.sazba), auta: nebo('auta', v.auta), pohary: typeof v.pohary === 'boolean' ? v.pohary : false };
+    if (vychozi.sazba === null) vychozi.sazba = 0;
+    if (vychozi.auta === null) vychozi.auta = 1;
+    const chybne = [], videno = {};
+    const z = [];
+    (Array.isArray(x.zapasy) ? x.zapasy : []).forEach(function (o, i) {
+      o = obj(o) || {};
+      const id = radek(o.id, 60);
+      const km = nebo('km', o.km);
+      if (!ID.test(id) || videno[id] || !znamT[o.tym] || !znamO[o.obdobi] || !DATUM.test(String(o.datum || '')) || km === null || !radek(o.souper, 80)) {
+        chybne.push(ID.test(id) ? id : '#' + (i + 1));
+        return;
+      }
+      videno[id] = true;
+      const r = { id: id, tym: o.tym, obdobi: o.obdobi, datum: o.datum, souper: radek(o.souper, 80), hriste: radek(o.hriste, 80), km: km };
+      if (o.bus === true) r.bus = true;
+      if (o.pohar === true) r.pohar = true;
+      z.push(r);
+    });
+    return { obdobi: obdobi, tymy: tymy, vychozi: vychozi, zapasy: z, chybne: chybne };
+  }
+
+  /** Úprava zápasu bez toho, co se shoduje s výchozím stavem; prázdná = null. */
+  function cistaUprava(z, u, nastaveni) {
+    const o = {};
+    if (u && typeof u.bus === 'boolean' && u.bus !== !!z.bus) o.bus = u.bus;
+    if (u && typeof u.auta === 'number' && u.auta !== nastaveni.auta) o.auta = u.auta;
+    if (u && typeof u.km === 'number' && u.km !== z.km) o.km = u.km;
+    if (u && typeof u.busKc === 'number' && u.busKc) o.busKc = u.busKc;
+    return Object.keys(o).length ? o : null;
+  }
+
+  /** upravy.json → { nastaveni: odchylky, zapasy: { id: úprava } } – platné hodnoty; úpravy zápasů, které v zapasy.json teď nejsou, zůstávají
+   *  (Claude mohl zápas na chvíli vynechat), do aplikace se ale neposílají (viz vystup). */
+  function upravy(d) {
+    const x = obj(d) || {};
+    const n = obj(x.nastaveni) || {}, nastaveni = {};
+    KLICE_NASTAVENI.forEach(function (k) { if (ma(n, k)) { const v = nebo(k, n[k]); if (v !== null) nastaveni[k] = v; } });
+    const zx = obj(x.zapasy) || {}, zap = {};
+    Object.keys(zx).forEach(function (id) {
+      if (!ID.test(id)) return;
+      const u = obj(zx[id]) || {}, o = {};
+      KLICE_ZAPASU.forEach(function (k) { if (ma(u, k)) { const v = nebo(k, u[k]); if (v !== null) o[k] = v; } });
+      if (Object.keys(o).length) zap[id] = o;
+    });
+    return { nastaveni: nastaveni, zapasy: zap, kdy: typeof x.kdy === 'string' ? x.kdy : '' };
+  }
+
+  /** Výchozí přepsané uloženými. */
+  function nastaveni(vychozi, ulozene) {
+    const r = {};
+    KLICE_NASTAVENI.forEach(function (k) { r[k] = ma(ulozene || {}, k) ? ulozene[k] : vychozi[k]; });
+    return r;
+  }
+
+  /** Úpravy jen k zápasům, které jsou, vyčištěné proti výchozímu stavu: { id: úprava }. */
+  function proZapasy(z, u, nast) {
+    const r = {};
+    z.zapasy.forEach(function (zap) { const c = cistaUprava(zap, u.zapasy[zap.id], nast); if (c) r[zap.id] = c; });
+    return r;
+  }
+
+  /** Odpověď akcí: { nastaveni, upravy, kdy }. */
+  function vystup(z, u) {
+    const nast = nastaveni(z.vychozi, u.nastaveni);
+    return { nastaveni: nast, upravy: proZapasy(z, u, nast), kdy: u.kdy };
+  }
+
+  /**
+   * Akce cestakyUlozit nad vyčištěnými daty: { nastaveni?: { sazba?, auta?, pohary? }, zapas?: { id, zmeny: { bus?, auta?, km?, busKc? } }, vratitVse? }
+   * (null = zrušit tu úpravu) → nové upravy (obsah upravy.json bez kdy). Ukládá se jen, co se liší od výchozího stavu; změna výchozího
+   * počtu aut zruší úpravy zápasů s právě tím počtem (jako na webu dorostu). Neznámý zápas = chyba.
+   */
+  function zmen(z, u, d) {
+    d = obj(d) || {};
+    const r = d.vratitVse === true ? { nastaveni: {}, zapasy: {} } : JSON.parse(JSON.stringify({ nastaveni: u.nastaveni, zapasy: u.zapasy }));
+    const pn = obj(d.nastaveni), pz = obj(d.zapas);
+    if (d.vratitVse !== true && !pn && !pz) throw new Error('Není co uložit.');
+    if (pn) {
+      KLICE_NASTAVENI.forEach(function (k) {
+        if (!ma(pn, k)) return;
+        const v = pn[k] === null ? null : zkontroluj(k, pn[k]);
+        if (v === null || v === z.vychozi[k]) delete r.nastaveni[k]; else r.nastaveni[k] = v;
+      });
+      if (ma(pn, 'auta')) {
+        const auta = nastaveni(z.vychozi, r.nastaveni).auta;
+        Object.keys(r.zapasy).forEach(function (id) {
+          if (r.zapasy[id].auta !== auta) return;
+          delete r.zapasy[id].auta;
+          if (!Object.keys(r.zapasy[id]).length) delete r.zapasy[id];
+        });
+      }
+    }
+    if (pz) {
+      const id = String(pz.id || '');
+      const zap = z.zapasy.filter(function (x) { return x.id === id; })[0];
+      if (!zap) throw new Error('Zápas v Cesťácích není – obnov stránku.');
+      const zmeny = obj(pz.zmeny) || {};
+      const nova = Object.assign({}, r.zapasy[id]);
+      KLICE_ZAPASU.forEach(function (k) {
+        if (!ma(zmeny, k)) return;
+        if (zmeny[k] === null) delete nova[k]; else nova[k] = zkontroluj(k, zmeny[k]);
+      });
+      const c = cistaUprava(zap, nova, nastaveni(z.vychozi, r.nastaveni));
+      if (c) r.zapasy[id] = c; else delete r.zapasy[id];
+    }
+    return r;
+  }
+
+  return { ID: ID, zkontroluj: zkontroluj, zapasy: zapasy, upravy: upravy, cistaUprava: cistaUprava, nastaveni: nastaveni, vystup: vystup, zmen: zmen };
+})();
+
+function slozkaCestaku_(zalozit) {
+  const koren = koren_();
+  if (zalozit) return podslozka_(koren, CESTAKY_SLOZKA);
+  const it = koren.getFoldersByName(CESTAKY_SLOZKA);
+  return it.hasNext() ? it.next() : null;
+}
+
+/** zapasy.json (Claude) vyčištěný: { soubor, data, chyba } – chybí = prázdné seznamy, neplatný JSON = chyba. */
+function zapasyCestaku_(slozka) {
+  const m = souborTreninku_(slozka, 'zapasy.json', function (x) { return x; });
+  return { soubor: m.soubor, data: CESTAKY_.zapasy(m.data), chyba: m.chyba };
+}
+/** upravy.json (motor): { soubor, data, chyba } – neplatný JSON = chyba (zápis ho nepřepíše). */
+function upravyCestaku_(slozka) { return souborTreninku_(slozka, 'upravy.json', CESTAKY_.upravy); }
+
+/** Akce cestaky: zápasy, výchozí, nastavení (výchozí přepsané uloženými) a úpravy zápasů. */
+function cestaky_() {
+  const slozka = slozkaCestaku_(false);
+  const z = zapasyCestaku_(slozka);
+  if (z.chyba) throw new Error('CESTAKY/zapasy.json není platný JSON.');
+  const u = upravyCestaku_(slozka);
+  const v = CESTAKY_.vystup(z.data, u.data);
+  const chybne = z.data.chybne.map(function (x) { return 'zapasy.json: ' + x; }).concat(u.chyba ? ['upravy.json'] : []);
+  return { obdobi: z.data.obdobi, tymy: z.data.tymy, zapasy: z.data.zapasy, vychozi: z.data.vychozi, nastaveni: v.nastaveni, upravy: v.upravy,
+    kdy: v.kdy, chybne: chybne, ted: Date.now() };
+}
+
+/** Akce cestakyUlozit { nastaveni?, zapas?: { id, zmeny }, vratitVse? } pod zámkem → { nastaveni, upravy, kdy, ted }. */
+function cestakyUlozit_(d) {
+  const zamek = LockService.getScriptLock();
+  zamek.waitLock(30000);
+  try {
+    const slozka = slozkaCestaku_(true);
+    const z = zapasyCestaku_(slozka);
+    if (!z.soubor) throw new Error('Na Disku chybí CESTAKY/zapasy.json – Claude ho připraví.');
+    if (z.chyba) throw new Error('CESTAKY/zapasy.json není platný JSON.');
+    const u = upravyCestaku_(slozka);
+    if (u.chyba) throw new Error('CESTAKY/upravy.json není platný JSON – nic jsem nepřepsal.');
+    const nove = CESTAKY_.zmen(z.data, u.data, d);
+    nove.kdy = new Date(Date.now()).toISOString();
+    const obsah = JSON.stringify(nove, null, 1);
+    if (u.soubor) u.soubor.setContent(obsah); else slozka.createFile('upravy.json', obsah, MimeType.PLAIN_TEXT);
+    const v = CESTAKY_.vystup(z.data, nove);
+    return { nastaveni: v.nastaveni, upravy: v.upravy, kdy: v.kdy, ted: Date.now() };
+  } finally {
+    zamek.releaseLock();
+  }
 }

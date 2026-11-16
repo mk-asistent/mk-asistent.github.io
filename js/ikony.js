@@ -84,6 +84,8 @@ export const IKONY = {
   instagram: s('<rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="3.9"/><path d="M17.2 6.8h.01"/>'),
   // Knihovna: otevřená kniha; hvězda (hodnocení)
   knihovna: s('<path d="M12 6.5C10.2 5 7.6 4.3 3.5 4.5v13c4.1-.2 6.7.5 8.5 2 1.8-1.5 4.4-2.2 8.5-2v-13c-4.1-.2-6.7.5-8.5 2z"/><path d="M12 6.5V19.5"/>'),
+  // Cesťáky: cesta mezi dvěma místy
+  cestaky: s('<circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8.2 18h6.3a3.5 3.5 0 0 0 0-7h-5a3.5 3.5 0 0 1 0-7h6.3"/>'),
   treninky: s('<path d="M12 3.5l5.6 15H6.4z"/><path d="M8.6 12.6h6.8"/><path d="M3.5 20.5h17"/>'),
   hvezda: s('<path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/>')
 };

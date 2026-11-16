@@ -1,0 +1,62 @@
+/* Cesťáky (16. 11.) – cestovné na venkovní zápasy: nastavení, filtr týmu, dlaždice, souhrn týmy × období, zápasy po obdobích.
+   Telefon: zápas ve dvou řádcích (soupeř + Kč, pod tím km · bus · auta), žádná široká tabulka; pole 16 px (iPhone jinak přibližuje). */
+.ce-stranka { display: flex; flex-direction: column; gap: 14px; }
+.ce-nast { padding: 14px 16px; }
+.ce-nast__radek { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 24px; }
+.ce-pole { display: flex; flex-direction: column; min-width: 0; }
+.ce-pole .label { margin-bottom: 6px; }
+.ce-s-jednotkou { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; }
+.ce-s-jednotkou small, .ce-km small, .ce-buskc small, .ce-bus small, .ce-krokovac small { font-size: 12.5px; color: var(--muted); }
+.ce-cislo { min-height: 40px; padding: 8px 10px; font-size: 16px; font-variant-numeric: tabular-nums; text-align: right; }
+.ce-cislo--sazba { width: 76px; }
+.ce-cislo--km { width: 70px; }
+.ce-cislo--kc { width: 104px; }
+.ce-cislo::-webkit-inner-spin-button, .ce-cislo::-webkit-outer-spin-button { margin: 0; -webkit-appearance: none; }
+.ce-cislo[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.ce-krokovac { display: inline-flex; align-items: center; gap: 4px; }
+.ce-krokovac > b { min-width: 26px; text-align: center; font-size: 16px; font-weight: 700; }
+.ce-krok.btn--ikona { width: 40px; height: 40px; min-height: 40px; font-size: 20px; line-height: 1; font-weight: 500; }
+.ce-filtr:empty { display: none; }
+
+/* dlaždice: na telefonu 2 × 2, na PC v řadě */
+.ce-kpi .kpi__hodnota { font-size: 26px; }
+
+/* souhrn týmy × období */
+.ce-souhrn__tab { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.ce-souhrn__tab th, .ce-souhrn__tab td { padding: 8px 10px; text-align: right; white-space: nowrap; border-top: 1px solid var(--line-soft); }
+.ce-souhrn__tab thead th { border-top: 0; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.ce-souhrn__tab th[scope="row"], .ce-souhrn__tab thead th:first-child { text-align: left; padding-left: 16px; font-weight: 650; }
+.ce-souhrn__tab td:last-child, .ce-souhrn__tab th:last-child { padding-right: 16px; }
+.ce-souhrn__celkem th, .ce-souhrn__celkem td { font-weight: 700; background: var(--bg-soft); }
+.ce-mob { display: none; }
+@media (max-width: 759px) {
+  .ce-pc { display: none; }
+  .ce-mob { display: inline; }
+  .ce-souhrn__tab th, .ce-souhrn__tab td { padding: 8px 6px; }
+}
+
+/* zápasy po obdobích */
+.ce-obdobi-seznam { display: flex; flex-direction: column; gap: 14px; }
+.ce-obdobi .card-hlava { padding-bottom: 8px; }
+.ce-obdobi__kc { font-size: 15px; }
+.ce-zapasy { list-style: none; margin: 0; padding: 0; }
+.ce-zapas { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "info kc" "ovl ovl"; gap: 8px 12px; align-items: start;
+  padding: 11px 16px 12px; border-top: 1px solid var(--line-soft); }
+.ce-zapas--bus { background: color-mix(in srgb, var(--fialova) 5%, var(--surface)); }
+.ce-zapas__info { grid-area: info; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ce-zapas__nahore { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.ce-zapas__souper { font-size: 14.5px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
+.ce-zapas__hriste { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.ce-zapas__ovl { grid-area: ovl; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; }
+.ce-km, .ce-buskc, .ce-bus { display: inline-flex; align-items: center; gap: 5px; min-height: 40px; }
+.ce-bus { cursor: pointer; }
+.ce-zapas__kc { grid-area: kc; display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.ce-zapas__kc b { font-size: 15px; font-weight: 700; white-space: nowrap; }
+.ce-zapas__kc small { font-size: 12px; color: var(--muted); white-space: nowrap; }
+@media (min-width: 900px) {
+  .ce-zapas { grid-template-columns: minmax(0, 1fr) auto 120px; grid-template-areas: "info ovl kc"; align-items: center; }
+  .ce-zapas__ovl { flex-wrap: nowrap; justify-content: flex-end; }
+}
+
+.ce-pata { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.ce-pata:empty { display: none; }

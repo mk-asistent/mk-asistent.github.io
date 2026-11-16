@@ -528,6 +528,17 @@ hodnot (`NASTAVENI` v `js/plakat_data.js`); platí pro plakáty podle rozlosová
 Motor: akce `plakaty`, `plakatUlozit`, `plakatNastaveni`, `plakatPopisek`, `plakatPopisekUlozit`, `plakatObrazky`,
 `plakatNaplanovat`, `plakatZrusitPlan` (data `CLAUDE_SCHRANKA/PLAKATY`); s účtem čte aplikace plakáty z kopie serveru.
 
+## Cesťáky (cestovné na venkovní zápasy – od 16. 11. 2026)
+Stránka v pásu za Plakáty (přestěhovaná z webu dorostu, kde byla data ve veřejně čitelné databázi). Nahoře nastavení (sazba
+Kč/km, výchozí počet aut, počítat poháry), filtr týmu, dlaždice (celkem Kč, zápasů venku, km všemi auty, busem), souhrn týmy ×
+období a zápasy po obdobích: km, Bus, auta − / +, u busu cena busu. Auto = km × 2 × auta × sazba, bus = jen cena busu.
+Změna se ukáže hned a uloží se sama; „Vrátit vše na výchozí“ s potvrzením.
+
+Data jen na Disku v `CLAUDE_SCHRANKA/CESTAKY`: `zapasy.json` (období, týmy, výchozí sazba a auta, zápasy s km) **připraví Claude
+na každou novou sezónu** – `id` zápasů se nemění, úpravy se k nim vážou; `upravy.json` píše jen motor (jen odchylky od výchozího).
+Motor: akce `cestaky`, `cestakyUlozit` (pravidla `CESTAKY_` v `Kod.gs` = `js/cestaky_vypocet.js`). **Sazby, částky a skutečné
+zápasy nikdy do repa** – ukázka a testy mají vymyšlená čísla a soupeře.
+
 ## Auto (náklady a tankování)
 Stránka Auto čte Michalovu tabulku Google (listy **Náklady**, **Tankování**, **Přehled**) – tabulka zůstává hlavní a je i záloha.
 - Přehled: najeto od koupě, spotřeba (litry mezi tankováními se známým stavem km), nafta na 1 km, provoz bez koupě,

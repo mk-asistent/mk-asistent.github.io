@@ -34,10 +34,10 @@ import * as pripravenost from './pripravenost.js';
 // Hlavní stránka se od 10. 10. jmenuje Přehled (Michal: „hlavní stránku pojmenuj jinak než Dnes“) – klíč „dnes“ zůstal
 // (odkazy data-cil, uložená stránka asistent.pohled, snímek, testy); ikona dlaždic, slunce zůstalo znakem aplikace.
 const SEKCE = [['dnes', 'Přehled'], ['schranka', 'Schránka'], ['posta', 'Pošta'], ['kalendar', 'Kalendář'], ['zdravi', 'Zdraví'], ['fotbal', 'Fotbal'], ['treninky', 'Tréninky'], ['reely', 'Reely'],
-  ['plakaty', 'Plakáty'], ['auto', 'Auto'], ['knihovna', 'Knihovna']];
+  ['plakaty', 'Plakáty'], ['cestaky', 'Cesťáky'], ['auto', 'Auto'], ['knihovna', 'Knihovna']];
 const ikonaSekce = (id) => IKONY[id === 'dnes' ? 'prehled' : id];
 // sekce, které ukáže jen motor, který je umí (starší verze motoru je schová)
-const viditelna = (s) => ['fotbal', 'treninky', 'reely', 'plakaty', 'auto', 'knihovna'].indexOf(s[0]) < 0 || umiMotor(s[0]);
+const viditelna = (s) => ['fotbal', 'treninky', 'reely', 'plakaty', 'cestaky', 'auto', 'knihovna'].indexOf(s[0]) < 0 || umiMotor(s[0]);
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
 const TELEFON = window.matchMedia('(max-width: 759px)');
 const SIROKA_POSTA = window.matchMedia('(min-width: 1000px)'); // Pošta se seznamem a detailem vedle sebe
@@ -325,6 +325,7 @@ function obnovVse(znovu) {
   if (znovu || stav.pohled === 'auto') auto.nactiAuto(znovu); // tabulku auta jen na její stránce nebo při Obnovit
   if (stav.pohled === 'knihovna' && knihovnaModul) knihovnaModul.nactiKnihovnu(); // knihovna jen na své stránce (Knihovna níž)
   if (stav.pohled === 'treninky' && treninkyModul) treninkyModul.nactiTreninky(true);
+  if (stav.pohled === 'cestaky' && cestakyModul) cestakyModul.nactiCestaky(true);
   // Obnovit = i čerstvé kopie na serveru (třeba hned po nasazení motoru); jinak jen když jsou kopie starší
   if (znovu) ucet.obnovNaServeru(true);
   else ucet.obnovStare();
@@ -498,6 +499,7 @@ function vykresliStranku(el, p) {
   else if (stav.pohled === 'auto') auto.vykresliAuto(el);
   else if (stav.pohled === 'knihovna') vykresliKnihovnu(el);
   else if (stav.pohled === 'treninky') vykresliTreninky(el);
+  else if (stav.pohled === 'cestaky') vykresliCestaky(el);
   else kal.vykresliKalendar(el);
 }
 
@@ -689,6 +691,8 @@ function vykresliHlavu(p) {
     pod = esc(knihovnaModul ? knihovnaModul.podnadpis() : 'Filmy, seriály, knihy a rešerše');
   } else if (stav.pohled === 'treninky') {
     pod = esc(treninkyModul ? treninkyModul.podnadpis() : 'Studnice cviků z reelů');
+  } else if (stav.pohled === 'cestaky') {
+    pod = esc(cestakyModul ? cestakyModul.podnadpis() : 'Cestovné na venkovní zápasy');
   } else if (stav.pohled === 'zdravi') {
     const z = stav.zdravi;
     pod = 'WHOOP a Apple Watch' + (z && z.whoop && z.whoop.sync && z.whoop.sync.kdy ? ' · aktualizováno ' + esc(kdyKratce(z.whoop.sync.kdy)) : '');
@@ -1382,6 +1386,18 @@ function vykresliTreninky(el) {
     treninkySlib = import('./treninky.js')
       .then((m) => { treninkyModul = m; zmeneno(); return m; })
       .catch(() => { treninkySlib = null; nastavHtml(el, '<section class="card">' + chybaHtml({ message: 'Tréninky se nenačetly – zkontroluj připojení.' }) + '</section>'); });
+  }
+  if (!el.firstChild) nastavHtml(el, '<section class="card">' + kostra(5) + '</section>');
+}
+
+// ---------------------------------------------------------------- Cesťáky (js/cestaky.js – cestovné na venkovní zápasy, načte se až na své stránce)
+let cestakyModul = null, cestakySlib = null;
+function vykresliCestaky(el) {
+  if (cestakyModul) { cestakyModul.vykresliCestaky(el); return; }
+  if (!cestakySlib) {
+    cestakySlib = import('./cestaky.js')
+      .then((m) => { cestakyModul = m; zmeneno(); return m; })
+      .catch(() => { cestakySlib = null; nastavHtml(el, '<section class="card">' + chybaHtml({ message: 'Cesťáky se nenačetly – zkontroluj připojení.' }) + '</section>'); });
   }
   if (!el.firstChild) nastavHtml(el, '<section class="card">' + kostra(5) + '</section>');
 }

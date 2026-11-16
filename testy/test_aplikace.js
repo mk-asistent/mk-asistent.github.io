@@ -415,6 +415,26 @@ const motor = {
     autoData.odlozene = vse.filter((y) => y.stav === 'odlozeno');
     return JSON.parse(JSON.stringify(autoData));
   },
+  // Cesťáky (CLAUDE_SCHRANKA/CESTAKY): vymyšlené zápasy; ukládá jen odchylky jako motor (null = zrušit, neznámý zápas = chyba)
+  cestaky: () => Object.assign(JSON.parse(JSON.stringify(CESTAKY_TEST)), JSON.parse(JSON.stringify(cestakyStavTest)), { chybne: [], ted: Date.now() }),
+  cestakyUlozit: (d) => {
+    const s = cestakyStavTest, v = CESTAKY_TEST.vychozi;
+    if (d.vratitVse) { s.nastaveni = Object.assign({}, v); s.upravy = {}; }
+    if (d.nastaveni) Object.keys(d.nastaveni).forEach((k) => { s.nastaveni[k] = d.nastaveni[k] === null ? v[k] : d.nastaveni[k]; });
+    if (d.zapas) {
+      const z = CESTAKY_TEST.zapasy.find((x) => x.id === d.zapas.id);
+      if (!z) throw new Error('Zápas v Cesťácích není – obnov stránku.');
+      const u = Object.assign({}, s.upravy[z.id]);
+      Object.keys(d.zapas.zmeny || {}).forEach((k) => { if (d.zapas.zmeny[k] === null) delete u[k]; else u[k] = d.zapas.zmeny[k]; });
+      if (u.bus === !!z.bus) delete u.bus;
+      if (u.auta === s.nastaveni.auta) delete u.auta;
+      if (u.km === z.km) delete u.km;
+      if (!u.busKc) delete u.busKc;
+      if (Object.keys(u).length) s.upravy[z.id] = u; else delete s.upravy[z.id];
+    }
+    s.kdy = new Date().toISOString();
+    return Object.assign(JSON.parse(JSON.stringify(s)), { ted: Date.now() });
+  },
   // Knihovna (motor 2026-10-11.5, CLAUDE_SCHRANKA/KNIHOVNA): karty, index rešerší, můj stav, požadavky – testy data mění jako Claude
   // Tréninky (motor 2026-11-16.4, CLAUDE_SCHRANKA/TRENINKY): cviky s druhem a otiskem, celé karty, celá karta, náhled, moje (i druh, skrytí, víc cviků)
   treninky: (d) => {
@@ -665,6 +685,20 @@ const ZAPASY_PLAKAT = [
 ];
 
 // Knihovna: vymyšlené karty (film s plakátem a sérií, seriál s obrázkem, který nejde načíst, kniha), jedna rešerše
+// Cesťáky: sazba 2 Kč/km, 2 auta; A1 160 Kč, A2 bus 0 Kč, D1 80 Kč, D2 120 Kč (pohár se nepočítá) = 4 zápasy, 360 Kč
+const CESTAKY_TEST = {
+  obdobi: [{ id: 'p1', nazev: 'Podzim 2030', kratce: 'Podz. 30' }, { id: 'j1', nazev: 'Jaro 2031', kratce: 'Jaro 31' }],
+  tymy: [{ id: 'A', nazev: 'Áčko', kratce: 'A' }, { id: 'D', nazev: 'Dorost', kratce: 'Dor' }],
+  vychozi: { sazba: 2, auta: 2, pohary: false },
+  zapasy: [
+    { id: 'A-2030-09-08', tym: 'A', obdobi: 'p1', datum: '2030-09-08', souper: 'Soupeř A', hriste: 'Obec A', km: 20 },
+    { id: 'A-2030-08-25', tym: 'A', obdobi: 'p1', datum: '2030-08-25', souper: 'Soupeř B', hriste: 'Obec B', km: 30, bus: true },
+    { id: 'A-2030-07-30-pohar', tym: 'A', obdobi: 'p1', datum: '2030-07-30', souper: 'Soupeř C (pohár)', hriste: 'Obec C', km: 5, pohar: true },
+    { id: 'D-2030-09-01', tym: 'D', obdobi: 'p1', datum: '2030-09-01', souper: 'Soupeř D', hriste: 'Obec D', km: 10 },
+    { id: 'D-2031-04-04', tym: 'D', obdobi: 'j1', datum: '2031-04-04', souper: 'Soupeř E', hriste: 'Obec E', km: 15 }]
+};
+const CESTAKY_STAV_VYCHOZI = () => ({ nastaveni: { sazba: 2, auta: 2, pohary: false }, upravy: {}, kdy: '' });
+let cestakyStavTest = CESTAKY_STAV_VYCHOZI();
 const KNIHOVNA_VYCHOZI = () => ({
   karty: [
     { id: 'film-zkusebni-let', druh: 'film', nazev: 'Zkušební let', original: 'Test Flight', rok: 2020, delka: '120 min', zeme: 'Česko',
@@ -7029,6 +7063,79 @@ function vychoziVikendTestu() {
   });
 
   // ---------- stránka tipu (Michal 8. 11.): jedna stránka bez záložek, malý název, můj text, video nebo snímky, přepis; pravé tlačítko = zavrhnout celý návrh
+  await test('Cesťáky: v pásu za Plakáty, dlaždice a souhrn, auta − / + a bus hned v aplikaci a do motoru, km po opuštění pole, chyba motoru = zpět, Vrátit vše; telefon bez přetečení', async () => {
+    cestakyStavTest = CESTAKY_STAV_VYCHOZI();
+    const { ctx, page } = await novaStranka(prohlizec, VELIKOSTI[3]);
+    const chyby = [];
+    page.on('pageerror', (e) => chyby.push(e.message));
+    const kc = (id) => page.textContent('[data-ce-id="' + id + '"] .ce-zapas__kc b').then((t) => Number(t.replace(/\D/g, '')));
+    const celkem = () => page.textContent('#ce-kpi .kpi__hodnota').then((t) => Number(t.replace(/\D/g, '')));
+    const ulozeno = (pred, fn) => volano.slice(pred).some((x) => x.akce === 'cestakyUlozit' && fn(x));
+    try {
+      await page.goto(WEB);
+      const pas = await page.$$eval('#rail [data-cil]', (x) => x.map((e) => e.dataset.cil));
+      jistota(pas.indexOf('cestaky') === pas.indexOf('plakaty') + 1, 'Cesťáky hned za Plakáty: ' + pas.join(','));
+      await page.click('#rail [data-cil="cestaky"]');
+      await page.waitForSelector('#p-cestaky .ce-zapas');
+      jistota(/4 zápasy venku · 360\sKč/.test(await page.textContent('.hlava')), 'podnadpis: počet a Kč');
+      jistota(await page.locator('#p-cestaky .ce-zapas').count() === 4 && await celkem() === 360, 'pohár se nepočítá, celkem 360');
+      jistota(await page.locator('.ce-souhrn__celkem').count() === 1, 'řádek Celkem v souhrnu');
+      // auta + : hned v aplikaci, pak do motoru celý stav úpravy
+      let pred = volano.length;
+      await page.click('[data-ce-id="A-2030-09-08"] [data-ce-krok="1"]');
+      jistota(await kc('A-2030-09-08') === 240 && await celkem() === 440, 'tři auta hned');
+      await cekej(() => ulozeno(pred, (x) => x.zapas && x.zapas.id === 'A-2030-09-08' && x.zapas.zmeny.auta === 3 && x.zapas.zmeny.km === null), 3000, 'auta do motoru');
+      // bus vypnout → počítá se autem
+      await page.click('[data-ce-id="A-2030-08-25"] .ce-bus');
+      await page.waitForSelector('[data-ce-id="A-2030-08-25"] [data-ce-krok]');
+      jistota(await kc('A-2030-08-25') === 240, 'bez busu = auta');
+      await cekej(() => ulozeno(pred, (x) => x.zapas && x.zapas.zmeny.bus === false), 3000, 'bus do motoru');
+      // km: během psaní pole drží fokus, do motoru až po opuštění / 600 ms
+      pred = volano.length;
+      await page.fill('[data-ce-id="D-2030-09-01"] [data-ce-km]', '12');
+      await page.waitForTimeout(800); // překreslení po 600 ms pole nevymění
+      jistota(await page.evaluate(() => document.activeElement && document.activeElement.dataset.pole) === 'ce-km-D-2030-09-01', 'fokus zůstal v poli km');
+      await page.keyboard.press('Tab');
+      await cekej(() => ulozeno(pred, (x) => x.zapas && x.zapas.id === 'D-2030-09-01' && x.zapas.zmeny.km === 12), 3000, 'km do motoru');
+      jistota(await kc('D-2030-09-01') === 96, 'nové km');
+      // neplatné km: zpět + oznámení, nic do motoru
+      pred = volano.length;
+      await page.fill('[data-ce-id="D-2030-09-01"] [data-ce-km]', '5000');
+      await page.keyboard.press('Enter');
+      jistota(await page.inputValue('[data-ce-id="D-2030-09-01"] [data-ce-km]') === '12' && /0–2000/.test(await page.textContent('#toast')), 'neplatné km zpět');
+      // chyba motoru: hodnota zpět, oznámení
+      chybaMotoru.cestakyUlozit = 'Disk teď neodpovídá.';
+      await page.click('[data-ce-id="D-2031-04-04"] [data-ce-krok="1"]');
+      jistota(await kc('D-2031-04-04') === 180, 'hned v aplikaci');
+      await page.waitForFunction(() => /Neuložilo se/.test(document.getElementById('toast').textContent));
+      await page.waitForFunction(() => /^120/.test(document.querySelector('[data-ce-id="D-2031-04-04"] .ce-zapas__kc b').textContent.replace(/\s/g, '')));
+      delete chybaMotoru.cestakyUlozit;
+      // filtr týmu
+      await page.click('[data-ce-filtr="D"]');
+      await page.waitForFunction(() => document.querySelectorAll('#p-cestaky .ce-zapas').length === 2 && !document.querySelector('.ce-souhrn__celkem'));
+      await page.click('[data-ce-filtr="vse"]');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_cestaky.png'), fullPage: true });
+      // Vrátit vše přes potvrzení
+      pred = volano.length;
+      await page.click('[data-ce-vratit]');
+      await page.click('[data-okno="ano"]');
+      await cekej(() => ulozeno(pred, (x) => x.vratitVse === true), 3000, 'Vrátit vše do motoru');
+      jistota(await celkem() === 360, 'zpět na výchozí');
+      jistota(!chyby.length, 'chyby stránky: ' + chyby.join('; '));
+    } finally { await ctx.close(); }
+    const t = await novaStranka(prohlizec, VELIKOSTI[0]);
+    try {
+      await t.page.goto(WEB);
+      await t.page.click('.hlava-ja [data-menu]');
+      await t.page.click('[data-panel="menu"] [data-menu-cil="cestaky"]');
+      await t.page.waitForSelector('#p-cestaky .ce-zapas');
+      const m = await t.page.evaluate(() => ({ pretika: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        pismo: getComputedStyle(document.querySelector('[data-ce-km]')).fontSize, krok: document.querySelector('.ce-krok').getBoundingClientRect().height }));
+      jistota(m.pretika <= 0 && m.pismo === '16px' && m.krok >= 40, 'telefon: ' + JSON.stringify(m));
+      await t.page.screenshot({ path: path.join(VYSTUP, 'telefon_cestaky.png'), fullPage: true });
+    } finally { await t.ctx.close(); }
+  });
+
   await test('Tréninky: v pásu, karty s filtrem druhů a hledáním, okno cviku (podbarvení, organizace, snímky), hvězdy, oblíbené a poznámka do motoru; telefon', async () => {
     for (const k of Object.keys(treninkyMojeTest)) delete treninkyMojeTest[k];
     const { ctx, page } = await novaStranka(prohlizec, VELIKOSTI[3]);
@@ -8280,7 +8387,7 @@ function vychoziVikendTestu() {
     await page.click('.hlava-ja [data-menu]');
     await page.waitForSelector('[data-panel="menu"].otevreny');
     const sekce = await page.$$eval('[data-panel="menu"] [data-menu-cil]', (b) => b.map((x) => x.dataset.menuCil).join());
-    jistota(sekce === 'dnes,schranka,posta,kalendar,zdravi,fotbal,treninky,reely,plakaty,auto,knihovna', 'sekce v menu: ' + sekce);
+    jistota(sekce === 'dnes,schranka,posta,kalendar,zdravi,fotbal,treninky,reely,plakaty,cestaky,auto,knihovna', 'sekce v menu: ' + sekce);
     jistota(await page.locator('[data-panel="menu"] [data-menu-cil="dnes"][aria-current="page"]').count() === 1, 'aktivní sekce');
     await page.click('[data-panel="menu"] [data-menu-cil="fotbal"]');
     await page.waitForSelector('#p-fotbal:not([hidden]) .fotbal-stranka');

@@ -5178,4 +5178,79 @@ test('Tréninky: smazání cviků do koše (karta i náhled) a obnovení, moje z
   assert.strictEqual(p.volej('treninkSmazat', { ids: [] }).ok, false);
 });
 
+test('Cesťáky: čtení zapasy.json (čištění) + upravy.json, zápis jen odchylek pod zámkem, null = zrušit, výchozí auta, Vrátit vše, meze, neznámý zápas, poškozený upravy.json', () => {
+  const p = prostredi();
+  let d = p.volej('cestaky').data;
+  assert.deepStrictEqual([d.zapasy.length, d.obdobi.length, d.upravy], [0, 0, {}], 'bez složky prázdno');
+  assert.strictEqual(p.volej('cestakyUlozit', { vratitVse: true }).ok, false, 'bez zapasy.json se nic neukládá');
+  const ce = p.schranka.createFolder('CESTAKY');
+  ce.createFile('zapasy.json', JSON.stringify({
+    obdobi: [{ id: 'p1', nazev: 'Podzim 2030', kratce: 'Podz. 30' }, { id: 'j1', nazev: 'Jaro 2031' }],
+    tymy: [{ id: 'A', nazev: 'Áčko', kratce: 'A' }, { id: 'D', nazev: 'Dorost' }],
+    vychozi: { sazba: 2, auta: 3, pohary: false },
+    zapasy: [
+      { id: 'A-2030-09-08', tym: 'A', obdobi: 'p1', datum: '2030-09-08', souper: ' Soupeř A ', hriste: 'Obec A', km: 20 },
+      { id: 'A-2030-08-25', tym: 'A', obdobi: 'p1', datum: '2030-08-25', souper: 'Soupeř B', hriste: 'Obec B', km: 30, bus: true },
+      { id: 'D-2031-04-04', tym: 'D', obdobi: 'j1', datum: '2031-04-04', souper: 'Soupeř C', hriste: 'Obec C', km: 15, pohar: true },
+      { id: 'A-2030-09-08', tym: 'A', obdobi: 'p1', datum: '2030-09-09', souper: 'Dvojí id', km: 1 },
+      { id: 'X-1', tym: 'X', obdobi: 'p1', datum: '2030-09-01', souper: 'Neznámý tým', km: 1 },
+      { id: 'D-2', tym: 'D', obdobi: 'p1', datum: '1. 9.', souper: 'Špatné datum', km: 1 },
+      { id: '../x', tym: 'D', obdobi: 'p1', datum: '2030-09-01', souper: 'Zlé id', km: 1 }]
+  }));
+  d = p.volej('cestaky').data;
+  assert.deepStrictEqual(d.zapasy.map((z) => z.id), ['A-2030-09-08', 'A-2030-08-25', 'D-2031-04-04']);
+  assert.deepStrictEqual(json(d.zapasy[0]), { id: 'A-2030-09-08', tym: 'A', obdobi: 'p1', datum: '2030-09-08', souper: 'Soupeř A', hriste: 'Obec A', km: 20 });
+  assert.deepStrictEqual([d.zapasy[1].bus, d.zapasy[2].pohar], [true, true]);
+  assert.deepStrictEqual(json(d.chybne), ['zapasy.json: A-2030-09-08', 'zapasy.json: X-1', 'zapasy.json: D-2', 'zapasy.json: #7']);
+  assert.deepStrictEqual(json([d.vychozi, d.nastaveni, d.upravy]), [{ sazba: 2, auta: 3, pohary: false }, { sazba: 2, auta: 3, pohary: false }, {}]);
+  // úprava zápasu: jen odchylky, soubor upravy.json se založí
+  let r = p.volej('cestakyUlozit', { zapas: { id: 'A-2030-09-08', zmeny: { auta: 5, km: 20, bus: false, busKc: 0 } } });
+  assert.strictEqual(r.ok, true, r.chyba);
+  assert.deepStrictEqual(json(r.data.upravy), { 'A-2030-09-08': { auta: 5 } }, 'shodné s výchozím se neukládá');
+  const soubor = () => ce.soubory.find((f) => f.getName() === 'upravy.json');
+  let u = JSON.parse(soubor().getBlob().getDataAsString());
+  assert.deepStrictEqual(json([u.nastaveni, u.zapasy]), [{}, { 'A-2030-09-08': { auta: 5 } }]);
+  assert.ok(/^\d{4}-\d\d-\d\dT/.test(u.kdy) && r.data.kdy === u.kdy, 'kdy jako ISO');
+  r = p.volej('cestakyUlozit', { zapas: { id: 'A-2030-08-25', zmeny: { busKc: '2 500' } } });
+  assert.deepStrictEqual(json(r.data.upravy['A-2030-08-25']), { busKc: 2500 });
+  r = p.volej('cestakyUlozit', { zapas: { id: 'A-2030-08-25', zmeny: { busKc: null, bus: false } } });
+  assert.deepStrictEqual(json(r.data.upravy['A-2030-08-25']), { bus: false }, 'null zruší, vypnutý bus je úprava');
+  // nastavení: výchozí auta = 5 → úprava s 5 auty zmizí; sazba s čárkou; shodné s výchozím = nic v souboru
+  r = p.volej('cestakyUlozit', { nastaveni: { auta: 5, sazba: '2,5', pohary: false } });
+  assert.deepStrictEqual(json([r.data.nastaveni, r.data.upravy]), [{ sazba: 2.5, auta: 5, pohary: false }, { 'A-2030-08-25': { bus: false } }]);
+  u = JSON.parse(soubor().getBlob().getDataAsString());
+  assert.deepStrictEqual(json(u.nastaveni), { sazba: 2.5, auta: 5 }, 'pohary = výchozí se neukládá');
+  d = p.volej('cestaky').data;
+  assert.deepStrictEqual(json([d.nastaveni, d.vychozi.sazba]), [{ sazba: 2.5, auta: 5, pohary: false }, 2]);
+  r = p.volej('cestakyUlozit', { nastaveni: { sazba: null } });
+  assert.strictEqual(r.data.nastaveni.sazba, 2, 'null = výchozí');
+  // meze a chyby (soubor se nemění)
+  const pred = soubor().getBlob().getDataAsString();
+  for (const x of [{ nastaveni: { sazba: 51 } }, { nastaveni: { auta: 2.5 } }, { nastaveni: { pohary: 'ano' } }, { zapas: { id: 'A-2030-09-08', zmeny: { km: 2001 } } },
+    { zapas: { id: 'A-2030-09-08', zmeny: { busKc: 200001 } } }, { zapas: { id: 'A-2030-09-08', zmeny: { auta: 21 } } }, { zapas: { id: 'Neni-1', zmeny: { km: 3 } } }, {}]) {
+    assert.strictEqual(p.volej('cestakyUlozit', x).ok, false, JSON.stringify(x));
+  }
+  assert.strictEqual(soubor().getBlob().getDataAsString(), pred, 'chyba nic nezapíše');
+  // úprava zápasu, který v zapasy.json zrovna není, v souboru zůstane, do aplikace nejde
+  soubor().setContent(JSON.stringify({ nastaveni: { auta: 5 }, zapasy: { 'A-2030-08-25': { bus: false }, 'Stary-1': { km: 9 }, 'A-2030-09-08': { km: 'x', auta: 4 } }, kdy: '2030-09-10T10:00:00.000Z' }));
+  d = p.volej('cestaky').data;
+  assert.deepStrictEqual(json(d.upravy), { 'A-2030-08-25': { bus: false }, 'A-2030-09-08': { auta: 4 } }, 'neplatná hodnota pryč, neznámý zápas se neposílá');
+  r = p.volej('cestakyUlozit', { zapas: { id: 'A-2030-09-08', zmeny: { auta: null } } });
+  assert.deepStrictEqual(json(JSON.parse(soubor().getBlob().getDataAsString()).zapasy), { 'A-2030-08-25': { bus: false }, 'Stary-1': { km: 9 } });
+  // Vrátit vše
+  r = p.volej('cestakyUlozit', { vratitVse: true });
+  assert.deepStrictEqual(json([r.data.nastaveni, r.data.upravy]), [{ sazba: 2, auta: 3, pohary: false }, {}]);
+  // poškozený upravy.json: čtení jede s výchozími a hlásí ho, zápis ho nepřepíše
+  soubor().setContent('{ rozbité');
+  d = p.volej('cestaky').data;
+  assert.deepStrictEqual(json([d.upravy, d.chybne.slice(-1)]), [{}, ['upravy.json']]);
+  assert.strictEqual(p.volej('cestakyUlozit', { vratitVse: true }).ok, false);
+  assert.strictEqual(soubor().getBlob().getDataAsString(), '{ rozbité');
+  // čisté funkce
+  const C = vm.runInContext('CESTAKY_', p.ctx);
+  assert.strictEqual(C.zkontroluj('sazba', 4.555), 4.56);
+  assert.deepStrictEqual(json(C.zapasy(null)), { obdobi: [], tymy: [], vychozi: { sazba: 0, auta: 1, pohary: false }, zapasy: [], chybne: [] });
+  assert.ok(p.volej('info').data.akce.indexOf('cestaky') >= 0 && p.volej('info').data.akce.indexOf('cestakyUlozit') >= 0, 'aplikace podle info.akce ukáže stránku');
+});
+
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

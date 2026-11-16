@@ -2,6 +2,7 @@
 // Všechno je vymyšlené; nic se nikam neposílá.
 
 import { pulnoc, pridejDny } from './pomocne.js';
+import { pouzij as cestakyPouzij } from './cestaky_vypocet.js';
 
 const H = 36e5;
 const ted = Date.now();
@@ -642,7 +643,31 @@ const knihovnaKopie = () => kopie(Object.assign({}, knihovnaUkazka, { ted: Date.
 
 let domovUkazka = ''; // domov pro počasí v ukázce (Nastavení → Počasí → Domov)
 
+// Cesťáky v ukázce: vymyšlené zápasy, sazba a vzdálenosti (skutečné jsou jen na Disku v CESTAKY)
+const cestakyUkazka = {
+  obdobi: [{ id: 'podzim', nazev: 'Podzim 2030', kratce: 'Podz. 30' }, { id: 'jaro', nazev: 'Jaro 2031', kratce: 'Jaro 31' }],
+  tymy: [{ id: 'A', nazev: 'Áčko', kratce: 'A' }, { id: 'D', nazev: 'Dorost', kratce: 'Dor' }],
+  vychozi: { sazba: 3, auta: 3, pohary: false },
+  zapasy: [
+    { id: 'A-2030-08-18', tym: 'A', obdobi: 'podzim', datum: '2030-08-18', souper: 'Soupeř A', hriste: 'Obec A', km: 18 },
+    { id: 'A-2030-09-01', tym: 'A', obdobi: 'podzim', datum: '2030-09-01', souper: 'Soupeř B', hriste: 'Obec B', km: 64 },
+    { id: 'A-2030-09-15', tym: 'A', obdobi: 'podzim', datum: '2030-09-15', souper: 'Soupeř C', hriste: 'Obec C', km: 27, bus: true },
+    { id: 'A-2030-07-28-pohar', tym: 'A', obdobi: 'podzim', datum: '2030-07-28', souper: 'Soupeř D (pohár)', hriste: 'Obec D', km: 21, pohar: true },
+    { id: 'D-2030-08-24', tym: 'D', obdobi: 'podzim', datum: '2030-08-24', souper: 'Soupeř E', hriste: 'Obec E', km: 35 },
+    { id: 'D-2030-09-21', tym: 'D', obdobi: 'podzim', datum: '2030-09-21', souper: 'Soupeř F', hriste: 'Obec F', km: 12 },
+    { id: 'A-2031-04-05', tym: 'A', obdobi: 'jaro', datum: '2031-04-05', souper: 'Soupeř G', hriste: 'Obec G', km: 80 },
+    { id: 'D-2031-04-12', tym: 'D', obdobi: 'jaro', datum: '2031-04-12', souper: 'Soupeř H', hriste: 'Obec H', km: 44 }]
+};
+let cestakyStav = { nastaveni: { sazba: 3, auta: 3, pohary: false }, upravy: { 'A-2030-09-01': { auta: 4 } }, kdy: new Date(ted - 2 * H).toISOString() };
+
 const akce = {
+  // Cesťáky: úpravy jen v paměti ukázky, stejná pravidla jako motor (cestaky_vypocet.js pouzij)
+  cestaky: () => Object.assign(kopie(cestakyUkazka), kopie(cestakyStav), { chybne: [], ted: Date.now() }),
+  cestakyUlozit: (d) => {
+    const r = cestakyPouzij(Object.assign({}, cestakyUkazka, cestakyStav), d);
+    cestakyStav = { nastaveni: r.nastaveni, upravy: r.upravy, kdy: new Date().toISOString() };
+    return Object.assign(kopie(cestakyStav), { ted: Date.now() });
+  },
   info: () => ({ verze: 'ukázka', ucet: 'ja@example.com', skupinyHostu: kopie(skupinyHostu), jmeniny: kopie(jmeninyUkazka),
     posta: { osobniAdresa: 'ja@example.com', pracovniAdresa: posta.pracovniAdresa, lzeOdesilatZPracovni: true, podpisy: kopie(podpisy), navrhyOdpovedi: rezimNavrhu }, kalendare,
     pocasi: { misto: domovUkazka || 'Veselí nad Moravou', domov: !!domovUkazka } }),
