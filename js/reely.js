@@ -546,6 +546,9 @@ function ulozPopisek() {
   return fronta;
 }
 
+// pro okno dílu v Plánu (js/dil_okno.js): stejný náhled reelu a stejné přijetí uloženého popisku – žádná kopie kódu
+export { nahledHtml as nahledReeluHtml, najdi as reelPodleId, prijmiPopisek as prijmiPopisekReelu };
+
 function prijmiPopisek(v) {
   if (!v || !stav.reely) return;
   if (v.reel) nahradReel(v.reel);

@@ -5363,4 +5363,53 @@ test('Reely → editor drah: reelKlipy (klipy.json + dráhy z webu, filtr dílu)
   assert.ok(['reelKlipy', 'reelKlip'].every((a) => vm.runInContext('CTENI_MOTORU', p.ctx).indexOf(a) >= 0));
 });
 
+test('Reely → okno dílu: popisek (plán × reel), návrhy pod klíčem reelu / dil_<id>, žádost o návrhy s poznámkou (…_reel.md), snímky karuselu, reel převezme popisek z plánu', () => {
+  const p = prostredi();
+  const re = p.schranka.createFolder('REELY');
+  re.createFile('plan.json', JSON.stringify({ vlny: [{ id: 'v1', nazev: 'Vlna 1' }], dily: [
+    { id: 'a', nazev: 'Áčko – Soupeř A', vlna: 'v1', termin: '2030-11-20', format: 'reel', reel: 'reel_a-tym_soupera' },
+    { id: 'b', nazev: 'Dorost – Soupeř B', vlna: 'v1', termin: '2030-11-24', format: 'reel', reel: 'reel_dorost_souperb', popis: 'Hattrick.' },
+    { id: 'karusel-cisla', nazev: 'Čísla', vlna: 'v1', termin: '2030-12-31', format: 'karusel' }] }));
+  re.createFile('reely.json', JSON.stringify({ reely: [{ id: 'reel_a-tym_soupera', nazev: 'A', tymy: ['A'], zapasy: [], video: '', popisek: 'Popisek z PC' }] }));
+  re.createFile('popisky_claude.json', JSON.stringify({ 'reel_dorost_souperb': { varianty: ['Věcný B', 'Hravý B'], kdy: '2020-01-01T10:00:00+01:00' },
+    'dil_karusel-cisla': { varianty: ['Čísla 1', 'Čísla 2'], kdy: '2020-01-01T10:00:00+01:00' } }));
+  const ka = re.createFolder('karusely').createFolder('karusel-cisla');
+  ka.createFile('01.jpg', 'JPEG1'); ka.createFile('02.jpg', 'JPEG2'); ka.createFile('poznamka.txt', 'x');
+  let d = p.volej('reelyPlan').data;
+  const dil = (x, id) => x.dily.find((y) => y.id === id);
+  assert.deepStrictEqual([dil(d, 'a').popisek, dil(d, 'a').popisekReel, dil(d, 'a').klicNavrhu], ['Popisek z PC', true, 'reel_a-tym_soupera']);
+  assert.deepStrictEqual([dil(d, 'b').popisek, dil(d, 'b').popisekReel, dil(d, 'b').navrhy], ['', false, ['Věcný B', 'Hravý B']]);
+  assert.deepStrictEqual([dil(d, 'karusel-cisla').klicNavrhu, dil(d, 'karusel-cisla').navrhy.length, dil(d, 'karusel-cisla').snimku], ['dil_karusel-cisla', 2, 2]);
+  // popisek dílu bez reelu → plan_moje.json; s odřádkováním, přes 2 200 znaků chyba
+  let r = p.volej('reelyPlanUlozit', { dil: { id: 'b', zmeny: { popisek: 'Hravý B\n\nřádek  \n#fkagrovnorovy' } } });
+  assert.ok(r.ok, r.chyba);
+  assert.strictEqual(dil(r.data, 'b').popisek, 'Hravý B\n\nřádek\n#fkagrovnorovy');
+  assert.strictEqual(p.volej('reelyPlanUlozit', { dil: { id: 'b', zmeny: { popisek: 'x'.repeat(2201) } } }).ok, false);
+  // díl s reelem: popisek z plánu převezme reel bez vlastní úpravy (reely i okno dílu)
+  r = p.volej('reelyPlanUlozit', { dil: { id: 'a', zmeny: { popisek: 'Vybraný v plánu' } } });
+  assert.strictEqual(dil(r.data, 'a').popisek, 'Vybraný v plánu');
+  const reel = p.volej('reely', { znovu: true }).data.reely.find((x) => x.id === 'reel_a-tym_soupera');
+  assert.deepStrictEqual([reel.popisek, reel.zPlanu], ['Vybraný v plánu', true]);
+  // žádost o nové návrhy s poznámkou: …_reel.md (skrytá) + čeká, dokud nepřijdou novější
+  r = p.volej('dilPopisekNavrhy', { dil: 'b', poznamka: 'Zmiň první gól v áčku' });
+  assert.ok(r.ok, r.chyba);
+  assert.deepStrictEqual([dil(r.data, 'b').cekaNaNavrhy, dil(r.data, 'b').proClauda], [true, 'Zmiň první gól v áčku']);
+  const nove = p.schranka.getFoldersByName('NOVE').next().soubory.filter((f) => /_reel\.md$/.test(f.getName()));
+  assert.strictEqual(nove.length, 1);
+  const text = nove[0].getBlob().getDataAsString();
+  assert.ok(/typ: reel-popisek/.test(text) && /„reel_dorost_souperb“/.test(text) && /Zmiň první gól v áčku/.test(text) && /Hattrick/.test(text) && /Hravý B/.test(text), text);
+  assert.ok(vm.runInContext('SKRYTE_POZNAMKY', p.ctx).test(nove[0].getName()));
+  re.soubory.find((f) => f.getName() === 'popisky_claude.json').setContent(JSON.stringify({ 'reel_dorost_souperb': { varianty: ['Nový 1', 'Nový 2'], kdy: new Date(Date.now() + 60000).toISOString() } }));
+  p.cache.clear();
+  d = p.volej('reelyPlan').data;
+  assert.deepStrictEqual([dil(d, 'b').cekaNaNavrhy, dil(d, 'b').navrhy[0]], [undefined, 'Nový 1'], 'novější návrhy → už nečeká');
+  // snímky karuselu
+  const o = p.volej('dilObrazky', { dil: 'karusel-cisla' }).data.obrazky;
+  assert.deepStrictEqual(o.map((x) => [x.nazev, Buffer.from(x.data, 'base64').toString()]), [['01.jpg', 'JPEG1'], ['02.jpg', 'JPEG2']]);
+  assert.deepStrictEqual(p.volej('dilObrazky', { dil: 'neni' }).data.obrazky, []);
+  assert.strictEqual(p.volej('dilObrazky', { dil: '../REELY' }).ok, false);
+  const info = p.volej('info').data.akce;
+  assert.ok(['dilPopisekNavrhy', 'dilObrazky'].every((a) => info.indexOf(a) >= 0) && vm.runInContext('CTENI_MOTORU', p.ctx).indexOf('dilObrazky') >= 0);
+});
+
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

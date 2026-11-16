@@ -334,6 +334,8 @@ Dráhy hotové, Vyšlo, vlastní díly a nápady). Motor: `reelyPlan`, `reelyPla
 
 **Editor drah** (Upravit dráhy u dílu, `js/drahy_editor.js` + `drahy_editor.css`): stejné ovládání jako místní `editor.html` na domácím PC (● Nahrávat dráhu a vést výřez ukazatelem nebo prstem, tažení na zastaveném videu, ←/→ po snímcích, mezerník, 1–5 rychlost, R, ořez, graf), vedle živý výřez 3 : 4. Video je malý náhled bez zvuku (`REELY/klipy/`, `klipy.json` – domácí PC), dráhy se ukládají ve zdrojových px do `REELY/drahy/<klip>.json` (`reelDrahaUlozit`, jen motor) a domácí PC si je při `export_reely.py` převezme (novější vyhrává).
 
+**Okno dílu** (klepnutí na kartu nebo na Na řadě, `js/dil_okno.js`): náhled reelu / snímky karuselu (`REELY/karusely/<díl>/`) / klipy, popisek na Instagram (ukládá se sám), 2 návrhy od Clauda (`REELY/popisky_claude.json`, klíč = reel dílu nebo `dil_<id>`), poznámka pro Clauda a Požádat o nové návrhy, moje poznámka. Popisek dílu s hotovým reelem je popisek reelu (stejný jako v detailu reelu), jinak se drží v `plan_moje.json`; na kartě dílu jsou z něj dva řádky.
+
 ### Příběhy na Instagram (od 15. 10.)
 - **Jen příběh** u reelu i plakátu (Kam: Reel · Reel + příběh · Jen příběh; u plakátu Příspěvek · Příspěvek + příběh ·
   Jen příběh): kontejner STORIES bez příspěvku a bez popisku; video do příběhu nejvýš 60 s (delší reel motor odmítne).

@@ -420,6 +420,8 @@ const motor = {
   reelyPlan: () => planTestu(),
   reelyPlanUlozit: (d) => { planMojeTest = RP.moje(RP.zmen(PLAN_TEST, planMojeTest, d, Date.now(), stavyPlanuTestu()), PLAN_TEST); return planTestu(); },
   reelKlipy: (d) => ({ klipy: RP.klipySDrahami(KLIPY_TEST, drahyWebTest, d.dil || ''), ted: Date.now() }),
+  dilPopisekNavrhy: (d) => { planMojeTest = RP.moje(RP.zmen(PLAN_TEST, planMojeTest, { navrhy: { id: d.dil, poznamka: d.poznamka } }, Date.now()), PLAN_TEST); return planTestu(); },
+  dilObrazky: (d) => ({ obrazky: d.dil === 'd-kar' ? [1, 2].map((i) => ({ nazev: '0' + i + '.jpg', typ: 'image/jpeg', data: SNIMEK_TEST })) : [] }),
   reelKlip: (d) => { if (!KLIPY_TEST.klipy.some((k) => k.id === d.id)) throw new Error('Náhled klipu na Disku není.'); return { typ: 'video/mp4', velikost: 3786, data: MINI_VIDEO_TEST }; },
   reelDrahaUlozit: (d) => {
     const k = RP.klipySDrahami(KLIPY_TEST, {}, '').find((x) => x.id === d.id);
@@ -732,7 +734,12 @@ const klipTestu = (id, strelec) => ({ id, dil: 'reel_benfika_souperb1', datum: '
   sirka: 1920, vyska: 1080, delka_s: 2, od: 0.2, do: 1.8, klice: [{ t: 0, x: 555 }], rucne: false, video: 'klipy/' + id + '.mp4', bajtu: 3786 });
 const KLIPY_TEST = { klipy: [klipTestu('kt-1', 'Hráč A'), klipTestu('kt-2', 'Hráč B')] };
 let drahyWebTest = {};
-const zdrojePlanuTestu = () => ({ klipy: RP.klipySDrahami(KLIPY_TEST, drahyWebTest, ''), plan: PLAN_TEST, moje: planMojeTest, audit: PLAN_AUDIT_TEST, vyroba: PLAN_VYROBA_TEST,
+// okno dílu: návrhy u „Díl v plánu“ (klíč = reel) a u karuselu (dil_<id>), 2 snímky karuselu; Michalovy úpravy reelů z reelyUpravy
+const NAVRHY_PLANU_TEST = { 'reel_a-tym_soupera1': { varianty: ['Věcný návrh A', 'Hravý návrh A\n\n#fkagrovnorovy'], kdy: '2020-01-01T10:00:00+01:00' },
+  'dil_d-kar': { varianty: ['Karusel 1', 'Karusel 2'], kdy: '2020-01-01T10:00:00+01:00' } };
+const SNIMEK_TEST = '/9j/4AAQSkZJRgABAgAAAQABAAD//gAPTGF2YzYzLjEuMTAwAP/bAEMACBAQExATFhYWFhYWGhgaGxsbGhoaGhsbGx0dHSIiIh0dHRsbHR0gICIiJSYlIyMiIyYmKCgoMDAuLjg4OkVFU//EAE0AAQEAAAAAAAAAAAAAAAAAAAAGAQEBAQAAAAAAAAAAAAAAAAAABQYQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCACHAGwDASIAAhEAAxEA/9oADAMBAAIRAxEAPwCHAVWuAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf//Z';
+const zdrojePlanuTestu = () => ({ navrhy: NAVRHY_PLANU_TEST, snimky: { 'd-kar': 2 },
+  upravy: Object.keys(reelyUpravy).reduce((o, k) => Object.assign(o, { [k]: { text: reelyUpravy[k] } }), {}), klipy: RP.klipySDrahami(KLIPY_TEST, drahyWebTest, ''), plan: PLAN_TEST, moje: planMojeTest, audit: PLAN_AUDIT_TEST, vyroba: PLAN_VYROBA_TEST,
   fotbal: { zapasy: PLAN_ZAPASY_TEST, detaily: PLAN_DETAILY_TEST }, reely: REELY_TEST.map(reelTestu), zverejneno: Object.assign({}, reelyZverejneno), planIg: {} });
 const planTestu = () => JSON.parse(JSON.stringify(Object.assign(RP.vystup(zdrojePlanuTestu()), { chybne: [], ted: Date.now() })));
 const stavyPlanuTestu = () => { const s = {}; RP.vystup(zdrojePlanuTestu()).dily.forEach((d) => { s[d.id] = d.stav; }); return s; };
@@ -8791,6 +8798,107 @@ function vychoziVikendTestu() {
       await t.page.waitForSelector('[data-panel="drahy-editor"]', { state: 'detached' });
       if (t.chybyStranky.length) throw new Error('telefon chyby stránky: ' + t.chybyStranky.join(' | '));
     } finally { await t.ctx.close(); }
+  });
+
+  await test('Reely → okno dílu: klepnutí na kartu, Návrh 2 → Použít → popisek do plánu a na kartu, popisek reelu přes reelPopisekUlozit (fokus zůstane), poznámka pro Clauda → dilPopisekNavrhy, galerie karuselu; řádek Na řadě vystředěný na 1920 i 1280; telefon', async () => {
+    planMojeTest = RP.moje(null, PLAN_TEST);
+    drahyWebTest = {};
+    for (const k of Object.keys(reelyUpravy)) delete reelyUpravy[k];
+    const O = '[data-panel="dil-okno"] ';
+    const vidim = (sel) => `Array.from(document.querySelectorAll('${sel}')).find((b) => b.offsetParent)`;
+    const naradeMer = () => ({
+      lista: document.querySelector('#p-reely .rp-lista').getBoundingClientRect(), nr: document.querySelector('#p-reely .rp-narade').getBoundingClientRect(),
+      dalsi: document.querySelector('#p-reely .rp-narade').nextElementSibling.getBoundingClientRect(),
+      text: document.querySelector('#p-reely .rp-narade > b').getBoundingClientRect(), stitek: document.querySelector('#p-reely .rp-narade__label').getBoundingClientRect(), tl: (document.querySelector('#p-reely .rp-narade__akce .btn') || document.querySelector('#p-reely .rp-narade .tag')).getBoundingClientRect(),
+      hlava: document.querySelector('#p-reely .rp-vlna__hlava b').getBoundingClientRect(), karta: document.querySelector('#p-reely .rp-vlna:last-child .rp-dil').getBoundingClientRect() });
+    const chyby = [];
+    for (const sirka of [1920, 1280]) {
+      const { ctx, page, chybyStranky } = await novaStranka(prohlizec, { nazev: 'pc', sirka, vyska: 1080, dotyk: false }, 'dark');
+      try {
+        await page.goto(WEB);
+        await page.click('#rail [data-cil="reely"]');
+        await page.click('#p-reely [data-reely-zalozka="plan"]');
+        await page.waitForSelector('#p-reely .rp-vlny .rp-dil');
+        // Na řadě: mezera nad = pod, obsah na střed, text zarovnaný s hlavičkami sloupců
+        const m = await page.evaluate(naradeMer);
+        const nad = m.nr.top - m.lista.bottom, pod = m.dalsi.top - m.nr.bottom;
+        const stredText = (m.text.top + m.text.bottom) / 2, stredTl = (m.tl.top + m.tl.bottom) / 2;
+        if (Math.abs(nad - pod) > 2 || Math.abs(stredText - stredTl) > 2 || nad < 8) chyby.push(sirka + ' Na řadě: nad ' + nad + ', pod ' + pod + ', střed textu ' + stredText + ' / tlačítka ' + stredTl);
+        if (Math.abs(m.stitek.left - m.hlava.left) > 3) chyby.push(sirka + ' Na řadě: text začíná ' + m.stitek.left + ', hlavičky sloupců ' + m.hlava.left);
+        if (Math.abs(m.tl.right - m.karta.right) > 3) chyby.push(sirka + ' Na řadě: tlačítko končí ' + m.tl.right + ', karty ve sloupcích ' + m.karta.right);
+        if (sirka === 1280) { await page.screenshot({ path: path.join(VYSTUP, 'pc1280_reely_narade.png') }); continue; }
+        await page.screenshot({ path: path.join(VYSTUP, 'pc_reely_plan_popisky.png'), fullPage: true });
+        // karta: Návrh 1 se štítkem „návrh“
+        jistota(await page.evaluate(`(${vidim('#p-reely .rp-dil[data-rp-dil="d-plan"] .rp-dil__popisek')} || {}).textContent`) === 'návrhVěcný návrh A', 'na kartě Návrh 1 se štítkem');
+        // okno dílu, Návrh 2 → Použít → popisek do plánu
+        await page.evaluate(`${vidim('#p-reely .rp-dil[data-rp-dil="d-plan"] .rp-dil__nazev')}.click()`);
+        await page.waitForSelector(O + '[data-do-pole="popisek"]');
+        await page.click(O + '[data-do-navrh-volba="1"]');
+        let pred = volano.length;
+        await page.click(O + '[data-do-navrh-pouzit]');
+        await cekej(() => volano.slice(pred).some((x) => x.akce === 'reelyPlanUlozit' && x.dil && x.dil.id === 'd-plan' && /Hravý návrh A/.test(x.dil.zmeny.popisek)), 3000, 'popisek do plánu');
+        await page.waitForFunction((o) => /uloženo/.test(document.querySelector(o + '[data-do-ulozeni="popisek"]').textContent), O);
+        // poznámka pro Clauda → dilPopisekNavrhy, stav „chystá“
+        await page.fill(O + '[data-do-pole="proClauda"]', 'Zmiň první gól v áčku');
+        pred = volano.length;
+        await page.click(O + '[data-do-navrhy]');
+        await cekej(() => volano.slice(pred).some((x) => x.akce === 'dilPopisekNavrhy' && x.dil === 'd-plan' && x.poznamka === 'Zmiň první gól v áčku'), 3000, 'dilPopisekNavrhy');
+        await page.waitForSelector(O + '.do-ceka');
+        await page.screenshot({ path: path.join(VYSTUP, 'pc_reely_okno_dilu.png') });
+        await page.keyboard.press('Escape');
+        await page.waitForSelector('[data-panel="dil-okno"]', { state: 'detached' });
+        await page.waitForFunction(`(${vidim('#p-reely .rp-dil[data-rp-dil="d-plan"] .rp-dil__popisek')} || {}).textContent === 'Hravý návrh A · #fkagrovnorovy'`);
+        // díl s reelem: popisek přes reelPopisekUlozit, psaní neztratí fokus
+        await page.evaluate(`${vidim('#p-reely .rp-dil[data-rp-dil="d-reel"] .rp-dil__nazev')}.click()`);
+        await page.waitForSelector(O + '[data-do-pole="popisek"]');
+        await page.click(O + '[data-do-pole="popisek"]');
+        await page.keyboard.press('Control+End');
+        pred = volano.length;
+        await page.keyboard.type(' A ještě věta.');
+        await cekej(() => volano.slice(pred).some((x) => x.akce === 'reelPopisekUlozit' && x.id === 'reel_dorost_tesany' && /A ještě věta\.$/.test(x.text)), 4000, 'popisek reelu');
+        await page.waitForTimeout(600);
+        await page.keyboard.type('!');
+        jistota(await page.evaluate(() => document.activeElement && document.activeElement.dataset.pole) === 'do-popisek', 'fokus zůstal v poli popisku');
+        jistota(/věta\.!$/.test(await page.inputValue(O + '[data-do-pole="popisek"]')), 'text pokračuje');
+        await page.keyboard.press('Escape');
+        await page.waitForSelector('[data-panel="dil-okno"]', { state: 'detached' });
+        // karusel: galerie
+        await page.evaluate(`${vidim('#p-reely .rp-dil[data-rp-dil="d-kar"] .rp-dil__nazev')}.click()`);
+        await page.waitForSelector(O + '[data-do-galerie] img');
+        jistota(await page.locator(O + '.do-tecka').count() === 2, 'dvě tečky');
+        await page.click(O + '[data-do-snimek="1"]');
+        await page.waitForFunction((o) => /2 \/ 2/.test(document.querySelector(o + '.do-galerie__pocet').textContent), O);
+        await page.click(O + '[data-do-snimek-velky]');
+        await page.waitForSelector(O + '.do-galerie--velke');
+        await page.screenshot({ path: path.join(VYSTUP, 'pc_reely_okno_karusel.png') });
+        await page.click(O + '[data-do-snimek-velky]');
+        // nabídka pravým tlačítkem: první položka Otevřít
+        await page.keyboard.press('Escape');
+        await page.waitForSelector('[data-panel="dil-okno"]', { state: 'detached' });
+        await page.evaluate(`${vidim('#p-reely .rp-dil[data-rp-dil="d-plan2"]')}.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 300, clientY: 300 }))`);
+        await page.waitForSelector('.nabidka');
+        jistota(/^Otevřít/.test((await page.textContent('.nabidka [role="menuitem"], .nabidka button')).trim()), 'v nabídce první Otevřít');
+        await page.keyboard.press('Escape');
+        if (chybyStranky.length) chyby.push('chyby stránky: ' + chybyStranky.join(' | '));
+      } finally { await ctx.close(); }
+    }
+    const tl = await novaStranka(prohlizec, VELIKOSTI[0]);
+    try {
+      await tl.page.goto(WEB);
+      await tl.page.click('.hlava-ja [data-menu]');
+      await tl.page.click('[data-panel="menu"] [data-menu-cil="reely"]');
+      await tl.page.click('#p-reely [data-reely-zalozka="plan"]');
+      await tl.page.click('#p-reely [data-rp-filtr="vse"]');
+      await tl.page.click('#p-reely .rp-mobil .rp-dil[data-rp-dil="d-plan"] .rp-dil__nazev');
+      await tl.page.waitForSelector(O + '[data-do-pole="popisek"]');
+      const m = await tl.page.evaluate(() => ({ pretok: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        sirka: Math.round(document.querySelector('[data-panel="dil-okno"]').getBoundingClientRect().width), pismo: getComputedStyle(document.querySelector('[data-do-pole="popisek"]')).fontSize }));
+      jistota(m.pretok <= 0 && m.sirka === 390 && m.pismo === '16px', 'telefon: ' + JSON.stringify(m));
+      await tl.page.waitForTimeout(500); // panel dojede nahoru
+      await tl.page.screenshot({ path: path.join(VYSTUP, 'telefon_reely_okno_dilu.png'), fullPage: false });
+      if (tl.chybyStranky.length) chyby.push('telefon chyby stránky: ' + tl.chybyStranky.join(' | '));
+    } finally { await tl.ctx.close(); }
+    jistota(!chyby.length, chyby.join('\n'));
   });
 
   await test('telefon: menu zleva se všemi sekcemi (Fotbal, Reely, Plakáty), zavření klepnutím vedle', async () => {

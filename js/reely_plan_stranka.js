@@ -148,6 +148,14 @@ function hlavniTlacitko(d) {
   return b ? b.outerHTML : '';
 }
 
+/** Dva řádky popisku pod názvem: vybraný / upravený text, jinak Návrh 1 od Clauda se štítkem „návrh“, jinak nic. */
+function popisekKartyHtml(d) {
+  const text = d.popisek || (d.navrhy && d.navrhy[0]) || '';
+  if (!text) return '';
+  return '<div class="rp-dil__popisek" title="' + esc(text.slice(0, 300)) + '">' + (d.popisek ? '' : '<span class="tag tag--fialova rp-dil__navrh">návrh</span>') +
+    esc(text.replace(/\s*\n\s*/g, ' · ')) + '</div>';
+}
+
 function kartaDilu(d, seStavem) {
   const v = vlna(d.vlna);
   const drahy = RP.drahyText(d);
@@ -171,6 +179,7 @@ function kartaDilu(d, seStavem) {
       (v ? '<span class="rp-dil__vlna">' + esc(v.nazev) + '</span>' : '') + '</div>' +
     (d.stav === 'naplanovano' && d.planKdy ? '<div class="rp-dil__info">' + (d.chybaIg ? 'Zveřejnění se nepovedlo – otevři reel' : 'Vyjde ' + esc(new Date(d.planKdy).toLocaleString('cs-CZ', { weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }))) + '</div>' : '') +
     (d.stav === 'vyveseno' && d.naIg ? '<div class="rp-dil__info">Na IG ' + esc(RP.denADatum(d.naIg)) + '</div>' : '') +
+    popisekKartyHtml(d) +
     (d.poznamkaMoje ? '<div class="rp-dil__pozn">' + esc(d.poznamkaMoje) + '</div>' : '') +
     '<div class="rp-dil__akce">' + tlacitka(d) + '</div></li>';
 }
@@ -261,6 +270,7 @@ export function vykresli(el, zalozka, zalozkyHtml) {
   }
   nastav(el.querySelector('#rp-bilance'), bilanceHtml(d));
   nastav(el.querySelector('#rp-obsah'), zalozka === 'zapasy' ? zapasyHtml(d) : zalozka === 'napady' ? napadyHtml(d) : planHtml(d));
+  if (dilOkno) dilOkno.obnovOkno();
   nastav(el.querySelector('#rp-pata'), (c.bezi ? '<span class="napoveda rp-pata__uklada"><span class="rp-tocka"></span>ukládám změny…</span>' : '') +
     (c.chyba ? '<span class="napoveda">Nepodařilo se obnovit · <button type="button" class="odkaz" data-rp-znovu>Zkusit znovu</button></span>' : '') +
     ((d.chybne || []).length ? '<span class="napoveda">Chyba v datech: ' + esc(d.chybne.join(', ')) + '</span>' : ''));
@@ -276,13 +286,28 @@ export function podnadpis() {
 
 // ---------------------------------------------------------------- události
 
-const vStrance = (el) => !!(el && el.closest && el.closest('#p-reely'));
+// stránka Reely i okno dílu (tlačítka dílu v patičce okna jsou stejná jako na kartě)
+const vStrance = (el) => !!(el && el.closest && el.closest('#p-reely, [data-panel="dil-okno"]'));
 /** Editor drah v aplikaci (js/drahy_editor.js – načte se až teď); po uložení dráhy dostane plán nový stav dílu. */
 function otevriEditorDrah(d) {
   import('./drahy_editor.js').then((m) => m.otevri(d, {
     editorPc: RP.editorOdkaz(c.data.editor, naPc(), d, datumDilu(d)),
     naPlan: (plan) => { if (plan && plan.dily) { c.data = plan; c.kdy = Date.now(); uloz(); zmeneno(); } }
   }), () => toast('Editor drah se nenačetl – zkontroluj připojení.', true));
+}
+
+/** Okno dílu (js/dil_okno.js – načte se až po klepnutí): popisek, návrhy od Clauda, poznámky, náhled / snímky / klipy. */
+let dilOkno = null;
+const apiOkna = {
+  dil: (x) => dil(x),
+  tlacitka: (d) => tlacitka(d),
+  stitek: (s) => stitekStavu(s),
+  vlnaNazev: (x) => { const v = vlna(x); return v ? v.nazev : ''; },
+  naPlan: (plan) => { if (plan && plan.dily) { c.data = plan; c.kdy = Date.now(); uloz(); zmeneno(); } },
+  obnovPlan: () => nactiPlan(true)
+};
+function otevriDil(d) {
+  import('./dil_okno.js').then((m) => { dilOkno = m; m.otevri(d.id, apiOkna); }, () => toast('Okno dílu se nenačetlo – zkontroluj připojení.', true));
 }
 
 let otevriReel = null; // reely.js předá otevriDetail (bez kruhového importu)
@@ -342,6 +367,7 @@ function nabidkaDilu(cil) {
   const d = el && c.data && dil(el.dataset.rpDil);
   if (!d) return null;
   const p = [];
+  if (umiMotor('dilPopisekNavrhy')) p.push({ ikona: IKONY.psat, text: 'Otevřít', fn: () => otevriDil(d) });
   const akce = RP.akce(d, !!RP.editorOdkaz(c.data.editor, naPc(), d, datumDilu(d)), umiMotor('reelKlipy'));
   if (akce.indexOf('upravitDrahy') >= 0) p.push({ ikona: IKONY.psat, text: 'Upravit dráhy', fn: () => otevriEditorDrah(d) });
   if (akce.indexOf('drahyHotove') >= 0) p.push({ ikona: IKONY.fajfka, text: 'Dráhy hotové', fn: () => zmenDil(d, { drahyHotove: true }, 'Dráhy hotové') });
@@ -425,6 +451,14 @@ async function novyNapad() {
   if (popis === true) return;
   posli('reelyPlanUlozit', { napad: { nazev, popis: popis || '' } }, 'Nápad uložený');
 }
+
+// klepnutí na kartu dílu / řádek Na řadě (ne na tlačítko či odkaz) = okno dílu
+document.addEventListener('click', (e) => {
+  if (!e.target.closest || e.target.closest('button, a, input, textarea, select, label') || !umiMotor('dilPopisekNavrhy')) return;
+  const k = e.target.closest('#p-reely .rp-dil[data-rp-dil], #p-reely .rp-narade[data-rp-dil]');
+  const d = k && c.data && dil(k.dataset.rpDil);
+  if (d) otevriDil(d);
+});
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest && e.target.closest('[data-rp-drahy-web], [data-rp-filtr], [data-rp-pohled], [data-rp-vlna], [data-rp-drahy], [data-rp-udelat], [data-rp-reel], [data-rp-hotovo], [data-rp-termin], ' +

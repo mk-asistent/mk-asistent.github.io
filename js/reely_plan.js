@@ -102,8 +102,19 @@ function cistaZmena(u, vlny) {
   if (odstavce(u.poznamka, 600)) r.poznamka = odstavce(u.poznamka, 600);
   FLAGY.forEach(function (k) { if (u[k] === true) r[k] = true; });
   if (typeof u.pozadano === 'number' && u.pozadano > 0) r.pozadano = u.pozadano;
+  if (popisekTextu(u.popisek)) r.popisek = popisekTextu(u.popisek);
+  if (typeof u.navrhyPozadano === 'number' && u.navrhyPozadano > 0) r.navrhyPozadano = u.navrhyPozadano;
+  if (odstavce(u.proClauda, 600)) r.proClauda = odstavce(u.proClauda, 600);
   return r;
 }
+
+export const POPISEK_MAX = 2200;
+/** Popisek na Instagram: odřádkování a prázdné řádky zůstávají (Instagram je ukazuje), jen konce řádků bez mezer; prázdný = ''. */
+function popisekTextu(s) {
+  return typeof s === 'string' ? s.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\s+$/, '').replace(/^\s*\n/, '').slice(0, POPISEK_MAX) : '';
+}
+/** Klíč návrhů popisku v REELY/popisky_claude.json: id reelu dílu (i budoucího), u dílu bez reelu dil_<id>. */
+export function klicNavrhu(d) { return d.reel || 'dil_' + d.id; }
 
 /** plan_moje.json → { dily: { id: změny }, vlastni: [díl se změnami], napady, kdy }. */
 export function moje(x, p) {
@@ -133,10 +144,14 @@ export function spoj(p, m) {
     if (u.poznamka) r.poznamkaMoje = u.poznamka;
     FLAGY.forEach(function (k) { if (u[k]) r[k] = true; });
     if (u.pozadano) r.pozadano = u.pozadano;
+    if (u.popisek) r.popisekMoje = u.popisek;
+    if (u.navrhyPozadano) r.navrhyPozadano = u.navrhyPozadano;
+    if (u.proClauda) r.proClauda = u.proClauda;
     return r;
   }).concat(m.vlastni.map(function (d) {
     const r = Object.assign({}, d, { vlastni: true });
     if (r.poznamka) { r.poznamkaMoje = r.poznamka; delete r.poznamka; }
+    if (r.popisek) { r.popisekMoje = r.popisek; delete r.popisek; }
     return r;
   }));
   const vPlanu = {};
@@ -190,12 +205,17 @@ export function stavDilu(d, ctx) {
 }
 
 /** Klíče, které Michal smí změnit; u vlastního dílu i jeho obsah. */
-const ZMENY_VSUDE = ['termin', 'vlna', 'cas', 'poznamka', 'drahyHotove', 'hotovo', 'zruseno'];
+const ZMENY_VSUDE = ['termin', 'vlna', 'cas', 'poznamka', 'popisek', 'drahyHotove', 'hotovo', 'zruseno'];
 const ZMENY_VLASTNI = ['nazev', 'popis', 'format', 'tym'];
 
 function zkontrolujZmenu(k, v, vlny) {
   if (k === 'termin') { if (v !== null && !platneDatum(v)) throw new Error('Termín musí být datum RRRR-MM-DD.'); return v; }
   if (k === 'cas') { if (v !== null && !CAS.test(String(v))) throw new Error('Čas musí být HH:MM.'); return v; }
+  if (k === 'popisek') {
+    if (v !== null && typeof v !== 'string') throw new Error('Popisek musí být text.');
+    if (typeof v === 'string' && v.replace(/\r\n/g, '\n').length > POPISEK_MAX) throw new Error('Popisek je delší než 2 200 znaků – Instagram ho nevezme.');
+    return v === null ? null : popisekTextu(v);
+  }
   if (k === 'poznamka' || k === 'popis') { if (v !== null && typeof v !== 'string') throw new Error('Text musí být text.'); return v === null ? null : odstavce(v, 600); }
   if (FLAGY.indexOf(k) >= 0) { if (typeof v !== 'boolean' && v !== null) throw new Error('Musí být ano, nebo ne.'); return v === true; }
   if (k === 'nazev') { if (!radek(v, 80)) throw new Error('Díl musí mít název.'); return radek(v, 80); }
@@ -213,6 +233,7 @@ function zkontrolujZmenu(k, v, vlny) {
  *   { napad: { nazev, popis? } | { id, smazat: true } }                        vlastní nápad
  *   { posun: { ids?: [id] | vlna?: id, dni } }                                  posun termínů; díly naplánované, vyvěšené a zrušené zůstanou
  *   { pozadano: id }                                                             (motor) Michal klepl „Udělej reel“
+ *   { navrhy: { id, poznamka? } }                                                (motor) Michal žádá 2 nové návrhy popisku (poznámka pro Clauda)
  * ted = ms (id nového dílu / nápadu), stavy = { id dílu: stav } (pro posun).
  */
 export function zmen(p, m, d, ted, stavy) {
@@ -248,7 +269,7 @@ export function zmen(p, m, d, ted, stavy) {
       if (Object.keys(u).length) r.dily[id] = u; else delete r.dily[id];
     });
   };
-  const n = ['dil', 'novy', 'napad', 'posun', 'pozadano'].filter(function (k) { return d[k] != null; });
+  const n = ['dil', 'novy', 'napad', 'posun', 'pozadano', 'navrhy'].filter(function (k) { return d[k] != null; });
   if (n.length !== 1) throw new Error('Není co uložit.');
   if (d.dil) {
     const x = obj(d.dil) || {};
@@ -295,6 +316,14 @@ export function zmen(p, m, d, ted, stavy) {
       posunuto++;
     });
     if (!posunuto) throw new Error('Žádný díl s termínem k posunu.');
+  } else if (d.navrhy) {
+    const x = obj(d.navrhy) || {};
+    const id = String(x.id || '');
+    if (!zPlanu(id) && !vlastni(id)) throw new Error('Díl v plánu není – obnov stránku.');
+    const cil = vlastni(id) || (r.dily[id] = r.dily[id] || {});
+    cil.navrhyPozadano = ted;
+    const pozn = odstavce(x.poznamka, 600);
+    if (pozn) cil.proClauda = pozn; else delete cil.proClauda;
   } else {
     const id = String(d.pozadano);
     if (!zPlanu(id) && !vlastni(id)) throw new Error('Díl v plánu není – obnov stránku.');
@@ -338,10 +367,23 @@ export function vystup(z) {
   const ctx = { reely: reely, zverejneno: obj(z.zverejneno) || {}, planIg: obj(z.planIg) || {}, audit: ig,
     vyroba: vyroba, datumy: datumy };
   const s = spoj(p, m);
+  // popisek: díl s reelem v reely.json = popisek reelu (Michalova úprava > vybraný v plánu > z PC), jinak vybraný v plánu
+  const navrhy = obj(z.navrhy) || {}, upravy = obj(z.upravy) || {}, snimky = obj(z.snimky) || {};
   const dily = s.dily.map(function (d) {
     const r = Object.assign(d, stavDilu(d, ctx));
     const n = (d.skupina && klipuDilu[d.skupina]) || (d.reel && klipuDilu[d.reel]) || 0;
     if (n) r.webKlipu = n;
+    r.klicNavrhu = klicNavrhu(d);
+    const nv = obj(navrhy[r.klicNavrhu]);
+    const varianty = nv && Array.isArray(nv.varianty) ? nv.varianty.filter(function (x) { return typeof x === 'string' && x.trim(); }).slice(0, 2) : [];
+    if (varianty.length) { r.navrhy = varianty; r.navrhyKdy = radek(nv.kdy, 40); }
+    const kdyNavrhu = varianty.length ? Date.parse(nv.kdy) || 0 : 0;
+    if (d.navrhyPozadano && !(kdyNavrhu > d.navrhyPozadano)) r.cekaNaNavrhy = true;
+    const reelD = d.reel ? obj(reely[d.reel]) : null;
+    const uprava = d.reel ? obj(upravy[d.reel]) : null;
+    r.popisekReel = !!reelD;
+    r.popisek = reelD ? String((uprava && uprava.text) || d.popisekMoje || reelD.popisek || '') : String(d.popisekMoje || '');
+    if (typeof snimky[d.id] === 'number' && snimky[d.id] > 0) r.snimku = snimky[d.id];
     return r;
   });
   const dilyZapasu = {};

@@ -44,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-11-16.10';
+const VERZE = '2026-11-16.11';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -143,7 +143,7 @@ const CTENI_MOTORU = ['info', 'schranka', 'posta', 'vlakno', 'hledat', 'kalendar
   'knihovna', 'knihovnaReserse', // Knihovna: karty, index rešerší, můj stav a požadavky; celá rešerše
   'tipyNahledy', 'tipNahled', 'tipVideo', // Rešerše AI: náhledy tipů (KNIHOVNA/nahledy)
   'treninky', 'treninkyKarty', 'treninkCvik', 'treninkyNahledy', 'treninkNahled', 'treninkVideo', // Tréninky
-  'cestaky', 'reelyPlan', 'reelKlipy', 'reelKlip']; // Cesťáky; Reely → Plán, Zápasy, Nápady (REELY/plan.json…) –: zápasy, výchozí a moje úpravy (CESTAKY): cviky, celé karty a videa (TRENINKY)
+  'cestaky', 'reelyPlan', 'reelKlipy', 'reelKlip', 'dilObrazky']; // Cesťáky; Reely → Plán, Zápasy, Nápady (REELY/plan.json…) –: zápasy, výchozí a moje úpravy (CESTAKY): cviky, celé karty a videa (TRENINKY)
 
 /** Výsledek dřívějšího běhu téhož požadavku (JSON), nebo null; když ještě běží, počká na něj (nejvýš ~25 s). */
 function vysledekRid_(rid) {
@@ -241,6 +241,9 @@ const AKCE = {
   reelKlipy: function (d) { return reelKlipy_(d); },
   reelKlip: function (d) { return reelKlip_(d); },
   reelDrahaUlozit: function (d) { return reelDrahaUlozit_(d); },
+  // okno dílu: 2 návrhy popisku od Clauda (poznámka …_reel.md), snímky karuselu z REELY/karusely/<díl>
+  dilPopisekNavrhy: function (d) { return dilPopisekNavrhy_(d); },
+  dilObrazky: function (d) { return dilObrazky_(d); },
   // příběh z fotky z telefonu: nahrát a naplánovat (i Teď), zrušit / odebrat ze seznamu
   pribehNaplanovat: function (d) { return pribehNaplanovat_(d); },
   pribehZrusit: function (d) { return pribehZrusit_(d); },
@@ -2985,6 +2988,9 @@ function reely_(znovu) {
     ulozDoCache_(KLIC, data, data.reely.some(function (r) { return r.video && !r.odkaz; }) ? 60 : 300);
   }
   data.reely = REELY_.sNavrhy(REELY_.sUpravami(data.reely, upravyReelu_(znovu), md5_), navrhyReelu_(znovu), pozadanoNavrhy_());
+  // reel bez vlastní úpravy převezme popisek vybraný v plánu (okno dílu) – nic se nepřepisuje, jen spojení při čtení
+  const zPlanu = popiskyZPlanu_();
+  data.reely.forEach(function (r) { if (!r.upraveno && zPlanu[r.id] && zPlanu[r.id] !== r.popisek) { r.puvodni = r.popisek; r.popisek = zPlanu[r.id]; r.zPlanu = true; } });
   data.zverejneno = stavReelu_();
   data.plan = planReelu_();
   data.popiskyPlanu = igUpravenePopisky_();
@@ -10111,8 +10117,19 @@ const PLAN_DILU_ = (function () {
     if (odstavce(u.poznamka, 600)) r.poznamka = odstavce(u.poznamka, 600);
     FLAGY.forEach(function (k) { if (u[k] === true) r[k] = true; });
     if (typeof u.pozadano === 'number' && u.pozadano > 0) r.pozadano = u.pozadano;
+    if (popisekTextu(u.popisek)) r.popisek = popisekTextu(u.popisek);
+    if (typeof u.navrhyPozadano === 'number' && u.navrhyPozadano > 0) r.navrhyPozadano = u.navrhyPozadano;
+    if (odstavce(u.proClauda, 600)) r.proClauda = odstavce(u.proClauda, 600);
     return r;
   }
+
+  const POPISEK_MAX = 2200;
+  /** Popisek na Instagram: odřádkování a prázdné řádky zůstávají (Instagram je ukazuje), jen konce řádků bez mezer; prázdný = ''. */
+  function popisekTextu(s) {
+    return typeof s === 'string' ? s.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\s+$/, '').replace(/^\s*\n/, '').slice(0, POPISEK_MAX) : '';
+  }
+  /** Klíč návrhů popisku v REELY/popisky_claude.json: id reelu dílu (i budoucího), u dílu bez reelu dil_<id>. */
+  function klicNavrhu(d) { return d.reel || 'dil_' + d.id; }
 
   /** plan_moje.json → { dily: { id: změny }, vlastni: [díl se změnami], napady, kdy }. */
   function moje(x, p) {
@@ -10142,10 +10159,14 @@ const PLAN_DILU_ = (function () {
       if (u.poznamka) r.poznamkaMoje = u.poznamka;
       FLAGY.forEach(function (k) { if (u[k]) r[k] = true; });
       if (u.pozadano) r.pozadano = u.pozadano;
+      if (u.popisek) r.popisekMoje = u.popisek;
+      if (u.navrhyPozadano) r.navrhyPozadano = u.navrhyPozadano;
+      if (u.proClauda) r.proClauda = u.proClauda;
       return r;
     }).concat(m.vlastni.map(function (d) {
       const r = Object.assign({}, d, { vlastni: true });
       if (r.poznamka) { r.poznamkaMoje = r.poznamka; delete r.poznamka; }
+      if (r.popisek) { r.popisekMoje = r.popisek; delete r.popisek; }
       return r;
     }));
     const vPlanu = {};
@@ -10199,12 +10220,17 @@ const PLAN_DILU_ = (function () {
   }
 
   /** Klíče, které Michal smí změnit; u vlastního dílu i jeho obsah. */
-  const ZMENY_VSUDE = ['termin', 'vlna', 'cas', 'poznamka', 'drahyHotove', 'hotovo', 'zruseno'];
+  const ZMENY_VSUDE = ['termin', 'vlna', 'cas', 'poznamka', 'popisek', 'drahyHotove', 'hotovo', 'zruseno'];
   const ZMENY_VLASTNI = ['nazev', 'popis', 'format', 'tym'];
 
   function zkontrolujZmenu(k, v, vlny) {
     if (k === 'termin') { if (v !== null && !platneDatum(v)) throw new Error('Termín musí být datum RRRR-MM-DD.'); return v; }
     if (k === 'cas') { if (v !== null && !CAS.test(String(v))) throw new Error('Čas musí být HH:MM.'); return v; }
+    if (k === 'popisek') {
+      if (v !== null && typeof v !== 'string') throw new Error('Popisek musí být text.');
+      if (typeof v === 'string' && v.replace(/\r\n/g, '\n').length > POPISEK_MAX) throw new Error('Popisek je delší než 2 200 znaků – Instagram ho nevezme.');
+      return v === null ? null : popisekTextu(v);
+    }
     if (k === 'poznamka' || k === 'popis') { if (v !== null && typeof v !== 'string') throw new Error('Text musí být text.'); return v === null ? null : odstavce(v, 600); }
     if (FLAGY.indexOf(k) >= 0) { if (typeof v !== 'boolean' && v !== null) throw new Error('Musí být ano, nebo ne.'); return v === true; }
     if (k === 'nazev') { if (!radek(v, 80)) throw new Error('Díl musí mít název.'); return radek(v, 80); }
@@ -10222,6 +10248,7 @@ const PLAN_DILU_ = (function () {
    *   { napad: { nazev, popis? } | { id, smazat: true } }                        vlastní nápad
    *   { posun: { ids?: [id] | vlna?: id, dni } }                                  posun termínů; díly naplánované, vyvěšené a zrušené zůstanou
    *   { pozadano: id }                                                             (motor) Michal klepl „Udělej reel“
+   *   { navrhy: { id, poznamka? } }                                                (motor) Michal žádá 2 nové návrhy popisku (poznámka pro Clauda)
    * ted = ms (id nového dílu / nápadu), stavy = { id dílu: stav } (pro posun).
    */
   function zmen(p, m, d, ted, stavy) {
@@ -10257,7 +10284,7 @@ const PLAN_DILU_ = (function () {
         if (Object.keys(u).length) r.dily[id] = u; else delete r.dily[id];
       });
     };
-    const n = ['dil', 'novy', 'napad', 'posun', 'pozadano'].filter(function (k) { return d[k] != null; });
+    const n = ['dil', 'novy', 'napad', 'posun', 'pozadano', 'navrhy'].filter(function (k) { return d[k] != null; });
     if (n.length !== 1) throw new Error('Není co uložit.');
     if (d.dil) {
       const x = obj(d.dil) || {};
@@ -10304,6 +10331,14 @@ const PLAN_DILU_ = (function () {
         posunuto++;
       });
       if (!posunuto) throw new Error('Žádný díl s termínem k posunu.');
+    } else if (d.navrhy) {
+      const x = obj(d.navrhy) || {};
+      const id = String(x.id || '');
+      if (!zPlanu(id) && !vlastni(id)) throw new Error('Díl v plánu není – obnov stránku.');
+      const cil = vlastni(id) || (r.dily[id] = r.dily[id] || {});
+      cil.navrhyPozadano = ted;
+      const pozn = odstavce(x.poznamka, 600);
+      if (pozn) cil.proClauda = pozn; else delete cil.proClauda;
     } else {
       const id = String(d.pozadano);
       if (!zPlanu(id) && !vlastni(id)) throw new Error('Díl v plánu není – obnov stránku.');
@@ -10347,10 +10382,23 @@ const PLAN_DILU_ = (function () {
     const ctx = { reely: reely, zverejneno: obj(z.zverejneno) || {}, planIg: obj(z.planIg) || {}, audit: ig,
       vyroba: vyroba, datumy: datumy };
     const s = spoj(p, m);
+    // popisek: díl s reelem v reely.json = popisek reelu (Michalova úprava > vybraný v plánu > z PC), jinak vybraný v plánu
+    const navrhy = obj(z.navrhy) || {}, upravy = obj(z.upravy) || {}, snimky = obj(z.snimky) || {};
     const dily = s.dily.map(function (d) {
       const r = Object.assign(d, stavDilu(d, ctx));
       const n = (d.skupina && klipuDilu[d.skupina]) || (d.reel && klipuDilu[d.reel]) || 0;
       if (n) r.webKlipu = n;
+      r.klicNavrhu = klicNavrhu(d);
+      const nv = obj(navrhy[r.klicNavrhu]);
+      const varianty = nv && Array.isArray(nv.varianty) ? nv.varianty.filter(function (x) { return typeof x === 'string' && x.trim(); }).slice(0, 2) : [];
+      if (varianty.length) { r.navrhy = varianty; r.navrhyKdy = radek(nv.kdy, 40); }
+      const kdyNavrhu = varianty.length ? Date.parse(nv.kdy) || 0 : 0;
+      if (d.navrhyPozadano && !(kdyNavrhu > d.navrhyPozadano)) r.cekaNaNavrhy = true;
+      const reelD = d.reel ? obj(reely[d.reel]) : null;
+      const uprava = d.reel ? obj(upravy[d.reel]) : null;
+      r.popisekReel = !!reelD;
+      r.popisek = reelD ? String((uprava && uprava.text) || d.popisekMoje || reelD.popisek || '') : String(d.popisekMoje || '');
+      if (typeof snimky[d.id] === 'number' && snimky[d.id] > 0) r.snimku = snimky[d.id];
       return r;
     });
     const dilyZapasu = {};
@@ -10452,7 +10500,7 @@ const PLAN_DILU_ = (function () {
       return c ? Object.assign(k, c, { drahaZWebu: true, kdyWeb: radek(x.kdy, 40) }) : Object.assign(k, { drahaZWebu: false });
     });
   }
-  return { STAVY: STAVY, FORMATY: FORMATY, TYMY: TYMY, MAX_VLASTNICH: MAX_VLASTNICH, MAX_NAPADU: MAX_NAPADU, platneDatum: platneDatum, pridejDny: pridejDny, plan: plan, moje: moje, spoj: spoj, vyrobaDilu: vyrobaDilu, stavDilu: stavDilu, zmen: zmen, kratkyKlub: kratkyKlub, vystup: vystup, bilance: bilance, VYREZ_POMER: VYREZ_POMER, MAX_BODU: MAX_BODU, sirkaVyrezu: sirkaVyrezu, platneIdKlipu: platneIdKlipu, zkontrolujDrahu: zkontrolujDrahu, klipySDrahami: klipySDrahami };
+  return { STAVY: STAVY, FORMATY: FORMATY, TYMY: TYMY, MAX_VLASTNICH: MAX_VLASTNICH, MAX_NAPADU: MAX_NAPADU, platneDatum: platneDatum, pridejDny: pridejDny, plan: plan, POPISEK_MAX: POPISEK_MAX, klicNavrhu: klicNavrhu, moje: moje, spoj: spoj, vyrobaDilu: vyrobaDilu, stavDilu: stavDilu, zmen: zmen, kratkyKlub: kratkyKlub, vystup: vystup, bilance: bilance, VYREZ_POMER: VYREZ_POMER, MAX_BODU: MAX_BODU, sirkaVyrezu: sirkaVyrezu, platneIdKlipu: platneIdKlipu, zkontrolujDrahu: zkontrolujDrahu, klipySDrahami: klipySDrahami };
 })();
 
 /** Soubory plánu z REELY: { slozka, plan, moje (+ soubor), audit, vyroba } – plan.json chybí / rozbitý = chyba. */
@@ -10480,7 +10528,7 @@ function zdrojePlanuReelu_(s) {
   let klipy = [];
   try { klipy = klipyReelu_(s.slozka, null); } catch (chyba) { /* bez klipů pro web */ }
   return { plan: s.plan, moje: s.moje.data, audit: s.audit, vyroba: s.vyroba, fotbal: fotbal, reely: reely,
-    zverejneno: stavReelu_(), planIg: planReelu_(), klipy: klipy };
+    zverejneno: stavReelu_(), planIg: planReelu_(), klipy: klipy, navrhy: navrhyReelu_(), upravy: upravyReelu_(), snimky: snimkyKaruselu_(s.slozka) };
 }
 
 /** Akce reelyPlan (čtení): vlny, díly se stavem, zápasy se střelci a auditem, nápady, editor drah, bilance. */
@@ -10561,7 +10609,8 @@ function reelUdelat_(d) {
       'scénář → sestrih.py → ověřit délku a bitrate → export_reely.py. Michal klepl „Udělej reel“ v Asistentovi (Reely → Plán).',
       '', 'Dráhy: ' + (vy ? vy.drahRucne + ' z ' + vy.klipu + ' ručně' : 'bez údajů z PC') + (dil.drahyHotove ? ' (Michal označil „dráhy hotové“)' : ''),
       dil.skupina ? 'Skupina v editoru: ' + dil.skupina : '', '', 'Zápasy:', zapasy.length ? zapasy.join('\n') : '(bez zápasu)', '',
-      dil.poznamkaMoje ? 'Michalova poznámka: ' + dil.poznamkaMoje : '', ''].join('\n'), MimeType.PLAIN_TEXT);
+      dil.poznamkaMoje ? 'Michalova poznámka: ' + dil.poznamkaMoje : '',
+      dil.popisek ? '\nPopisek, který Michal vybral (dej ho do popisky\\' + dil.reel + '.txt beze změny):\n' + dil.popisek : '', ''].join('\n'), MimeType.PLAIN_TEXT);
     poznamka = true;
     return PLAN_DILU_.zmen(s.plan, s.moje.data, { pozadano: id }, Date.now());
   });
@@ -10634,5 +10683,97 @@ function reelDrahaUlozit_(d) {
   }
   klip = klipyReelu_(null, klip.dil).filter(function (x) { return x.id === id; })[0];
   return { klip: klip, plan: reelyPlan_() };
+}
+
+// ---- popisek dílu (Michal 16. 11. večer: „když kliknu na reel, chci vidět, co u něj bude napsané … 2 možnosti a návrhy … poznámku“)
+// Návrhy píše jen Claude do REELY/popisky_claude.json pod klíčem PLAN_DILU_.klicNavrhu (id reelu, u dílu bez reelu dil_<id>) – stejný
+// soubor a tvar jako návrhy k reelům. Michalův text: díl s reelem v reely.json → reelPopisekUlozit (upravy.json), jinak plan_moje.json
+// → dily.<id>.popisek (reelyPlanUlozit). Reel bez vlastní úpravy převezme popisek z plánu (popiskyZPlanu_ v reely_).
+const MAX_SNIMKU_KARUSELU = 12;
+const MAX_SNIMEK_KARUSELU = 600 * 1024;
+const SNIMEK_KARUSELU = /^\d{2}\.jpg$/i;
+
+/** Počet snímků karuselů { id dílu: n } ze složek REELY/karusely/<id>/NN.jpg. */
+function snimkyKaruselu_(slozka) {
+  const r = {};
+  if (!slozka) return r;
+  const it = slozka.getFoldersByName('karusely');
+  if (!it.hasNext()) return r;
+  const sl = it.next().getFolders();
+  while (sl.hasNext()) {
+    const f = sl.next();
+    if (!/^[a-z0-9-]{1,60}$/.test(f.getName())) continue;
+    let n = 0;
+    const fi = f.getFiles();
+    while (fi.hasNext()) { const x = fi.next(); if (!x.isTrashed() && SNIMEK_KARUSELU.test(x.getName())) n++; }
+    if (n) r[f.getName()] = Math.min(n, MAX_SNIMKU_KARUSELU);
+  }
+  return r;
+}
+
+/** Akce dilObrazky { dil } (čtení): snímky karuselu dílu v base64 (REELY/karusely/<dil>/NN.jpg, nejvýš 12, každý < 600 kB). */
+function dilObrazky_(d) {
+  const id = String((d && d.dil) || '');
+  if (!/^[a-z0-9-]{1,60}$/.test(id)) throw new Error('Neplatný díl.');
+  const it = koren_().getFoldersByName('REELY');
+  const re = it.hasNext() ? it.next() : null;
+  const ka = re ? re.getFoldersByName('karusely') : null;
+  const sl = ka && ka.hasNext() ? ka.next().getFoldersByName(id) : null;
+  if (!sl || !sl.hasNext()) return { obrazky: [] };
+  const soubory = [];
+  const fi = sl.next().getFiles();
+  while (fi.hasNext()) { const x = fi.next(); if (!x.isTrashed() && SNIMEK_KARUSELU.test(x.getName())) soubory.push(x); }
+  soubory.sort(function (a, b) { return a.getName() < b.getName() ? -1 : 1; });
+  return { obrazky: soubory.slice(0, MAX_SNIMKU_KARUSELU).filter(function (x) { return x.getSize() < MAX_SNIMEK_KARUSELU; })
+    .map(function (x) { return { nazev: x.getName(), typ: 'image/jpeg', data: Utilities.base64Encode(x.getBlob().getBytes()) }; }) };
+}
+
+/** Popisky vybrané v plánu u dílů s reelem { id reelu: text } – reel bez vlastní úpravy je převezme (reely_). */
+function popiskyZPlanu_() {
+  try {
+    const it = koren_().getFoldersByName('REELY');
+    const slozka = it.hasNext() ? it.next() : null;
+    if (!slozka) return {};
+    const p = PLAN_DILU_.plan(souborTreninku_(slozka, 'plan.json', function (x) { return x; }).data);
+    const m = souborTreninku_(slozka, 'plan_moje.json', function (x) { return PLAN_DILU_.moje(x, p); }).data;
+    const r = {};
+    PLAN_DILU_.spoj(p, m).dily.forEach(function (d) { if (d.reel && d.popisekMoje && !d.zruseno) r[d.reel] = d.popisekMoje; });
+    return r;
+  } catch (chyba) { return {}; }
+}
+
+/**
+ * Akce dilPopisekNavrhy { dil, poznamka? }: poznámka pro Clauda „2 varianty popisku k dílu“ (…_reel.md v NOVE – stejná cesta jako
+ * reelPopisekNavrhy: hlídač ji pošle štíhlému běhu s oddílem Popisek k reelu, v aplikaci je skrytá) + díl dostane navrhyPozadano
+ * a proClauda (aplikace ukazuje „Claude chystá návrhy…“, dokud nepřijdou novější). Vrací celé reelyPlan.
+ */
+function dilPopisekNavrhy_(d) {
+  const id = String((d && d.dil) || '');
+  const pozn = String((d && d.poznamka) || '').replace(/\r\n/g, '\n').trim().slice(0, 600);
+  return upravPlanReelu_(function (s, z) {
+    const dil = PLAN_DILU_.vystup(z).dily.filter(function (x) { return x.id === id; })[0];
+    if (!dil) throw new Error('Díl v plánu není – obnov stránku.');
+    const v = PLAN_DILU_.vystup(z);
+    const zapasy = (dil.zapasy || []).map(function (zid) {
+      const x = v.zapasy.concat(v.mimo).filter(function (y) { return y.id === zid; })[0];
+      if (!x) return '- ' + zid;
+      return '- ' + [x.datum, x.tym, x.domaci + ' – ' + x.hoste + (x.skore ? ' ' + x.skore : '')].join(' · ') +
+        (x.strelci && x.strelci.length ? ' · střelci: ' + x.strelci.map(function (g) { return g.hrac + ' ' + g.min + '\''; }).join(', ') : '');
+    });
+    const ted = new Date(Date.now());
+    const vlna = (z.plan.vlny || []).filter(function (x) { return x.id === dil.vlna; })[0];
+    podslozka_(koren_(), 'NOVE').createFile(Utilities.formatDate(ted, CASOVE_PASMO, 'yyyy-MM-dd_HHmmss') + '_reel.md', ['---',
+      'kdy: ' + Utilities.formatDate(ted, CASOVE_PASMO, "yyyy-MM-dd'T'HH:mm:ssXXX"),
+      'odkud: aplikace (reely – plán)', 'typ: reel-popisek', '---', '',
+      'Napiš 2 varianty popisku na Instagram k dílu plánu „' + dil.nazev + '“ a zapiš je do REELY\\popisky_claude.json → „' + dil.klicNavrhu + '“ ' +
+      '(skill asistent-schranka, Popisek k reelu – díly plánu; vždy 2 varianty: jedna věcná, druhá hravější). Fakta ověř v REELY\\plan.json, FOTBAL.json a REELY\\zapasy_audit.json.',
+      '', 'Díl: ' + dil.id + ' · ' + (dil.termin ? 'termín ' + dil.termin + ' ' + (dil.cas || '') : 'bez termínu') + ' · formát ' + dil.format +
+        (vlna ? ' · ' + vlna.nazev : '') + (dil.reel ? ' · reel ' + dil.reel : ''),
+      dil.popis ? 'Popis z plánu: ' + dil.popis : '', '', 'Zápasy:', zapasy.length ? zapasy.join('\n') : '(bez zápasu)', '',
+      'Michalova poznámka pro Clauda (má přednost): ' + (pozn || '(žádná)'),
+      dil.poznamkaMoje ? 'Michalova poznámka k dílu: ' + dil.poznamkaMoje : '', '',
+      'Dosavadní popisek:', dil.popisek || '(zatím žádný)', ''].join('\n'), MimeType.PLAIN_TEXT);
+    return PLAN_DILU_.zmen(s.plan, s.moje.data, { navrhy: { id: id, poznamka: pozn } }, Date.now());
+  });
 }
 // ---------------------------------------------------------------- konec bloku plánu reelů (vyrob_motor.py)

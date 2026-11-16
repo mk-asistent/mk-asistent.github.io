@@ -700,7 +700,15 @@ const planPlan = RP.plan({
     { id: 'un3', nazev: 'Kdo to dá?', popis: 'Video se zastaví před střelou, odpověď do komentářů.' },
     { id: 'un4', nazev: 'Představení maskota', popis: 'Lehčí díl mezi zápasy.' }]
 });
-let planMoje = RP.moje({ dily: { u4: { poznamka: 'Dát hudbu ze hřiště' } } }, planPlan);
+let planMoje = RP.moje({ dily: { u4: { poznamka: 'Dát hudbu ze hřiště' },
+  u2: { popisek: 'Dorost doma přejel Soupeře I! ⚽\n\nHráč 1 dvakrát, Hráč 3 jednou.\n\n#fkagrovnorovy #dorost' } } }, planPlan);
+// okno dílu v ukázce: 2 návrhy u béčka a u karuselu, 2 snímky karuselu (vymyšlené)
+const ukNavrhy = {
+  reel_benfika_souperp: { varianty: ['Béčko doma nad Soupeřem P. ⚽ Góly Hráč 2 a Hráč 5.\n\n#fkagrovnorovy #benfika',
+    'Šest gólů, šest drah, jeden reel. 🎬 Béčko a Soupeř P – pusťte si to.\n\n#fkagrovnorovy #benfika'], kdy: new Date(ted - 3 * H).toISOString() },
+  dil_u7: { varianty: ['Podzim v číslech: 102 gólů za tři týmy. 📊\n\n#fkagrovnorovy', 'Kolik gólů padlo po 80. minutě? Listujte. ➡️\n\n#fkagrovnorovy'],
+    kdy: new Date(ted - 5 * H).toISOString() } };
+const ukSnimky = ['/9j/4AAQSkZJRgABAgAAAQABAAD//gAPTGF2YzYzLjEuMTAwAP/bAEMACBAQExATFhYWFhYWGhgaGxsbGhoaGhsbGx0dHSIiIh0dHRsbHR0gICIiJSYlIyMiIyYmKCgoMDAuLjg4OkVFU//EAE0AAQEAAAAAAAAAAAAAAAAAAAAGAQEBAQAAAAAAAAAAAAAAAAAABQYQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCACHAGwDASIAAhEAAxEA/9oADAMBAAIRAxEAPwCHAVWuAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf//Z', '/9j/4AAQSkZJRgABAgAAAQABAAD//gAPTGF2YzYzLjEuMTAwAP/bAEMACBAQExATFhYWFhYWGhgaGxsbGhoaGhsbGx0dHSIiIh0dHRsbHR0gICIiJSYlIyMiIyYmKCgoMDAuLjg4OkVFU//EAEwAAQEAAAAAAAAAAAAAAAAAAAAGAQEBAAAAAAAAAAAAAAAAAAAABhABAAAAAAAAAAAAAAAAAAAAABEBAAAAAAAAAAAAAAAAAAAAAP/AABEIAIcAbAMBIgACEQADEQD/2gAMAwEAAhEDEQA/AJoBVJQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB//9k='];
 const planVyroba = { dily: {
   reel_dorost_souperi: { datum: planZapasy.find((z) => z.id === 'uk-dorost-2').zacatek.slice(0, 10), klipu: 4, drahRucne: 4, deska: true, popisek: true, reel: false },
   reel_benfika_souperp: { datum: planZapasy.find((z) => z.id === 'uk-B-5').zacatek.slice(0, 10), klipu: 6, drahRucne: 2, deska: true, popisek: false, reel: false },
@@ -712,7 +720,7 @@ const ukKlip = (id, strelec, minuta) => ({ id, dil: 'reel_a-tym_souperf', datum:
   video: 'klipy/' + id + '.mp4', bajtu: 3786 });
 const ukKlipy = { klipy: [ukKlip('uk-klip-1', 'Hráč 1', '12. minuta'), ukKlip('uk-klip-2', 'Hráč 2', '67. minuta')] };
 const ukDrahyWeb = {};
-const zdrojePlanu = () => ({ klipy: RP.klipySDrahami(ukKlipy, ukDrahyWeb, ''), plan: planPlan, moje: planMoje, audit: planAudit, vyroba: planVyroba, fotbal: { zapasy: planZapasy, detaily: planDetaily },
+const zdrojePlanu = () => ({ navrhy: ukNavrhy, upravy: {}, snimky: { u7: ukSnimky.length }, klipy: RP.klipySDrahami(ukKlipy, ukDrahyWeb, ''), plan: planPlan, moje: planMoje, audit: planAudit, vyroba: planVyroba, fotbal: { zapasy: planZapasy, detaily: planDetaily },
   reely: reelyUkazka.map(reelUkazky), zverejneno: reelyZverejneno, planIg: reelyPlan });
 const planUkazky = () => kopie(Object.assign(RP.vystup(zdrojePlanu()), { chybne: [], ted: Date.now() }));
 const stavyUkazky = () => { const s = {}; RP.vystup(zdrojePlanu()).dily.forEach((d) => { s[d.id] = d.stav; }); return s; };
@@ -722,6 +730,8 @@ const akce = {
   reelyPlan: () => planUkazky(),
   reelyPlanUlozit: (d) => { planMoje = RP.moje(RP.zmen(planPlan, planMoje, d, Date.now(), stavyUkazky()), planPlan); return planUkazky(); },
   reelKlipy: (d) => kopie({ klipy: RP.klipySDrahami(ukKlipy, ukDrahyWeb, d.dil || ''), ted: Date.now() }),
+  dilPopisekNavrhy: (d) => { planMoje = RP.moje(RP.zmen(planPlan, planMoje, { navrhy: { id: d.dil, poznamka: d.poznamka } }, Date.now()), planPlan); return planUkazky(); },
+  dilObrazky: (d) => ({ obrazky: d.dil === 'u7' ? ukSnimky.map((data, i) => ({ nazev: '0' + (i + 1) + '.jpg', typ: 'image/jpeg', data })) : [] }),
   reelKlip: (d) => {
     if (!ukKlipy.klipy.some((k) => k.id === d.id)) throw new Error('Náhled klipu na Disku není.');
     return { typ: 'video/mp4', velikost: 3786, data: MINI_VIDEO };
