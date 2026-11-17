@@ -228,4 +228,22 @@ test('mimo plán: reel bez dílu jako díl „mimo“, sloupec Mimo plán posled
   assert.deepEqual(RP.akce(mimo[0], true, true), []);
 });
 
+test('nachystat klipy: odkaz na Veo, poznámka, akce a štítek', () => {
+  assert.equal(RP.veoOdkaz('https://app.veo.co/matches/test-zapas-1/#t=06:22'), 'https://app.veo.co/matches/test-zapas-1/');
+  assert.equal(RP.veoOdkaz('https://app.veo.co/matches/test-zapas-1?x=1'), 'https://app.veo.co/matches/test-zapas-1/');
+  ['https://app.veo.co/matches/ab', 'https://www.veo.co/matches/test-zapas-1', 'https://app.veo.co/matches/TEST-zapas', 'x'].forEach((s) => assert.equal(RP.veoOdkaz(s), '', s));
+  assert.equal(RP.poznamkaKlipu('--- bez\npenalt\u0007'), 'bez penalt');
+  const d = { stav: 'plan', format: 'reel', reel: 'reel_x', zapasy: ['z1'] };
+  assert.equal(RP.akce(d, false, false, true)[0], 'nachystat');
+  assert.equal(RP.akce(Object.assign({}, d, { chystaSe: 1000 }), false, false, true, 2000)[0], 'cekaNaKlipy');
+  assert.equal(RP.akce(Object.assign({}, d, { chystaSe: 1000 }), false, false, true, 1000 + RP.ZNOVU_PO_MS + 1)[0], 'nachystat');
+  assert.ok(RP.akce(d, false, false, false).indexOf('nachystat') < 0, 'starý motor');
+  assert.ok(RP.akce(Object.assign({}, d, { zapasy: [] }), false, false, true).indexOf('nachystat') < 0, 'bez zápasu');
+  assert.ok(RP.akce(Object.assign({}, d, { stav: 'nachystano' }), false, false, true).indexOf('nachystat') < 0, 'klipy už jsou');
+  const p2 = RP.plan({ vlny: [{ id: 'v', nazev: 'V' }], dily: [{ id: 'a', nazev: 'A', vlna: 'v', termin: '2030-01-01', reel: 'reel_x', zapasy: ['z1'] }] });
+  const m = RP.moje(RP.zmen(p2, RP.moje(null, p2), { chystat: 'a' }, 5000), p2);
+  const v = RP.vystup({ plan: p2, moje: m, audit: { zapasy: { z1: { veo: 'test-zapas-1' } } } });
+  assert.deepEqual([v.dily[0].chystaSe, v.dily[0].veo], [5000, 'https://app.veo.co/matches/test-zapas-1/']);
+});
+
 console.log(`\n${n} testů prošlo`);

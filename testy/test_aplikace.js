@@ -429,6 +429,11 @@ const motor = {
     drahyWebTest[d.id] = Object.assign(RP.zkontrolujDrahu(k, d), { kdy: new Date().toISOString(), zdroj: 'web' });
     return JSON.parse(JSON.stringify({ klip: RP.klipySDrahami(KLIPY_TEST, drahyWebTest, '').find((x) => x.id === d.id), plan: planTestu() }));
   },
+  reelNachystat: (d) => {
+    if (!RP.veoOdkaz(d.veo)) throw new Error('Odkaz musí být na zápas ve Veu (app.veo.co/matches/…).');
+    planMojeTest = RP.moje(RP.zmen(PLAN_TEST, planMojeTest, { chystat: d.dil }, Date.now()), PLAN_TEST);
+    return Object.assign(planTestu(), { zalozeno: true });
+  },
   reelUdelat: (d) => { planMojeTest = RP.moje(RP.zmen(PLAN_TEST, planMojeTest, { pozadano: d.dil }, Date.now()), PLAN_TEST); return Object.assign(planTestu(), { zalozeno: true }); },
   // Cesťáky (CLAUDE_SCHRANKA/CESTAKY): vymyšlené zápasy; ukládá jen odchylky jako motor (null = zrušit, neznámý zápas = chyba)
   cestaky: () => Object.assign(JSON.parse(JSON.stringify(CESTAKY_TEST)), JSON.parse(JSON.stringify(cestakyStavTest)), { chybne: [], ted: Date.now() }),
@@ -714,7 +719,7 @@ const PLAN_ZAPASY_TEST = [];
 });
 const PLAN_DETAILY_TEST = { 'pz-A0': { goly: [{ min: 5, hrac: 'Hráčík Jan', strana: 'domaci' }, { min: 50, hrac: 'Hráčík Jan', strana: 'domaci' }, { min: 70, hrac: 'Cizí Petr', strana: 'hoste' }] } };
 const PLAN_AUDIT_TEST = { zapasy: {}, mimo: [] };
-PLAN_ZAPASY_TEST.forEach((z, i) => { PLAN_AUDIT_TEST.zapasy[z.id] = i % 3 === 0 ? { stav: 'na_ig', ig: z.zacatek.slice(0, 10) } : i % 3 === 1 ? { stav: 'chybi', veo: 'x' } : { stav: 'bez_zaznamu' }; });
+PLAN_ZAPASY_TEST.forEach((z, i) => { PLAN_AUDIT_TEST.zapasy[z.id] = i % 3 === 0 ? { stav: 'na_ig', ig: z.zacatek.slice(0, 10) } : i % 3 === 1 ? { stav: 'chybi', veo: 'test-zapas-' + z.id.toLowerCase() } : { stav: 'bez_zaznamu' }; });
 const PLAN_TEST = RP.plan({ nazev: 'Plán testu', editor: { pc: 'http://127.0.0.1:8080/editor.html', mobil: 'http://pc.local:8080/editor.html' },
   vlny: [{ id: 'v1', nazev: 'Vlna 1' }, { id: 'v2', nazev: 'Vlna 2' }],
   dily: [
@@ -975,7 +980,7 @@ async function pripravMotor(page) {
 let ok = 0, chyb = 0;
 // Starý motor bez plánu reelů (16. 11.: záložka Reely je pryč, reely a Instagram jsou v okně dílu v Plánu) – aplikace pak ukáže dosavadní
 // stránku se seznamem reelů a detailem (nouzový režim). Tyhle testy ho dál hlídají; stejné scénáře v Plánu mají testy „Reely → …“.
-const AKCE_PLANU = ['reelyPlan', 'reelyPlanUlozit', 'reelUdelat', 'reelKlipy', 'reelKlip', 'reelDrahaUlozit', 'dilPopisekNavrhy', 'dilObrazky'];
+const AKCE_PLANU = ['reelyPlan', 'reelyPlanUlozit', 'reelUdelat', 'reelNachystat', 'reelKlipy', 'reelKlip', 'reelDrahaUlozit', 'dilPopisekNavrhy', 'dilObrazky'];
 const STARE_REELY = ['Reely na PC', 'Reely na telefonu', 'Reely: ', 'Příběh z fotky', 'Skupiny ', 'Reely s účtem', 'Instagram na telefonu', 'nabídky: Reely a Plakáty'];
 let bezPlanuTest = false;
 async function test(nazev, fn) {
@@ -9123,6 +9128,62 @@ function vychoziVikendTestu() {
       await tl.page.screenshot({ path: path.join(VYSTUP, 'telefon_plan_okno_ig.png') });
       // na dotyku: podržení = nabídka, Přesunout do vlny hned pod Otevřít
       await tl.page.keyboard.press('Escape');
+    } finally { await tl.ctx.close(); }
+  });
+
+  await test('Reely → Nachystat klipy: tlačítko u dílu V plánu (karta, Na řadě, nabídka, okno dílu), okno s odkazem na Veo předvyplněným z auditu, špatný odkaz = chyba, odeslání → reelNachystat a štítek „Klipy chystá Claude“; telefon', async () => {
+    planMojeTest = RP.moje(null, PLAN_TEST);
+    const K = '#p-reely .rp-vlny [data-rp-dil="d-plan"] ';
+    const { ctx, page, chybyStranky } = await novaStranka(prohlizec, { nazev: 'pc', sirka: 1920, vyska: 1080, dotyk: false }, 'dark');
+    try {
+      await page.goto(WEB);
+      await page.click('#rail [data-cil="reely"]');
+      await page.waitForSelector(K + '[data-rp-nachystat="d-plan"]');
+      jistota(/btn--plan/.test(await page.getAttribute(K + '[data-rp-nachystat]', 'class')), 'Nachystat klipy je hlavní tlačítko');
+      jistota(await page.locator('#p-reely .rp-vlny [data-rp-dil="d-nach"] [data-rp-nachystat]').count() === 0, 'díl s klipy tlačítko nemá');
+      // nabídka pravým tlačítkem a okno dílu ho mají taky
+      await page.evaluate(() => document.querySelector('#p-reely .rp-vlny [data-rp-dil="d-plan"]').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 300, clientY: 300 })));
+      await page.waitForSelector('.nabidka');
+      jistota(/Nachystat klipy/.test(await page.textContent('.nabidka')), 'v nabídce Nachystat klipy');
+      await page.keyboard.press('Escape');
+      await page.click(K + '.rp-dil__nazev');
+      await page.waitForSelector('[data-panel="dil-okno"] .panel-paticka [data-rp-nachystat="d-plan"]');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-panel="dil-okno"]', { state: 'detached' });
+      // okno: odkaz předvyplněný z auditu zápasů, špatný odkaz → chyba pod polem, nic do motoru
+      await page.click(K + '[data-rp-nachystat]');
+      await page.waitForSelector('.okno [data-nk-veo]');
+      jistota(await page.inputValue('.okno [data-nk-veo]') === 'https://app.veo.co/matches/test-zapas-pz-a1/', 'předvyplněný odkaz: ' + await page.inputValue('.okno [data-nk-veo]'));
+      let pred = volano.length;
+      await page.fill('.okno [data-nk-veo]', 'https://example.com/zapas');
+      await page.click('.okno [data-okno="ano"]');
+      await page.waitForSelector('.okno .rp-nk-chyba');
+      jistota(/app\.veo\.co\/matches/.test(await page.textContent('.okno .rp-nk-chyba')) && await page.inputValue('.okno [data-nk-veo]') === 'https://example.com/zapas', 'chyba pod polem, odkaz zůstal');
+      jistota(!volano.slice(pred).some((x) => x.akce === 'reelNachystat'), 'špatný odkaz do motoru nejde');
+      await page.fill('.okno [data-nk-veo]', 'https://app.veo.co/matches/test-zapas-pz-a1/#t=06:22');
+      await page.fill('.okno [data-nk-poznamka]', 'bez penalt');
+      await page.screenshot({ path: path.join(VYSTUP, 'pc_plan_nachystat.png') });
+      await page.click('.okno [data-okno="ano"]');
+      await cekej(() => volano.slice(pred).some((x) => x.akce === 'reelNachystat' && x.dil === 'd-plan' && /#t=06:22$/.test(x.veo) && x.poznamka === 'bez penalt'), 4000, 'reelNachystat');
+      await page.waitForSelector(K + '.rp-ceka');
+      jistota(/Klipy chystá Claude/.test(await page.textContent(K + '.rp-ceka')) && await page.locator(K + '[data-rp-nachystat]').count() === 0, 'štítek místo tlačítka');
+      if (chybyStranky.length) throw new Error('chyby stránky: ' + chybyStranky.join(' | '));
+    } finally { await ctx.close(); }
+    planMojeTest = RP.moje(null, PLAN_TEST);
+    const tl = await novaStranka(prohlizec, VELIKOSTI[0]);
+    try {
+      await tl.page.goto(WEB);
+      await tl.page.click('.hlava-ja [data-menu]');
+      await tl.page.click('[data-panel="menu"] [data-menu-cil="reely"]');
+      await tl.page.click('#p-reely .rp-mobil [data-rp-nachystat="d-plan"]');
+      await tl.page.waitForSelector('.okno [data-nk-veo]');
+      await tl.page.waitForTimeout(300);
+      const m = await tl.page.evaluate(() => ({ pretok: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        pismo: getComputedStyle(document.querySelector('.okno [data-nk-veo]')).fontSize }));
+      jistota(m.pretok <= 0 && m.pismo === '16px', 'telefon: ' + JSON.stringify(m));
+      await tl.page.screenshot({ path: path.join(VYSTUP, 'telefon_plan_nachystat.png') });
+      await tl.page.click('.okno [data-okno="ano"]');
+      await tl.page.waitForSelector('#p-reely .rp-mobil [data-rp-dil="d-plan"] .rp-ceka');
     } finally { await tl.ctx.close(); }
   });
 

@@ -53,7 +53,7 @@ const KOPIE_ZAPISU = {
   // Knihovna: kopii na serveru nemá (čte se z motoru na své stránce) – zápis zneplatní jen značky změn, server je hned obnoví
   // a ostatní zařízení si podle zmeny.knihovna knihovnu načtou znovu
   knihovnaPridat: ['zmeny'], knihovnaMoje: ['zmeny'], knihovnaZrusit: ['zmeny'], knihovnaTip: ['zmeny'],
-  treninkMoje: [], treninkUprava: [], treninkSmazat: [], treninkObnovit: [], cestakyUlozit: [], reelyPlanUlozit: [], reelUdelat: [], reelDrahaUlozit: [], dilPopisekNavrhy: [], // Cesťáky a plán reelů kopii na serveru nemají // Tréninky kopii na serveru nemají (čtou se z motoru na své stránce)
+  treninkMoje: [], treninkUprava: [], treninkSmazat: [], treninkObnovit: [], cestakyUlozit: [], reelyPlanUlozit: [], reelUdelat: [], reelNachystat: [], reelDrahaUlozit: [], dilPopisekNavrhy: [], // Cesťáky a plán reelů kopii na serveru nemají // Tréninky kopii na serveru nemají (čtou se z motoru na své stránce)
   vaha: [], doplnky: [], pitiJidlo: [], jidloOdpoved: [], whoopPropojit: [], whoopOdpojit: [], zdraviKlic: [], upozorneniZapnout: [], upozorneniVypnout: [], upozorneniTest: []
 };
 const SIGNAL_ZAPISU = { vaha: 'zdravi', doplnky: 'zdravi', pitiJidlo: 'zdravi', jidloOdpoved: 'zdravi', whoopPropojit: 'zdravi', whoopOdpojit: 'zdravi' };

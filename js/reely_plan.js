@@ -102,6 +102,7 @@ function cistaZmena(u, vlny) {
   if (odstavce(u.poznamka, 600)) r.poznamka = odstavce(u.poznamka, 600);
   FLAGY.forEach(function (k) { if (u[k] === true) r[k] = true; });
   if (typeof u.pozadano === 'number' && u.pozadano > 0) r.pozadano = u.pozadano;
+  if (typeof u.chystaSe === 'number' && u.chystaSe > 0) r.chystaSe = u.chystaSe;
   if (popisekTextu(u.popisek)) r.popisek = popisekTextu(u.popisek);
   if (typeof u.navrhyPozadano === 'number' && u.navrhyPozadano > 0) r.navrhyPozadano = u.navrhyPozadano;
   if (odstavce(u.proClauda, 600)) r.proClauda = odstavce(u.proClauda, 600);
@@ -109,6 +110,16 @@ function cistaZmena(u, vlny) {
 }
 
 export const POPISEK_MAX = 2200;
+const VEO_SLUG = /^[a-z0-9-]{6,120}$/;
+/** Odkaz na zápas ve Veu → čistá adresa https://app.veo.co/matches/<slug>/ (cokoli za slugem pryč: /, #t=…, ?…), jinak ''. */
+export function veoOdkaz(s) {
+  const m = /^\s*https:\/\/app\.veo\.co\/matches\/([a-z0-9-]{6,120})(?:[/?#][^\s]*)?\s*$/.exec(typeof s === 'string' ? s : '');
+  return m ? 'https://app.veo.co/matches/' + m[1] + '/' : '';
+}
+/** Michalova poznámka k nachystání: jeden odstavec do 300 znaků, bez řídicích znaků a bez „---“ na začátku. */
+export function poznamkaKlipu(s) {
+  return typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').replace(/^[-\s]+/, '').trim().slice(0, 300) : '';
+}
 /** Popisek na Instagram: odřádkování a prázdné řádky zůstávají (Instagram je ukazuje), jen konce řádků bez mezer; prázdný = ''. */
 function popisekTextu(s) {
   return typeof s === 'string' ? s.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\s+$/, '').replace(/^\s*\n/, '').slice(0, POPISEK_MAX) : '';
@@ -144,6 +155,7 @@ export function spoj(p, m) {
     if (u.poznamka) r.poznamkaMoje = u.poznamka;
     FLAGY.forEach(function (k) { if (u[k]) r[k] = true; });
     if (u.pozadano) r.pozadano = u.pozadano;
+    if (u.chystaSe) r.chystaSe = u.chystaSe;
     if (u.popisek) r.popisekMoje = u.popisek;
     if (u.navrhyPozadano) r.navrhyPozadano = u.navrhyPozadano;
     if (u.proClauda) r.proClauda = u.proClauda;
@@ -233,6 +245,7 @@ function zkontrolujZmenu(k, v, vlny) {
  *   { napad: { nazev, popis? } | { id, smazat: true } }                        vlastní nápad
  *   { posun: { ids?: [id] | vlna?: id, dni } }                                  posun termínů; díly naplánované, vyvěšené a zrušené zůstanou
  *   { pozadano: id }                                                             (motor) Michal klepl „Udělej reel“
+ *   { chystat: id }                                                              (motor) Michal klepl „Nachystat klipy“ (chystaSe = čas)
  *   { navrhy: { id, poznamka? } }                                                (motor) Michal žádá 2 nové návrhy popisku (poznámka pro Clauda)
  * ted = ms (id nového dílu / nápadu), stavy = { id dílu: stav } (pro posun).
  */
@@ -269,7 +282,7 @@ export function zmen(p, m, d, ted, stavy) {
       if (Object.keys(u).length) r.dily[id] = u; else delete r.dily[id];
     });
   };
-  const n = ['dil', 'novy', 'napad', 'posun', 'pozadano', 'navrhy'].filter(function (k) { return d[k] != null; });
+  const n = ['dil', 'novy', 'napad', 'posun', 'pozadano', 'navrhy', 'chystat'].filter(function (k) { return d[k] != null; });
   if (n.length !== 1) throw new Error('Není co uložit.');
   if (d.dil) {
     const x = obj(d.dil) || {};
@@ -321,6 +334,10 @@ export function zmen(p, m, d, ted, stavy) {
       posunuto++;
     });
     if (!posunuto) throw new Error('Žádný díl s termínem k posunu.');
+  } else if (d.chystat != null) {
+    const id = String(d.chystat);
+    if (!zPlanu(id) && !vlastni(id)) throw new Error('Díl v plánu není – obnov stránku.');
+    if (vlastni(id)) vlastni(id).chystaSe = ted; else r.dily[id] = Object.assign(r.dily[id] || {}, { chystaSe: ted });
   } else if (d.navrhy) {
     const x = obj(d.navrhy) || {};
     const id = String(x.id || '');
@@ -400,6 +417,12 @@ export function vystup(z) {
     r.popisekReel = !!reelD;
     r.popisek = reelD ? String((uprava && uprava.text) || d.popisekMoje || reelD.popisek || '') : String(d.popisekMoje || '');
     if (typeof snimky[d.id] === 'number' && snimky[d.id] > 0) r.snimku = snimky[d.id];
+    r.chystaSe = d.chystaSe || null;
+    const veo = (d.zapasy || []).map(function (zid) {
+      const a = obj(auditZ[zid]) || mimo.filter(function (x) { return x.id === zid; })[0] || {};
+      return VEO_SLUG.test(String(a.veo || '')) ? 'https://app.veo.co/matches/' + a.veo + '/' : '';
+    }).filter(Boolean)[0];
+    r.veo = veo || null;
     return r;
   });
   const dilyZapasu = {};
@@ -584,8 +607,13 @@ export function drahyText(d) {
 
 /** Co jde s dílem udělat podle stavu (klíče tlačítek; první = hlavní). Editor jen s adresou editoru; maWeb = motor umí editor drah
  *  v aplikaci (reelKlipy) – pak je Upravit dráhy hlavní a místní editor jen malý odkaz (editorPc). */
-export function akce(d, maEditor, maWeb) {
+export const ZNOVU_PO_MS = 30 * 60e3; // jako motor REEL_ZNOVU_PO_MS – druhá žádost dřív nic nezaloží
+/** maNachystat = motor umí reelNachystat (díl V plánu s reelem a zápasem → Nachystat klipy, po žádosti štítek Klipy chystá Claude). */
+export function akce(d, maEditor, maWeb, maNachystat, ted) {
   const a = [];
+  if (maNachystat && d.stav === 'plan' && d.format === 'reel' && d.reel && (d.zapasy || []).length && !d.mimo) {
+    a.push(d.chystaSe && (ted || Date.now()) - d.chystaSe < ZNOVU_PO_MS ? 'cekaNaKlipy' : 'nachystat');
+  }
   if (d.mimo) return d.stav === 'reel' ? ['naplanovat'] : d.stav === 'naplanovano' ? ['otevritReel'] : [];
   const reel = d.format === 'reel' && d.reel;
   const web = maWeb && d.webKlipu > 0;

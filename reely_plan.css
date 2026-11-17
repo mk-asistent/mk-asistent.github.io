@@ -220,3 +220,7 @@
 .rp-pribehy { display: flex; flex-direction: column; gap: 6px; }
 .rp-pribehy .reely-seznam { margin: 0; }
 .do-video-napoveda { margin: 8px 0 0; font-size: 12px; }
+/* okno Nachystat klipy (vlastní pole – .okno__pole by si okno vzalo jako jediné pole) */
+.rp-nk-pole { display: block; width: 100%; margin-top: 12px; text-align: left; }
+.rp-nk-pole .field { width: 100%; }
+@media (max-width: 759px) { .rp-nk-pole .field { font-size: 16px; } }

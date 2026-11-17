@@ -44,7 +44,7 @@
  * Postup nasazení: README.md v kořeni repozitáře.
  */
 
-const VERZE = '2026-11-16.13';
+const VERZE = '2026-11-17.1';
 const NAZEV_SLOZKY = 'CLAUDE_SCHRANKA';
 const CASOVE_PASMO = 'Europe/Prague';
 const DNI_POSTY = 30;  // Doručená pošta za 30 dní (oznámení starší 14 dní aplikace schová)
@@ -238,6 +238,8 @@ const AKCE = {
   reelyPlan: function () { return reelyPlan_(); },
   reelyPlanUlozit: function (d) { return reelyPlanUlozit_(d); },
   reelUdelat: function (d) { return reelUdelat_(d); },
+  // Nachystat klipy (díl V plánu + odkaz na Veo) = poznámka …_pri.md jen pro domácí PC
+  reelNachystat: function (d) { return reelNachystat_(d); },
   // editor drah v aplikaci: klipy dílu s drahou, náhled klipu (base64), uložení dráhy do REELY/drahy (domácí PC si ji převezme)
   reelKlipy: function (d) { return reelKlipy_(d); },
   reelKlip: function (d) { return reelKlip_(d); },
@@ -7635,7 +7637,7 @@ function presunDoplnky_(slozka, ids, odkud, kam) {
 // ji zpracuje jako ostatní poznámky podle skillu asistent-schranka – prompt úlohy se kvůli tomu nemění. Aplikace tyhle
 // poznámky neukazuje (SKRYTE_POZNAMKY). Michal 9. 10.: „napíšu, co jsem měl, bez bílkovin, pošle se to Claudovi a zapíše“.
 // _tyden = týdenní shrnutí zdraví pro e-mail (tydenniShrnutiNaPozadi_); _knih = požadavek z Knihovny (pokynKnihovny_).
-const SKRYTE_POZNAMKY = /_(jidl|hodn|plak|tyden|knih|reel|vyr)\.md$/;
+const SKRYTE_POZNAMKY = /_(jidl|hodn|plak|tyden|knih|reel|vyr|pri)\.md$/;
 
 /** Jídlo s místním odhadem → řádek do poznámky „jídlo k odhadu“ v NOVE (jedna, dokud ji Claude nezpracuje, pak další). */
 function jidloKOdhadu_(den, zapis) {
@@ -10216,6 +10218,7 @@ const PLAN_DILU_ = (function () {
     if (odstavce(u.poznamka, 600)) r.poznamka = odstavce(u.poznamka, 600);
     FLAGY.forEach(function (k) { if (u[k] === true) r[k] = true; });
     if (typeof u.pozadano === 'number' && u.pozadano > 0) r.pozadano = u.pozadano;
+    if (typeof u.chystaSe === 'number' && u.chystaSe > 0) r.chystaSe = u.chystaSe;
     if (popisekTextu(u.popisek)) r.popisek = popisekTextu(u.popisek);
     if (typeof u.navrhyPozadano === 'number' && u.navrhyPozadano > 0) r.navrhyPozadano = u.navrhyPozadano;
     if (odstavce(u.proClauda, 600)) r.proClauda = odstavce(u.proClauda, 600);
@@ -10223,6 +10226,16 @@ const PLAN_DILU_ = (function () {
   }
 
   const POPISEK_MAX = 2200;
+  const VEO_SLUG = /^[a-z0-9-]{6,120}$/;
+  /** Odkaz na zápas ve Veu → čistá adresa https://app.veo.co/matches/<slug>/ (cokoli za slugem pryč: /, #t=…, ?…), jinak ''. */
+  function veoOdkaz(s) {
+    const m = /^\s*https:\/\/app\.veo\.co\/matches\/([a-z0-9-]{6,120})(?:[/?#][^\s]*)?\s*$/.exec(typeof s === 'string' ? s : '');
+    return m ? 'https://app.veo.co/matches/' + m[1] + '/' : '';
+  }
+  /** Michalova poznámka k nachystání: jeden odstavec do 300 znaků, bez řídicích znaků a bez „---“ na začátku. */
+  function poznamkaKlipu(s) {
+    return typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').replace(/^[-\s]+/, '').trim().slice(0, 300) : '';
+  }
   /** Popisek na Instagram: odřádkování a prázdné řádky zůstávají (Instagram je ukazuje), jen konce řádků bez mezer; prázdný = ''. */
   function popisekTextu(s) {
     return typeof s === 'string' ? s.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\s+$/, '').replace(/^\s*\n/, '').slice(0, POPISEK_MAX) : '';
@@ -10258,6 +10271,7 @@ const PLAN_DILU_ = (function () {
       if (u.poznamka) r.poznamkaMoje = u.poznamka;
       FLAGY.forEach(function (k) { if (u[k]) r[k] = true; });
       if (u.pozadano) r.pozadano = u.pozadano;
+      if (u.chystaSe) r.chystaSe = u.chystaSe;
       if (u.popisek) r.popisekMoje = u.popisek;
       if (u.navrhyPozadano) r.navrhyPozadano = u.navrhyPozadano;
       if (u.proClauda) r.proClauda = u.proClauda;
@@ -10347,6 +10361,7 @@ const PLAN_DILU_ = (function () {
    *   { napad: { nazev, popis? } | { id, smazat: true } }                        vlastní nápad
    *   { posun: { ids?: [id] | vlna?: id, dni } }                                  posun termínů; díly naplánované, vyvěšené a zrušené zůstanou
    *   { pozadano: id }                                                             (motor) Michal klepl „Udělej reel“
+   *   { chystat: id }                                                              (motor) Michal klepl „Nachystat klipy“ (chystaSe = čas)
    *   { navrhy: { id, poznamka? } }                                                (motor) Michal žádá 2 nové návrhy popisku (poznámka pro Clauda)
    * ted = ms (id nového dílu / nápadu), stavy = { id dílu: stav } (pro posun).
    */
@@ -10383,7 +10398,7 @@ const PLAN_DILU_ = (function () {
         if (Object.keys(u).length) r.dily[id] = u; else delete r.dily[id];
       });
     };
-    const n = ['dil', 'novy', 'napad', 'posun', 'pozadano', 'navrhy'].filter(function (k) { return d[k] != null; });
+    const n = ['dil', 'novy', 'napad', 'posun', 'pozadano', 'navrhy', 'chystat'].filter(function (k) { return d[k] != null; });
     if (n.length !== 1) throw new Error('Není co uložit.');
     if (d.dil) {
       const x = obj(d.dil) || {};
@@ -10435,6 +10450,10 @@ const PLAN_DILU_ = (function () {
         posunuto++;
       });
       if (!posunuto) throw new Error('Žádný díl s termínem k posunu.');
+    } else if (d.chystat != null) {
+      const id = String(d.chystat);
+      if (!zPlanu(id) && !vlastni(id)) throw new Error('Díl v plánu není – obnov stránku.');
+      if (vlastni(id)) vlastni(id).chystaSe = ted; else r.dily[id] = Object.assign(r.dily[id] || {}, { chystaSe: ted });
     } else if (d.navrhy) {
       const x = obj(d.navrhy) || {};
       const id = String(x.id || '');
@@ -10514,6 +10533,12 @@ const PLAN_DILU_ = (function () {
       r.popisekReel = !!reelD;
       r.popisek = reelD ? String((uprava && uprava.text) || d.popisekMoje || reelD.popisek || '') : String(d.popisekMoje || '');
       if (typeof snimky[d.id] === 'number' && snimky[d.id] > 0) r.snimku = snimky[d.id];
+      r.chystaSe = d.chystaSe || null;
+      const veo = (d.zapasy || []).map(function (zid) {
+        const a = obj(auditZ[zid]) || mimo.filter(function (x) { return x.id === zid; })[0] || {};
+        return VEO_SLUG.test(String(a.veo || '')) ? 'https://app.veo.co/matches/' + a.veo + '/' : '';
+      }).filter(Boolean)[0];
+      r.veo = veo || null;
       return r;
     });
     const dilyZapasu = {};
@@ -10615,7 +10640,7 @@ const PLAN_DILU_ = (function () {
       return c ? Object.assign(k, c, { drahaZWebu: true, kdyWeb: radek(x.kdy, 40) }) : Object.assign(k, { drahaZWebu: false });
     });
   }
-  return { STAVY: STAVY, FORMATY: FORMATY, TYMY: TYMY, MAX_VLASTNICH: MAX_VLASTNICH, MAX_NAPADU: MAX_NAPADU, platneDatum: platneDatum, pridejDny: pridejDny, plan: plan, POPISEK_MAX: POPISEK_MAX, klicNavrhu: klicNavrhu, moje: moje, spoj: spoj, vyrobaDilu: vyrobaDilu, stavDilu: stavDilu, zmen: zmen, kratkyKlub: kratkyKlub, vystup: vystup, bilance: bilance, VYREZ_POMER: VYREZ_POMER, MAX_BODU: MAX_BODU, sirkaVyrezu: sirkaVyrezu, platneIdKlipu: platneIdKlipu, zkontrolujDrahu: zkontrolujDrahu, klipySDrahami: klipySDrahami };
+  return { STAVY: STAVY, FORMATY: FORMATY, TYMY: TYMY, MAX_VLASTNICH: MAX_VLASTNICH, MAX_NAPADU: MAX_NAPADU, platneDatum: platneDatum, pridejDny: pridejDny, plan: plan, POPISEK_MAX: POPISEK_MAX, veoOdkaz: veoOdkaz, poznamkaKlipu: poznamkaKlipu, klicNavrhu: klicNavrhu, moje: moje, spoj: spoj, vyrobaDilu: vyrobaDilu, stavDilu: stavDilu, zmen: zmen, kratkyKlub: kratkyKlub, vystup: vystup, bilance: bilance, VYREZ_POMER: VYREZ_POMER, MAX_BODU: MAX_BODU, sirkaVyrezu: sirkaVyrezu, platneIdKlipu: platneIdKlipu, zkontrolujDrahu: zkontrolujDrahu, klipySDrahami: klipySDrahami };
 })();
 
 /** Soubory plánu z REELY: { slozka, plan, moje (+ soubor), audit, vyroba } – plan.json chybí / rozbitý = chyba. */
@@ -10890,5 +10915,47 @@ function dilPopisekNavrhy_(d) {
       'Dosavadní popisek:', dil.popisek || '(zatím žádný)', ''].join('\n'), MimeType.PLAIN_TEXT);
     return PLAN_DILU_.zmen(s.plan, s.moje.data, { navrhy: { id: id, poznamka: pozn } }, Date.now());
   });
+}
+
+/**
+ * Akce reelNachystat { dil, veo, poznamka? } (Michal 17. 11.: „kde můžu nachystat videa k Vojkovicím a Velké?“): poznámka pro Clauda
+ * „nachystej klipy“ (…_pri.md v NOVE, v aplikaci skrytá – SKRYTE_POZNAMKY). Stahování z Vea jde jen na domácím PC (přihlášený Chrome,
+ * veo-reel): `plny: ano` → hlídač ji nechá plnému běhu, ten ji podle `pc: domaci` vezme jen doma. Díl dostane chystaSe (aplikace ukáže
+ * „Klipy chystá Claude“); podruhé do 30 min nic nového. Vrací celé reelyPlan + zalozeno.
+ */
+function reelNachystat_(d) {
+  const id = String((d && d.dil) || '');
+  const veo = PLAN_DILU_.veoOdkaz(String((d && d.veo) || ''));
+  if (!veo) throw new Error('Odkaz musí být na zápas ve Veu (app.veo.co/matches/…).');
+  const pozn = PLAN_DILU_.poznamkaKlipu(String((d && d.poznamka) || ''));
+  let poznamka = false;
+  const v = upravPlanReelu_(function (s, z) {
+    const vy = PLAN_DILU_.vystup(z);
+    const dil = vy.dily.filter(function (x) { return x.id === id; })[0];
+    if (!dil) throw new Error('Díl v plánu není – obnov stránku.');
+    if (dil.format !== 'reel' || !dil.reel) throw new Error('Tenhle díl není reel.');
+    if (!(dil.zapasy || []).length) throw new Error('Díl nemá zápas – klipy není odkud vzít.');
+    if (dil.stav !== 'plan') throw new Error('Klipy už jsou nachystané.');
+    if (dil.chystaSe && Date.now() - dil.chystaSe < REEL_ZNOVU_PO_MS) return s.moje.data; // už se žádalo – nic nového
+    const ted = new Date(Date.now());
+    const fz = {};
+    ((z.fotbal && z.fotbal.zapasy) || []).forEach(function (x) { fz[x.id] = x; });
+    const zapasy = dil.zapasy.map(function (zid) {
+      const x = fz[zid];
+      return '- ' + (x ? [String(x.zacatek).slice(0, 10), x.tym, x.domaci + ' – ' + x.hoste + (x.vysledek ? ' ' + x.vysledek : ''), zid].join(' · ') : zid);
+    });
+    podslozka_(koren_(), 'NOVE').createFile(Utilities.formatDate(ted, CASOVE_PASMO, 'yyyy-MM-dd_HHmmss') + '_pri.md', ['---',
+      'kdy: ' + Utilities.formatDate(ted, CASOVE_PASMO, "yyyy-MM-dd'T'HH:mm:ssXXX"),
+      'odkud: aplikace (reely – plán)', 'typ: reel-priprava', 'pc: domaci', 'plny: ano',
+      'plny_proc: stažení klipů z Vea běží jen na domácím PC (přihlášený Chrome, veo-reel)', '---', '',
+      'Nachystej klipy k dílu „' + dil.nazev + '“ (díl `' + dil.id + '`, reel `' + dil.reel + '`) – jen na domácím PC, skill osobni-veo-reely: ' +
+      'góly z Vea přes přihlášený Chrome → spárovat se zápisem → zadání → nachystej.py → export_reely.py. Michal klepl „Nachystat klipy“ v Asistentovi (Reely → Plán).',
+      '', 'Veo: ' + veo, '', 'Zápasy:', zapasy.join('\n'), '',
+      pozn ? 'Michalova poznámka: ' + pozn : '', ''].join('\n'), MimeType.PLAIN_TEXT);
+    poznamka = true;
+    return PLAN_DILU_.zmen(s.plan, s.moje.data, { chystat: id }, Date.now());
+  });
+  v.zalozeno = poznamka;
+  return v;
 }
 // ---------------------------------------------------------------- konec bloku plánu reelů (vyrob_motor.py)

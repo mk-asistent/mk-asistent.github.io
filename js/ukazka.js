@@ -725,7 +725,7 @@ const planDetaily = {};
     planDetaily[id] = { goly: Array.from({ length: nase }, (_, g) => ({ min: 10 + g * 17, hrac: ['Sokol', 'Beran', 'Kos', 'Vrána', 'Liška', 'Holub', 'Zajíc'][(g + i) % 7] + ' Jan', strana: doma ? 'domaci' : 'hoste' })) };
   }
 });
-const planAudit = { zapasy: {}, mimo: [{ id: 'mimo_uk_zaci', tym: 'zaci', tymNazev: 'Žáci', datum: dP(-8), domaci: 'Domov', hoste: 'Soupeř Z', stav: 'chybi', poznamka: 'výsledek doplnit' }] };
+const planAudit = { zapasy: {}, mimo: [{ id: 'mimo_uk_zaci', tym: 'zaci', tymNazev: 'Žáci', datum: dP(-8), domaci: 'Domov', hoste: 'Soupeř Z', stav: 'chybi', poznamka: 'výsledek doplnit', veo: 'ukazka-zapas-zaku' }] };
 planZapasy.forEach((z, i) => {
   const s = ['na_ig', 'na_ig', 'chybi', 'bez_zaznamu', 'na_ig', 'chybi'][i % 6];
   planAudit.zapasy[z.id] = { veo: s === 'bez_zaznamu' ? null : 'ukazka', ig: s === 'na_ig' ? iso(pridejDny(Date.parse(z.zacatek), 1)) : null, stav: i === 9 ? 'nedavat' : s };
@@ -792,6 +792,11 @@ const akce = {
     if (!k) throw new Error('Klip v REELY/klipy.json není – obnov editor.');
     ukDrahyWeb[d.id] = Object.assign(RP.zkontrolujDrahu(k, d), { kdy: new Date().toISOString(), zdroj: 'web' });
     return kopie({ klip: RP.klipySDrahami(ukKlipy, ukDrahyWeb, '').find((x) => x.id === d.id), plan: planUkazky() });
+  },
+  reelNachystat: (d) => {
+    if (!RP.veoOdkaz(d.veo)) throw new Error('Odkaz musí být na zápas ve Veu (app.veo.co/matches/…).');
+    planMoje = RP.moje(RP.zmen(planPlan, planMoje, { chystat: d.dil }, Date.now()), planPlan);
+    return Object.assign(planUkazky(), { zalozeno: true });
   },
   reelUdelat: (d) => { planMoje = RP.moje(RP.zmen(planPlan, planMoje, { pozadano: d.dil }, Date.now()), planPlan); return Object.assign(planUkazky(), { zalozeno: true }); },
   // Cesťáky: úpravy jen v paměti ukázky, stejná pravidla jako motor (cestaky_vypocet.js pouzij)

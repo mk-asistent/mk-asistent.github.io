@@ -126,7 +126,7 @@ function tlacitka(d, vOkne) {
   if (d.plakat) return '<button type="button" class="btn btn--ghost btn--sm" data-rp-plakat="' + esc(d.sobota) + '">' + IKONY.plakaty + '<span>Otevřít plakát</span></button>';
   const editor = RP.editorOdkaz(c.data.editor, naPc(), d, datumDilu(d));
   const id = esc(d.id);
-  return RP.akce(d, !!editor, umiMotor('reelKlipy')).filter((a) => !(vOkne && (a === 'naplanovat' || a === 'otevritReel'))).map((a, i) => {
+  return RP.akce(d, !!editor, umiMotor('reelKlipy'), umiMotor('reelNachystat')).filter((a) => !(vOkne && (a === 'naplanovat' || a === 'otevritReel'))).map((a, i) => {
     if (a === 'upravitDrahy') return '<button type="button" class="btn ' + (i ? 'btn--ghost' : 'btn--plan') + ' btn--sm" data-rp-drahy-web="' + id + '">' +
       IKONY.psat + '<span>Upravit dráhy</span></button>';
     if (a === 'editorPc') return '<a class="odkaz rp-editor-pc" href="' + esc(editor) + '" target="_blank" rel="noopener" ' +
@@ -136,6 +136,8 @@ function tlacitka(d, vOkne) {
     if (a === 'drahyHotove') return '<button type="button" class="btn btn--ghost btn--sm" data-rp-drahy="' + id + '">' + IKONY.fajfka + '<span>Dráhy hotové</span></button>';
     if (a === 'udelatReel') return '<button type="button" class="btn btn--plan btn--sm" data-rp-udelat="' + id + '">' + IKONY.reely + '<span>Udělej reel</span></button>';
     if (a === 'cekaNaReel') return '<span class="tag tag--plan rp-ceka">' + IKONY.claude + 'Reel skládá Claude</span>';
+    if (a === 'nachystat') return '<button type="button" class="btn btn--plan btn--sm" data-rp-nachystat="' + id + '">' + IKONY.stahnout + '<span>Nachystat klipy</span></button>';
+    if (a === 'cekaNaKlipy') return '<span class="tag tag--plan rp-ceka">' + IKONY.claude + 'Klipy chystá Claude</span>';
     if (a === 'naplanovat') return '<button type="button" class="btn btn--plan btn--sm" data-rp-otevrit="' + id + '">' + IKONY.instagram + '<span>Naplánovat</span></button>';
     if (a === 'otevritReel') return d.stav === 'reel' ? '' : '<button type="button" class="btn btn--ghost btn--sm" data-rp-otevrit="' + id + '">' + IKONY.prehrat + '<span>Otevřít</span></button>';
     if (a === 'hotovo') return '<button type="button" class="btn btn--ghost btn--sm" data-rp-hotovo="' + id + '">' + IKONY.fajfka + '<span>Vyšlo</span></button>';
@@ -385,6 +387,28 @@ hooky.poIgReelu = (reelId, stavReelu) => {
   volej('reelyPlan').then((d) => { c.data = d; c.kdy = Date.now(); uloz(); oznacUlozeni(ids, 'ulozeno'); }, () => oznacUlozeni(ids, 'chyba')).then(zmeneno);
 };
 
+/**
+ * Nachystat klipy (Michal 17. 11.: „kde můžu nachystat videa k Vojkovicím a Velké?“): okno s odkazem na zápas ve Veu (předvyplněný
+ * z auditu zápasů) a nepovinnou poznámkou pro Clauda → reelNachystat (poznámka …_pri.md pro domácí PC). Špatný odkaz = okno znovu
+ * s chybou pod polem (stejné pravidlo jako motor – RP.veoOdkaz).
+ */
+async function nachystat(d, hodnoty, chyba) {
+  const h = hodnoty || { veo: d.veo || '', poznamka: '' };
+  const ano = await okno({ ikona: IKONY.stahnout, nadpis: 'Nachystat klipy', text: d.nazev, ano: 'Nachystat',
+    html: '<label class="rp-nk-pole"><span class="label">Odkaz na zápas ve Veu</span><input class="field" data-nk-veo type="url" inputmode="url" autocomplete="off" ' +
+        'placeholder="https://app.veo.co/matches/…" value="' + esc(h.veo) + '"></label>' +
+      (chyba ? '<p class="pruh pruh-varovani rp-nk-chyba" role="alert">' + esc(chyba) + '</p>' : '') +
+      '<label class="rp-nk-pole"><span class="label">Poznámka pro Clauda (nepovinné)</span><input class="field" data-nk-poznamka autocomplete="off" maxlength="300" ' +
+        'placeholder="např. bez penalt, přidej šanci ve 34:10 záznamu" value="' + esc(h.poznamka) + '"></label>' +
+      '<p class="napoveda">Claude stáhne góly, spočítá automatické dráhy a pošle náhledy – do pár hodin se u dílu objeví Upravit dráhy. Běží jen na domácím PC.</p>' });
+  const veoEl = document.querySelector('.okno [data-nk-veo]'), pozEl = document.querySelector('.okno [data-nk-poznamka]');
+  const nove = { veo: veoEl ? veoEl.value.trim() : h.veo, poznamka: pozEl ? pozEl.value : h.poznamka };
+  if (ano !== true) return;
+  if (!RP.veoOdkaz(nove.veo)) { setTimeout(() => nachystat(d, nove, 'Odkaz musí být na zápas ve Veu (app.veo.co/matches/…).'), 250); return; }
+  posli('reelNachystat', { dil: d.id, veo: nove.veo, poznamka: RP.poznamkaKlipu(nove.poznamka) },
+    (x) => (x.zalozeno ? 'Claude klipy nachystá na domácím PC' : 'O klipy už je požádáno'), [d.id], (x) => Object.assign(x, { chystaSe: Date.now() }));
+}
+
 async function termin(d) {
   // okno s polem vrací null i při Zrušit → „bez termínu“ / „podle plánu“ jsou volby
   const volbyT = d.vlastni ? (d.termin ? [['bez', 'Bez termínu']] : []) : d.terminPlan !== undefined ? [['plan', 'Podle plánu (' + RP.denADatum(d.terminPlan) + ')']] : [];
@@ -451,7 +475,8 @@ function nabidkaDilu(cil) {
   if (vlnyN.length) p.push({ ikona: IKONY.slozka || IKONY.cas, text: 'Přesunout do vlny…', dalsi: () => ({ nadpis: 'Do vlny', polozky: vlnyN.map((v) => ({
     text: v.nazev + (v.id === d.vlna ? ' ✓' : '') + (d.vlnaPlan && v.id === d.vlnaPlan && v.id !== d.vlna ? ' (podle plánu)' : ''), fn: () => presunDoVlny(d, v.id) })) }) });
   if (d.mimo) return { nadpis: RP.denADatum(d.termin) + ' · ' + d.nazev, polozky: p };
-  const akce = RP.akce(d, !!RP.editorOdkaz(c.data.editor, naPc(), d, datumDilu(d)), umiMotor('reelKlipy'));
+  const akce = RP.akce(d, !!RP.editorOdkaz(c.data.editor, naPc(), d, datumDilu(d)), umiMotor('reelKlipy'), umiMotor('reelNachystat'));
+  if (akce.indexOf('nachystat') >= 0) p.push({ ikona: IKONY.stahnout, text: 'Nachystat klipy…', fn: () => nachystat(d) });
   if (akce.indexOf('upravitDrahy') >= 0) p.push({ ikona: IKONY.psat, text: 'Upravit dráhy', fn: () => otevriEditorDrah(d) });
   if (akce.indexOf('drahyHotove') >= 0) p.push({ ikona: IKONY.fajfka, text: 'Dráhy hotové', fn: () => zmenDil(d, { drahyHotove: true }, 'Dráhy hotové') });
   if (akce.indexOf('udelatReel') >= 0) p.push({ ikona: IKONY.reely, text: 'Udělej reel', fn: () => posli('reelUdelat', { dil: d.id }, (x) => (x.zalozeno ? 'Claude reel složí na domácím PC' : 'O reel už je požádáno'), [d.id]) });
@@ -559,7 +584,7 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('click', (e) => {
-  const el = e.target.closest && e.target.closest('[data-rp-otevrit], [data-rp-plakat], [data-rp-tym], [data-rp-mimo], [data-rp-drahy-web], [data-rp-filtr], [data-rp-pohled], [data-rp-vlna], [data-rp-drahy], [data-rp-udelat], [data-rp-reel], [data-rp-hotovo], [data-rp-termin], ' +
+  const el = e.target.closest && e.target.closest('[data-rp-nachystat], [data-rp-otevrit], [data-rp-plakat], [data-rp-tym], [data-rp-mimo], [data-rp-drahy-web], [data-rp-filtr], [data-rp-pohled], [data-rp-vlna], [data-rp-drahy], [data-rp-udelat], [data-rp-reel], [data-rp-hotovo], [data-rp-termin], ' +
     '[data-rp-poznamka], [data-rp-posun-vlnu], [data-rp-novy], [data-rp-na-dil], [data-rp-napad-novy], [data-rp-napad-smazat], [data-rp-do-planu], [data-rp-znovu]');
   if (!vStrance(el) || !c.data) return;
   const ds = el.dataset;
@@ -568,6 +593,7 @@ document.addEventListener('click', (e) => {
   if (ds.rpPohled) { c.pohled = ds.rpPohled; ulozVolby(); zmeneno(); return; }
   if (ds.rpVlna) { c.vlnaMob = ds.rpVlna; ulozVolby(); zmeneno(); return; }
   if (ds.rpDrahy) { const d = dil(ds.rpDrahy); if (d) zmenDil(d, { drahyHotove: true }, 'Dráhy hotové'); return; }
+  if (ds.rpNachystat) { const d = dil(ds.rpNachystat); if (d) nachystat(d); return; }
   if (ds.rpUdelat) { posli('reelUdelat', { dil: ds.rpUdelat }, (d) => (d.zalozeno ? 'Claude reel složí na domácím PC' : 'O reel už je požádáno'), [ds.rpUdelat]); return; }
   if (ds.rpReel) { otevriDilReelu(ds.rpReel); return; }
   if (ds.rpOtevrit) { const d = dil(ds.rpOtevrit); if (d) otevriDil(d); return; }

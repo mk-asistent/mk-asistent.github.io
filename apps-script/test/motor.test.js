@@ -5494,4 +5494,40 @@ test('Reely → Mimo plán: reel z reely.json bez dílu = díl „mimo“ jen p�
   assert.strictEqual(p.volej('reelyPlanUlozit', { novy: { nazev: 'Zlý', reel: '../x' } }).ok, false);
 });
 
+test('Reely → Nachystat klipy: odkaz na Veo (čistá adresa i z #t=…), špatný odkaz, díl s klipy, opakovaná žádost, poznámka …_pri.md jen pro domácí PC (skrytá), chystaSe a veo z auditu', () => {
+  const p = prostredi();
+  const re = p.schranka.createFolder('REELY');
+  p.schranka.createFile('FOTBAL.json', JSON.stringify({ zapasy: [
+    { id: 'z1', tym: 'A', zacatek: '2030-11-07T14:00:00+01:00', domaci: 'FK Agro Domov', hoste: 'TJ Soupeř A', doma: true, vysledek: '3:1' },
+    { id: 'z2', tym: 'B', zacatek: '2030-11-01T10:00:00+01:00', domaci: 'Domov B', hoste: 'Soupeř B', doma: true, vysledek: '2:0' }] }));
+  re.createFile('plan.json', JSON.stringify({ vlny: [{ id: 'v1', nazev: 'Vlna 1' }], dily: [
+    { id: 'a', nazev: 'Áčko – Soupeř A', vlna: 'v1', termin: '2030-11-20', format: 'reel', reel: 'reel_a-tym_soupera', zapasy: ['z1'] },
+    { id: 'b', nazev: 'Béčko – Soupeř B', vlna: 'v1', termin: '2030-11-24', format: 'reel', reel: 'reel_benfika_souperb', zapasy: ['z2'] },
+    { id: 'k', nazev: 'Karusel', vlna: 'v1', termin: '2030-12-01', format: 'karusel' }] }));
+  re.createFile('zapasy_audit.json', JSON.stringify({ zapasy: { z1: { veo: 'zapas-soupera-a1', stav: 'chybi' }, z2: { veo: 'ZLY SLUG', stav: 'chybi' } } }));
+  re.createFile('vyroba.json', JSON.stringify({ dily: { reel_benfika_souperb: { klipu: 2, drahRucne: 0 } } }));
+  let d = p.volej('reelyPlan').data;
+  const dil = (x, id) => x.dily.find((y) => y.id === id);
+  assert.deepStrictEqual([dil(d, 'a').veo, dil(d, 'a').chystaSe, dil(d, 'b').veo], ['https://app.veo.co/matches/zapas-soupera-a1/', null, null]);
+  ['https://www.veo.co/matches/zapas-soupera-a1', 'https://app.veo.co/recordings/abcdef', 'http://app.veo.co/matches/abcdef', '', 'app.veo.co/matches/abcdef'].forEach((veo) =>
+    assert.strictEqual(p.volej('reelNachystat', { dil: 'a', veo }).ok, false, veo));
+  assert.ok(/Veu/.test(p.volej('reelNachystat', { dil: 'a', veo: 'x' }).chyba));
+  assert.ok(/už jsou nachystané/.test(p.volej('reelNachystat', { dil: 'b', veo: 'https://app.veo.co/matches/abcdef' }).chyba), 'díl s klipy');
+  assert.strictEqual(p.volej('reelNachystat', { dil: 'k', veo: 'https://app.veo.co/matches/abcdef' }).ok, false, 'karusel není reel');
+  const r = p.volej('reelNachystat', { dil: 'a', veo: 'https://app.veo.co/matches/zapas-soupera-a1/#t=06:22', poznamka: '--- bez penalt\npřidej šanci' });
+  assert.ok(r.ok && r.data.zalozeno, r.chyba);
+  assert.ok(dil(r.data, 'a').chystaSe > 0);
+  const nove = () => p.schranka.getFoldersByName('NOVE').next().soubory.filter((f) => /_pri\.md$/.test(f.getName()));
+  assert.strictEqual(nove().length, 1);
+  const text = nove()[0].getBlob().getDataAsString();
+  assert.ok(/typ: reel-priprava/.test(text) && /pc: domaci/.test(text) && /plny: ano/.test(text) && /plny_proc: stažení klipů z Vea/.test(text), text);
+  assert.ok(/Veo: https:\/\/app\.veo\.co\/matches\/zapas-soupera-a1\/\n/.test(text) && !/#t=/.test(text), 'čistá adresa');
+  assert.ok(/reel_a-tym_soupera/.test(text) && /· z1/.test(text) && /Michalova poznámka: bez penalt přidej šanci/.test(text), text);
+  assert.ok(vm.runInContext('SKRYTE_POZNAMKY', p.ctx).test(nove()[0].getName()), 'aplikace poznámku neukáže');
+  const r2 = p.volej('reelNachystat', { dil: 'a', veo: 'https://app.veo.co/matches/zapas-soupera-a1/' });
+  assert.ok(r2.ok && !r2.data.zalozeno, 'druhá žádost nic nezaloží');
+  assert.strictEqual(nove().length, 1);
+  assert.ok(p.volej('info').data.akce.indexOf('reelNachystat') >= 0);
+});
+
 console.log(`\n${ok} testů prošlo` + (process.exitCode ? ', některé SELHALY' : ''));

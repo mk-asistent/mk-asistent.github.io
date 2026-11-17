@@ -329,6 +329,9 @@ Michal: „nemusí tam být ta stránka Reely asi vůbec, když to budeme mít v
 - **reely, které nepatří žádnému dílu** – sloupec **Mimo plán** (motor je přidá při čtení, nic nezapisuje; přetažením do vlny vznikne vlastní díl s reelem);
 - **Skupiny** a **Nový příběh** – na liště Plánu, příběhy z fotky v krátkém pruhu nad sloupci; **filtr týmů** Všechny · Áčko · Benfika · Dorost na liště;
 - **plakáty víkendů** – sloupec **Plakáty** (odvozené z dat Plakátů, Otevřít plakát → stránka Plakáty na ten víkend);
+- **Nachystat klipy** (od 17. 11.) – u dílu V plánu s reelem a zápasem: okno s odkazem na zápas ve Veu (předvyplněný z auditu zápasů) a poznámkou
+  pro Clauda → `reelNachystat` → skrytá poznámka `…_pri.md` (`plny: ano`, `pc: domaci`) – domácí PC stáhne góly, spočítá dráhy a pošle náhledy;
+  na kartě pak „Klipy chystá Claude“, později Upravit dráhy;
 - starý motor bez akcí plánu → dosavadní seznam reelů s detailem (nouzový režim).
 Přetahování: pilulka s termínem a názvem, cílová vlna plnou barvou s „Přesunout do: …“, „tady je teď“, karta po puštění zabliká.
 
