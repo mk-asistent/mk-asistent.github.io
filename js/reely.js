@@ -396,13 +396,15 @@ function detailReelu(r) {
 
 /** Instagram reelu pro okno dílu v Plánu: { prubeh, instagram, akce, vedlejsi } nebo null. kdy = předvyplněný čas z termínu dílu
  *  (RRRR-MM-DDTHH:MM), když reel ještě není naplánovaný a formulář se otvírá poprvé. */
-export function instagramReelu(id, kdy) {
+export function instagramReelu(id, kdy, maPopisek) {
   const r = najdi(id);
   if (!r) return null;
   if (!(f && f.id === r.id)) {
     formular(r);
     const p = plan(r);
     if (kdy && !(p && p.stav === 'ceka') && Date.parse(kdy) > Date.now()) f.kdy = kdy;
+    // okno dílu má v poli předvyplněný návrh od Clauda – výchozí „jen příběh“ (kvůli prázdnému popisku) neplatí
+    if (maPopisek && f.kam === 'pribeh' && !(p && p.stav === 'ceka')) f.kam = vychoziKam(r) === 'pribeh' ? 'oba' : vychoziKam(r);
   }
   return { prubeh: prubehHtml(r), instagram: instagramHtml(r), akce: akceDetailu(r), vedlejsi: vedlejsiAkceHtml(r) };
 }

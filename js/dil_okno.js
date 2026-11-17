@@ -10,9 +10,8 @@
 import { volej, jeDemo } from './api.js';
 import { esc, prepisSPolem } from './pomocne.js';
 import { IKONY } from './ikony.js';
-import { toast } from './ui.js';
+import { toast, toastAkce, segment } from './ui.js';
 import { otevriPanel, jeOtevreny, elementPanelu } from './panely.js';
-import { navrhyHtml } from './ig_navrhy.js';
 import { nahledReeluHtml, reelPodleId, prijmiPopisekReelu, instagramReelu, pisPopisekReelu, stavPopiskuReelu, popisekReeluProOkno } from './reely.js';
 import * as RP from './reely_plan.js';
 
@@ -24,7 +23,7 @@ let id = '';
 const pole = {};  // id dílu → { popisek, poznamka, proClauda } – rozepsané texty (přežijí překreslení i zavření)
 const uklada = {}; // druh pole → 'uklada' | 'ulozeno' | 'chyba'
 const casovace = {};
-const volbaNavrhu = {};
+const predvyplneno = {}; // id dílu → index návrhu, který je v poli neupravený a neuložený (prázdný popisek + návrhy)
 const snimky = {};  // id dílu → { obrazky: [dataUrl], i, nacita, chyba, velke }
 const klipy = {};   // id dílu → { klipy, nacita, chyba }
 
@@ -129,10 +128,15 @@ function teloHtml() {
   if (!d) return '';
   const r = rozepsane(d);
   const reel = d.reel && reelPodleId(d.reel);
-  const popisek = reel ? popisekReeluProOkno(d.reel) : r.popisek != null ? r.popisek : d.popisek || '';
-  const ig = reel ? instagramReelu(d.reel, kdyDilu(d)) : null;
-  const v = api.vlnaNazev(d.vlna);
   const navrhy = d.navrhy || [];
+  const ulozeny = reel ? popisekReeluProOkno(d.reel) : r.popisek != null ? r.popisek : d.popisek || '';
+  // Michal 17. 11.: „chci ty návrhy upravovat a přepisovat“ – prázdný popisek + návrhy = pole rovnou s Návrhem 1 (neuložený, dokud se ho nedotkne)
+  if (!ulozeny.trim() && navrhy.length) { if (!(predvyplneno[d.id] < navrhy.length)) predvyplneno[d.id] = 0; } else delete predvyplneno[d.id];
+  const pred = predvyplneno[d.id];
+  const popisek = pred != null ? navrhy[pred] : ulozeny;
+  const vybrany = pred != null ? pred : navrhy.findIndex((x) => x.trim() === popisek.trim());
+  const ig = reel ? instagramReelu(d.reel, kdyDilu(d), pred != null) : null;
+  const v = api.vlnaNazev(d.vlna);
   return '<div class="reel-detail do">' +
     '<div class="reel-detail__media">' + mediaHtml(d) + '</div>' +
     '<div class="reel-detail__obsah">' + (ig ? ig.prubeh : '') +
@@ -143,12 +147,14 @@ function teloHtml() {
       '<section class="reel-detail__cast do-popisek" data-do-box="popisek"><div class="reel__popisek-hlava"><span class="label">Popisek na Instagram</span>' +
         (d.popisekReel ? '<span class="tag tag--seda" title="Stejný text jako v detailu reelu">reel</span>' : '') +
         '<span class="reel__znaky cisla' + (popisek.length > RP.POPISEK_MAX ? ' reel__znaky--moc' : '') + '" data-do-znaky>' + pocetZnaku(popisek) + '</span></div>' +
-        (navrhy.length ? navrhyHtml({ varianty: navrhy, volba: volbaNavrhu[d.id] || 0, atribut: 'data-do-navrh', id: d.id, ceka: false, lzeZadat: false }) +
-          (d.navrhyKdy ? '<small class="napoveda do-navrhy-kdy">Návrhy od Clauda ' + esc(kdyNavrhu(d.navrhyKdy)) + '</small>' : '')
+        (navrhy.length ? '<div class="do-navrhy"><span class="do-navrhy__nadpis">' + IKONY.claude + 'Návrhy od Clauda</span>' +
+            segment(navrhy.map((_, j) => [String(j), 'Návrh ' + (j + 1)]), String(vybrany), 'data-do-navrh-volba', 'Návrh popisku od Clauda') +
+            (d.navrhyKdy ? '<small class="do-navrhy__kdy">' + esc(kdyNavrhu(d.navrhyKdy)) + '</small>' : '') + '</div>'
           : '<p class="napoveda do-bez-navrhu">Návrhy ještě nejsou – požádej Clauda níž.</p>') +
         '<textarea class="odpoved reel__pole" data-do-pole="popisek" data-pole="do-popisek" rows="8" aria-label="Popisek na Instagram" ' +
           'placeholder="Text, který půjde na Instagram – napiš ho, nebo použij návrh od Clauda.">' + esc(/^\r?\n/.test(popisek) ? '\n' + popisek : popisek) + '</textarea>' +
-        '<small class="reel__ulozeni" data-do-ulozeni="popisek">' + esc((reel && stavPopiskuReelu(d.reel)) || textUlozeni('popisek', 'Ukládá se samo při psaní')) + '</small></section>' +
+        '<small class="reel__ulozeni" data-do-ulozeni="popisek">' + esc(pred != null ? 'Návrh ' + (pred + 1) + ' od Clauda – uloží se, jakmile ho upravíš nebo naplánuješ'
+          : (reel && stavPopiskuReelu(d.reel)) || textUlozeni('popisek', 'Ukládá se samo při psaní')) + '</small></section>' +
       (ig ? ig.instagram : '') + (d.mimo ? '<p class="napoveda">Reel mimo plán – přetáhni ho do vlny (nebo pravé tlačítko → Přesunout do vlny), pak u něj jdou i poznámky a návrhy od Clauda.</p>' : '') +
       (d.mimo ? '' : '<section class="reel-detail__cast do-claude"><span class="label">Poznámka pro Clauda</span>' +
         '<textarea class="odpoved" data-do-pole="proClauda" data-pole="do-pro-clauda" rows="3" aria-label="Poznámka pro Clauda k návrhům" ' +
@@ -204,6 +210,7 @@ function pise(t) {
   const d = dil();
   if (!d) return;
   const k = t.dataset.doPole;
+  if (k === 'popisek') delete predvyplneno[d.id];
   if (k === 'popisek' && d.reel && reelPodleId(d.reel)) {
     pisPopisekReelu(d.reel, t.value);
     const z = elementPanelu(OKNO).querySelector('[data-do-znaky]');
@@ -222,11 +229,10 @@ function pise(t) {
   casovace[k] = setTimeout(() => { casovace[k] = 0; ulozPole(k); }, ULOZIT_PO);
 }
 
-function pouzijNavrh() {
-  const d = dil();
-  const text = d && (d.navrhy || [])[volbaNavrhu[d.id] || 0];
-  if (!text) return;
-  const t = elementPanelu(OKNO).querySelector('[data-do-pole="popisek"]');
+/** Text do pole popisku a uložit (u reelu přes stejnou cestu jako detail – Naplánovat ho nejdřív uloží). */
+function zapisPopisek(d, text) {
+  delete predvyplneno[d.id];
+  const t = elementPanelu(OKNO) && elementPanelu(OKNO).querySelector('[data-do-pole="popisek"]');
   if (t) t.value = text;
   if (d.reel && reelPodleId(d.reel)) pisPopisekReelu(d.reel, text);
   else {
@@ -236,7 +242,26 @@ function pouzijNavrh() {
     ulozPole('popisek');
   }
   obnovOkno();
-  toast('Návrh ' + ((volbaNavrhu[d.id] || 0) + 1) + ' je v popisku – jde dál upravit');
+}
+
+/** Přepínač Návrh 1 / 2: prázdné pole nebo neupravený návrh = jen vyměnit; vlastní text = nahradit návrhem s Vrátit (bez potvrzování). */
+function prepniNavrh(i) {
+  const d = dil();
+  const navrhy = (d && d.navrhy) || [];
+  if (!navrhy[i]) return;
+  const t = elementPanelu(OKNO).querySelector('[data-do-pole="popisek"]');
+  const ted = t ? t.value : '';
+  if (predvyplneno[d.id] != null || !ted.trim()) { predvyplneno[d.id] = i; obnovOkno(); return; }
+  if (ted.trim() === navrhy[i].trim()) return;
+  zapisPopisek(d, navrhy[i]);
+  if (navrhy.some((x) => x.trim() === ted.trim())) return; // byl tam jiný neupravený návrh
+  toastAkce('Návrh ' + (i + 1) + ' je v popisku', 'Vrátit', () => { const x = dil(); if (x && x.id === d.id) zapisPopisek(x, ted); });
+}
+
+/** Neupravený předvyplněný návrh se uloží, než se plánuje / zveřejňuje (na Instagram nesmí jít prázdný popisek). */
+function ulozPredvyplneny() {
+  const d = dil();
+  if (d && predvyplneno[d.id] != null && (d.navrhy || [])[predvyplneno[d.id]]) zapisPopisek(d, d.navrhy[predvyplneno[d.id]]);
 }
 
 function pozadejNavrhy() {
@@ -260,14 +285,18 @@ document.addEventListener('input', (e) => {
 
 document.addEventListener('click', (e) => {
   const p = elementPanelu(OKNO);
+  if (p && p.contains(e.target) && e.target.closest('[data-rd-ted], [data-rd-ulozit]')) ulozPredvyplneny();
+}, true);
+
+document.addEventListener('click', (e) => {
+  const p = elementPanelu(OKNO);
   if (!p || !p.contains(e.target)) return;
   const b = e.target.closest('button');
   if (!b) return;
   const d = dil();
   if (!d) return;
   const ds = b.dataset;
-  if (ds.doNavrhVolba != null && b.hasAttribute('data-do-navrh-volba')) { volbaNavrhu[d.id] = Number(ds.doNavrhVolba) || 0; obnovOkno(); return; }
-  if (b.hasAttribute('data-do-navrh-pouzit')) { pouzijNavrh(); return; }
+  if (ds.doNavrhVolba != null && b.hasAttribute('data-do-navrh-volba')) { prepniNavrh(Number(ds.doNavrhVolba) || 0); return; }
   if (b.hasAttribute('data-do-navrhy')) { pozadejNavrhy(); return; }
   const g = snimky[d.id];
   if (g && ds.doSnimek) { g.i = Math.max(0, Math.min(g.obrazky.length - 1, g.i + Number(ds.doSnimek))); obnovOkno(); return; }
